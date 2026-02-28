@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install ruff mypy
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Unit Tests
+        run: pytest tests/unit/ -v --tb=short
+      - name: Integration Tests
+        run: pytest tests/integration/ -v --tb=short
+      - name: E2E Tests
+        run: pytest tests/e2e/ -v --tb=short
+      - name: Coverage Report
+        run: |
+          pytest tests/ --cov=data --cov=models --cov=simulation --cov=personas --cov=components \
+            --cov-report=term-missing --cov-fail-under=80
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t energy-forecast:ci .
+      - name: Start container
+        run: |
+          docker run -d -p 8080:8080 --name ef-test energy-forecast:ci
+          sleep 15
+      - name: Health check
+        run: |
+          curl -sf http://localhost:8080/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='healthy'"
+      - name: Cleanup
+        if: always()
+        run: docker rm -f ef-test || true
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No hardcoded secrets
+        run: |
+          ! grep -rn "AIza\|sk-\|AKIA\|ghp_" --include="*.py" --include="*.yml" . || \
+            (echo "FAIL: Hardcoded secrets detected" && exit 1)
+      - name: Check .env.example has placeholders
+        run: |
+          grep -q "your_" .env.example || (echo "FAIL: .env.example missing placeholders" && exit 1)

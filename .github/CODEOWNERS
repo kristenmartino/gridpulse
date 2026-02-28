@@ -1,0 +1,19 @@
+# NEXD — Code Ownership
+# Each path requires review from the designated owner(s).
+
+# Data pipeline — ingestion, caching, feature engineering
+/data/                          @martino
+
+# ML models — training, evaluation, ensemble
+/models/                        @martino
+
+# Scenario simulation engine
+/simulation/                    @martino
+
+# Infrastructure — Docker, CI/CD, deployment
+Dockerfile                      @martino
+/scripts/                       @martino
+/.github/workflows/             @martino
+
+# Config (API keys, regions, capacity constants)
+config.py                       @martino
