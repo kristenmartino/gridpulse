@@ -1,0 +1,104 @@
+name: Deploy → Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image SHA to deploy (from staging). Leave blank to use latest staging image."
+        required: false
+        type: string
+      confirm:
+        description: "Type 'deploy' to confirm production deployment"
+        required: true
+        type: string
+
+env:
+  PROJECT_ID: nextera-portfolio
+  REGION: us-east1
+  SERVICE: energy-forecast
+  IMAGE: us-east1-docker.pkg.dev/nextera-portfolio/portfolio/energy-forecast
+
+jobs:
+  validate:
+    name: Validate deployment request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm deployment intent
+        if: ${{ github.event.inputs.confirm != 'deploy' }}
+        run: |
+          echo "❌ Deployment not confirmed. You must type 'deploy' to proceed."
+          exit 1
+
+  deploy-production:
+    name: Deploy to Cloud Run (Production)
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Determine image tag
+        id: image
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="staging-latest"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Using image: ${{ env.IMAGE }}:$TAG"
+
+      - name: Deploy to Cloud Run (Production)
+        run: |
+          gcloud run deploy ${{ env.SERVICE }} \
+            --image ${{ env.IMAGE }}:${{ steps.image.outputs.tag }} \
+            --region ${{ env.REGION }} \
+            --platform managed \
+            --allow-unauthenticated \
+            --memory 2Gi \
+            --timeout 300 \
+            --min-instances 0 \
+            --max-instances 4 \
+            --set-secrets "EIA_API_KEY=eia-api-key:latest" \
+            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO"
+
+      - name: Get production URL
+        id: url
+        run: |
+          URL=$(gcloud run services describe ${{ env.SERVICE }} \
+            --region ${{ env.REGION }} \
+            --format="value(status.url)")
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "### 🚀 Production deployed" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ steps.image.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Production health check
+        run: |
+          URL="${{ steps.url.outputs.url }}"
+          echo "Testing $URL ..."
+          for i in 1 2 3 4 5 6; do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/" || true)
+            if [ "$STATUS" = "200" ]; then
+              echo "✅ Production is healthy (HTTP 200)"
+              exit 0
+            fi
+            echo "Attempt $i: HTTP $STATUS — retrying in 15s..."
+            sleep 15
+          done
+          echo "❌ Production health check failed — ROLLBACK MAY BE NEEDED"
+          echo "Run: gcloud run services update-traffic ${{ env.SERVICE }} --to-revisions=PREVIOUS_REVISION=100 --region ${{ env.REGION }}"
+          exit 1
