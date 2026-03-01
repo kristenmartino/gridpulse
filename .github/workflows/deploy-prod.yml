@@ -1,38 +1,24 @@
-name: Deploy → Production
+name: Deploy -> Production
 
 on:
-  workflow_dispatch:
-    inputs:
-      image_tag:
-        description: "Image SHA to deploy (from staging). Leave blank to use latest staging image."
-        required: false
-        type: string
-      confirm:
-        description: "Type 'deploy' to confirm production deployment"
-        required: true
-        type: string
+  push:
+    branches: [main]
 
 env:
   PROJECT_ID: nextera-portfolio
   REGION: us-east1
-  SERVICE: energy-forecast
-  IMAGE: us-east1-docker.pkg.dev/nextera-portfolio/portfolio/energy-forecast
+  SERVICE: gridpulse
+  REPO: portfolio
+  IMAGE: us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
 
 jobs:
-  validate:
-    name: Validate deployment request
-    runs-on: ubuntu-latest
-    steps:
-      - name: Confirm deployment intent
-        if: ${{ github.event.inputs.confirm != 'deploy' }}
-        run: |
-          echo "❌ Deployment not confirmed. You must type 'deploy' to proceed."
-          exit 1
-
   deploy-production:
-    name: Deploy to Cloud Run (Production)
+    name: Build & Deploy to Cloud Run (Production)
     runs-on: ubuntu-latest
-    needs: validate
     permissions:
       contents: read
       id-token: write
@@ -49,21 +35,22 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Determine image tag
-        id: image
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push Docker image
         run: |
-          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
-            TAG="${{ github.event.inputs.image_tag }}"
-          else
-            TAG="staging-latest"
-          fi
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "Using image: ${{ env.IMAGE }}:$TAG"
+          docker build \
+            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:prod-latest \
+            .
+          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:prod-latest
 
       - name: Deploy to Cloud Run (Production)
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
-            --image ${{ env.IMAGE }}:${{ steps.image.outputs.tag }} \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
@@ -82,10 +69,9 @@ jobs:
             --region ${{ env.REGION }} \
             --format="value(status.url)")
           echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "### 🚀 Production deployed" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed to Production" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ steps.image.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Production health check
         run: |
@@ -94,12 +80,12 @@ jobs:
           for i in 1 2 3 4 5 6; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/" || true)
             if [ "$STATUS" = "200" ]; then
-              echo "✅ Production is healthy (HTTP 200)"
+              echo "Production is healthy (HTTP 200)"
               exit 0
             fi
-            echo "Attempt $i: HTTP $STATUS — retrying in 15s..."
+            echo "Attempt $i: HTTP $STATUS - retrying in 15s..."
             sleep 15
           done
-          echo "❌ Production health check failed — ROLLBACK MAY BE NEEDED"
+          echo "Production health check failed - ROLLBACK MAY BE NEEDED"
           echo "Run: gcloud run services update-traffic ${{ env.SERVICE }} --to-revisions=PREVIOUS_REVISION=100 --region ${{ env.REGION }}"
           exit 1

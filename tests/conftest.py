@@ -11,16 +11,17 @@ import os
 # Disable precomputation during tests — must be set before any app imports
 os.environ["PRECOMPUTE_ENABLED"] = "false"
 
+from datetime import UTC, datetime
+
 import numpy as np
 import pandas as pd
 import pytest
-from datetime import datetime, timedelta, timezone
 
 
 @pytest.fixture
 def sample_timestamps():
     """90 days of hourly UTC timestamps."""
-    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    start = datetime(2024, 1, 1, tzinfo=UTC)
     return pd.date_range(start, periods=90 * 24, freq="h", tz="UTC")
 
 
@@ -49,12 +50,14 @@ def sample_demand_df(sample_timestamps):
     # Forecast with some error
     forecast = demand + np.random.normal(0, 1000, n)
 
-    return pd.DataFrame({
-        "timestamp": sample_timestamps,
-        "demand_mw": demand,
-        "forecast_mw": forecast,
-        "region": "ERCOT",
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": sample_timestamps,
+            "demand_mw": demand,
+            "forecast_mw": forecast,
+            "region": "ERCOT",
+        }
+    )
 
 
 @pytest.fixture
@@ -78,32 +81,35 @@ def sample_weather_df(sample_timestamps):
     solar = np.maximum(0, 800 * np.sin(2 * np.pi * (hours % 24 - 6) / 24))
     solar = solar * (0.8 + 0.2 * np.random.random(n))  # Cloud variability
 
-    return pd.DataFrame({
-        "timestamp": sample_timestamps,
-        "temperature_2m": temp,
-        "apparent_temperature": temp - 3 + np.random.normal(0, 1, n),
-        "relative_humidity_2m": np.clip(60 + np.random.normal(0, 15, n), 10, 100),
-        "dew_point_2m": temp - 15 + np.random.normal(0, 3, n),
-        "wind_speed_10m": np.abs(10 + np.random.normal(0, 5, n)),
-        "wind_speed_80m": np.abs(15 + np.random.normal(0, 6, n)),
-        "wind_speed_120m": np.abs(18 + np.random.normal(0, 7, n)),
-        "wind_direction_10m": np.random.uniform(0, 360, n),
-        "shortwave_radiation": solar,
-        "direct_normal_irradiance": solar * 0.7,
-        "diffuse_radiation": solar * 0.3,
-        "cloud_cover": np.clip(50 + np.random.normal(0, 25, n), 0, 100),
-        "precipitation": np.maximum(0, np.random.exponential(0.5, n)),
-        "snowfall": np.zeros(n),
-        "surface_pressure": 1013 + np.random.normal(0, 5, n),
-        "soil_temperature_0cm": temp - 5,
-        "weather_code": np.random.choice([0, 1, 2, 3, 45, 61, 80], n),
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": sample_timestamps,
+            "temperature_2m": temp,
+            "apparent_temperature": temp - 3 + np.random.normal(0, 1, n),
+            "relative_humidity_2m": np.clip(60 + np.random.normal(0, 15, n), 10, 100),
+            "dew_point_2m": temp - 15 + np.random.normal(0, 3, n),
+            "wind_speed_10m": np.abs(10 + np.random.normal(0, 5, n)),
+            "wind_speed_80m": np.abs(15 + np.random.normal(0, 6, n)),
+            "wind_speed_120m": np.abs(18 + np.random.normal(0, 7, n)),
+            "wind_direction_10m": np.random.uniform(0, 360, n),
+            "shortwave_radiation": solar,
+            "direct_normal_irradiance": solar * 0.7,
+            "diffuse_radiation": solar * 0.3,
+            "cloud_cover": np.clip(50 + np.random.normal(0, 25, n), 0, 100),
+            "precipitation": np.maximum(0, np.random.exponential(0.5, n)),
+            "snowfall": np.zeros(n),
+            "surface_pressure": 1013 + np.random.normal(0, 5, n),
+            "soil_temperature_0cm": temp - 5,
+            "weather_code": np.random.choice([0, 1, 2, 3, 45, 61, 80], n),
+        }
+    )
 
 
 @pytest.fixture
 def merged_df(sample_demand_df, sample_weather_df):
     """Merged demand + weather DataFrame."""
     from data.preprocessing import merge_demand_weather
+
     return merge_demand_weather(sample_demand_df, sample_weather_df)
 
 
@@ -111,6 +117,7 @@ def merged_df(sample_demand_df, sample_weather_df):
 def feature_df(merged_df):
     """Fully feature-engineered DataFrame ready for model training."""
     from data.feature_engineering import engineer_features
+
     return engineer_features(merged_df)
 
 
@@ -197,4 +204,5 @@ def mock_noaa_alerts_response():
 def tmp_cache(tmp_path):
     """Temporary SQLite cache for testing."""
     from data.cache import Cache
+
     return Cache(db_path=str(tmp_path / "test_cache.db"), default_ttl=3600)

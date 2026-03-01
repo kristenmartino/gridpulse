@@ -4,13 +4,14 @@ import time
 
 import pytest
 
-from components.callbacks import _MODEL_CACHE, _PREDICTION_CACHE, _BACKTEST_CACHE
+from components.callbacks import _BACKTEST_CACHE, _MODEL_CACHE, _PREDICTION_CACHE
 
 
 @pytest.fixture(autouse=True)
 def clear_caches():
     """Clear all in-memory caches before and after each test."""
     from precompute import _region_data
+
     _MODEL_CACHE.clear()
     _PREDICTION_CACHE.clear()
     _BACKTEST_CACHE.clear()
@@ -25,7 +26,7 @@ def clear_caches():
 @pytest.fixture()
 def precompute_region():
     """Fetch data + train model + predictions for a single region."""
-    from precompute import _fetch_data, _train_region, _region_data
+    from precompute import _fetch_data, _region_data, _train_region
 
     def _run(region: str):
         demand_df, weather_df = _fetch_data(region)
@@ -54,6 +55,7 @@ class TestPrecomputeRegion:
     def test_precompute_with_backtest(self, precompute_region):
         """Backtest results are cached after _precompute_backtest."""
         from precompute import _precompute_backtest
+
         precompute_region("ERCOT")
         _precompute_backtest("ERCOT", 24)
         _precompute_backtest("ERCOT", 168)
@@ -89,7 +91,9 @@ class TestPrecomputeDisabled:
         """PRECOMPUTE_ENABLED=false skips all precomputation."""
         monkeypatch.setenv("PRECOMPUTE_ENABLED", "false")
         import importlib
+
         import config
+
         importlib.reload(config)
         assert config.PRECOMPUTE_ENABLED is False
         # Restore
@@ -103,6 +107,7 @@ class TestPrecomputeFetchData:
     def test_fetch_data_returns_dataframes(self):
         """_fetch_data returns (demand_df, weather_df) with demo data."""
         from precompute import _fetch_data
+
         demand_df, weather_df = _fetch_data("ERCOT")
         assert demand_df is not None
         assert weather_df is not None
@@ -115,6 +120,7 @@ class TestPrecomputeFetchData:
     def test_fetch_data_uses_demo_fallback(self):
         """_fetch_data falls back to demo data when no API key."""
         from precompute import _fetch_data
+
         demand_df, weather_df = _fetch_data("ERCOT")
         assert demand_df is not None
         assert weather_df is not None
@@ -127,6 +133,7 @@ class TestPrecomputeAll:
     def test_precompute_all_never_raises(self):
         """precompute_all() never raises, even with errors."""
         from precompute import precompute_all
+
         precompute_all()
         # All regions should be precomputed
         assert len(_MODEL_CACHE) >= 1

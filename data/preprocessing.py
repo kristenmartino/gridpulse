@@ -10,8 +10,8 @@ Rules (from spec AC-1.7, AC-1.8):
 - Gaps > 6 hours: flagged (not interpolated)
 """
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import structlog
 
 log = structlog.get_logger()
@@ -59,7 +59,12 @@ def merge_demand_weather(
         demand_rows=len(demand_df),
         weather_rows=len(weather_df),
         merged_rows=len(merged),
-        null_weather_rows=int(merged.drop(columns=["timestamp", "demand_mw"], errors="ignore").isna().any(axis=1).sum()),
+        null_weather_rows=int(
+            merged.drop(columns=["timestamp", "demand_mw"], errors="ignore")
+            .isna()
+            .any(axis=1)
+            .sum()
+        ),
     )
 
     return merged.sort_values("timestamp").reset_index(drop=True)
@@ -173,7 +178,7 @@ def validate_dataframe(
     if "temperature_2m" in df.columns:
         temp = df["temperature_2m"].dropna()
         if (temp < -50).any() or (temp > 150).any():
-            report["issues"].append(f"Temperature out of range [-50, 150°F]")
+            report["issues"].append("Temperature out of range [-50, 150°F]")
 
     # Check wind speed range (mph)
     for wind_col in ["wind_speed_10m", "wind_speed_80m", "wind_speed_120m"]:

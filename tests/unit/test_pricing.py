@@ -3,12 +3,12 @@
 import numpy as np
 import pytest
 
-from models.pricing import (
-    estimate_price_impact,
-    estimate_price_for_region,
-    compute_reserve_margin,
-)
 from config import PRICING_BASE_USD_MWH
+from models.pricing import (
+    compute_reserve_margin,
+    estimate_price_for_region,
+    estimate_price_impact,
+)
 
 
 class TestEstimatePriceImpact:
@@ -76,6 +76,7 @@ class TestReserveMargin:
 
     def test_at_capacity(self):
         from config import REGION_CAPACITY_MW
+
         capacity = REGION_CAPACITY_MW["ERCOT"]
         margin = compute_reserve_margin(capacity, "ERCOT")
         assert margin == pytest.approx(0.0)

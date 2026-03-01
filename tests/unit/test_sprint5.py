@@ -13,9 +13,6 @@ import json
 import os
 import time
 
-import pytest
-
-
 # ── D2: Forecast Model Input Audit Trail ─────────────────────
 
 
@@ -24,15 +21,26 @@ class TestAuditTrail:
 
     def test_audit_record_has_required_fields(self):
         from data.audit import AuditRecord
+
         record = AuditRecord()
-        required = ["record_id", "timestamp", "region", "model_versions",
-                     "demand_source", "weather_source", "demand_rows",
-                     "weather_rows", "mape", "forecast_source"]
+        required = [
+            "record_id",
+            "timestamp",
+            "region",
+            "model_versions",
+            "demand_source",
+            "weather_source",
+            "demand_rows",
+            "weather_rows",
+            "mape",
+            "forecast_source",
+        ]
         for field in required:
             assert hasattr(record, field), f"AuditRecord missing field: {field}"
 
     def test_audit_record_to_json(self):
         from data.audit import AuditRecord
+
         record = AuditRecord(record_id="test-001", region="FPL")
         j = record.to_json()
         parsed = json.loads(j)
@@ -41,6 +49,7 @@ class TestAuditTrail:
 
     def test_audit_record_to_dict(self):
         from data.audit import AuditRecord
+
         record = AuditRecord(region="ERCOT", demand_rows=168)
         d = record.to_dict()
         assert d["region"] == "ERCOT"
@@ -48,6 +57,7 @@ class TestAuditTrail:
 
     def test_audit_trail_record_forecast(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail()
         record = trail.record_forecast(
             region="FPL",
@@ -63,11 +73,15 @@ class TestAuditTrail:
 
     def test_audit_trail_get_recent(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail()
         for i in range(5):
             trail.record_forecast(
-                region=f"R{i}", demand_source="demo",
-                weather_source="demo", demand_rows=100, weather_rows=100,
+                region=f"R{i}",
+                demand_source="demo",
+                weather_source="demo",
+                demand_rows=100,
+                weather_rows=100,
             )
         recent = trail.get_recent(3)
         assert len(recent) == 3
@@ -75,46 +89,79 @@ class TestAuditTrail:
 
     def test_audit_trail_get_by_region(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail()
-        trail.record_forecast(region="FPL", demand_source="demo",
-                              weather_source="demo", demand_rows=168, weather_rows=168)
-        trail.record_forecast(region="ERCOT", demand_source="api",
-                              weather_source="api", demand_rows=168, weather_rows=168)
-        trail.record_forecast(region="FPL", demand_source="demo",
-                              weather_source="demo", demand_rows=336, weather_rows=336)
+        trail.record_forecast(
+            region="FPL",
+            demand_source="demo",
+            weather_source="demo",
+            demand_rows=168,
+            weather_rows=168,
+        )
+        trail.record_forecast(
+            region="ERCOT",
+            demand_source="api",
+            weather_source="api",
+            demand_rows=168,
+            weather_rows=168,
+        )
+        trail.record_forecast(
+            region="FPL",
+            demand_source="demo",
+            weather_source="demo",
+            demand_rows=336,
+            weather_rows=336,
+        )
         fpl_records = trail.get_by_region("FPL")
         assert len(fpl_records) == 2
         assert all(r.region == "FPL" for r in fpl_records)
 
     def test_audit_trail_get_latest(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail()
-        trail.record_forecast(region="FPL", demand_source="demo",
-                              weather_source="demo", demand_rows=168, weather_rows=168)
+        trail.record_forecast(
+            region="FPL",
+            demand_source="demo",
+            weather_source="demo",
+            demand_rows=168,
+            weather_rows=168,
+        )
         latest = trail.get_latest("FPL")
         assert latest is not None
         assert latest.region == "FPL"
 
     def test_audit_trail_get_latest_missing(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail()
         assert trail.get_latest("NONEXISTENT") is None
 
     def test_audit_trail_max_records(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail(max_records=5)
         for i in range(10):
-            trail.record_forecast(region=f"R{i}", demand_source="demo",
-                                  weather_source="demo", demand_rows=100, weather_rows=100)
+            trail.record_forecast(
+                region=f"R{i}",
+                demand_source="demo",
+                weather_source="demo",
+                demand_rows=100,
+                weather_rows=100,
+            )
         assert trail.count == 5
         assert trail.get_recent(10)[0].region == "R5"
 
     def test_audit_trail_feature_hash(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail()
         record = trail.record_forecast(
-            region="FPL", demand_source="demo", weather_source="demo",
-            demand_rows=168, weather_rows=168,
+            region="FPL",
+            demand_source="demo",
+            weather_source="demo",
+            demand_rows=168,
+            weather_rows=168,
             feature_names=["temperature_2m", "wind_speed_80m", "cdd", "hdd"],
         )
         assert record.feature_hash != ""
@@ -123,17 +170,22 @@ class TestAuditTrail:
 
     def test_audit_trail_model_versions(self):
         from data.audit import AuditTrail
+
         trail = AuditTrail()
         versions = {"prophet": "v1.2", "xgboost": "v3.1", "arima": "v2.0"}
         record = trail.record_forecast(
-            region="FPL", demand_source="api", weather_source="api",
-            demand_rows=168, weather_rows=168,
+            region="FPL",
+            demand_source="api",
+            weather_source="api",
+            demand_rows=168,
+            weather_rows=168,
             model_versions=versions,
         )
         assert record.model_versions == versions
 
     def test_audit_singleton_exists(self):
         from data.audit import audit_trail
+
         assert audit_trail is not None
         assert hasattr(audit_trail, "record_forecast")
 
@@ -146,6 +198,7 @@ class TestPipelineLogger:
 
     def test_pipeline_logger_basic(self):
         from observability import PipelineLogger
+
         pipe = PipelineLogger("test_pipeline", region="FPL")
         pipe.step("fetch", rows=168, source="demo")
         pipe.step("clean", rows=168, nulls_filled=2)
@@ -157,6 +210,7 @@ class TestPipelineLogger:
 
     def test_pipeline_logger_steps_have_duration(self):
         from observability import PipelineLogger
+
         pipe = PipelineLogger("timing_test")
         pipe.step("step1", rows=100)
         time.sleep(0.01)
@@ -167,6 +221,7 @@ class TestPipelineLogger:
 
     def test_pipeline_logger_context_propagated(self):
         from observability import PipelineLogger
+
         pipe = PipelineLogger("ctx_test", region="ERCOT", user="test")
         summary = pipe.done()
         assert summary["region"] == "ERCOT"
@@ -174,6 +229,7 @@ class TestPipelineLogger:
 
     def test_pipeline_logger_chaining(self):
         from observability import PipelineLogger
+
         pipe = PipelineLogger("chain_test")
         result = pipe.step("a").step("b").step("c")
         assert result is pipe
@@ -181,6 +237,7 @@ class TestPipelineLogger:
 
     def test_pipeline_logger_records_perf(self):
         from observability import PipelineLogger, perf
+
         pipe = PipelineLogger("perf_test")
         pipe.step("work", rows=100)
         pipe.done()
@@ -190,6 +247,7 @@ class TestPipelineLogger:
     def test_pipeline_logger_safe_details(self):
         """Non-serializable objects in details should not crash the logger."""
         from observability import PipelineLogger
+
         pipe = PipelineLogger("safe_test")
         # Pass a complex object — should not raise
         pipe.step("fetch", rows=168, metadata={"nested": True})
@@ -205,27 +263,33 @@ class TestDataConfidence:
 
     def test_confidence_level_fresh(self):
         from components.error_handling import data_confidence_level
+
         assert data_confidence_level("fresh", age_seconds=60) == "high"
 
     def test_confidence_level_stale(self):
         from components.error_handling import data_confidence_level
+
         assert data_confidence_level("stale") == "medium"
 
     def test_confidence_level_error(self):
         from components.error_handling import data_confidence_level
+
         assert data_confidence_level("error") == "low"
 
     def test_confidence_level_demo(self):
         from components.error_handling import data_confidence_level
+
         assert data_confidence_level("demo") == "demo"
 
     def test_confidence_level_fresh_but_old(self):
         from components.error_handling import data_confidence_level
+
         # Fresh status but very old — should be medium
         assert data_confidence_level("fresh", age_seconds=10000, stale_threshold=7200) == "medium"
 
     def test_confidence_levels_dict_complete(self):
         from components.error_handling import CONFIDENCE_LEVELS
+
         assert set(CONFIDENCE_LEVELS.keys()) == {"high", "medium", "low", "demo"}
         for level in CONFIDENCE_LEVELS.values():
             assert "emoji" in level
@@ -235,21 +299,32 @@ class TestDataConfidence:
 
     def test_confidence_badge_returns_div(self):
         from components.error_handling import confidence_badge
+
         badge = confidence_badge("Demand", "high", "3m ago")
         # Returns dash html.Div (mocked in test env)
         assert badge is not None
 
     def test_widget_confidence_bar_returns_div(self):
         from components.error_handling import widget_confidence_bar
-        freshness = {"demand": "fresh", "weather": "stale", "alerts": "demo",
-                     "timestamp": "2026-02-20T10:00:00+00:00"}
+
+        freshness = {
+            "demand": "fresh",
+            "weather": "stale",
+            "alerts": "demo",
+            "timestamp": "2026-02-20T10:00:00+00:00",
+        }
         bar = widget_confidence_bar(freshness, age_seconds=300)
         assert bar is not None
 
     def test_widget_confidence_bar_all_sources(self):
         from components.error_handling import widget_confidence_bar
-        freshness = {"demand": "fresh", "weather": "fresh", "alerts": "fresh",
-                     "timestamp": "2026-02-20T10:00:00+00:00"}
+
+        freshness = {
+            "demand": "fresh",
+            "weather": "fresh",
+            "alerts": "fresh",
+            "timestamp": "2026-02-20T10:00:00+00:00",
+        }
         bar = widget_confidence_bar(freshness, age_seconds=60)
         # Should have child badges for demand, weather, alerts
         assert bar is not None

@@ -19,12 +19,12 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from config import MODEL_DIR, TRAINING_WINDOW_DAYS, FORECAST_HORIZON_DAYS
-from models.prophet_model import train_prophet, predict_prophet
-from models.arima_model import train_arima, predict_arima
-from models.xgboost_model import train_xgboost, predict_xgboost
+from config import MODEL_DIR
+from models.arima_model import predict_arima, train_arima
 from models.ensemble import compute_ensemble_weights
 from models.evaluation import compute_all_metrics
+from models.prophet_model import predict_prophet, train_prophet
+from models.xgboost_model import predict_xgboost, train_xgboost
 
 log = structlog.get_logger()
 
@@ -65,37 +65,64 @@ def train_all_models(
     try:
         prophet_model = train_prophet(train_df, target_col=target_col)
         prophet_pred = predict_prophet(prophet_model, val_df, periods=len(val_df))
-        prophet_forecast = prophet_pred["forecast"][:len(y_val)]
+        prophet_forecast = prophet_pred["forecast"][: len(y_val)]
         metrics["prophet"] = compute_all_metrics(y_val, prophet_forecast)
         results["prophet"] = {"model": prophet_model, "predictions": prophet_pred}
-        log.info("prophet_evaluation", region=region, **{f"prophet_{k}": round(v, 3) for k, v in metrics["prophet"].items()})
+        log.info(
+            "prophet_evaluation",
+            region=region,
+            **{f"prophet_{k}": round(v, 3) for k, v in metrics["prophet"].items()},
+        )
     except Exception as e:
         log.error("prophet_training_failed", region=region, error=str(e))
-        metrics["prophet"] = {"mape": float("inf"), "rmse": float("inf"), "mae": float("inf"), "r2": 0}
+        metrics["prophet"] = {
+            "mape": float("inf"),
+            "rmse": float("inf"),
+            "mae": float("inf"),
+            "r2": 0,
+        }
 
     # --- ARIMA/SARIMAX ---
     try:
         arima_result = train_arima(train_df, target_col=target_col, auto_order=True)
         arima_forecast = predict_arima(arima_result, val_df, periods=len(val_df))
-        arima_forecast = arima_forecast[:len(y_val)]
+        arima_forecast = arima_forecast[: len(y_val)]
         metrics["arima"] = compute_all_metrics(y_val, arima_forecast)
         results["arima"] = {"model": arima_result, "predictions": arima_forecast}
-        log.info("arima_evaluation", region=region, **{f"arima_{k}": round(v, 3) for k, v in metrics["arima"].items()})
+        log.info(
+            "arima_evaluation",
+            region=region,
+            **{f"arima_{k}": round(v, 3) for k, v in metrics["arima"].items()},
+        )
     except Exception as e:
         log.error("arima_training_failed", region=region, error=str(e))
-        metrics["arima"] = {"mape": float("inf"), "rmse": float("inf"), "mae": float("inf"), "r2": 0}
+        metrics["arima"] = {
+            "mape": float("inf"),
+            "rmse": float("inf"),
+            "mae": float("inf"),
+            "r2": 0,
+        }
 
     # --- XGBoost ---
     try:
         xgb_result = train_xgboost(train_df, target_col=target_col)
         xgb_forecast = predict_xgboost(xgb_result, val_df)
-        xgb_forecast = xgb_forecast[:len(y_val)]
+        xgb_forecast = xgb_forecast[: len(y_val)]
         metrics["xgboost"] = compute_all_metrics(y_val, xgb_forecast)
         results["xgboost"] = {"model": xgb_result, "predictions": xgb_forecast}
-        log.info("xgboost_evaluation", region=region, **{f"xgb_{k}": round(v, 3) for k, v in metrics["xgboost"].items()})
+        log.info(
+            "xgboost_evaluation",
+            region=region,
+            **{f"xgb_{k}": round(v, 3) for k, v in metrics["xgboost"].items()},
+        )
     except Exception as e:
         log.error("xgboost_training_failed", region=region, error=str(e))
-        metrics["xgboost"] = {"mape": float("inf"), "rmse": float("inf"), "mae": float("inf"), "r2": 0}
+        metrics["xgboost"] = {
+            "mape": float("inf"),
+            "rmse": float("inf"),
+            "mae": float("inf"),
+            "r2": 0,
+        }
 
     # --- Ensemble Weights ---
     mape_scores = {name: m["mape"] for name, m in metrics.items() if np.isfinite(m["mape"])}
@@ -143,9 +170,7 @@ def save_models(training_result: dict[str, Any], output_dir: str | None = None) 
         if name == "xgboost":
             save_data[f"{name}_model"] = result["model"]["model"]
             save_data[f"{name}_feature_names"] = result["model"]["feature_names"]
-        elif name == "arima":
-            save_data[f"{name}_model"] = result["model"]
-        elif name == "prophet":
+        elif name == "arima" or name == "prophet":
             save_data[f"{name}_model"] = result["model"]
 
     with open(filepath, "wb") as f:

@@ -11,18 +11,18 @@ API docs: https://www.eia.gov/opendata/documentation.php
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 import requests
 import structlog
 
 from config import (
+    CACHE_TTL_SECONDS,
     EIA_API_KEY,
     EIA_BASE_URL,
     EIA_ENDPOINTS,
     REGION_COORDINATES,
-    CACHE_TTL_SECONDS,
 )
 from data.cache import get_cache
 
@@ -75,9 +75,9 @@ def fetch_demand(
         raise ValueError(f"Unknown region: {region}. Valid: {list(REGION_COORDINATES.keys())}")
 
     if start is None:
-        start = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT00")
+        start = (datetime.now(UTC) - timedelta(days=90)).strftime("%Y-%m-%dT00")
     if end is None:
-        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT23")
+        end = datetime.now(UTC).strftime("%Y-%m-%dT23")
 
     # Use date-level granularity for cache key so it doesn't change every hour
     cache_key = f"eia_demand_{region}_{start[:10]}_{end[:10]}"
@@ -142,9 +142,9 @@ def fetch_generation_by_fuel(
         raise ValueError(f"Unknown region: {region}")
 
     if start is None:
-        start = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H")
+        start = (datetime.now(UTC) - timedelta(days=90)).strftime("%Y-%m-%dT%H")
     if end is None:
-        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        end = datetime.now(UTC).strftime("%Y-%m-%dT%H")
 
     cache_key = f"eia_gen_{region}_{start}_{end}"
     cache = get_cache()
@@ -200,9 +200,9 @@ def fetch_interchange(
         raise ValueError(f"Unknown region: {region}")
 
     if start is None:
-        start = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%dT%H")
+        start = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%dT%H")
     if end is None:
-        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        end = datetime.now(UTC).strftime("%Y-%m-%dT%H")
 
     cache_key = f"eia_interchange_{region}_{start}_{end}"
     cache = get_cache()
@@ -313,12 +313,14 @@ def _parse_demand_records(records: list[dict], region: str) -> pd.DataFrame:
     """Parse EIA demand records into a clean DataFrame."""
     rows = []
     for r in records:
-        rows.append({
-            "timestamp": pd.Timestamp(r["period"], tz="UTC"),
-            "value": float(r.get("value", 0) or 0),
-            "type": r.get("type", ""),
-            "region": region,
-        })
+        rows.append(
+            {
+                "timestamp": pd.Timestamp(r["period"], tz="UTC"),
+                "value": float(r.get("value", 0) or 0),
+                "type": r.get("type", ""),
+                "region": region,
+            }
+        )
 
     df = pd.DataFrame(rows)
     if df.empty:
@@ -346,12 +348,14 @@ def _parse_generation_records(records: list[dict], region: str) -> pd.DataFrame:
     """Parse EIA generation-by-fuel records."""
     rows = []
     for r in records:
-        rows.append({
-            "timestamp": pd.Timestamp(r["period"], tz="UTC"),
-            "fuel_type": r.get("fueltype", r.get("type-name", "unknown")),
-            "generation_mw": float(r.get("value", 0) or 0),
-            "region": region,
-        })
+        rows.append(
+            {
+                "timestamp": pd.Timestamp(r["period"], tz="UTC"),
+                "fuel_type": r.get("fueltype", r.get("type-name", "unknown")),
+                "generation_mw": float(r.get("value", 0) or 0),
+                "region": region,
+            }
+        )
     df = pd.DataFrame(rows)
     return df.sort_values("timestamp").reset_index(drop=True)
 
@@ -360,11 +364,13 @@ def _parse_interchange_records(records: list[dict]) -> pd.DataFrame:
     """Parse EIA interchange records."""
     rows = []
     for r in records:
-        rows.append({
-            "timestamp": pd.Timestamp(r["period"], tz="UTC"),
-            "from_ba": r.get("fromba", ""),
-            "to_ba": r.get("toba", ""),
-            "interchange_mw": float(r.get("value", 0) or 0),
-        })
+        rows.append(
+            {
+                "timestamp": pd.Timestamp(r["period"], tz="UTC"),
+                "from_ba": r.get("fromba", ""),
+                "to_ba": r.get("toba", ""),
+                "interchange_mw": float(r.get("value", 0) or 0),
+            }
+        )
     df = pd.DataFrame(rows)
     return df.sort_values("timestamp").reset_index(drop=True)

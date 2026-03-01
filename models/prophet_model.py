@@ -24,6 +24,7 @@ def _get_prophet():
     global _Prophet
     if _Prophet is None:
         from prophet import Prophet
+
         _Prophet = Prophet
     return _Prophet
 
@@ -47,9 +48,9 @@ def create_prophet_model() -> Any:
     Returns:
         Unfitted Prophet model with regressors attached.
     """
-    Prophet = _get_prophet()
+    ProphetClass = _get_prophet()  # noqa: N806
 
-    model = Prophet(
+    model = ProphetClass(
         yearly_seasonality=True,
         weekly_seasonality=True,
         daily_seasonality=True,
@@ -81,10 +82,14 @@ def train_prophet(
     model = create_prophet_model()
 
     # Prophet expects 'ds' and 'y' columns
-    train_df = pd.DataFrame({
-        "ds": df["timestamp"].dt.tz_localize(None) if df["timestamp"].dt.tz else df["timestamp"],
-        "y": df[target_col],
-    })
+    train_df = pd.DataFrame(
+        {
+            "ds": df["timestamp"].dt.tz_localize(None)
+            if df["timestamp"].dt.tz
+            else df["timestamp"],
+            "y": df[target_col],
+        }
+    )
 
     # Add regressor columns
     for regressor_name, _ in PROPHET_REGRESSORS:
@@ -125,10 +130,14 @@ def predict_prophet(
             if len(available) >= len(future):
                 future[regressor_name] = available[: len(future)]
             else:
-                padded = np.concatenate([
-                    available,
-                    np.full(len(future) - len(available), available[-1] if len(available) > 0 else 0),
-                ])
+                padded = np.concatenate(
+                    [
+                        available,
+                        np.full(
+                            len(future) - len(available), available[-1] if len(available) > 0 else 0
+                        ),
+                    ]
+                )
                 future[regressor_name] = padded
         else:
             future[regressor_name] = 0.0

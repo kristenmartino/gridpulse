@@ -16,7 +16,7 @@ from datetime import datetime
 import requests
 import structlog
 
-from config import STATE_TO_BA, CACHE_TTL_SECONDS, NOAA_BASE_URL
+from config import CACHE_TTL_SECONDS, NOAA_BASE_URL, STATE_TO_BA
 from data.cache import get_cache
 
 log = structlog.get_logger()

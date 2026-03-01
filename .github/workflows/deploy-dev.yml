@@ -1,23 +1,23 @@
-name: Deploy → Staging
+name: Deploy -> Dev
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
 
 env:
   PROJECT_ID: nextera-portfolio
   REGION: us-east1
-  SERVICE: energy-forecast-staging
+  SERVICE: gridpulse-dev
   REPO: portfolio
-  IMAGE: us-east1-docker.pkg.dev/nextera-portfolio/portfolio/energy-forecast
+  IMAGE: us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse-dev
 
 concurrency:
-  group: deploy-staging
+  group: deploy-dev
   cancel-in-progress: true
 
 jobs:
-  deploy-staging:
-    name: Build & Deploy to Cloud Run (Staging)
+  deploy-dev:
+    name: Build & Deploy to Cloud Run (Dev)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,12 +42,12 @@ jobs:
         run: |
           docker build \
             -t ${{ env.IMAGE }}:${{ github.sha }} \
-            -t ${{ env.IMAGE }}:staging-latest \
+            -t ${{ env.IMAGE }}:dev-latest \
             .
           docker push ${{ env.IMAGE }}:${{ github.sha }}
-          docker push ${{ env.IMAGE }}:staging-latest
+          docker push ${{ env.IMAGE }}:dev-latest
 
-      - name: Deploy to Cloud Run (Staging)
+      - name: Deploy to Cloud Run (Dev)
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
             --image ${{ env.IMAGE }}:${{ github.sha }} \
@@ -62,29 +62,29 @@ jobs:
             --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG" \
             --tag "sha-$(echo ${{ github.sha }} | cut -c1-7)"
 
-      - name: Get staging URL
+      - name: Get dev URL
         id: url
         run: |
           URL=$(gcloud run services describe ${{ env.SERVICE }} \
             --region ${{ env.REGION }} \
             --format="value(status.url)")
           echo "url=$URL" >> $GITHUB_OUTPUT
-          echo "### 🚀 Staging deployed" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed to Dev" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
           echo "**Image:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
 
-      - name: Smoke test staging
+      - name: Smoke test dev
         run: |
           URL="${{ steps.url.outputs.url }}"
           echo "Testing $URL ..."
           for i in 1 2 3 4 5; do
             STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/" || true)
             if [ "$STATUS" = "200" ]; then
-              echo "✅ Staging is healthy (HTTP 200)"
+              echo "Dev is healthy (HTTP 200)"
               exit 0
             fi
-            echo "Attempt $i: HTTP $STATUS — retrying in 10s..."
+            echo "Attempt $i: HTTP $STATUS - retrying in 10s..."
             sleep 10
           done
-          echo "❌ Staging health check failed after 5 attempts"
+          echo "Dev health check failed after 5 attempts"
           exit 1

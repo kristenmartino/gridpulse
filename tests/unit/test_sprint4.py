@@ -8,14 +8,14 @@ Covers:
 - Model service integration in callbacks
 """
 
-import sys
 import inspect
-import pytest
-import numpy as np
+import sys
+
 import pandas as pd
+import pytest
 
 from config import REGION_CAPACITY_MW, REGION_COORDINATES
-from personas.config import get_persona, PERSONAS
+from personas.config import PERSONAS, get_persona
 
 
 class TestPersonaTabVisibility:
@@ -56,8 +56,9 @@ class TestPersonaTabVisibility:
     def test_default_tab_is_in_priority_list(self):
         """Default tab should always be enabled (in priority list)."""
         for pid, persona in PERSONAS.items():
-            assert persona.default_tab in persona.priority_tabs, \
+            assert persona.default_tab in persona.priority_tabs, (
                 f"{pid}: default_tab '{persona.default_tab}' not in priority_tabs"
+            )
 
 
 class TestCallbackOutputCompleteness:
@@ -66,9 +67,15 @@ class TestCallbackOutputCompleteness:
     def test_tab1_kpi_ids_are_wired(self):
         """All Tab 1 KPI IDs have callback Outputs."""
         src = inspect.getsource(sys.modules["components.callbacks"])
-        for oid in ["tab1-peak-value", "tab1-peak-time", "tab1-mape-value",
-                     "tab1-reserve-value", "tab1-reserve-status",
-                     "tab1-alerts-count", "tab1-alerts-summary"]:
+        for oid in [
+            "tab1-peak-value",
+            "tab1-peak-time",
+            "tab1-mape-value",
+            "tab1-reserve-value",
+            "tab1-reserve-status",
+            "tab1-alerts-count",
+            "tab1-alerts-summary",
+        ]:
             assert oid in src, f"Output '{oid}' not found in callbacks"
 
     def test_tab4_renewable_delta_wired(self):
@@ -97,6 +104,7 @@ class TestTab1KPIContracts:
 
     def test_peak_demand_is_positive(self):
         from data.demo_data import generate_demo_demand
+
         df = generate_demo_demand("FPL", days=7)
         peak = df["demand_mw"].max()
         assert peak > 0
@@ -130,9 +138,10 @@ class TestModelServiceIntegration:
 
     def test_forecasts_survive_callback_pipeline(self):
         """Simulate the full callback data path."""
+        import io
+
         from data.demo_data import generate_demo_demand
         from models.model_service import get_forecasts
-        import io
 
         df = generate_demo_demand("FPL", days=7)
 

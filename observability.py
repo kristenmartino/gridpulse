@@ -8,10 +8,11 @@ Per AC-8.8: Structured logging (structlog) outputs JSON to stdout
 for Cloud Run log aggregation.
 """
 
+import functools
 import os
 import time
-import functools
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import structlog
 
@@ -68,12 +69,13 @@ def add_request_logging(server) -> None:
 
     @server.before_request
     def start_timer():
-        from flask import request, g
+        from flask import g
+
         g.start_time = time.monotonic()
 
     @server.after_request
     def log_request(response):
-        from flask import request, g
+        from flask import g, request
 
         # Skip noisy endpoints
         path = request.path
@@ -148,7 +150,7 @@ class PerformanceTracker:
         self._timings[name].append(duration_ms)
         # Trim to max entries
         if len(self._timings[name]) > self.max_entries:
-            self._timings[name] = self._timings[name][-self.max_entries:]
+            self._timings[name] = self._timings[name][-self.max_entries :]
 
     def get_stats(self, name: str) -> dict[str, float]:
         """Get statistics for a named operation."""
@@ -157,6 +159,7 @@ class PerformanceTracker:
             return {"count": 0, "mean_ms": 0, "p95_ms": 0, "max_ms": 0}
 
         import numpy as np
+
         arr = np.array(timings)
         return {
             "count": len(arr),
@@ -171,6 +174,7 @@ class PerformanceTracker:
 
 
 # ── Pipeline Transformation Logger (I1) ──────────────────────
+
 
 class PipelineLogger:
     """
@@ -207,8 +211,9 @@ class PipelineLogger:
         self._steps.append(entry)
 
         # Filter out non-serializable objects from log output
-        safe_details = {k: v for k, v in details.items()
-                        if isinstance(v, (str, int, float, bool, type(None)))}
+        safe_details = {
+            k: v for k, v in details.items() if isinstance(v, (str, int, float, bool, type(None)))
+        }
         self._log.info(
             "pipeline_step",
             pipeline=self._name,

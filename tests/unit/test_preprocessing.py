@@ -2,12 +2,10 @@
 
 import numpy as np
 import pandas as pd
-import pytest
-from datetime import timezone
 
 from data.preprocessing import (
-    merge_demand_weather,
     handle_missing_values,
+    merge_demand_weather,
     validate_dataframe,
 )
 
@@ -46,10 +44,12 @@ class TestHandleMissingValues:
 
     def test_small_gap_interpolated(self):
         ts = pd.date_range("2024-01-01", periods=10, freq="h", tz="UTC")
-        df = pd.DataFrame({
-            "timestamp": ts,
-            "demand_mw": [100, 110, np.nan, np.nan, 140, 150, 160, 170, 180, 190],
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": [100, 110, np.nan, np.nan, 140, 150, 160, 170, 180, 190],
+            }
+        )
         result = handle_missing_values(df, max_gap_hours=6)
         assert result["demand_mw"].isna().sum() == 0
         assert (result["data_quality"] == "interpolated").sum() == 2
@@ -79,18 +79,22 @@ class TestValidateDataframe:
         assert len(report["issues"]) == 0
 
     def test_negative_demand(self):
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=3, freq="h"),
-            "demand_mw": [100, -50, 200],
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=3, freq="h"),
+                "demand_mw": [100, -50, 200],
+            }
+        )
         report = validate_dataframe(df)
         assert any("Negative demand" in i for i in report["issues"])
 
     def test_extreme_temperature(self):
-        df = pd.DataFrame({
-            "timestamp": pd.date_range("2024-01-01", periods=3, freq="h"),
-            "temperature_2m": [75, 200, 80],
-        })
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=3, freq="h"),
+                "temperature_2m": [75, 200, 80],
+            }
+        )
         report = validate_dataframe(df)
         assert any("Temperature out of range" in i for i in report["issues"])
 

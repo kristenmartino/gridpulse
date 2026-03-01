@@ -7,7 +7,7 @@ Per spec §Persona Switcher:
 - Dynamic KPI highlighting per persona
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

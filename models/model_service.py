@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from config import MODEL_DIR, REGION_CAPACITY_MW
+from config import MODEL_DIR
 
 log = structlog.get_logger()
 
@@ -106,6 +106,7 @@ def _load_cached_models(region: str) -> dict[str, Any] | None:
 
     try:
         from models.training import load_models
+
         model_data = load_models(region)
         _model_cache[region] = model_data
         log.info("model_cache_loaded", region=region)
@@ -139,14 +140,20 @@ def _predict_from_trained(
             if model_key in model_data:
                 if name == "prophet":
                     from models.prophet_model import predict_prophet
+
                     pred_result = predict_prophet(model_data[model_key], demand_df, periods=n)
                     all_preds[name] = pred_result["forecast"][:n]
                 elif name == "arima":
                     from models.arima_model import predict_arima
+
                     all_preds[name] = predict_arima(model_data[model_key], demand_df, periods=n)[:n]
                 elif name == "xgboost":
                     from models.xgboost_model import predict_xgboost
-                    xgb_model = {"model": model_data[model_key], "feature_names": model_data.get("xgboost_feature_names", [])}
+
+                    xgb_model = {
+                        "model": model_data[model_key],
+                        "feature_names": model_data.get("xgboost_feature_names", []),
+                    }
                     all_preds[name] = predict_xgboost(xgb_model, demand_df)[:n]
         except Exception as e:
             log.warning("model_predict_failed", model=name, error=str(e))
@@ -218,11 +225,14 @@ def _simulate_forecasts(
 
     # Simulated metrics
     from models.evaluation import compute_all_metrics
+
     metrics = {}
     for name in ["prophet", "arima", "xgboost", "ensemble"]:
         if name in preds:
-            m = compute_all_metrics(actual[-720:] if len(actual) > 720 else actual,
-                                     preds[name][-720:] if len(preds[name]) > 720 else preds[name])
+            m = compute_all_metrics(
+                actual[-720:] if len(actual) > 720 else actual,
+                preds[name][-720:] if len(preds[name]) > 720 else preds[name],
+            )
             metrics[name] = m
 
     preds["weights"] = weights

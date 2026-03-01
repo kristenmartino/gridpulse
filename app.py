@@ -16,19 +16,21 @@ Run:
 """
 
 import os
+
 from dotenv import load_dotenv
 
 # Load .env file before any other imports that use environment variables
 load_dotenv()
 
 # Configure observability FIRST (before any other imports that use structlog)
-from observability import configure_logging, add_request_logging
+from observability import add_request_logging, configure_logging  # noqa: E402
+
 configure_logging()
 
-import structlog
-import dash
-import dash_bootstrap_components as dbc
-from flask import Flask, jsonify
+import dash  # noqa: E402
+import dash_bootstrap_components as dbc  # noqa: E402
+import structlog  # noqa: E402
+from flask import Flask, jsonify  # noqa: E402
 
 log = structlog.get_logger()
 
@@ -44,44 +46,54 @@ app = dash.Dash(
     server=server,
     external_stylesheets=[dbc.themes.DARKLY],
     suppress_callback_exceptions=True,
-    title="NextEra Energy Forecast",
+    title="GridPulse",
     update_title="Loading...",
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 
 # Layout
-from components.layout import build_layout
+from components.layout import build_layout  # noqa: E402
+
 app.layout = build_layout()
 
 # Register all callbacks
-from components.callbacks import register_callbacks
+from components.callbacks import register_callbacks  # noqa: E402
+
 register_callbacks(app)
 
 # ── Precompute models and predictions at startup ──────────────
 # With gunicorn --preload, this runs ONCE in master before workers fork.
 # Workers inherit warm caches via copy-on-write.
-from config import PRECOMPUTE_ENABLED
+from config import PRECOMPUTE_ENABLED  # noqa: E402
+
 if PRECOMPUTE_ENABLED:
     from precompute import precompute_all
+
     precompute_all()
+
 
 # ── Health check for Cloud Run ─────────────────────────────────
 @server.route("/health")
 def health():
-    from components.callbacks import _MODEL_CACHE, _PREDICTION_CACHE, _BACKTEST_CACHE
-    return jsonify({
-        "status": "healthy",
-        "precompute": {
-            "models_cached": len(_MODEL_CACHE),
-            "predictions_cached": len(_PREDICTION_CACHE),
-            "backtests_cached": len(_BACKTEST_CACHE),
-        },
-    }), 200
+    from components.callbacks import _BACKTEST_CACHE, _MODEL_CACHE, _PREDICTION_CACHE
+
+    return jsonify(
+        {
+            "status": "healthy",
+            "precompute": {
+                "models_cached": len(_MODEL_CACHE),
+                "predictions_cached": len(_PREDICTION_CACHE),
+                "backtests_cached": len(_BACKTEST_CACHE),
+            },
+        }
+    ), 200
+
 
 # ── Performance metrics endpoint (internal) ────────────────────
 @server.route("/metrics")
 def metrics():
     from observability import perf
+
     return jsonify(perf.get_all_stats()), 200
 
 

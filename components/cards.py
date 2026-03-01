@@ -34,7 +34,10 @@ def build_kpi_card(
             ],
             className="kpi-card",
         ),
-        xs=6, sm=6, md=3, lg=3,
+        xs=6,
+        sm=6,
+        md=3,
+        lg=3,
     )
 
 
@@ -47,12 +50,14 @@ def build_kpi_row(kpis: list[dict]) -> dbc.Row:
     """
     cards = []
     for kpi in kpis:
-        cards.append(build_kpi_card(
-            label=kpi.get("label", ""),
-            value=kpi.get("value", "—"),
-            delta=kpi.get("delta"),
-            delta_direction=kpi.get("direction", "neutral"),
-        ))
+        cards.append(
+            build_kpi_card(
+                label=kpi.get("label", ""),
+                value=kpi.get("value", "—"),
+                delta=kpi.get("delta"),
+                delta_direction=kpi.get("direction", "neutral"),
+            )
+        )
     return dbc.Row(cards, className="kpi-row g-2")
 
 
@@ -112,7 +117,9 @@ def build_alert_card(
                     html.Strong(event, style={"color": "#ffffff"}),
                 ],
             ),
-            html.P(headline, style={"margin": "4px 0 0 0", "fontSize": "0.8rem", "color": "#b0b0c0"}),
+            html.P(
+                headline, style={"margin": "4px 0 0 0", "fontSize": "0.8rem", "color": "#b0b0c0"}
+            ),
             html.Small(f"Expires: {expires}", style={"color": "#8a8fa8"}) if expires else None,
         ],
         className=f"alert-card {severity}",
@@ -132,16 +139,26 @@ def build_chart_container(
 
     header_items = [html.Span(title, className="chart-title")]
     if freshness:
-        badge_class = "fresh" if freshness == "fresh" else ("stale" if freshness == "stale" else "expired")
+        badge_class = (
+            "fresh" if freshness == "fresh" else ("stale" if freshness == "stale" else "expired")
+        )
         header_items.append(
-            html.Span(freshness, className=f"freshness-badge {badge_class}",
-                       style={"marginLeft": "8px"})
+            html.Span(
+                freshness, className=f"freshness-badge {badge_class}", style={"marginLeft": "8px"}
+            )
         )
 
     return html.Div(
         [
-            html.Div(header_items, style={"display": "flex", "alignItems": "center", "marginBottom": "8px"}),
-            dcc.Graph(id=chart_id, style={"height": height}, config={"displayModeBar": True, "responsive": True}),
+            html.Div(
+                header_items,
+                style={"display": "flex", "alignItems": "center", "marginBottom": "8px"},
+            ),
+            dcc.Graph(
+                id=chart_id,
+                style={"height": height},
+                config={"displayModeBar": True, "responsive": True},
+            ),
         ],
         className="chart-container",
     )
@@ -197,14 +214,18 @@ def build_news_card(
                 style={"marginTop": "4px"},
             ),
             html.P(
-                description[:120] + "..." if description and len(description) > 120 else description,
+                description[:120] + "..."
+                if description and len(description) > 120
+                else description,
                 style={
                     "color": "#b0b0c0",
                     "fontSize": "0.8rem",
                     "margin": "6px 0 0 0",
                     "lineHeight": "1.4",
                 },
-            ) if description else None,
+            )
+            if description
+            else None,
         ],
         className="news-card",
         style={
@@ -223,7 +244,10 @@ def build_news_feed(articles: list[dict]) -> html.Div:
     """
     if not articles:
         return html.Div(
-            html.P("No news available", style={"color": "#6c6c7c", "textAlign": "center", "padding": "20px"}),
+            html.P(
+                "No news available",
+                style={"color": "#6c6c7c", "textAlign": "center", "padding": "20px"},
+            ),
             className="news-feed",
         )
 

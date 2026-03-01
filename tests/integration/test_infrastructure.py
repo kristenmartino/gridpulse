@@ -10,10 +10,10 @@ Tests:
 - AC-9.5: All API calls wrapped in try/except
 """
 
-import os
 import json
+import os
 import re
-import ast
+
 import pytest
 
 
@@ -25,6 +25,7 @@ class TestHealthEndpoint:
         """Import server, skip if Dash callback initialization conflicts with test mocks."""
         try:
             from app import server
+
             self.server = server
         except Exception as e:
             pytest.skip(f"Cannot import app due to Dash callback conflict: {e}")
@@ -76,7 +77,7 @@ class TestNoHardcodedSecrets:
                     for match in matches:
                         violations.append(f"{filepath}: {desc} — {match[:30]}...")
 
-        assert len(violations) == 0, f"Hardcoded secrets found:\n" + "\n".join(violations)
+        assert len(violations) == 0, "Hardcoded secrets found:\n" + "\n".join(violations)
 
     def test_env_example_has_placeholders(self):
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -126,10 +127,12 @@ class TestStructuredLogging:
 
     def test_structlog_json_output(self):
         """Configure JSON logging and verify output format."""
-        from observability import configure_logging
-        import structlog
         import io
         import sys
+
+        import structlog
+
+        from observability import configure_logging
 
         configure_logging(json_output=True)
         log = structlog.get_logger()
@@ -159,7 +162,10 @@ class TestCodeQuality:
         root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         modules_without_docs = []
         for dirpath, _, filenames in os.walk(root):
-            if any(skip in dirpath for skip in [".git", "tests", "__pycache__", "node_modules", ".venv", "venv"]):
+            if any(
+                skip in dirpath
+                for skip in [".git", "tests", "__pycache__", "node_modules", ".venv", "venv"]
+            ):
                 continue
             for fname in filenames:
                 if not fname.endswith(".py") or fname.startswith("__"):
@@ -175,10 +181,14 @@ class TestCodeQuality:
                 if stripped.startswith("#!"):
                     lines = stripped.split("\n", 1)
                     stripped = lines[1].strip() if len(lines) > 1 else ""
-                if stripped and not stripped.startswith('"""') and not stripped.startswith("'''"):
-                    # Check if it's a non-trivial file
-                    if len(content.strip().split("\n")) > 5:
-                        modules_without_docs.append(filepath)
+                if (
+                    stripped
+                    and not stripped.startswith('"""')
+                    and not stripped.startswith("'''")
+                    and len(content.strip().split("\n")) > 5
+                ):
+                    modules_without_docs.append(filepath)
 
-        assert len(modules_without_docs) == 0, \
-            f"Modules without docstrings:\n" + "\n".join(modules_without_docs)
+        assert len(modules_without_docs) == 0, "Modules without docstrings:\n" + "\n".join(
+            modules_without_docs
+        )

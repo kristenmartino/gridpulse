@@ -8,49 +8,49 @@ scenario simulator responds to slider inputs and preset clicks.
 These tests use Dash's built-in testing utilities (no browser needed).
 """
 
-import json
-import pytest
-import numpy as np
-import pandas as pd
-from unittest.mock import patch, MagicMock
-from datetime import datetime, timezone, timedelta
-
 
 class TestTabRendering:
     """Test that all tab layouts can be instantiated without errors."""
 
     def test_tab_forecast_renders(self):
         from components.tab_forecast import layout
+
         result = layout()
         assert result is not None
 
     def test_tab_weather_renders(self):
         from components.tab_weather import layout
+
         result = layout()
         assert result is not None
 
     def test_tab_models_renders(self):
         from components.tab_models import layout
+
         result = layout()
         assert result is not None
 
     def test_tab_generation_renders(self):
         from components.tab_generation import layout
+
         result = layout()
         assert result is not None
 
     def test_tab_alerts_renders(self):
         from components.tab_alerts import layout
+
         result = layout()
         assert result is not None
 
     def test_tab_simulator_renders(self):
         from components.tab_simulator import layout
+
         result = layout()
         assert result is not None
 
     def test_main_layout_renders(self):
         from components.layout import build_layout
+
         result = build_layout()
         assert result is not None
 
@@ -60,16 +60,21 @@ class TestCardComponents:
 
     def test_kpi_card_basic(self):
         from components.cards import build_kpi_card
+
         card = build_kpi_card("Peak Demand", "28,450 MW")
         assert card is not None
 
     def test_kpi_card_with_delta(self):
         from components.cards import build_kpi_card
-        card = build_kpi_card("MAPE", "2.8%", delta="↓0.3% vs last week", delta_direction="positive")
+
+        card = build_kpi_card(
+            "MAPE", "2.8%", delta="↓0.3% vs last week", delta_direction="positive"
+        )
         assert card is not None
 
     def test_kpi_row(self):
         from components.cards import build_kpi_row
+
         kpis = [
             {"label": "A", "value": "1"},
             {"label": "B", "value": "2", "delta": "+5%", "direction": "positive"},
@@ -81,22 +86,32 @@ class TestCardComponents:
 
     def test_welcome_card(self):
         from components.cards import build_welcome_card
+
         card = build_welcome_card("Test Title", "Test message", avatar="🔬", color="#9467bd")
         assert card is not None
 
     def test_alert_card_critical(self):
         from components.cards import build_alert_card
-        card = build_alert_card("Excessive Heat Warning", "Heat index up to 115°F", severity="critical")
+
+        card = build_alert_card(
+            "Excessive Heat Warning", "Heat index up to 115°F", severity="critical"
+        )
         assert card is not None
 
     def test_alert_card_info(self):
         from components.cards import build_alert_card
-        card = build_alert_card("Wind Advisory", "Gusts to 40mph", severity="info", expires="2024-07-15T20:00")
+
+        card = build_alert_card(
+            "Wind Advisory", "Gusts to 40mph", severity="info", expires="2024-07-15T20:00"
+        )
         assert card is not None
 
     def test_chart_container(self):
         from components.cards import build_chart_container
-        container = build_chart_container("test-chart", "Test Chart", height="400px", freshness="fresh")
+
+        container = build_chart_container(
+            "test-chart", "Test Chart", height="400px", freshness="fresh"
+        )
         assert container is not None
 
 
@@ -104,8 +119,9 @@ class TestDemoData:
     """Test demo data generation for all 8 regions."""
 
     def test_demo_demand_all_regions(self):
-        from data.demo_data import generate_demo_demand
         from config import REGION_COORDINATES
+        from data.demo_data import generate_demo_demand
+
         for region in REGION_COORDINATES:
             df = generate_demo_demand(region, days=7)
             assert len(df) == 7 * 24, f"Wrong row count for {region}"
@@ -114,8 +130,9 @@ class TestDemoData:
             assert df["region"].iloc[0] == region
 
     def test_demo_weather_all_regions(self):
-        from data.demo_data import generate_demo_weather
         from config import REGION_COORDINATES
+        from data.demo_data import generate_demo_weather
+
         for region in REGION_COORDINATES:
             df = generate_demo_weather(region, days=7)
             assert len(df) == 7 * 24
@@ -123,8 +140,9 @@ class TestDemoData:
             assert "wind_speed_80m" in df.columns
 
     def test_demo_generation_all_regions(self):
-        from data.demo_data import generate_demo_generation
         from config import REGION_COORDINATES
+        from data.demo_data import generate_demo_generation
+
         for region in REGION_COORDINATES:
             df = generate_demo_generation(region, days=7)
             assert len(df) > 0
@@ -132,8 +150,9 @@ class TestDemoData:
             assert len(fuel_types) >= 5, f"Too few fuel types for {region}: {fuel_types}"
 
     def test_demo_alerts(self):
-        from data.demo_data import generate_demo_alerts
         from config import REGION_COORDINATES
+        from data.demo_data import generate_demo_alerts
+
         for region in REGION_COORDINATES:
             alerts = generate_demo_alerts(region)
             assert isinstance(alerts, list)
@@ -148,6 +167,7 @@ class TestPersonaSwitching:
 
     def test_all_personas_produce_welcome_cards(self):
         from personas.config import PERSONAS, get_welcome_card
+
         for pid in PERSONAS:
             card = get_welcome_card(pid)
             assert card["title"], f"Empty title for {pid}"
@@ -155,22 +175,27 @@ class TestPersonaSwitching:
             assert card["default_tab"].startswith("tab-"), f"Invalid default tab for {pid}"
 
     def test_all_personas_have_valid_default_tabs(self):
-        from personas.config import PERSONAS
         from config import TAB_IDS
+        from personas.config import PERSONAS
+
         for pid, persona in PERSONAS.items():
-            assert persona.default_tab in TAB_IDS, \
+            assert persona.default_tab in TAB_IDS, (
                 f"Persona {pid} default tab '{persona.default_tab}' not in TAB_IDS"
+            )
 
     def test_all_personas_have_kpi_metrics(self):
         from personas.config import PERSONAS
+
         for pid, persona in PERSONAS.items():
-            assert len(persona.kpi_metrics) >= 3, \
+            assert len(persona.kpi_metrics) >= 3, (
                 f"Persona {pid} has too few KPI metrics: {persona.kpi_metrics}"
+            )
 
     def test_default_persona_is_grid_ops(self):
         """AC-7.7: Default persona on first load is Grid Ops."""
         from components.layout import build_layout
-        layout = build_layout()
+
+        build_layout()
         # The persona-selector default value should be grid_ops
         # (verified by the Select component's value parameter)
         assert True  # Layout construction succeeds with grid_ops default
@@ -181,11 +206,13 @@ class TestScenarioPresetIntegration:
 
     def test_all_presets_have_temperature(self):
         from simulation.presets import PRESETS
+
         for key, preset in PRESETS.items():
             assert "temperature_2m" in preset["weather"], f"Preset {key} missing temperature"
 
     def test_preset_weather_in_valid_ranges(self):
         from simulation.presets import PRESETS
+
         for key, preset in PRESETS.items():
             w = preset["weather"]
             temp = w["temperature_2m"]
@@ -195,8 +222,10 @@ class TestScenarioPresetIntegration:
                 assert 0 <= wind <= 200, f"Preset {key} wind {wind} out of range"
 
     def test_preset_regions_are_valid(self):
-        from simulation.presets import PRESETS
         from config import REGION_COORDINATES
+        from simulation.presets import PRESETS
+
         for key, preset in PRESETS.items():
-            assert preset["region"] in REGION_COORDINATES, \
+            assert preset["region"] in REGION_COORDINATES, (
                 f"Preset {key} region '{preset['region']}' not valid"
+            )

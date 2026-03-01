@@ -6,16 +6,14 @@ import pytest
 
 from data.feature_engineering import (
     compute_cdd,
-    compute_hdd,
-    compute_wind_power,
-    compute_solar_capacity_factor,
-    compute_cyclical_hour,
     compute_cyclical_dow,
+    compute_cyclical_hour,
+    compute_hdd,
     compute_holiday_flag,
     compute_lag,
     compute_ramp_rate,
-    compute_temp_hour_interaction,
-    compute_temperature_deviation,
+    compute_solar_capacity_factor,
+    compute_wind_power,
     engineer_features,
     get_feature_names,
 )
@@ -176,8 +174,9 @@ class TestEngineerFeatures:
 
     def test_no_nan_in_output(self, merged_df):
         result = engineer_features(merged_df)
-        feature_cols = [c for c in result.select_dtypes(include=[np.number]).columns
-                        if c not in {"forecast_mw"}]
+        feature_cols = [
+            c for c in result.select_dtypes(include=[np.number]).columns if c not in {"forecast_mw"}
+        ]
         # After dropna, there should be no NaN
         assert result[feature_cols].isna().sum().sum() == 0
 

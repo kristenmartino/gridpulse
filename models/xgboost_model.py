@@ -56,7 +56,7 @@ def train_xgboost(
         params = DEFAULT_PARAMS.copy()
 
     feature_cols = _get_feature_cols(df)
-    X = df[feature_cols].values
+    X = df[feature_cols].values  # noqa: N806
     y = df[target_col].values
 
     log.info("xgboost_training", features=len(feature_cols), samples=len(X), n_splits=n_splits)
@@ -69,12 +69,13 @@ def train_xgboost(
         # Verify no leakage: all train indices < all val indices
         assert train_idx.max() < val_idx.min(), "TimeSeriesSplit leakage detected"
 
-        X_train, X_val = X[train_idx], X[val_idx]
+        X_train, X_val = X[train_idx], X[val_idx]  # noqa: N806
         y_train, y_val = y[train_idx], y[val_idx]
 
         fold_model = XGBRegressor(**params)
         fold_model.fit(
-            X_train, y_train,
+            X_train,
+            y_train,
             eval_set=[(X_val, y_val)],
             verbose=False,
         )
@@ -100,7 +101,7 @@ def train_xgboost(
     return {
         "model": model,
         "feature_names": feature_cols,
-        "feature_importances": dict(zip(feature_cols, importances.tolist())),
+        "feature_importances": dict(zip(feature_cols, importances.tolist(), strict=False)),
         "cv_scores": cv_scores,
     }
 
@@ -130,7 +131,7 @@ def predict_xgboost(
             df = df.copy()
             df[col] = 0.0
 
-    X = df[feature_cols].values
+    X = df[feature_cols].values  # noqa: N806
     predictions = model.predict(X)
 
     # Clamp negative predictions
@@ -159,11 +160,11 @@ def compute_shap_values(
 
     model = model_dict["model"]
     feature_cols = model_dict["feature_names"]
-    X = df[feature_cols].values
+    X = df[feature_cols].values  # noqa: N806
 
     if len(X) > max_samples:
         indices = np.random.choice(len(X), max_samples, replace=False)
-        X = X[indices]
+        X = X[indices]  # noqa: N806
 
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X)
@@ -179,10 +180,7 @@ def compute_shap_values(
 
 def _get_feature_cols(df: pd.DataFrame) -> list[str]:
     """Get numeric feature columns, excluding target and metadata."""
-    return [
-        col for col in df.select_dtypes(include=[np.number]).columns
-        if col not in EXCLUDE_COLS
-    ]
+    return [col for col in df.select_dtypes(include=[np.number]).columns if col not in EXCLUDE_COLS]
 
 
 def _compute_mape(actual: np.ndarray, predicted: np.ndarray) -> float:

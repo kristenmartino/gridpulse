@@ -19,7 +19,6 @@ import json
 import sqlite3
 import time
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -148,9 +147,7 @@ class Cache:
     def get_age_seconds(self, key: str) -> float | None:
         """Get the age of a cached entry in seconds. Returns None if not found."""
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT created_at FROM cache WHERE key = ?", (key,)
-            ).fetchone()
+            row = conn.execute("SELECT created_at FROM cache WHERE key = ?", (key,)).fetchone()
         if row is None:
             return None
         return time.time() - row[0]
