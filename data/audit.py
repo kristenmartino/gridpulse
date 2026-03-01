@@ -12,9 +12,8 @@ or model version.
 
 import hashlib
 import json
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
-from typing import Any
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 
 import structlog
 
@@ -38,8 +37,8 @@ class AuditRecord:
     ensemble_weights: dict[str, float] = field(default_factory=dict)
 
     # Data lineage
-    demand_source: str = ""          # "eia_api" | "cache_stale" | "demo"
-    weather_source: str = ""         # "open_meteo" | "cache_stale" | "demo"
+    demand_source: str = ""  # "eia_api" | "cache_stale" | "demo"
+    weather_source: str = ""  # "open_meteo" | "cache_stale" | "demo"
     demand_rows: int = 0
     weather_rows: int = 0
     demand_range: tuple[str, str] = ("", "")
@@ -47,12 +46,12 @@ class AuditRecord:
 
     # Feature lineage
     feature_count: int = 0
-    feature_hash: str = ""           # SHA-256 of feature column names
+    feature_hash: str = ""  # SHA-256 of feature column names
 
     # Outputs
     mape: dict[str, float] = field(default_factory=dict)
     peak_forecast_mw: float = 0.0
-    forecast_source: str = ""        # "trained_model" | "simulated"
+    forecast_source: str = ""  # "trained_model" | "simulated"
 
     def to_dict(self) -> dict:
         """Serialize to dict for JSON storage."""
@@ -97,11 +96,9 @@ class AuditTrail:
 
         Called by load_data / model_service after each forecast cycle.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         feature_names = feature_names or []
-        feature_hash = hashlib.sha256(
-            ",".join(sorted(feature_names)).encode()
-        ).hexdigest()[:16]
+        feature_hash = hashlib.sha256(",".join(sorted(feature_names)).encode()).hexdigest()[:16]
 
         record = AuditRecord(
             record_id=f"{region}-{now.strftime('%Y%m%d%H%M%S')}",
@@ -125,7 +122,7 @@ class AuditTrail:
 
         self._records.append(record)
         if len(self._records) > self._max_records:
-            self._records = self._records[-self._max_records:]
+            self._records = self._records[-self._max_records :]
 
         log.info(
             "forecast_audit",

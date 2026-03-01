@@ -8,30 +8,31 @@ Verifies:
 - Region consistency (same input → same output)
 """
 
-import numpy as np
-import pandas as pd
-import pytest
 import sys
 from unittest.mock import MagicMock
+
+import numpy as np
+import pytest
 
 # Mock heavy deps
 for mod in ["structlog", "prophet", "xgboost", "pmdarima", "shap"]:
     if mod not in sys.modules:
         sys.modules[mod] = MagicMock()
 
-from models.model_service import (
+from config import REGION_COORDINATES  # noqa: E402
+from models.model_service import (  # noqa: E402
+    get_ensemble_weights,
     get_forecasts,
     get_model_metrics,
-    get_ensemble_weights,
     is_trained,
 )
-from config import REGION_COORDINATES
 
 
 @pytest.fixture
 def sample_demand():
     """168-hour demand DataFrame."""
     from data.demo_data import generate_demo_demand
+
     return generate_demo_demand("FPL", days=7)
 
 
@@ -81,6 +82,7 @@ class TestGetForecasts:
     def test_different_regions_differ(self, sample_demand):
         """Different regions produce different forecasts."""
         from data.demo_data import generate_demo_demand
+
         r1 = get_forecasts("FPL", sample_demand)
         r2 = get_forecasts("ERCOT", generate_demo_demand("ERCOT", days=7))
         # Forecasts should differ (different seeds + different demand)
@@ -98,6 +100,7 @@ class TestGetForecasts:
     @pytest.mark.parametrize("region", list(REGION_COORDINATES.keys()))
     def test_all_regions_produce_forecasts(self, region):
         from data.demo_data import generate_demo_demand
+
         df = generate_demo_demand(region, days=2)
         result = get_forecasts(region, df)
         assert len(result["ensemble"]) == len(df)

@@ -125,14 +125,13 @@ def compute_error_by_hour(
     """
     abs_errors = np.abs(np.asarray(actual) - np.asarray(predicted))
     # Handle both Series and DatetimeIndex
-    if isinstance(timestamps, pd.DatetimeIndex):
-        hours = timestamps.hour
-    else:
-        hours = timestamps.dt.hour
-    df = pd.DataFrame({
-        "hour": hours,
-        "abs_error": abs_errors,
-    })
+    hours = timestamps.hour if isinstance(timestamps, pd.DatetimeIndex) else timestamps.dt.hour
+    df = pd.DataFrame(
+        {
+            "hour": hours,
+            "abs_error": abs_errors,
+        }
+    )
     grouped = df.groupby("hour")["abs_error"].agg(["mean", "std", "count"])
     grouped = grouped.rename(columns={"mean": "mean_abs_error", "std": "std_abs_error"})
     return grouped.reset_index()

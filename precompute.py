@@ -20,11 +20,11 @@ import pandas as pd
 import structlog
 
 from config import (
-    PRECOMPUTE_DEFAULT_REGION,
+    EIA_API_KEY,
     PRECOMPUTE_ALL_REGIONS,
+    PRECOMPUTE_DEFAULT_REGION,
     PRECOMPUTE_MAX_WORKERS,
     REGION_COORDINATES,
-    EIA_API_KEY,
 )
 
 log = structlog.get_logger()
@@ -36,8 +36,11 @@ _region_data: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
 def precompute_all() -> None:
     """Entry point. Called from app.py at startup. Never raises."""
     t0 = time.time()
-    log.info("precompute_start", default_region=PRECOMPUTE_DEFAULT_REGION,
-             all_regions=PRECOMPUTE_ALL_REGIONS)
+    log.info(
+        "precompute_start",
+        default_region=PRECOMPUTE_DEFAULT_REGION,
+        all_regions=PRECOMPUTE_ALL_REGIONS,
+    )
 
     try:
         # Phase 1: All regions — fetch data + train models + predictions (fast, ~15s)
@@ -100,8 +103,9 @@ def _backtest_all_parallel(regions: list[str]) -> None:
             try:
                 future.result()
             except Exception as e:
-                log.warning("precompute_backtest_failed", region=region,
-                            horizon=horizon, error=str(e))
+                log.warning(
+                    "precompute_backtest_failed", region=region, horizon=horizon, error=str(e)
+                )
 
 
 def _train_region(region: str) -> None:
@@ -112,8 +116,8 @@ def _train_region(region: str) -> None:
     demand_df, weather_df = _region_data[region]
 
     try:
-        from data.preprocessing import merge_demand_weather
         from data.feature_engineering import engineer_features
+        from data.preprocessing import merge_demand_weather
 
         merged_df = merge_demand_weather(demand_df, weather_df)
         featured_df = engineer_features(merged_df)
@@ -135,25 +139,33 @@ def _fetch_data(region: str) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
         if EIA_API_KEY and EIA_API_KEY != "your_eia_api_key_here":
             from data.eia_client import fetch_demand
             from data.weather_client import fetch_weather
+
             try:
                 demand_df = fetch_demand(region)
             except Exception as e:
                 log.warning("precompute_demand_fallback", region=region, error=str(e))
                 from data.demo_data import generate_demo_demand
+
                 demand_df = generate_demo_demand(region)
             try:
                 weather_df = fetch_weather(region)
             except Exception as e:
                 log.warning("precompute_weather_fallback", region=region, error=str(e))
                 from data.demo_data import generate_demo_weather
+
                 weather_df = generate_demo_weather(region)
         else:
             from data.demo_data import generate_demo_demand, generate_demo_weather
+
             demand_df = generate_demo_demand(region)
             weather_df = generate_demo_weather(region)
 
-        log.info("precompute_data_fetched", region=region,
-                 demand_rows=len(demand_df), weather_rows=len(weather_df))
+        log.info(
+            "precompute_data_fetched",
+            region=region,
+            demand_rows=len(demand_df),
+            weather_rows=len(weather_df),
+        )
         return demand_df, weather_df
 
     except Exception as e:
@@ -168,8 +180,7 @@ def _precompute_model_and_predictions(
     featured_df: pd.DataFrame,
 ) -> None:
     """Train XGBoost model and generate predictions for all horizons."""
-    from components.callbacks import _MODEL_CACHE
-    from components.callbacks import _run_forecast_outlook
+    from components.callbacks import _MODEL_CACHE, _run_forecast_outlook
 
     data_hash = hash((len(demand_df), len(weather_df), region))
 
@@ -187,8 +198,9 @@ def _precompute_model_and_predictions(
                 if "error" not in result:
                     log.info("precompute_predictions_cached", region=region, horizon=horizon)
             except Exception as e:
-                log.warning("precompute_prediction_error", region=region,
-                            horizon=horizon, error=str(e))
+                log.warning(
+                    "precompute_prediction_error", region=region, horizon=horizon, error=str(e)
+                )
 
     except Exception as e:
         log.warning("precompute_model_training_failed", region=region, error=str(e))
@@ -207,8 +219,11 @@ def _precompute_backtest(region: str, horizon: int) -> None:
         if "error" not in result:
             log.info("precompute_backtest_cached", region=region, horizon=horizon)
         else:
-            log.warning("precompute_backtest_error", region=region,
-                        horizon=horizon, error=result.get("error"))
+            log.warning(
+                "precompute_backtest_error",
+                region=region,
+                horizon=horizon,
+                error=result.get("error"),
+            )
     except Exception as e:
-        log.warning("precompute_backtest_error", region=region,
-                    horizon=horizon, error=str(e))
+        log.warning("precompute_backtest_error", region=region, horizon=horizon, error=str(e))

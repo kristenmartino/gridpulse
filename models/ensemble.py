@@ -73,7 +73,11 @@ def ensemble_combine(
     lengths = [len(a) for a in arrays]
     if len(set(lengths)) > 1:
         min_len = min(lengths)
-        log.warning("ensemble_length_mismatch", lengths=dict(zip(model_names, lengths)), truncating_to=min_len)
+        log.warning(
+            "ensemble_length_mismatch",
+            lengths=dict(zip(model_names, lengths, strict=False)),
+            truncating_to=min_len,
+        )
         arrays = [a[:min_len] for a in arrays]
 
     if weights is None:
@@ -89,7 +93,7 @@ def ensemble_combine(
 
     # Weighted average
     result = np.zeros(len(arrays[0]))
-    for name, arr in zip(model_names, arrays):
+    for name, arr in zip(model_names, arrays, strict=False):
         result += normalized[name] * arr
 
     # Verify ensemble is bounded by individual forecasts

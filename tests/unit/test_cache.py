@@ -3,7 +3,6 @@
 import time
 
 import pandas as pd
-import pytest
 
 from data.cache import Cache
 

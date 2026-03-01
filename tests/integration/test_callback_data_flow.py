@@ -18,10 +18,9 @@ import pytest
 from config import REGION_COORDINATES
 from data.demo_data import (
     generate_demo_demand,
-    generate_demo_weather,
     generate_demo_generation,
+    generate_demo_weather,
 )
-
 
 # ── Bug #1: JSON serialization roundtrip ──────────────────────────
 

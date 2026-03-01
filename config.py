@@ -6,6 +6,7 @@ Source of truth for values referenced across data/, models/, simulation/, person
 """
 
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -31,14 +32,39 @@ DEBUG = ENVIRONMENT == "development"
 # │ GUNICORN_WORKERS     │ 1          │ 2         │ 2          │
 # └──────────────────────┴────────────┴───────────┴────────────┘
 _ENV_DEFAULTS: dict[str, dict] = {
-    "development": {"cache_ttl": 86400, "min_inst": 0, "max_inst": 1, "demo": True, "profile": True, "workers": 1},
-    "staging":     {"cache_ttl": 86400, "min_inst": 0, "max_inst": 2, "demo": False, "profile": False, "workers": 2},
-    "production":  {"cache_ttl": 86400, "min_inst": 1, "max_inst": 4, "demo": False, "profile": False, "workers": 2},
+    "development": {
+        "cache_ttl": 86400,
+        "min_inst": 0,
+        "max_inst": 1,
+        "demo": True,
+        "profile": True,
+        "workers": 1,
+    },
+    "staging": {
+        "cache_ttl": 86400,
+        "min_inst": 0,
+        "max_inst": 2,
+        "demo": False,
+        "profile": False,
+        "workers": 2,
+    },
+    "production": {
+        "cache_ttl": 86400,
+        "min_inst": 1,
+        "max_inst": 4,
+        "demo": False,
+        "profile": False,
+        "workers": 2,
+    },
 }
 _env = _ENV_DEFAULTS.get(ENVIRONMENT, _ENV_DEFAULTS["development"])
 
 USE_DEMO_DATA = os.getenv("USE_DEMO_DATA", str(_env["demo"])).lower() in ("true", "1", "yes")
-ENABLE_PROFILING = os.getenv("ENABLE_PROFILING", str(_env["profile"])).lower() in ("true", "1", "yes")
+ENABLE_PROFILING = os.getenv("ENABLE_PROFILING", str(_env["profile"])).lower() in (
+    "true",
+    "1",
+    "yes",
+)
 GUNICORN_WORKERS = int(os.getenv("GUNICORN_WORKERS", str(_env["workers"])))
 MIN_INSTANCES = int(os.getenv("MIN_INSTANCES", str(_env["min_inst"])))
 MAX_INSTANCES = int(os.getenv("MAX_INSTANCES", str(_env["max_inst"])))
@@ -77,11 +103,11 @@ FORECAST_HORIZON_DAYS = 7
 REGION_COORDINATES: dict[str, dict] = {
     "ERCOT": {"lat": 31.0, "lon": -97.0, "name": "Texas (ERCOT)"},
     "CAISO": {"lat": 37.0, "lon": -120.0, "name": "California (CAISO)"},
-    "PJM":   {"lat": 39.5, "lon": -77.0, "name": "Mid-Atlantic (PJM)"},
-    "MISO":  {"lat": 41.0, "lon": -89.0, "name": "Midwest (MISO)"},
+    "PJM": {"lat": 39.5, "lon": -77.0, "name": "Mid-Atlantic (PJM)"},
+    "MISO": {"lat": 41.0, "lon": -89.0, "name": "Midwest (MISO)"},
     "NYISO": {"lat": 42.5, "lon": -74.0, "name": "New York (NYISO)"},
-    "FPL":   {"lat": 26.9, "lon": -80.1, "name": "Florida (FPL/NextEra)"},
-    "SPP":   {"lat": 35.5, "lon": -97.5, "name": "Southwest (SPP)"},
+    "FPL": {"lat": 26.9, "lon": -80.1, "name": "Florida (FPL/NextEra)"},
+    "SPP": {"lat": 35.5, "lon": -97.5, "name": "Southwest (SPP)"},
     "ISONE": {"lat": 42.3, "lon": -71.8, "name": "New England (ISO-NE)"},
 }
 
@@ -94,13 +120,13 @@ REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.item
 # ---------------------------------------------------------------------------
 REGION_CAPACITY_MW: dict[str, int] = {
     "ERCOT": 130_000,
-    "CAISO":  80_000,
-    "PJM":   185_000,
-    "MISO":  175_000,
-    "NYISO":  38_000,
-    "FPL":    32_000,
-    "SPP":    90_000,
-    "ISONE":  30_000,
+    "CAISO": 80_000,
+    "PJM": 185_000,
+    "MISO": 175_000,
+    "NYISO": 38_000,
+    "FPL": 32_000,
+    "SPP": 90_000,
+    "ISONE": 30_000,
 }
 
 # ---------------------------------------------------------------------------
@@ -111,11 +137,11 @@ REGION_CAPACITY_MW: dict[str, int] = {
 STATE_TO_BA: dict[str, list[str]] = {
     "ERCOT": ["TX"],
     "CAISO": ["CA"],
-    "PJM":   ["PA", "NJ", "MD", "DE", "VA", "WV", "OH", "DC", "NC", "IN", "IL", "MI", "KY", "TN"],
-    "MISO":  ["MN", "WI", "IA", "IL", "IN", "MI", "MO", "AR", "LA", "MS", "TX"],
+    "PJM": ["PA", "NJ", "MD", "DE", "VA", "WV", "OH", "DC", "NC", "IN", "IL", "MI", "KY", "TN"],
+    "MISO": ["MN", "WI", "IA", "IL", "IN", "MI", "MO", "AR", "LA", "MS", "TX"],
     "NYISO": ["NY"],
-    "FPL":   ["FL"],
-    "SPP":   ["KS", "OK", "NE", "SD", "ND", "AR", "LA", "MO", "NM", "TX"],
+    "FPL": ["FL"],
+    "SPP": ["KS", "OK", "NE", "SD", "ND", "AR", "LA", "MO", "NM", "TX"],
     "ISONE": ["CT", "MA", "ME", "NH", "RI", "VT"],
 }
 
@@ -196,29 +222,30 @@ PRICING_EMERGENCY_MULTIPLIER = 20.0
 # Data Quality / Staleness Thresholds (Backlog E2)
 # ---------------------------------------------------------------------------
 STALENESS_THRESHOLDS_SECONDS: dict[str, int] = {
-    "weather": 7200,      # 2 hours
-    "generation": 300,    # 5 minutes
-    "pricing": 900,       # 15 minutes
-    "demand": 3600,       # 1 hour
-    "alerts": 1800,       # 30 minutes
+    "weather": 7200,  # 2 hours
+    "generation": 300,  # 5 minutes
+    "pricing": 900,  # 15 minutes
+    "demand": 3600,  # 1 hour
+    "alerts": 1800,  # 30 minutes
 }
 
 # ---------------------------------------------------------------------------
 # Model Accuracy Thresholds (Backlog H2)
 # Governance: models exceeding ROLLBACK threshold are auto-disabled.
 # ---------------------------------------------------------------------------
-MAPE_THRESHOLD_EXCELLENT = 3.0    # % — exceeding expectations
-MAPE_THRESHOLD_TARGET = 5.0       # % — performing well
+MAPE_THRESHOLD_EXCELLENT = 3.0  # % — exceeding expectations
+MAPE_THRESHOLD_TARGET = 5.0  # % — performing well
 MAPE_THRESHOLD_ACCEPTABLE = 10.0  # % — model is usable
-MAPE_THRESHOLD_ROLLBACK = 15.0    # % — model disabled, fallback to next-best
+MAPE_THRESHOLD_ROLLBACK = 15.0  # % — model disabled, fallback to next-best
 
 # Per-horizon targets (longer horizons get more slack)
 MAPE_BY_HORIZON: dict[str, dict[str, float]] = {
-    "24h":  {"excellent": 2.0, "target": 3.5, "acceptable": 7.0,  "rollback": 12.0},
-    "48h":  {"excellent": 3.0, "target": 5.0, "acceptable": 10.0, "rollback": 15.0},
-    "72h":  {"excellent": 4.0, "target": 6.5, "acceptable": 12.0, "rollback": 18.0},
-    "7d":   {"excellent": 6.0, "target": 9.0, "acceptable": 15.0, "rollback": 22.0},
+    "24h": {"excellent": 2.0, "target": 3.5, "acceptable": 7.0, "rollback": 12.0},
+    "48h": {"excellent": 3.0, "target": 5.0, "acceptable": 10.0, "rollback": 15.0},
+    "72h": {"excellent": 4.0, "target": 6.5, "acceptable": 12.0, "rollback": 18.0},
+    "7d": {"excellent": 6.0, "target": 9.0, "acceptable": 15.0, "rollback": 22.0},
 }
+
 
 def mape_grade(mape: float, horizon: str = "48h") -> str:
     """Return a governance grade for the given MAPE and forecast horizon.
@@ -233,6 +260,7 @@ def mape_grade(mape: float, horizon: str = "48h") -> str:
     if mape <= thresholds["acceptable"]:
         return "acceptable"
     return "rollback"
+
 
 # ---------------------------------------------------------------------------
 # Performance Targets (Backlog F1)
@@ -265,17 +293,18 @@ PRECOMPUTE_MAX_WORKERS = int(os.getenv("PRECOMPUTE_MAX_WORKERS", "4"))
 # Feature Flags (Backlog J2 — simple in-code toggles)
 # ---------------------------------------------------------------------------
 FEATURE_FLAGS: dict[str, bool] = {
-    "tab_forecast":     True,
-    "tab_weather":      True,
-    "tab_models":       True,
-    "tab_generation":   True,
-    "tab_alerts":       True,
-    "tab_simulator":    True,
+    "tab_forecast": True,
+    "tab_weather": True,
+    "tab_models": True,
+    "tab_generation": True,
+    "tab_alerts": True,
+    "tab_simulator": True,
     "persona_switcher": True,
     "scenario_presets": True,
-    "scenario_bookmarks": True,   # Sprint 4 (C2)
+    "scenario_bookmarks": True,  # Sprint 4 (C2)
     "api_fallback_badges": True,  # Sprint 4 (G2)
 }
+
 
 def feature_enabled(flag: str) -> bool:
     """Check if a feature flag is enabled. Unknown flags default to True."""

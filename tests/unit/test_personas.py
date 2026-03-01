@@ -3,11 +3,10 @@
 import pytest
 
 from personas.config import (
-    get_persona,
-    list_personas,
-    get_welcome_card,
-    PERSONAS,
     Persona,
+    get_persona,
+    get_welcome_card,
+    list_personas,
 )
 
 

@@ -1,13 +1,11 @@
 """Unit tests for simulation/scenario_engine.py and simulation/presets.py."""
 
-import numpy as np
-import pandas as pd
 import pytest
 
-from simulation.presets import get_preset, list_presets, PRESETS
+from simulation.presets import PRESETS, get_preset, list_presets
 from simulation.scenario_engine import (
-    _recompute_derived_features,
     OVERRIDABLE_COLUMNS,
+    _recompute_derived_features,
 )
 
 
@@ -95,10 +93,15 @@ class TestOverridableColumns:
 
     def test_includes_all_weather_variables(self):
         from config import WEATHER_VARIABLES
+
         for var in WEATHER_VARIABLES:
             assert var in OVERRIDABLE_COLUMNS
 
     def test_includes_derived_energy_features(self):
-        for col in ["cooling_degree_days", "heating_degree_days",
-                     "wind_power_estimate", "solar_capacity_factor"]:
+        for col in [
+            "cooling_degree_days",
+            "heating_degree_days",
+            "wind_power_estimate",
+            "solar_capacity_factor",
+        ]:
             assert col in OVERRIDABLE_COLUMNS

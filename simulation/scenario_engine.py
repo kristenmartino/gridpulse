@@ -19,14 +19,14 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from config import WEATHER_VARIABLES, REGION_CAPACITY_MW
+from config import REGION_CAPACITY_MW, WEATHER_VARIABLES
 from data.feature_engineering import (
     compute_cdd,
     compute_hdd,
-    compute_wind_power,
     compute_solar_capacity_factor,
     compute_temp_hour_interaction,
     compute_temperature_deviation,
+    compute_wind_power,
 )
 from models.pricing import estimate_price_impact
 
@@ -70,8 +70,7 @@ def simulate_scenario(
     for col in weather_overrides:
         if col not in OVERRIDABLE_COLUMNS:
             raise ValueError(
-                f"Unknown weather column: '{col}'. "
-                f"Valid columns: {sorted(OVERRIDABLE_COLUMNS)}"
+                f"Unknown weather column: '{col}'. Valid columns: {sorted(OVERRIDABLE_COLUMNS)}"
             )
 
     # 1. Copy features (NEVER mutate input)
@@ -155,9 +154,7 @@ def _recompute_derived_features(df: pd.DataFrame) -> pd.DataFrame:
         df["solar_capacity_factor"] = compute_solar_capacity_factor(df["shortwave_radiation"])
 
     if "temperature_2m" in df.columns and "hour_sin" in df.columns:
-        df["temp_x_hour"] = compute_temp_hour_interaction(
-            df["temperature_2m"], df["hour_sin"]
-        )
+        df["temp_x_hour"] = compute_temp_hour_interaction(df["temperature_2m"], df["hour_sin"])
 
     return df
 
@@ -188,8 +185,9 @@ def _run_ensemble(features: pd.DataFrame, models: dict[str, Any]) -> np.ndarray:
     if "prophet_model" in models:
         try:
             from models.prophet_model import predict_prophet
+
             pred = predict_prophet(models["prophet_model"], features, periods=len(features))
-            forecasts["prophet"] = pred["forecast"][:len(features)]
+            forecasts["prophet"] = pred["forecast"][: len(features)]
         except Exception as e:
             log.warning("scenario_prophet_failed", error=str(e))
 
@@ -199,4 +197,5 @@ def _run_ensemble(features: pd.DataFrame, models: dict[str, Any]) -> np.ndarray:
 
     # Weighted ensemble
     from models.ensemble import ensemble_combine
+
     return ensemble_combine(forecasts, weights)

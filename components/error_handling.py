@@ -10,16 +10,17 @@ Provides:
 
 import functools
 import traceback
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import dash_bootstrap_components as dbc
-from dash import html
 import structlog
+from dash import html
 
 log = structlog.get_logger()
 
 
 # ── Safe Callback Decorator ───────────────────────────────────
+
 
 def safe_callback(*fallback_outputs):
     """
@@ -33,6 +34,7 @@ def safe_callback(*fallback_outputs):
         def update_chart(data):
             ...
     """
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -48,11 +50,14 @@ def safe_callback(*fallback_outputs):
                 if len(fallback_outputs) == 1:
                     return fallback_outputs[0]
                 return fallback_outputs
+
         return wrapper
+
     return decorator
 
 
 # ── Loading Components ────────────────────────────────────────
+
 
 def loading_spinner(message: str = "Loading data...") -> html.Div:
     """
@@ -60,23 +65,29 @@ def loading_spinner(message: str = "Loading data...") -> html.Div:
 
     Used as initial content for tab panels while data loads.
     """
-    return html.Div([
-        dbc.Spinner(
-            color="danger",
-            spinner_style={"width": "2rem", "height": "2rem"},
-        ),
-        html.P(message, style={
-            "color": "#8a8fa8",
-            "marginTop": "12px",
-            "fontSize": "0.9rem",
-        }),
-    ], style={
-        "display": "flex",
-        "flexDirection": "column",
-        "alignItems": "center",
-        "justifyContent": "center",
-        "padding": "60px 0",
-    })
+    return html.Div(
+        [
+            dbc.Spinner(
+                color="danger",
+                spinner_style={"width": "2rem", "height": "2rem"},
+            ),
+            html.P(
+                message,
+                style={
+                    "color": "#8a8fa8",
+                    "marginTop": "12px",
+                    "fontSize": "0.9rem",
+                },
+            ),
+        ],
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "justifyContent": "center",
+            "padding": "60px 0",
+        },
+    )
 
 
 def loading_overlay(component_id: str) -> dbc.Spinner:
@@ -95,6 +106,7 @@ def loading_overlay(component_id: str) -> dbc.Spinner:
 
 # ── Empty State Components ────────────────────────────────────
 
+
 def empty_state(
     title: str = "No Data Available",
     message: str = "Select a region to load data.",
@@ -103,18 +115,21 @@ def empty_state(
     """
     Empty state placeholder when no data is loaded.
     """
-    return html.Div([
-        html.Div(icon, style={"fontSize": "2.5rem", "marginBottom": "12px"}),
-        html.H5(title, style={"color": "#e0e0e0", "marginBottom": "6px"}),
-        html.P(message, style={"color": "#8a8fa8", "fontSize": "0.85rem"}),
-    ], style={
-        "display": "flex",
-        "flexDirection": "column",
-        "alignItems": "center",
-        "justifyContent": "center",
-        "padding": "60px 0",
-        "textAlign": "center",
-    })
+    return html.Div(
+        [
+            html.Div(icon, style={"fontSize": "2.5rem", "marginBottom": "12px"}),
+            html.H5(title, style={"color": "#e0e0e0", "marginBottom": "6px"}),
+            html.P(message, style={"color": "#8a8fa8", "fontSize": "0.85rem"}),
+        ],
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "justifyContent": "center",
+            "padding": "60px 0",
+            "textAlign": "center",
+        },
+    )
 
 
 def error_state(
@@ -131,49 +146,58 @@ def error_state(
         html.P(message, style={"color": "#8a8fa8", "fontSize": "0.85rem"}),
     ]
     if error_detail:
-        children.append(html.Pre(
-            error_detail[:200],
-            style={
-                "color": "#666",
-                "fontSize": "0.7rem",
-                "marginTop": "12px",
-                "padding": "8px",
-                "background": "#0f1a2e",
-                "borderRadius": "4px",
-                "maxWidth": "400px",
-                "overflow": "hidden",
-            },
-        ))
-    return html.Div(children, style={
-        "display": "flex",
-        "flexDirection": "column",
-        "alignItems": "center",
-        "justifyContent": "center",
-        "padding": "60px 0",
-        "textAlign": "center",
-    })
+        children.append(
+            html.Pre(
+                error_detail[:200],
+                style={
+                    "color": "#666",
+                    "fontSize": "0.7rem",
+                    "marginTop": "12px",
+                    "padding": "8px",
+                    "background": "#0f1a2e",
+                    "borderRadius": "4px",
+                    "maxWidth": "400px",
+                    "overflow": "hidden",
+                },
+            )
+        )
+    return html.Div(
+        children,
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "justifyContent": "center",
+            "padding": "60px 0",
+            "textAlign": "center",
+        },
+    )
 
 
 def api_error_state(api_name: str = "API") -> html.Div:
     """
     Error state specific to API failures (using stale data fallback).
     """
-    return html.Div([
-        html.Div("🔄", style={"fontSize": "1.5rem", "marginBottom": "8px"}),
-        html.P(
-            f"{api_name} is currently unavailable. Showing cached data.",
-            style={"color": "#ffb74d", "fontSize": "0.8rem", "margin": 0},
-        ),
-    ], style={
-        "background": "rgba(255, 183, 77, 0.1)",
-        "borderRadius": "6px",
-        "padding": "10px 16px",
-        "marginBottom": "8px",
-        "textAlign": "center",
-    })
+    return html.Div(
+        [
+            html.Div("🔄", style={"fontSize": "1.5rem", "marginBottom": "8px"}),
+            html.P(
+                f"{api_name} is currently unavailable. Showing cached data.",
+                style={"color": "#ffb74d", "fontSize": "0.8rem", "margin": 0},
+            ),
+        ],
+        style={
+            "background": "rgba(255, 183, 77, 0.1)",
+            "borderRadius": "6px",
+            "padding": "10px 16px",
+            "marginBottom": "8px",
+            "textAlign": "center",
+        },
+    )
 
 
 # ── Data Freshness Badge ─────────────────────────────────────
+
 
 def freshness_badge(
     last_updated: datetime | None,
@@ -194,7 +218,7 @@ def freshness_badge(
     if last_updated is None:
         return html.Span("No data", className="freshness-badge expired")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     age_seconds = (now - last_updated).total_seconds()
 
     if age_seconds < stale_threshold_seconds:
@@ -217,7 +241,7 @@ def format_last_updated(dt: datetime | None) -> str:
     """Format a datetime for display in the header."""
     if dt is None:
         return "Never"
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     delta = now - dt
     if delta.total_seconds() < 60:
         return "Just now"
@@ -233,14 +257,30 @@ def format_last_updated(dt: datetime | None) -> str:
 
 # Confidence levels map data source status to a user-visible reliability tier
 CONFIDENCE_LEVELS = {
-    "high": {"emoji": "🟢", "label": "High", "color": "#4caf50",
-             "description": "Live data from verified source"},
-    "medium": {"emoji": "🟡", "label": "Medium", "color": "#ffb74d",
-               "description": "Data may be stale or partially unavailable"},
-    "low": {"emoji": "🔴", "label": "Low", "color": "#e94560",
-            "description": "Using fallback data — verify before decisions"},
-    "demo": {"emoji": "🧪", "label": "Demo", "color": "#8a8fa8",
-             "description": "Synthetic demo data — not real"},
+    "high": {
+        "emoji": "🟢",
+        "label": "High",
+        "color": "#4caf50",
+        "description": "Live data from verified source",
+    },
+    "medium": {
+        "emoji": "🟡",
+        "label": "Medium",
+        "color": "#ffb74d",
+        "description": "Data may be stale or partially unavailable",
+    },
+    "low": {
+        "emoji": "🔴",
+        "label": "Low",
+        "color": "#e94560",
+        "description": "Using fallback data — verify before decisions",
+    },
+    "demo": {
+        "emoji": "🧪",
+        "label": "Demo",
+        "color": "#8a8fa8",
+        "description": "Synthetic demo data — not real",
+    },
 }
 
 
@@ -293,15 +333,22 @@ def confidence_badge(
     level = CONFIDENCE_LEVELS.get(confidence, CONFIDENCE_LEVELS["low"])
     parts = [
         html.Span(level["emoji"], style={"marginRight": "4px"}),
-        html.Span(widget_name, style={
-            "fontWeight": "600", "color": level["color"], "marginRight": "4px",
-        }),
+        html.Span(
+            widget_name,
+            style={
+                "fontWeight": "600",
+                "color": level["color"],
+                "marginRight": "4px",
+            },
+        ),
     ]
     if age_text:
-        parts.append(html.Span(
-            f"· {age_text}",
-            style={"color": "#8a8fa8", "fontSize": "0.7rem"},
-        ))
+        parts.append(
+            html.Span(
+                f"· {age_text}",
+                style={"color": "#8a8fa8", "fontSize": "0.7rem"},
+            )
+        )
 
     return html.Div(
         parts,
@@ -332,7 +379,6 @@ def widget_confidence_bar(
     Returns:
         Horizontal bar of confidence badges (E3 + A4 combined).
     """
-    from components.error_handling import format_last_updated
 
     age_text = ""
     if age_seconds is not None:

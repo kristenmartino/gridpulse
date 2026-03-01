@@ -7,12 +7,12 @@ renewable energy, and grid operations.
 API docs: https://newsapi.org/docs
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import requests
 import structlog
 
-from config import NEWS_API_KEY, NEWS_API_BASE_URL
+from config import NEWS_API_BASE_URL, NEWS_API_KEY
 from data.cache import get_cache
 
 log = structlog.get_logger()
@@ -65,7 +65,7 @@ def fetch_energy_news(
             "language": "en",
             "sortBy": "publishedAt",
             "pageSize": min(page_size, 100),
-            "from": (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d"),
+            "from": (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%d"),
         }
 
         response = requests.get(url, params=params, timeout=10)
@@ -97,21 +97,23 @@ def _parse_articles(raw_articles: list[dict]) -> list[dict]:
         if article.get("title") == "[Removed]":
             continue
 
-        articles.append({
-            "title": article.get("title", ""),
-            "description": article.get("description", ""),
-            "url": article.get("url", ""),
-            "source": article.get("source", {}).get("name", "Unknown"),
-            "published_at": article.get("publishedAt", ""),
-            "image_url": article.get("urlToImage"),
-        })
+        articles.append(
+            {
+                "title": article.get("title", ""),
+                "description": article.get("description", ""),
+                "url": article.get("url", ""),
+                "source": article.get("source", {}).get("name", "Unknown"),
+                "published_at": article.get("publishedAt", ""),
+                "image_url": article.get("urlToImage"),
+            }
+        )
 
     return articles
 
 
 def _get_demo_news() -> list[dict]:
     """Return demo news articles when API is unavailable."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return [
         {
             "title": "ERCOT Reports Record Solar Generation Amid Summer Heat",

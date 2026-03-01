@@ -12,17 +12,15 @@ Key design decisions:
 API docs: https://open-meteo.com/en/docs
 """
 
-from datetime import datetime, timedelta, timezone
-
 import pandas as pd
 import requests
 import structlog
 
 from config import (
+    CACHE_TTL_SECONDS,
     OPEN_METEO_BASE_URL,
     REGION_COORDINATES,
     WEATHER_VARIABLES,
-    CACHE_TTL_SECONDS,
 )
 from data.cache import get_cache
 

@@ -5,10 +5,9 @@ Tests the chain: API response → parse → cache → merge → preprocess → f
 All external APIs are mocked — these tests run offline.
 """
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
-import pandas as pd
-import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestDataPipelineIntegration:
@@ -59,8 +58,8 @@ class TestDataPipelineIntegration:
 
     def test_full_feature_pipeline(self, sample_demand_df, sample_weather_df):
         """demand + weather → merge → preprocess → features → model-ready."""
-        from data.preprocessing import merge_demand_weather, handle_missing_values
         from data.feature_engineering import engineer_features
+        from data.preprocessing import handle_missing_values, merge_demand_weather
 
         # Merge
         merged = merge_demand_weather(sample_demand_df, sample_weather_df)
@@ -89,6 +88,7 @@ class TestDataPipelineIntegration:
         tmp_cache.set("api_data", {"value": 42}, ttl=0)
 
         import time
+
         time.sleep(0.05)
 
         # Fresh get returns None

@@ -16,11 +16,11 @@ import pandas as pd
 import structlog
 
 from config import (
+    AIR_DENSITY_KG_M3,
     CDD_HDD_BASELINE_F,
     MPH_TO_MS,
-    WIND_CUTOUT_SPEED_MS,
     SOLAR_RATED_IRRADIANCE,
-    AIR_DENSITY_KG_M3,
+    WIND_CUTOUT_SPEED_MS,
 )
 
 log = structlog.get_logger()
@@ -28,6 +28,7 @@ log = structlog.get_logger()
 # US federal holidays
 try:
     import holidays as holidays_lib
+
     US_HOLIDAYS = holidays_lib.US()
 except ImportError:
     US_HOLIDAYS = {}
@@ -91,9 +92,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- Interaction terms ---
     if "temperature_2m" in df.columns and "hour_sin" in df.columns:
-        df["temp_x_hour"] = compute_temp_hour_interaction(
-            df["temperature_2m"], df["hour_sin"]
-        )
+        df["temp_x_hour"] = compute_temp_hour_interaction(df["temperature_2m"], df["hour_sin"])
 
     # --- Drop rows with NaN (from lag/rolling features at the start) ---
     initial_rows = len(df)
@@ -182,16 +181,17 @@ def compute_wind_power(wind_speed_mph: pd.Series) -> pd.Series:
     # P = 0.5 * rho * A * v^3 — we normalize by rated conditions
     # Using v=12 m/s as rated speed (typical for modern turbines)
     rated_speed_ms = 12.0
-    rated_power = 0.5 * AIR_DENSITY_KG_M3 * 1.0 * (rated_speed_ms ** 3)
+    rated_power = 0.5 * AIR_DENSITY_KG_M3 * 1.0 * (rated_speed_ms**3)
 
-    raw_power = 0.5 * AIR_DENSITY_KG_M3 * 1.0 * (v_ms ** 3)
+    raw_power = 0.5 * AIR_DENSITY_KG_M3 * 1.0 * (v_ms**3)
     normalized = raw_power / rated_power
 
     # Apply cut-in (3 m/s) and cutout (25 m/s) speeds
     cut_in_ms = 3.0
     result = np.where(
-        v_ms < cut_in_ms, 0.0,
-        np.where(v_ms > WIND_CUTOUT_SPEED_MS, 0.0, np.minimum(normalized, 1.0))
+        v_ms < cut_in_ms,
+        0.0,
+        np.where(v_ms > WIND_CUTOUT_SPEED_MS, 0.0, np.minimum(normalized, 1.0)),
     )
 
     return pd.Series(result, index=wind_speed_mph.index, dtype=float)
@@ -320,10 +320,7 @@ def compute_temp_hour_interaction(temperature: pd.Series, hour_sin: pd.Series) -
 def _get_feature_columns(df: pd.DataFrame) -> list[str]:
     """Get list of numeric feature columns (excludes timestamp, metadata)."""
     exclude = {"timestamp", "region", "data_quality", "forecast_mw"}
-    return [
-        col for col in df.select_dtypes(include=[np.number]).columns
-        if col not in exclude
-    ]
+    return [col for col in df.select_dtypes(include=[np.number]).columns if col not in exclude]
 
 
 def get_feature_names() -> list[str]:
@@ -334,21 +331,48 @@ def get_feature_names() -> list[str]:
     """
     return [
         # Raw weather
-        "temperature_2m", "apparent_temperature", "relative_humidity_2m",
-        "dew_point_2m", "wind_speed_10m", "wind_speed_80m", "wind_speed_120m",
-        "wind_direction_10m", "shortwave_radiation", "direct_normal_irradiance",
-        "diffuse_radiation", "cloud_cover", "precipitation", "snowfall",
-        "surface_pressure", "soil_temperature_0cm", "weather_code",
+        "temperature_2m",
+        "apparent_temperature",
+        "relative_humidity_2m",
+        "dew_point_2m",
+        "wind_speed_10m",
+        "wind_speed_80m",
+        "wind_speed_120m",
+        "wind_direction_10m",
+        "shortwave_radiation",
+        "direct_normal_irradiance",
+        "diffuse_radiation",
+        "cloud_cover",
+        "precipitation",
+        "snowfall",
+        "surface_pressure",
+        "soil_temperature_0cm",
+        "weather_code",
         # Derived
-        "cooling_degree_days", "heating_degree_days", "temperature_deviation",
-        "wind_power_estimate", "solar_capacity_factor",
-        "hour_sin", "hour_cos", "dow_sin", "dow_cos", "is_holiday",
-        "demand_lag_24h", "demand_lag_168h", "ramp_rate",
-        "demand_roll_24h_mean", "demand_roll_24h_std",
-        "demand_roll_24h_min", "demand_roll_24h_max",
-        "demand_roll_72h_mean", "demand_roll_72h_std",
-        "demand_roll_72h_min", "demand_roll_72h_max",
-        "demand_roll_168h_mean", "demand_roll_168h_std",
-        "demand_roll_168h_min", "demand_roll_168h_max",
+        "cooling_degree_days",
+        "heating_degree_days",
+        "temperature_deviation",
+        "wind_power_estimate",
+        "solar_capacity_factor",
+        "hour_sin",
+        "hour_cos",
+        "dow_sin",
+        "dow_cos",
+        "is_holiday",
+        "demand_lag_24h",
+        "demand_lag_168h",
+        "ramp_rate",
+        "demand_roll_24h_mean",
+        "demand_roll_24h_std",
+        "demand_roll_24h_min",
+        "demand_roll_24h_max",
+        "demand_roll_72h_mean",
+        "demand_roll_72h_std",
+        "demand_roll_72h_min",
+        "demand_roll_72h_max",
+        "demand_roll_168h_mean",
+        "demand_roll_168h_std",
+        "demand_roll_168h_min",
+        "demand_roll_168h_max",
         "temp_x_hour",
     ]

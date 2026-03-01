@@ -13,48 +13,49 @@ Provides:
 # Based on Wong (2011) "Points of View: Color blindness" Nature Methods.
 
 CB_PALETTE = {
-    "blue":       "#0072B2",  # Actual demand
-    "orange":     "#E69F00",  # Prophet
-    "green":      "#009E73",  # ARIMA / positive
+    "blue": "#0072B2",  # Actual demand
+    "orange": "#E69F00",  # Prophet
+    "green": "#009E73",  # ARIMA / positive
     "vermillion": "#D55E00",  # Ensemble / alert
-    "sky_blue":   "#56B4E9",  # XGBoost / info
-    "yellow":     "#F0E442",  # Solar / warning
-    "purple":     "#CC79A7",  # Nuclear
-    "black":      "#000000",
+    "sky_blue": "#56B4E9",  # XGBoost / info
+    "yellow": "#F0E442",  # Solar / warning
+    "purple": "#CC79A7",  # Nuclear
+    "black": "#000000",
 }
 
 # Chart line styles paired with colors for double-encoding
 # (color + dash pattern = accessible even in grayscale)
 LINE_STYLES = {
-    "actual":       {"color": CB_PALETTE["blue"],       "dash": "solid", "width": 2},
-    "prophet":      {"color": CB_PALETTE["orange"],     "dash": "dash",  "width": 1.5},
-    "arima":        {"color": CB_PALETTE["green"],      "dash": "dot",   "width": 1.5},
-    "xgboost":      {"color": CB_PALETTE["sky_blue"],   "dash": "dashdot", "width": 1.5},
-    "ensemble":     {"color": CB_PALETTE["vermillion"], "dash": "solid", "width": 3},
-    "eia_forecast": {"color": "#7f7f7f",                "dash": "dot",   "width": 1},
-    "temperature":  {"color": CB_PALETTE["yellow"],     "dash": "solid", "width": 1.5},
+    "actual": {"color": CB_PALETTE["blue"], "dash": "solid", "width": 2},
+    "prophet": {"color": CB_PALETTE["orange"], "dash": "dash", "width": 1.5},
+    "arima": {"color": CB_PALETTE["green"], "dash": "dot", "width": 1.5},
+    "xgboost": {"color": CB_PALETTE["sky_blue"], "dash": "dashdot", "width": 1.5},
+    "ensemble": {"color": CB_PALETTE["vermillion"], "dash": "solid", "width": 3},
+    "eia_forecast": {"color": "#7f7f7f", "dash": "dot", "width": 1},
+    "temperature": {"color": CB_PALETTE["yellow"], "dash": "solid", "width": 1.5},
 }
 
 # Fuel type colors (accessible)
 FUEL_COLORS = {
     "nuclear": CB_PALETTE["purple"],
-    "coal":    "#7f7f7f",
-    "gas":     CB_PALETTE["orange"],
-    "hydro":   CB_PALETTE["blue"],
-    "wind":    CB_PALETTE["green"],
-    "solar":   CB_PALETTE["yellow"],
-    "other":   "#b0b0b0",
+    "coal": "#7f7f7f",
+    "gas": CB_PALETTE["orange"],
+    "hydro": CB_PALETTE["blue"],
+    "wind": CB_PALETTE["green"],
+    "solar": CB_PALETTE["yellow"],
+    "other": "#b0b0b0",
 }
 
 # Severity colors with sufficient contrast on dark backgrounds
 SEVERITY_COLORS = {
-    "critical": {"bg": "rgba(213, 94, 0, 0.15)",  "border": "#D55E00", "text": "#D55E00"},
-    "warning":  {"bg": "rgba(240, 228, 66, 0.15)", "border": "#F0E442", "text": "#F0E442"},
-    "info":     {"bg": "rgba(86, 180, 233, 0.15)", "border": "#56B4E9", "text": "#56B4E9"},
+    "critical": {"bg": "rgba(213, 94, 0, 0.15)", "border": "#D55E00", "text": "#D55E00"},
+    "warning": {"bg": "rgba(240, 228, 66, 0.15)", "border": "#F0E442", "text": "#F0E442"},
+    "info": {"bg": "rgba(86, 180, 233, 0.15)", "border": "#56B4E9", "text": "#56B4E9"},
 }
 
 
 # ── ARIA Label Generators ─────────────────────────────────────
+
 
 def chart_aria_label(chart_type: str, title: str, data_summary: str = "") -> str:
     """
@@ -105,6 +106,7 @@ def slider_aria_label(name: str, value: float, unit: str, min_val: float, max_va
 
 
 # ── Screen Reader Summary Generators ──────────────────────────
+
 
 def forecast_summary(
     region: str,

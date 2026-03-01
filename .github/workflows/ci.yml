@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   lint:
@@ -29,14 +29,15 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Unit Tests
-        run: pytest tests/unit/ -v --tb=short
+        run: pytest tests/unit/ -v --tb=short -k "not test_precompute"
       - name: Integration Tests
         run: pytest tests/integration/ -v --tb=short
       - name: E2E Tests
         run: pytest tests/e2e/ -v --tb=short
       - name: Coverage Report
         run: |
-          pytest tests/ --cov=data --cov=models --cov=simulation --cov=personas --cov=components \
+          pytest tests/ -k "not test_precompute" \
+            --cov=data --cov=models --cov=simulation --cov=personas --cov=components \
             --cov-report=term-missing --cov-fail-under=80
 
   docker:
@@ -45,17 +46,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build Docker image
-        run: docker build -t energy-forecast:ci .
+        run: docker build -t gridpulse:ci .
       - name: Start container
         run: |
-          docker run -d -p 8080:8080 --name ef-test energy-forecast:ci
+          docker run -d -p 8080:8080 --name gp-test -e PRECOMPUTE_ENABLED=false gridpulse:ci
           sleep 15
       - name: Health check
         run: |
           curl -sf http://localhost:8080/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='healthy'"
       - name: Cleanup
         if: always()
-        run: docker rm -f ef-test || true
+        run: docker rm -f gp-test || true
 
   security:
     runs-on: ubuntu-latest

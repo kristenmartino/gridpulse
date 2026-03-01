@@ -3,17 +3,17 @@
 import pytest
 
 from config import (
-    REGION_COORDINATES,
-    REGION_CAPACITY_MW,
-    STATE_TO_BA,
     BA_FOR_STATE,
-    WEATHER_VARIABLES,
+    CDD_HDD_BASELINE_F,
+    MPH_TO_MS,
+    REGION_CAPACITY_MW,
+    REGION_COORDINATES,
+    STALENESS_THRESHOLDS_SECONDS,
+    STATE_TO_BA,
     TAB_IDS,
     TAB_LABELS,
-    STALENESS_THRESHOLDS_SECONDS,
-    CDD_HDD_BASELINE_F,
+    WEATHER_VARIABLES,
     WIND_CUTOUT_SPEED_MS,
-    MPH_TO_MS,
 )
 
 
@@ -78,7 +78,7 @@ class TestConstants:
         assert WIND_CUTOUT_SPEED_MS == 25.0
 
     def test_mph_to_ms(self):
-        assert MPH_TO_MS == pytest.approx(0.44704)
+        assert pytest.approx(0.44704) == MPH_TO_MS
 
     def test_staleness_thresholds(self):
         assert STALENESS_THRESHOLDS_SECONDS["weather"] == 7200

@@ -15,7 +15,7 @@ Usage:
 
 import argparse
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 # Add project root to path
@@ -27,9 +27,9 @@ import structlog
 
 from config import REGION_COORDINATES
 from data.eia_client import fetch_demand
-from data.weather_client import fetch_weather
-from data.preprocessing import merge_demand_weather
 from data.feature_engineering import engineer_features
+from data.preprocessing import merge_demand_weather
+from data.weather_client import fetch_weather
 from models.evaluation import compute_all_metrics, compute_error_by_hour
 
 log = structlog.get_logger()
@@ -48,14 +48,14 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
     """
     holdout_hours = holdout_days * 24
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"BACKTEST: {region}")
     print(f"Holdout period: {holdout_days} days ({holdout_hours} hours)")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     # Fetch 90 days of historical data
     print("Step 1: Fetching historical demand data...")
-    end_date = datetime.now(timezone.utc)
+    end_date = datetime.now(UTC)
     start_date = end_date - timedelta(days=90)
 
     demand_df = fetch_demand(
@@ -119,10 +119,11 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
     # Prophet
     print("\nStep 5a: Training Prophet model...")
     try:
-        from models.prophet_model import train_prophet, predict_prophet
+        from models.prophet_model import predict_prophet, train_prophet
+
         prophet_model = train_prophet(train_df)
         prophet_result = predict_prophet(prophet_model, test_df, periods=len(test_df))
-        prophet_pred = prophet_result["forecast"][:len(actual)]
+        prophet_pred = prophet_result["forecast"][: len(actual)]
         results["prophet"] = {
             "predictions": prophet_pred,
             "metrics": compute_all_metrics(actual, prophet_pred),
@@ -135,9 +136,10 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
     # ARIMA
     print("\nStep 5b: Training ARIMA model...")
     try:
-        from models.arima_model import train_arima, predict_arima
+        from models.arima_model import predict_arima, train_arima
+
         arima_model = train_arima(train_df)
-        arima_pred = predict_arima(arima_model, test_df, periods=len(test_df))[:len(actual)]
+        arima_pred = predict_arima(arima_model, test_df, periods=len(test_df))[: len(actual)]
         results["arima"] = {
             "predictions": arima_pred,
             "metrics": compute_all_metrics(actual, arima_pred),
@@ -150,9 +152,10 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
     # XGBoost
     print("\nStep 5c: Training XGBoost model...")
     try:
-        from models.xgboost_model import train_xgboost, predict_xgboost
+        from models.xgboost_model import predict_xgboost, train_xgboost
+
         xgb_model = train_xgboost(train_df)
-        xgb_pred = predict_xgboost(xgb_model, test_df)[:len(actual)]
+        xgb_pred = predict_xgboost(xgb_model, test_df)[: len(actual)]
         results["xgboost"] = {
             "predictions": xgb_pred,
             "metrics": compute_all_metrics(actual, xgb_pred),
@@ -197,11 +200,13 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
         print(f"   Ensemble MAPE: {results['ensemble']['metrics']['mape']:.2f}%")
 
     # Summary report
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("BACKTEST RESULTS SUMMARY")
-    print("="*60)
+    print("=" * 60)
     print(f"\nRegion: {region}")
-    print(f"Test period: {test_df['timestamp'].min().strftime('%Y-%m-%d')} to {test_df['timestamp'].max().strftime('%Y-%m-%d')}")
+    print(
+        f"Test period: {test_df['timestamp'].min().strftime('%Y-%m-%d')} to {test_df['timestamp'].max().strftime('%Y-%m-%d')}"
+    )
     print(f"Hours evaluated: {len(actual)}")
     print(f"Mean actual demand: {np.mean(actual):,.0f} MW")
     print(f"Std actual demand: {np.std(actual):,.0f} MW")
@@ -212,17 +217,19 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
     for name in ["prophet", "arima", "xgboost", "ensemble"]:
         if name in results and "metrics" in results[name]:
             m = results[name]["metrics"]
-            print("{:12} {:>10.2f} {:>10.0f} {:>10.0f} {:>8.4f}".format(
-                name.upper(), m["mape"], m["rmse"], m["mae"], m["r2"]
-            ))
+            print(
+                "{:12} {:>10.2f} {:>10.0f} {:>10.0f} {:>8.4f}".format(
+                    name.upper(), m["mape"], m["rmse"], m["mae"], m["r2"]
+                )
+            )
         elif name in results and "error" in results[name]:
             print("{:12} {:>10}".format(name.upper(), "FAILED"))
 
     # Error by hour analysis
     if "ensemble" in results and "predictions" in results["ensemble"]:
-        print("\n" + "-"*60)
+        print("\n" + "-" * 60)
         print("ERROR BY HOUR OF DAY (Ensemble)")
-        print("-"*60)
+        print("-" * 60)
         error_by_hour = compute_error_by_hour(
             timestamps, actual, results["ensemble"]["predictions"]
         )
@@ -231,17 +238,21 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
         error_by_hour_sorted = error_by_hour.sort_values("mean_abs_error", ascending=False)
         print("\nHighest error hours:")
         for _, row in error_by_hour_sorted.head(5).iterrows():
-            print(f"   Hour {int(row['hour']):02d}:00 - Mean abs error: {row['mean_abs_error']:,.0f} MW")
+            print(
+                f"   Hour {int(row['hour']):02d}:00 - Mean abs error: {row['mean_abs_error']:,.0f} MW"
+            )
 
         print("\nLowest error hours:")
         for _, row in error_by_hour_sorted.tail(5).iterrows():
-            print(f"   Hour {int(row['hour']):02d}:00 - Mean abs error: {row['mean_abs_error']:,.0f} MW")
+            print(
+                f"   Hour {int(row['hour']):02d}:00 - Mean abs error: {row['mean_abs_error']:,.0f} MW"
+            )
 
     # Best/worst days
     if "ensemble" in results and "predictions" in results["ensemble"]:
-        print("\n" + "-"*60)
+        print("\n" + "-" * 60)
         print("DAILY MAPE ANALYSIS")
-        print("-"*60)
+        print("-" * 60)
 
         test_df = test_df.copy()
         test_df["prediction"] = results["ensemble"]["predictions"]
@@ -264,17 +275,25 @@ def run_backtest(region: str, holdout_days: int = 21) -> dict:
         for _, row in daily_mape_df.tail(5).iterrows():
             print(f"   {row['date']}: {row['mape']:.2f}%")
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
 
     return results
 
 
 def main():
     parser = argparse.ArgumentParser(description="Run forecast backtest with holdout period")
-    parser.add_argument("--region", default="FPL", choices=list(REGION_COORDINATES.keys()),
-                        help="Balancing authority to backtest (default: FPL)")
-    parser.add_argument("--holdout-days", type=int, default=21,
-                        help="Number of days to hold out for testing (default: 21)")
+    parser.add_argument(
+        "--region",
+        default="FPL",
+        choices=list(REGION_COORDINATES.keys()),
+        help="Balancing authority to backtest (default: FPL)",
+    )
+    parser.add_argument(
+        "--holdout-days",
+        type=int,
+        default=21,
+        help="Number of days to hold out for testing (default: 21)",
+    )
 
     args = parser.parse_args()
 

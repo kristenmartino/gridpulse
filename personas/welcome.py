@@ -11,11 +11,11 @@ Each welcome message incorporates real-time data from the data stores,
 not placeholder text (AC-7.4).
 """
 
-import numpy as np
-import pandas as pd
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from config import REGION_NAMES, REGION_CAPACITY_MW
+import pandas as pd
+
+from config import REGION_CAPACITY_MW, REGION_NAMES
 from personas.config import get_persona
 
 
@@ -39,7 +39,7 @@ def generate_welcome_message(
     """
     persona = get_persona(persona_id)
     region_name = REGION_NAMES.get(region, region)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     hour = now.hour
 
     # Time-of-day greeting
@@ -107,7 +107,9 @@ def _extract_data_stats(
                 actual_mean = today["demand_mw"].mean()
                 forecast_mean = today["forecast_mw"].mean()
                 if forecast_mean > 0:
-                    stats["demand_vs_forecast_pct"] = (actual_mean - forecast_mean) / forecast_mean * 100
+                    stats["demand_vs_forecast_pct"] = (
+                        (actual_mean - forecast_mean) / forecast_mean * 100
+                    )
 
         # Rolling MAPE approximation
         if "forecast_mw" in demand_df.columns:
@@ -172,9 +174,7 @@ def _welcome_trader(greeting: str, name: str, region: str, stats: dict) -> str:
 
     if stats["demand_vs_forecast_pct"] is not None:
         direction = "above" if stats["demand_vs_forecast_pct"] > 0 else "below"
-        parts.append(
-            f"Demand is {abs(stats['demand_vs_forecast_pct']):.1f}% {direction} forecast."
-        )
+        parts.append(f"Demand is {abs(stats['demand_vs_forecast_pct']):.1f}% {direction} forecast.")
     if stats["peak_mw"] is not None and stats["capacity"]:
         utilization = stats["peak_mw"] / stats["capacity"] * 100
         parts.append(f"Peak utilization: {utilization:.0f}%.")

@@ -5,13 +5,13 @@ import pandas as pd
 import pytest
 
 from models.evaluation import (
-    compute_mape,
-    compute_rmse,
-    compute_mae,
-    compute_r2,
     compute_all_metrics,
-    compute_residuals,
     compute_error_by_hour,
+    compute_mae,
+    compute_mape,
+    compute_r2,
+    compute_residuals,
+    compute_rmse,
 )
 
 
