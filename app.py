@@ -57,10 +57,26 @@ app.layout = build_layout()
 from components.callbacks import register_callbacks
 register_callbacks(app)
 
+# ── Precompute models and predictions at startup ──────────────
+# With gunicorn --preload, this runs ONCE in master before workers fork.
+# Workers inherit warm caches via copy-on-write.
+from config import PRECOMPUTE_ENABLED
+if PRECOMPUTE_ENABLED:
+    from precompute import precompute_all
+    precompute_all()
+
 # ── Health check for Cloud Run ─────────────────────────────────
 @server.route("/health")
 def health():
-    return jsonify({"status": "healthy"}), 200
+    from components.callbacks import _MODEL_CACHE, _PREDICTION_CACHE, _BACKTEST_CACHE
+    return jsonify({
+        "status": "healthy",
+        "precompute": {
+            "models_cached": len(_MODEL_CACHE),
+            "predictions_cached": len(_PREDICTION_CACHE),
+            "backtests_cached": len(_BACKTEST_CACHE),
+        },
+    }), 200
 
 # ── Performance metrics endpoint (internal) ────────────────────
 @server.route("/metrics")

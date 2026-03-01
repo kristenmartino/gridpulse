@@ -13,6 +13,7 @@ import requests
 import structlog
 
 from config import NEWS_API_KEY, NEWS_API_BASE_URL
+from data.cache import get_cache
 
 log = structlog.get_logger()
 
@@ -45,6 +46,14 @@ def fetch_energy_news(
         log.warning("news_api_key_missing")
         return _get_demo_news()
 
+    # Check cache first (30-minute TTL)
+    cache_key = f"news:{query or 'default'}:{page_size}"
+    cache = get_cache()
+    cached = cache.get(cache_key)
+    if cached is not None:
+        log.info("news_cache_hit", key=cache_key)
+        return cached
+
     log.info("news_fetching", page_size=page_size)
 
     try:
@@ -69,6 +78,9 @@ def fetch_energy_news(
 
         articles = _parse_articles(data.get("articles", []))
         log.info("news_fetched", articles=len(articles))
+
+        # Cache for 30 minutes
+        cache.set(cache_key, articles, ttl=1800)
 
         return articles
 

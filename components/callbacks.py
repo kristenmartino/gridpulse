@@ -85,6 +85,128 @@ ALL_TAB_IDS = [
 ]
 
 
+def _run_forecast_outlook(demand_df: pd.DataFrame, weather_df: pd.DataFrame,
+                           horizon_hours: int, model_name: str, region: str) -> dict:
+    """Generate forward-looking forecast using cached model when possible."""
+    import time
+    from data.preprocessing import merge_demand_weather
+    from data.feature_engineering import engineer_features
+
+    # Compute data hash for cache invalidation
+    data_hash = hash((len(demand_df), len(weather_df), region))
+    cache_key = (region, horizon_hours)
+
+    # Check prediction cache first (fastest path)
+    if cache_key in _PREDICTION_CACHE:
+        cached_pred, cached_ts, cached_hash, cached_time = _PREDICTION_CACHE[cache_key]
+        if cached_hash == data_hash and (time.time() - cached_time) < _CACHE_TTL_SECONDS:
+            log.info("forecast_cache_hit", region=region, horizon=horizon_hours)
+            return {"timestamps": cached_ts, "predictions": cached_pred}
+
+    # Merge and engineer features
+    merged_df = merge_demand_weather(demand_df, weather_df)
+    featured_df = engineer_features(merged_df)
+    featured_df = featured_df.dropna(subset=["demand_mw"])
+
+    if len(featured_df) < 168:
+        return {"error": "Insufficient training data"}
+
+    train_df = featured_df.copy()
+    last_ts = train_df["timestamp"].max()
+    future_timestamps = pd.date_range(
+        start=last_ts + pd.Timedelta(hours=1),
+        periods=horizon_hours,
+        freq="h",
+        tz="UTC"
+    )
+    future_df = _create_future_features(train_df, future_timestamps)
+
+    # Check model cache (avoids retraining)
+    xgb_model = None
+    if region in _MODEL_CACHE:
+        cached_model, cached_hash, cached_time = _MODEL_CACHE[region]
+        if cached_hash == data_hash and (time.time() - cached_time) < _CACHE_TTL_SECONDS:
+            xgb_model = cached_model
+            log.info("model_cache_hit", region=region)
+
+    try:
+        from models.xgboost_model import train_xgboost, predict_xgboost
+
+        if xgb_model is None:
+            log.info("model_training_start", region=region)
+            xgb_model = train_xgboost(train_df)
+            _MODEL_CACHE[region] = (xgb_model, data_hash, time.time())
+            log.info("model_cached", region=region)
+
+        predictions = predict_xgboost(xgb_model, future_df)[:horizon_hours]
+
+        # Cache predictions
+        _PREDICTION_CACHE[cache_key] = (predictions, future_timestamps, data_hash, time.time())
+
+    except Exception as e:
+        log.warning("outlook_model_failed", model=model_name, error=str(e))
+        return {"error": str(e)}
+
+    return {
+        "timestamps": future_timestamps,
+        "predictions": predictions,
+    }
+
+
+def _create_future_features(train_df: pd.DataFrame, future_timestamps: pd.DatetimeIndex) -> pd.DataFrame:
+    """Create feature dataframe for future predictions."""
+    # Get feature columns from training data
+    feature_cols = [c for c in train_df.columns if c not in ["timestamp", "demand_mw", "region"]]
+
+    # Create base dataframe
+    future_df = pd.DataFrame({"timestamp": future_timestamps})
+
+    # Add time-based features
+    future_df["hour"] = future_df["timestamp"].dt.hour
+    future_df["day_of_week"] = future_df["timestamp"].dt.dayofweek
+    future_df["month"] = future_df["timestamp"].dt.month
+    future_df["day_of_year"] = future_df["timestamp"].dt.dayofyear
+    future_df["hour_sin"] = np.sin(2 * np.pi * future_df["hour"] / 24)
+    future_df["hour_cos"] = np.cos(2 * np.pi * future_df["hour"] / 24)
+    future_df["dow_sin"] = np.sin(2 * np.pi * future_df["day_of_week"] / 7)
+    future_df["dow_cos"] = np.cos(2 * np.pi * future_df["day_of_week"] / 7)
+    future_df["is_weekend"] = (future_df["day_of_week"] >= 5).astype(int)
+
+    # Use last known values for weather and lag features
+    last_row = train_df.iloc[-1]
+    for col in feature_cols:
+        if col not in future_df.columns:
+            if col in last_row.index:
+                future_df[col] = last_row[col]
+            else:
+                future_df[col] = 0
+
+    return future_df
+
+
+def _build_hourly_forecast_table(timestamps: pd.DatetimeIndex, predictions: np.ndarray):
+    """Build an hourly breakdown table for 24h forecasts."""
+    import dash_bootstrap_components as dbc
+
+    rows = []
+    for i, (ts, pred) in enumerate(zip(timestamps, predictions)):
+        rows.append(html.Tr([
+            html.Td(ts.strftime("%H:%M"), style={"fontSize": "0.8rem"}),
+            html.Td(ts.strftime("%a"), style={"fontSize": "0.8rem"}),
+            html.Td(f"{pred:,.0f} MW", style={"fontSize": "0.8rem", "fontWeight": "bold"}),
+        ]))
+
+    return dbc.Table([
+        html.Thead(html.Tr([
+            html.Th("Hour", style={"fontSize": "0.8rem"}),
+            html.Th("Day", style={"fontSize": "0.8rem"}),
+            html.Th("Forecast", style={"fontSize": "0.8rem"}),
+        ])),
+        html.Tbody(rows),
+    ], bordered=True, striped=True, hover=True, size="sm",
+       style={"maxHeight": "300px", "overflowY": "auto"})
+
+
 def register_callbacks(app):
     """Register all callbacks with the Dash app."""
 
@@ -1126,13 +1248,18 @@ def register_callbacks(app):
          Output("outlook-hourly-table", "children")],
         [Input("outlook-horizon", "value"),
          Input("outlook-model", "value"),
-         Input("demand-store", "data"),
-         Input("weather-store", "data")],
-        [State("region-selector", "value")],
-        prevent_initial_call=False,
+         Input("dashboard-tabs", "active_tab")],
+        [State("demand-store", "data"),
+         State("weather-store", "data"),
+         State("region-selector", "value")],
+        prevent_initial_call=True,
     )
-    def update_demand_outlook(horizon, model_name, demand_json, weather_json, region):
+    def update_demand_outlook(horizon, model_name, active_tab, demand_json, weather_json, region):
         """Generate forward-looking demand forecast."""
+        # Only run when this tab is active — avoids 10s+ model training on page load
+        if active_tab != "tab-outlook":
+            return [no_update] * 9
+
         log.info("outlook_callback_start", horizon=horizon, model=model_name, region=region)
 
         horizon_hours = int(horizon)
@@ -1231,128 +1358,6 @@ def register_callbacks(app):
         log.info("outlook_callback_complete", horizon=horizon_hours, peak=peak_str)
         return fig, data_through_str, peak_str, peak_time, avg_str, min_str, min_time, range_str, hourly_table
 
-
-    def _run_forecast_outlook(demand_df: pd.DataFrame, weather_df: pd.DataFrame,
-                               horizon_hours: int, model_name: str, region: str) -> dict:
-        """Generate forward-looking forecast using cached model when possible."""
-        import time
-        from data.preprocessing import merge_demand_weather
-        from data.feature_engineering import engineer_features
-
-        # Compute data hash for cache invalidation
-        data_hash = hash((len(demand_df), len(weather_df), region))
-        cache_key = (region, horizon_hours)
-
-        # Check prediction cache first (fastest path)
-        if cache_key in _PREDICTION_CACHE:
-            cached_pred, cached_ts, cached_hash, cached_time = _PREDICTION_CACHE[cache_key]
-            if cached_hash == data_hash and (time.time() - cached_time) < _CACHE_TTL_SECONDS:
-                log.info("forecast_cache_hit", region=region, horizon=horizon_hours)
-                return {"timestamps": cached_ts, "predictions": cached_pred}
-
-        # Merge and engineer features
-        merged_df = merge_demand_weather(demand_df, weather_df)
-        featured_df = engineer_features(merged_df)
-        featured_df = featured_df.dropna(subset=["demand_mw"])
-
-        if len(featured_df) < 168:
-            return {"error": "Insufficient training data"}
-
-        train_df = featured_df.copy()
-        last_ts = train_df["timestamp"].max()
-        future_timestamps = pd.date_range(
-            start=last_ts + pd.Timedelta(hours=1),
-            periods=horizon_hours,
-            freq="h",
-            tz="UTC"
-        )
-        future_df = _create_future_features(train_df, future_timestamps)
-
-        # Check model cache (avoids retraining)
-        xgb_model = None
-        if region in _MODEL_CACHE:
-            cached_model, cached_hash, cached_time = _MODEL_CACHE[region]
-            if cached_hash == data_hash and (time.time() - cached_time) < _CACHE_TTL_SECONDS:
-                xgb_model = cached_model
-                log.info("model_cache_hit", region=region)
-
-        try:
-            from models.xgboost_model import train_xgboost, predict_xgboost
-
-            if xgb_model is None:
-                log.info("model_training_start", region=region)
-                xgb_model = train_xgboost(train_df)
-                _MODEL_CACHE[region] = (xgb_model, data_hash, time.time())
-                log.info("model_cached", region=region)
-
-            predictions = predict_xgboost(xgb_model, future_df)[:horizon_hours]
-
-            # Cache predictions
-            _PREDICTION_CACHE[cache_key] = (predictions, future_timestamps, data_hash, time.time())
-
-        except Exception as e:
-            log.warning("outlook_model_failed", model=model_name, error=str(e))
-            return {"error": str(e)}
-
-        return {
-            "timestamps": future_timestamps,
-            "predictions": predictions,
-        }
-
-
-    def _create_future_features(train_df: pd.DataFrame, future_timestamps: pd.DatetimeIndex) -> pd.DataFrame:
-        """Create feature dataframe for future predictions."""
-        # Get feature columns from training data
-        feature_cols = [c for c in train_df.columns if c not in ["timestamp", "demand_mw", "region"]]
-
-        # Create base dataframe
-        future_df = pd.DataFrame({"timestamp": future_timestamps})
-
-        # Add time-based features
-        future_df["hour"] = future_df["timestamp"].dt.hour
-        future_df["day_of_week"] = future_df["timestamp"].dt.dayofweek
-        future_df["month"] = future_df["timestamp"].dt.month
-        future_df["day_of_year"] = future_df["timestamp"].dt.dayofyear
-        future_df["hour_sin"] = np.sin(2 * np.pi * future_df["hour"] / 24)
-        future_df["hour_cos"] = np.cos(2 * np.pi * future_df["hour"] / 24)
-        future_df["dow_sin"] = np.sin(2 * np.pi * future_df["day_of_week"] / 7)
-        future_df["dow_cos"] = np.cos(2 * np.pi * future_df["day_of_week"] / 7)
-        future_df["is_weekend"] = (future_df["day_of_week"] >= 5).astype(int)
-
-        # Use last known values for weather and lag features
-        last_row = train_df.iloc[-1]
-        for col in feature_cols:
-            if col not in future_df.columns:
-                if col in last_row.index:
-                    future_df[col] = last_row[col]
-                else:
-                    future_df[col] = 0
-
-        return future_df
-
-
-    def _build_hourly_forecast_table(timestamps: pd.DatetimeIndex, predictions: np.ndarray):
-        """Build an hourly breakdown table for 24h forecasts."""
-        import dash_bootstrap_components as dbc
-
-        rows = []
-        for i, (ts, pred) in enumerate(zip(timestamps, predictions)):
-            rows.append(html.Tr([
-                html.Td(ts.strftime("%H:%M"), style={"fontSize": "0.8rem"}),
-                html.Td(ts.strftime("%a"), style={"fontSize": "0.8rem"}),
-                html.Td(f"{pred:,.0f} MW", style={"fontSize": "0.8rem", "fontWeight": "bold"}),
-            ]))
-
-        return dbc.Table([
-            html.Thead(html.Tr([
-                html.Th("Hour", style={"fontSize": "0.8rem"}),
-                html.Th("Day", style={"fontSize": "0.8rem"}),
-                html.Th("Forecast", style={"fontSize": "0.8rem"}),
-            ])),
-            html.Tbody(rows),
-        ], bordered=True, striped=True, hover=True, size="sm",
-           style={"maxHeight": "300px", "overflowY": "auto"})
-
     # ── TAB 7: BACKTEST ─────────────────────────────────────────
 
     @app.callback(
@@ -1364,13 +1369,18 @@ def register_callbacks(app):
          Output("backtest-horizon-explanation", "children")],
         [Input("backtest-horizon", "value"),
          Input("backtest-model", "value"),
-         Input("demand-store", "data"),
-         Input("weather-store", "data")],
-        [State("region-selector", "value")],
-        prevent_initial_call=False,
+         Input("dashboard-tabs", "active_tab")],
+        [State("demand-store", "data"),
+         State("weather-store", "data"),
+         State("region-selector", "value")],
+        prevent_initial_call=True,
     )
-    def update_backtest_chart(horizon, model_name, demand_json, weather_json, region):
+    def update_backtest_chart(horizon, model_name, active_tab, demand_json, weather_json, region):
         """Build the backtest chart comparing forecast vs actual."""
+        # Only run when this tab is active — avoids expensive model evaluation on page load
+        if active_tab != "tab-backtest":
+            return [no_update] * 6
+
         log.info("backtest_callback_start", horizon=horizon, model=model_name, region=region,
                  has_demand=bool(demand_json), has_weather=bool(weather_json))
 

@@ -69,8 +69,9 @@ jobs:
             --allow-unauthenticated \
             --memory 2Gi \
             --timeout 300 \
-            --min-instances 0 \
+            --min-instances 1 \
             --max-instances 4 \
+            --cpu-boost \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO"
 
