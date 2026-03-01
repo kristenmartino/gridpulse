@@ -254,6 +254,14 @@ RATE_LIMIT_ALERT_THRESHOLD = 3  # consecutive 429s before alerting
 #                 Cloud Run picks up new version on next cold start.
 
 # ---------------------------------------------------------------------------
+# Precomputation (Startup Cache Warming)
+# ---------------------------------------------------------------------------
+PRECOMPUTE_ENABLED = os.getenv("PRECOMPUTE_ENABLED", "true").lower() in ("true", "1", "yes")
+PRECOMPUTE_DEFAULT_REGION = os.getenv("PRECOMPUTE_DEFAULT_REGION", "FPL")
+PRECOMPUTE_ALL_REGIONS = os.getenv("PRECOMPUTE_ALL_REGIONS", "true").lower() in ("true", "1", "yes")
+PRECOMPUTE_MAX_WORKERS = int(os.getenv("PRECOMPUTE_MAX_WORKERS", "4"))
+
+# ---------------------------------------------------------------------------
 # Feature Flags (Backlog J2 — simple in-code toggles)
 # ---------------------------------------------------------------------------
 FEATURE_FLAGS: dict[str, bool] = {

@@ -75,11 +75,12 @@ def fetch_demand(
         raise ValueError(f"Unknown region: {region}. Valid: {list(REGION_COORDINATES.keys())}")
 
     if start is None:
-        start = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H")
+        start = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT00")
     if end is None:
-        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H")
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%dT23")
 
-    cache_key = f"eia_demand_{region}_{start}_{end}"
+    # Use date-level granularity for cache key so it doesn't change every hour
+    cache_key = f"eia_demand_{region}_{start[:10]}_{end[:10]}"
     cache = get_cache()
 
     if use_cache:

@@ -25,7 +25,7 @@ def build_layout() -> dbc.Container:
         dcc.Location(id="url", refresh=False),
 
         # ── Interval for auto-refresh ──────────────────────────
-        dcc.Interval(id="refresh-interval", interval=60_000, n_intervals=0),
+        dcc.Interval(id="refresh-interval", interval=300_000, n_intervals=0),
 
         # ── Header ─────────────────────────────────────────────
         html.Div([

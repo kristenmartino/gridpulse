@@ -39,7 +39,9 @@ ENV PORT=8080 \
     PYTHONDONTWRITEBYTECODE=1 \
     CACHE_DB_PATH=/app/cache/cache.db \
     MODEL_DIR=/app/trained_models \
-    DASH_DEBUG=false
+    DASH_DEBUG=false \
+    PRECOMPUTE_ENABLED=true \
+    PRECOMPUTE_ALL_REGIONS=true
 
 EXPOSE 8080
 

@@ -6,6 +6,11 @@ All fixtures produce data matching the exact schemas expected by
 the data pipeline and models.
 """
 
+import os
+
+# Disable precomputation during tests — must be set before any app imports
+os.environ["PRECOMPUTE_ENABLED"] = "false"
+
 import numpy as np
 import pandas as pd
 import pytest
