@@ -29,6 +29,7 @@ from plotly.subplots import make_subplots
 
 from components.cards import build_alert_card, build_kpi_row, build_news_feed, build_welcome_card
 from config import (
+    CACHE_TTL_SECONDS,
     EIA_API_KEY,
     PRICING_BASE_USD_MWH,
     REGION_CAPACITY_MW,
@@ -39,13 +40,13 @@ from personas.config import PERSONAS, get_persona, get_welcome_card
 
 log = structlog.get_logger()
 
-# Model and prediction cache for performance
-# Avoids retraining XGBoost on every callback (~10s -> <1s)
-# Cache TTL is 24 hours since demand data only changes once per day
+import threading  # noqa: E402
+
+_cache_lock = threading.Lock()
+
 _MODEL_CACHE: dict = {}  # {region: (model, data_hash, timestamp)}
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
 _BACKTEST_CACHE: dict = {}  # {(region, horizon, model): (result_dict, data_hash, time)}
-_CACHE_TTL_SECONDS = 86400  # 24 hours
 
 # Plotly dark theme defaults
 PLOT_TEMPLATE = "plotly_dark"
@@ -83,12 +84,22 @@ COLORS = {
 
 ALL_TAB_IDS = [
     "tab-forecast",
-    "tab-weather",
-    "tab-models",
-    "tab-generation",
-    "tab-alerts",
-    "tab-simulator",
+    "tab-outlook",
+    "tab-backtest",
 ]
+
+
+def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region: str) -> int:
+    """Content-aware hash: uses timestamps + row counts + region for cache invalidation."""
+    demand_sig = ""
+    weather_sig = ""
+    if "timestamp" in demand_df.columns and len(demand_df) > 0:
+        demand_sig = (
+            f"{demand_df['timestamp'].iloc[0]}_{demand_df['timestamp'].iloc[-1]}_{len(demand_df)}"
+        )
+    if "timestamp" in weather_df.columns and len(weather_df) > 0:
+        weather_sig = f"{weather_df['timestamp'].iloc[0]}_{weather_df['timestamp'].iloc[-1]}_{len(weather_df)}"
+    return hash((demand_sig, weather_sig, region))
 
 
 def _run_forecast_outlook(
@@ -104,14 +115,13 @@ def _run_forecast_outlook(
     from data.feature_engineering import engineer_features
     from data.preprocessing import merge_demand_weather
 
-    # Compute data hash for cache invalidation
-    data_hash = hash((len(demand_df), len(weather_df), region))
+    data_hash = _compute_data_hash(demand_df, weather_df, region)
     cache_key = (region, horizon_hours)
 
     # Check prediction cache first (fastest path)
     if cache_key in _PREDICTION_CACHE:
         cached_pred, cached_ts, cached_hash, cached_time = _PREDICTION_CACHE[cache_key]
-        if cached_hash == data_hash and (time.time() - cached_time) < _CACHE_TTL_SECONDS:
+        if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
             log.info("forecast_cache_hit", region=region, horizon=horizon_hours)
             return {"timestamps": cached_ts, "predictions": cached_pred}
 
@@ -134,7 +144,7 @@ def _run_forecast_outlook(
     xgb_model = None
     if region in _MODEL_CACHE:
         cached_model, cached_hash, cached_time = _MODEL_CACHE[region]
-        if cached_hash == data_hash and (time.time() - cached_time) < _CACHE_TTL_SECONDS:
+        if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
             xgb_model = cached_model
             log.info("model_cache_hit", region=region)
 
@@ -275,7 +285,15 @@ def register_callbacks(app):
 
                 try:
                     demand_df = fetch_demand(region)
-                    pipe.step("fetch_demand", rows=len(demand_df), source="eia_api")
+                    if demand_df.empty:
+                        log.warning("demand_empty_fallback_to_demo", region=region)
+                        from data.demo_data import generate_demo_demand
+
+                        demand_df = generate_demo_demand(region)
+                        freshness["demand"] = "stale"
+                        pipe.step("fetch_demand", rows=len(demand_df), source="demo_fallback")
+                    else:
+                        pipe.step("fetch_demand", rows=len(demand_df), source="eia_api")
                 except Exception as e:
                     log.warning("demand_fallback_to_demo", region=region, error=str(e))
                     from data.demo_data import generate_demo_demand
@@ -285,7 +303,15 @@ def register_callbacks(app):
                     pipe.step("fetch_demand", rows=len(demand_df), source="demo_fallback")
                 try:
                     weather_df = fetch_weather(region)
-                    pipe.step("fetch_weather", rows=len(weather_df), source="open_meteo")
+                    if weather_df.empty:
+                        log.warning("weather_empty_fallback_to_demo", region=region)
+                        from data.demo_data import generate_demo_weather
+
+                        weather_df = generate_demo_weather(region)
+                        freshness["weather"] = "stale"
+                        pipe.step("fetch_weather", rows=len(weather_df), source="demo_fallback")
+                    else:
+                        pipe.step("fetch_weather", rows=len(weather_df), source="open_meteo")
                 except Exception as e:
                     log.warning("weather_fallback_to_demo", region=region, error=str(e))
                     from data.demo_data import generate_demo_weather
@@ -806,19 +832,7 @@ def register_callbacks(app):
             **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
         )
 
-        feature_names = [
-            "temperature_2m",
-            "demand_lag_24h",
-            "hour_sin",
-            "cooling_degree_days",
-            "wind_speed_80m",
-            "demand_roll_24h_mean",
-            "heating_degree_days",
-            "solar_capacity_factor",
-            "relative_humidity_2m",
-            "is_holiday",
-        ]
-        importance_vals = np.array([0.25, 0.18, 0.12, 0.10, 0.08, 0.07, 0.06, 0.05, 0.05, 0.04])
+        feature_names, importance_vals = _get_feature_importance(region)
         fig_shap = go.Figure(
             go.Bar(
                 x=importance_vals[::-1],
@@ -827,7 +841,7 @@ def register_callbacks(app):
                 marker_color=COLORS["xgboost"],
             )
         )
-        fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Mean |SHAP Value|")
+        fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
 
         return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
 
@@ -1663,10 +1677,16 @@ def register_callbacks(app):
 
         try:
             articles = fetch_energy_news(page_size=5)
+            if not articles:
+                from data.news_client import _get_demo_news
+
+                articles = _get_demo_news()
             return build_news_feed(articles)
         except Exception as e:
             log.error("news_feed_update_failed", error=str(e))
-            return build_news_feed([])
+            from data.news_client import _get_demo_news
+
+            return build_news_feed(_get_demo_news())
 
     # ── DEMAND OUTLOOK TAB ──────────────────────────────────────
 
@@ -2004,6 +2024,34 @@ def _empty_figure(message: str = "") -> go.Figure:
     return fig
 
 
+def _get_feature_importance(region: str, top_n: int = 10) -> tuple[list[str], np.ndarray]:
+    """Extract real feature importances from cached XGBoost model, or return defaults."""
+    if region in _MODEL_CACHE:
+        model_dict, _, _ = _MODEL_CACHE[region]
+        if isinstance(model_dict, dict) and "feature_importances" in model_dict:
+            imp = model_dict["feature_importances"]
+            sorted_feats = sorted(imp.items(), key=lambda x: x[1], reverse=True)[:top_n]
+            names = [f[0] for f in sorted_feats]
+            vals = np.array([f[1] for f in sorted_feats])
+            if vals.sum() > 0:
+                return names, vals
+
+    names = [
+        "temperature_2m",
+        "demand_lag_24h",
+        "hour_sin",
+        "cooling_degree_days",
+        "wind_speed_80m",
+        "demand_roll_24h_mean",
+        "heating_degree_days",
+        "solar_capacity_factor",
+        "relative_humidity_2m",
+        "is_holiday",
+    ]
+    vals = np.array([0.25, 0.18, 0.12, 0.10, 0.08, 0.07, 0.06, 0.05, 0.05, 0.04])
+    return names, vals
+
+
 def _build_persona_kpis(persona_id: str, region: str) -> dbc.Row:
     capacity = REGION_CAPACITY_MW.get(region, 50000)
     persona_kpis = {
@@ -2089,13 +2137,12 @@ def _run_backtest_for_horizon(
     from data.preprocessing import merge_demand_weather
     from models.evaluation import compute_all_metrics
 
-    # Check backtest cache first
-    data_hash = hash((len(demand_df), len(weather_df), region))
+    data_hash = _compute_data_hash(demand_df, weather_df, region)
     cache_key = (region, horizon_hours, model_name)
 
     if cache_key in _BACKTEST_CACHE:
         cached_result, cached_hash, cached_time = _BACKTEST_CACHE[cache_key]
-        if cached_hash == data_hash and (time.time() - cached_time) < _CACHE_TTL_SECONDS:
+        if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
             log.info("backtest_cache_hit", region=region, horizon=horizon_hours, model=model_name)
             return cached_result
 

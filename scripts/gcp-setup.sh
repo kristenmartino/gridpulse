@@ -68,6 +68,7 @@ gcloud services enable \
     cloudbuild.googleapis.com \
     artifactregistry.googleapis.com \
     secretmanager.googleapis.com \
+    storage.googleapis.com \
     iam.googleapis.com \
     iamcredentials.googleapis.com
 echo "   ✅ APIs enabled."
@@ -109,6 +110,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Step 5b: Create GCS Bucket for Parquet Persistence
+# ---------------------------------------------------------------------------
+echo ""
+echo "📁 Step 5b: Creating GCS bucket for data persistence..."
+BUCKET_NAME="${PROJECT_ID}-energy-cache"
+
+if gsutil ls -b "gs://${BUCKET_NAME}" &>/dev/null; then
+    echo "   Bucket '${BUCKET_NAME}' already exists. Skipping."
+else
+    gsutil mb -p "${PROJECT_ID}" -l "${REGION}" -b on "gs://${BUCKET_NAME}"
+    echo "   ✅ Bucket created: gs://${BUCKET_NAME}"
+fi
+
+# Lifecycle rule: delete objects older than 90 days
+cat > /tmp/lifecycle.json << 'LIFECYCLE'
+{
+  "rule": [
+    {
+      "action": {"type": "Delete"},
+      "condition": {"age": 90}
+    }
+  ]
+}
+LIFECYCLE
+gsutil lifecycle set /tmp/lifecycle.json "gs://${BUCKET_NAME}"
+rm /tmp/lifecycle.json
+echo "   ✅ Lifecycle rule set: delete after 90 days"
+
+# ---------------------------------------------------------------------------
 # Step 6: Create Service Account for Cloud Run
 # ---------------------------------------------------------------------------
 echo ""
@@ -135,6 +165,11 @@ gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --role="roles/run.invoker" \
     --quiet
 echo "   ✅ IAM bindings set."
+
+# Grant GCS access for Parquet persistence
+echo "   Granting GCS access..."
+gsutil iam ch "serviceAccount:${SA_EMAIL}:roles/storage.objectAdmin" "gs://${BUCKET_NAME}"
+echo "   ✅ GCS access granted."
 
 # ---------------------------------------------------------------------------
 # Step 7: Set Default Region

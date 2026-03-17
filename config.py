@@ -30,6 +30,7 @@ DEBUG = ENVIRONMENT == "development"
 # │ USE_DEMO_DATA        │ True       │ False     │ False      │
 # │ ENABLE_PROFILING     │ True       │ False     │ False      │
 # │ GUNICORN_WORKERS     │ 1          │ 2         │ 2          │
+# │ GCS_ENABLED          │ False      │ True      │ True       │
 # └──────────────────────┴────────────┴───────────┴────────────┘
 _ENV_DEFAULTS: dict[str, dict] = {
     "development": {
@@ -39,6 +40,7 @@ _ENV_DEFAULTS: dict[str, dict] = {
         "demo": True,
         "profile": True,
         "workers": 1,
+        "gcs_enabled": False,
     },
     "staging": {
         "cache_ttl": 86400,
@@ -47,6 +49,7 @@ _ENV_DEFAULTS: dict[str, dict] = {
         "demo": False,
         "profile": False,
         "workers": 2,
+        "gcs_enabled": True,
     },
     "production": {
         "cache_ttl": 86400,
@@ -55,6 +58,7 @@ _ENV_DEFAULTS: dict[str, dict] = {
         "demo": False,
         "profile": False,
         "workers": 2,
+        "gcs_enabled": True,
     },
 }
 _env = _ENV_DEFAULTS.get(ENVIRONMENT, _ENV_DEFAULTS["development"])
@@ -88,6 +92,17 @@ NOAA_BASE_URL = "https://api.weather.gov"
 # ---------------------------------------------------------------------------
 CACHE_DB_PATH = os.getenv("CACHE_DB_PATH", "cache.db")
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", str(_env["cache_ttl"])))
+
+# ---------------------------------------------------------------------------
+# GCS Persistence (Parquet fallback for container recycle + API failure)
+# ---------------------------------------------------------------------------
+GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "")
+GCS_ENABLED = os.getenv("GCS_ENABLED", str(_env.get("gcs_enabled", False))).lower() in (
+    "true",
+    "1",
+    "yes",
+)
+GCS_PATH_PREFIX = os.getenv("GCS_PATH_PREFIX", "cache")
 
 # ---------------------------------------------------------------------------
 # Model Training

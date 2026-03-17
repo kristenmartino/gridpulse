@@ -89,6 +89,12 @@ def fetch_weather(
         stale = cache.get(cache_key, allow_stale=True)
         if stale is not None:
             return stale
+        from data.gcs_store import read_parquet
+
+        gcs_df = read_parquet("weather", region)
+        if gcs_df is not None and not gcs_df.empty:
+            log.info("weather_gcs_fallback", region=region, rows=len(gcs_df))
+            return gcs_df
         return pd.DataFrame(columns=["timestamp"] + WEATHER_VARIABLES)
 
     df = _parse_weather_response(data)
@@ -97,9 +103,18 @@ def fetch_weather(
         stale = cache.get(cache_key, allow_stale=True)
         if stale is not None:
             return stale
+        from data.gcs_store import read_parquet
+
+        gcs_df = read_parquet("weather", region)
+        if gcs_df is not None and not gcs_df.empty:
+            log.info("weather_gcs_fallback", region=region, rows=len(gcs_df))
+            return gcs_df
         return df
 
     cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
+    from data.gcs_store import write_parquet
+
+    write_parquet(df, "weather", region)
     log.info("weather_cached", region=region, rows=len(df))
     return df
 
