@@ -154,10 +154,14 @@ def build_chart_container(
                 header_items,
                 style={"display": "flex", "alignItems": "center", "marginBottom": "8px"},
             ),
-            dcc.Graph(
-                id=chart_id,
-                style={"height": height},
-                config={"displayModeBar": True, "responsive": True},
+            dcc.Loading(
+                dcc.Graph(
+                    id=chart_id,
+                    style={"height": height},
+                    config={"displayModeBar": True, "responsive": True},
+                ),
+                type="circle",
+                color="#00d4aa",
             ),
         ],
         className="chart-container",
