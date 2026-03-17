@@ -1707,9 +1707,9 @@ def register_callbacks(app):
             Input("outlook-model", "value"),
             Input("dashboard-tabs", "active_tab"),
             Input("demand-store", "data"),
-            Input("weather-store", "data"),
         ],
         [
+            State("weather-store", "data"),
             State("region-selector", "value"),
         ],
         prevent_initial_call=True,
@@ -1857,9 +1857,9 @@ def register_callbacks(app):
             Input("backtest-model", "value"),
             Input("dashboard-tabs", "active_tab"),
             Input("demand-store", "data"),
-            Input("weather-store", "data"),
         ],
         [
+            State("weather-store", "data"),
             State("region-selector", "value"),
         ],
         prevent_initial_call=True,
