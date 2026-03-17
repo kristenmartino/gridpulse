@@ -118,13 +118,13 @@ def _run_forecast_outlook(
     from data.preprocessing import merge_demand_weather
 
     data_hash = _compute_data_hash(demand_df, weather_df, region)
-    cache_key = (region, horizon_hours)
+    cache_key = (region, horizon_hours, model_name)
 
     # Check prediction cache first (fastest path)
     if cache_key in _PREDICTION_CACHE:
         cached_pred, cached_ts, cached_hash, cached_time = _PREDICTION_CACHE[cache_key]
         if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
-            log.info("forecast_cache_hit", region=region, horizon=horizon_hours)
+            log.info("forecast_cache_hit", region=region, horizon=horizon_hours, model=model_name)
             return {"timestamps": cached_ts, "predictions": cached_pred}
 
     # Merge and engineer features
@@ -142,26 +142,87 @@ def _run_forecast_outlook(
     )
     future_df = _create_future_features(train_df, future_timestamps)
 
-    # Check model cache (avoids retraining)
-    # Key uses 0 for "full data" to distinguish from backtest models keyed by horizon
-    xgb_model = None
-    model_cache_key = (region, "xgboost", 0)
-    if model_cache_key in _MODEL_CACHE:
-        cached_model, cached_hash, cached_time = _MODEL_CACHE[model_cache_key]
-        if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
-            xgb_model = cached_model
-            log.info("model_cache_hit", region=region, model="xgboost")
-
     try:
-        from models.xgboost_model import predict_xgboost, train_xgboost
+        if model_name == "xgboost":
+            from models.xgboost_model import predict_xgboost, train_xgboost
 
-        if xgb_model is None:
-            log.info("model_training_start", region=region, model="xgboost")
-            xgb_model = train_xgboost(train_df)
-            _MODEL_CACHE[model_cache_key] = (xgb_model, data_hash, time.time())
-            log.info("model_cached", region=region, model="xgboost")
+            # Only XGBoost is cached in _MODEL_CACHE (small tree structure)
+            xgb_model = None
+            mck = (region, "xgboost", 0)
+            if mck in _MODEL_CACHE:
+                cached_model, cached_hash, cached_time = _MODEL_CACHE[mck]
+                if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
+                    xgb_model = cached_model
+                    log.info("model_cache_hit", region=region, model="xgboost")
+            if xgb_model is None:
+                log.info("model_training_start", region=region, model="xgboost")
+                xgb_model = train_xgboost(train_df)
+                _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
+                log.info("model_cached", region=region, model="xgboost")
+            predictions = predict_xgboost(xgb_model, future_df)[:horizon_hours]
 
-        predictions = predict_xgboost(xgb_model, future_df)[:horizon_hours]
+        elif model_name == "prophet":
+            from models.prophet_model import predict_prophet, train_prophet
+
+            log.info("model_training_start", region=region, model="prophet")
+            prophet_model = train_prophet(train_df)
+            prophet_result = predict_prophet(prophet_model, future_df, periods=horizon_hours)
+            predictions = prophet_result["forecast"][:horizon_hours]
+
+        elif model_name == "arima":
+            from models.arima_model import predict_arima, train_arima
+
+            log.info("model_training_start", region=region, model="arima")
+            arima_model = train_arima(train_df)
+            predictions = predict_arima(arima_model, future_df, periods=horizon_hours)[
+                :horizon_hours
+            ]
+
+        elif model_name == "ensemble":
+            # Equal-weight ensemble of all three models (no actuals for MAPE weighting)
+            preds = {}
+
+            try:
+                from models.xgboost_model import predict_xgboost, train_xgboost
+
+                xgb_model = None
+                mck = (region, "xgboost", 0)
+                if mck in _MODEL_CACHE:
+                    cached_model, cached_hash, cached_time = _MODEL_CACHE[mck]
+                    if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
+                        xgb_model = cached_model
+                if xgb_model is None:
+                    xgb_model = train_xgboost(train_df)
+                    _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
+                preds["xgboost"] = predict_xgboost(xgb_model, future_df)[:horizon_hours]
+            except Exception:
+                pass
+
+            try:
+                from models.prophet_model import predict_prophet, train_prophet
+
+                pm = train_prophet(train_df)
+                pr = predict_prophet(pm, future_df, periods=horizon_hours)
+                preds["prophet"] = pr["forecast"][:horizon_hours]
+            except Exception:
+                pass
+
+            try:
+                from models.arima_model import predict_arima, train_arima
+
+                am = train_arima(train_df)
+                preds["arima"] = predict_arima(am, future_df, periods=horizon_hours)[:horizon_hours]
+            except Exception:
+                pass
+
+            if preds:
+                # Equal weights for forward forecast (no actuals to compute MAPE)
+                all_preds = list(preds.values())
+                predictions = np.mean(all_preds, axis=0)
+            else:
+                return {"error": "No models trained successfully"}
+        else:
+            return {"error": f"Unknown model: {model_name}"}
 
         # Cache predictions
         _PREDICTION_CACHE[cache_key] = (predictions, future_timestamps, data_hash, time.time())
