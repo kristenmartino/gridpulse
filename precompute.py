@@ -189,7 +189,7 @@ def _precompute_model_and_predictions(
 
         train_df = featured_df.copy()
         xgb_model = train_xgboost(train_df)
-        _MODEL_CACHE[(region, "xgboost")] = (xgb_model, data_hash, time.time())
+        _MODEL_CACHE[(region, "xgboost", 0)] = (xgb_model, data_hash, time.time())
         log.info("precompute_model_trained", region=region)
 
         for horizon in [24, 168, 720]:

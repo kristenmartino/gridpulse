@@ -45,7 +45,7 @@ class TestPrecomputeRegion:
     def test_precompute_populates_model_cache(self, precompute_region):
         """After precomputing, _MODEL_CACHE has an entry for the region."""
         precompute_region("ERCOT")
-        assert ("ERCOT", "xgboost") in _MODEL_CACHE
+        assert ("ERCOT", "xgboost", 0) in _MODEL_CACHE
 
     def test_precompute_populates_prediction_cache(self, precompute_region):
         """After precomputing, _PREDICTION_CACHE has entries for all horizons."""
@@ -72,7 +72,7 @@ class TestPrecomputeRegion:
     def test_model_cache_structure(self, precompute_region):
         """Model cache entries have the expected (model, hash, timestamp) structure."""
         precompute_region("FPL")
-        model, data_hash, ts = _MODEL_CACHE[("FPL", "xgboost")]
+        model, data_hash, ts = _MODEL_CACHE[("FPL", "xgboost", 0)]
         assert model is not None
         assert isinstance(data_hash, int)
         assert isinstance(ts, float)
