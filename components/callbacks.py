@@ -1876,7 +1876,7 @@ def register_callbacks(app):
         horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
         fig.update_layout(
             **PLOT_LAYOUT,
-            title=f"{horizon_labels.get(horizon_hours, '')} Demand Forecast for {region}",
+            title=f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}",
             xaxis_title="Date/Time",
             yaxis_title="Demand (MW)",
             hovermode="x unified",
@@ -2047,7 +2047,7 @@ def register_callbacks(app):
         horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
         fig.update_layout(
             **PLOT_LAYOUT,
-            title=f"{horizon_labels.get(horizon_hours, '')} Ahead Backtest: {model_name.upper()} vs Actual",
+            title=f"{horizon_labels.get(horizon_hours, '')} Ahead Backtest: {model_name.upper()} vs Actual — {region}",
             xaxis_title="Date/Time",
             yaxis_title="Demand (MW)",
             hovermode="x unified",
