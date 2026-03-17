@@ -59,7 +59,6 @@ jobs:
             --min-instances 0 \
             --max-instances 2 \
             --cpu-boost \
-            --startup-cpu-boost \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true" \
             --tag "sha-$(echo ${{ github.sha }} | cut -c1-7)"

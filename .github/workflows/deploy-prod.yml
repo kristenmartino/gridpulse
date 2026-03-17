@@ -60,10 +60,8 @@ jobs:
             --min-instances 1 \
             --max-instances 4 \
             --cpu-boost \
-            --startup-cpu-boost \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
-            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true" \
-            --update-container-startup-probe httpGet,path=/health,port=8080,initialDelaySeconds=10,periodSeconds=10,failureThreshold=60,timeoutSeconds=5
+            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true"
 
       - name: Get production URL
         id: url
