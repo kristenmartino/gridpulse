@@ -53,7 +53,7 @@ app = dash.Dash(
 )
 
 # Google Analytics (GA4)
-app.index_string = '''<!DOCTYPE html>
+app.index_string = """<!DOCTYPE html>
 <html>
   <head>
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
@@ -72,7 +72,7 @@ app.index_string = '''<!DOCTYPE html>
     {%app_entry%}
     <footer>{%config%}{%scripts%}{%renderer%}</footer>
   </body>
-</html>'''
+</html>"""
 
 # Layout
 from components.layout import build_layout  # noqa: E402
