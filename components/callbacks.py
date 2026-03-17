@@ -2168,69 +2168,76 @@ def _run_backtest_for_horizon(
 
     predictions = None
 
-    def _get_or_train_model(name: str, train_data: pd.DataFrame) -> object:
-        """Return cached model or train a new one and cache it."""
-        # Include horizon_hours so backtest models (trained on partial data)
-        # never collide with forecast models (trained on full data, keyed with 0)
-        mck = (region, name, horizon_hours)
-        if mck in _MODEL_CACHE:
-            cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-            if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                log.info("backtest_model_cache_hit", region=region, model=name)
-                return cached_m
-
-        log.info("backtest_model_training", region=region, model=name)
-        if name == "xgboost":
-            from models.xgboost_model import train_xgboost
-
-            m = train_xgboost(train_data)
-        elif name == "prophet":
-            from models.prophet_model import train_prophet
-
-            m = train_prophet(train_data)
-        elif name == "arima":
-            from models.arima_model import train_arima
-
-            m = train_arima(train_data)
-        else:
-            raise ValueError(f"Unknown model: {name}")
-        _MODEL_CACHE[mck] = (m, data_hash, time.time())
-        log.info("backtest_model_cached", region=region, model=name)
-        return m
-
-    def _predict_with_model(name: str, model: object, test_data: pd.DataFrame) -> np.ndarray:
-        """Run prediction for a given model type."""
-        if name == "xgboost":
-            from models.xgboost_model import predict_xgboost
-
-            return predict_xgboost(model, test_data)[: len(actual)]
-        elif name == "prophet":
-            from models.prophet_model import predict_prophet
-
-            result = predict_prophet(model, test_data, periods=len(test_data))
-            return result["forecast"][: len(actual)]
-        elif name == "arima":
-            from models.arima_model import predict_arima
-
-            return predict_arima(model, test_data, periods=len(test_data))[: len(actual)]
-        raise ValueError(f"Unknown model: {name}")
-
     try:
-        if model_name in ("xgboost", "prophet", "arima"):
-            model = _get_or_train_model(model_name, train_df)
-            predictions = _predict_with_model(model_name, model, test_df)
+        if model_name == "xgboost":
+            from models.xgboost_model import predict_xgboost, train_xgboost
+
+            # Only XGBoost is cached in _MODEL_CACHE (small tree structure).
+            # Prophet/ARIMA are too large — their results are cached via _BACKTEST_CACHE.
+            mck = (region, "xgboost", horizon_hours)
+            xgb_model = None
+            if mck in _MODEL_CACHE:
+                cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+                if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                    xgb_model = cached_m
+                    log.info("backtest_model_cache_hit", region=region, model="xgboost")
+            if xgb_model is None:
+                xgb_model = train_xgboost(train_df)
+                _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
+            predictions = predict_xgboost(xgb_model, test_df)[: len(actual)]
+
+        elif model_name == "prophet":
+            from models.prophet_model import predict_prophet, train_prophet
+
+            prophet_model = train_prophet(train_df)
+            prophet_result = predict_prophet(prophet_model, test_df, periods=len(test_df))
+            predictions = prophet_result["forecast"][: len(actual)]
+
+        elif model_name == "arima":
+            from models.arima_model import predict_arima, train_arima
+
+            arima_model = train_arima(train_df)
+            predictions = predict_arima(arima_model, test_df, periods=len(test_df))[: len(actual)]
 
         elif model_name == "ensemble":
             # Train all models and combine
             preds = {}
             weights = {}
 
-            for m_name in ("xgboost", "prophet", "arima"):
-                try:
-                    m = _get_or_train_model(m_name, train_df)
-                    preds[m_name] = _predict_with_model(m_name, m, test_df)
-                except Exception:
-                    pass
+            try:
+                from models.xgboost_model import predict_xgboost, train_xgboost
+
+                mck = (region, "xgboost", horizon_hours)
+                xgb_model = None
+                if mck in _MODEL_CACHE:
+                    cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+                    if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                        xgb_model = cached_m
+                if xgb_model is None:
+                    xgb_model = train_xgboost(train_df)
+                    _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
+                preds["xgboost"] = predict_xgboost(xgb_model, test_df)[: len(actual)]
+            except Exception:
+                pass
+
+            try:
+                from models.prophet_model import predict_prophet, train_prophet
+
+                prophet_model = train_prophet(train_df)
+                prophet_result = predict_prophet(prophet_model, test_df, periods=len(test_df))
+                preds["prophet"] = prophet_result["forecast"][: len(actual)]
+            except Exception:
+                pass
+
+            try:
+                from models.arima_model import predict_arima, train_arima
+
+                arima_model = train_arima(train_df)
+                preds["arima"] = predict_arima(arima_model, test_df, periods=len(test_df))[
+                    : len(actual)
+                ]
+            except Exception:
+                pass
 
             if preds:
                 # Compute 1/MAPE weights
