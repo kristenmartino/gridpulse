@@ -36,6 +36,7 @@ log = structlog.get_logger()
 
 # Flask server (needed for gunicorn and health/metrics endpoints)
 server = Flask(__name__)
+server.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(32).hex())
 
 # Add request logging middleware
 add_request_logging(server)
@@ -51,6 +52,28 @@ app = dash.Dash(
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
 
+# Google Analytics (GA4)
+app.index_string = '''<!DOCTYPE html>
+<html>
+  <head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-97LE6K3X9N');
+    </script>
+    {%metas%}
+    <title>{%title%}</title>
+    {%favicon%}
+    {%css%}
+  </head>
+  <body>
+    {%app_entry%}
+    <footer>{%config%}{%scripts%}{%renderer%}</footer>
+  </body>
+</html>'''
+
 # Layout
 from components.layout import build_layout  # noqa: E402
 
@@ -62,14 +85,17 @@ from components.callbacks import register_callbacks  # noqa: E402
 register_callbacks(app)
 
 # ── Precompute models and predictions at startup ──────────────
-# With gunicorn --preload, this runs ONCE in master before workers fork.
-# Workers inherit warm caches via copy-on-write.
+# Runs in a background thread so gunicorn workers can serve /health
+# immediately while caches warm up. Each worker populates its own
+# in-memory caches independently.
+import threading  # noqa: E402
+
 from config import PRECOMPUTE_ENABLED  # noqa: E402
 
 if PRECOMPUTE_ENABLED:
-    from precompute import precompute_all
+    from precompute import precompute_all  # noqa: E402
 
-    precompute_all()
+    threading.Thread(target=precompute_all, daemon=True).start()
 
 
 # ── Health check for Cloud Run ─────────────────────────────────
@@ -89,9 +115,16 @@ def health():
     ), 200
 
 
-# ── Performance metrics endpoint (internal) ────────────────────
+# ── Performance metrics endpoint (internal only) ───────────────
 @server.route("/metrics")
 def metrics():
+    allowed = os.getenv("METRICS_ALLOWED_IPS", "127.0.0.1,::1").split(",")
+    from flask import request as flask_request
+
+    remote = flask_request.remote_addr or ""
+    if remote not in allowed and os.getenv("ENVIRONMENT", "development") == "production":
+        return jsonify({"error": "forbidden"}), 403
+
     from observability import perf
 
     return jsonify(perf.get_all_stats()), 200
