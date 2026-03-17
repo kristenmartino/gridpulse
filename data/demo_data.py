@@ -31,8 +31,7 @@ def generate_demo_demand(
 
     FPL (Florida) characteristics: summer peak from AC, ~30-45 GW range.
     """
-    # Deterministic seed based on region so data is stable across refreshes
-    np.random.seed(hash(region) % (2**32))
+    rng = np.random.default_rng(hash(region) % (2**32))
     n = days * 24
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     start = now - timedelta(days=days)
@@ -59,14 +58,12 @@ def generate_demo_demand(
     dow = timestamps.dayofweek.values
     weekly = np.where(dow >= 5, -capacity * 0.05, 0)
 
-    # Noise
-    noise = np.random.normal(0, capacity * 0.02, n)
+    noise = rng.normal(0, capacity * 0.02, n)
 
     demand = base_load + daily + seasonal + weekly + noise
     demand = np.maximum(demand, capacity * 0.15)
 
-    # EIA-style forecast (demand + some error)
-    forecast = demand + np.random.normal(0, capacity * 0.015, n)
+    forecast = demand + rng.normal(0, capacity * 0.015, n)
 
     return pd.DataFrame(
         {
@@ -88,8 +85,7 @@ def generate_demo_weather(
     Florida (FPL): hot, humid, moderate wind, high solar.
     Texas (ERCOT): extreme heat summers, occasional cold snaps, high wind.
     """
-    # Deterministic seed based on region so data is stable across refreshes
-    np.random.seed(hash(region) % (2**32) + 1)
+    rng = np.random.default_rng(hash(region) % (2**32) + 1)
     n = days * 24
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     start = now - timedelta(days=days)
@@ -101,30 +97,26 @@ def generate_demo_weather(
     coords = REGION_COORDINATES.get(region, {"lat": 30, "lon": -80})
     lat = coords["lat"]
 
-    # Temperature: latitude-dependent base + seasonal + daily cycle
-    temp_base = 85 - (lat - 25) * 1.2  # Hotter at lower latitudes
+    temp_base = 85 - (lat - 25) * 1.2
     temp_seasonal = 20 * np.sin(2 * np.pi * (day_of_year - 80) / 365)
     temp_daily = 12 * np.sin(2 * np.pi * (hours % 24 - 6) / 24)
-    temp = temp_base + temp_seasonal + temp_daily + np.random.normal(0, 4, n)
+    temp = temp_base + temp_seasonal + temp_daily + rng.normal(0, 4, n)
 
-    # Wind: region-specific
-    if region in ("ERCOT", "SPP"):  # High wind regions
+    if region in ("ERCOT", "SPP"):
         wind_base = 18
     elif region in ("CAISO", "ISONE"):
         wind_base = 12
     else:
         wind_base = 10
-    wind_10m = np.abs(wind_base + np.random.normal(0, 5, n))
+    wind_10m = np.abs(wind_base + rng.normal(0, 5, n))
     wind_80m = wind_10m * 1.4
     wind_120m = wind_10m * 1.6
 
-    # Solar: daylight pattern
     solar = np.maximum(0, 850 * np.sin(2 * np.pi * (hours % 24 - 6) / 24))
-    solar *= 0.7 + 0.3 * np.random.random(n)  # Cloud variability
+    solar *= 0.7 + 0.3 * rng.random(n)
     solar = np.maximum(solar, 0)
 
-    # Humidity: inversely correlated with temperature
-    humidity = np.clip(75 - 0.3 * (temp - 70) + np.random.normal(0, 10, n), 10, 100)
+    humidity = np.clip(75 - 0.3 * (temp - 70) + rng.normal(0, 10, n), 10, 100)
 
     return pd.DataFrame(
         {
@@ -132,20 +124,20 @@ def generate_demo_weather(
             "temperature_2m": np.round(temp, 1),
             "apparent_temperature": np.round(temp + 3 * (humidity / 100) - 2, 1),
             "relative_humidity_2m": np.round(humidity, 1),
-            "dew_point_2m": np.round(temp - 15 + np.random.normal(0, 3, n), 1),
+            "dew_point_2m": np.round(temp - 15 + rng.normal(0, 3, n), 1),
             "wind_speed_10m": np.round(wind_10m, 1),
             "wind_speed_80m": np.round(wind_80m, 1),
             "wind_speed_120m": np.round(wind_120m, 1),
-            "wind_direction_10m": np.round(np.random.uniform(0, 360, n), 0),
+            "wind_direction_10m": np.round(rng.uniform(0, 360, n), 0),
             "shortwave_radiation": np.round(solar, 1),
             "direct_normal_irradiance": np.round(solar * 0.7, 1),
             "diffuse_radiation": np.round(solar * 0.3, 1),
-            "cloud_cover": np.round(np.clip(50 + np.random.normal(0, 25, n), 0, 100), 0),
-            "precipitation": np.round(np.maximum(0, np.random.exponential(0.5, n)), 1),
+            "cloud_cover": np.round(np.clip(50 + rng.normal(0, 25, n), 0, 100), 0),
+            "precipitation": np.round(np.maximum(0, rng.exponential(0.5, n)), 1),
             "snowfall": np.zeros(n),
-            "surface_pressure": np.round(1013 + np.random.normal(0, 5, n), 1),
+            "surface_pressure": np.round(1013 + rng.normal(0, 5, n), 1),
             "soil_temperature_0cm": np.round(temp - 5, 1),
-            "weather_code": np.random.choice([0, 1, 2, 3, 45, 61, 80], n),
+            "weather_code": rng.choice([0, 1, 2, 3, 45, 61, 80], n),
         }
     )
 
@@ -159,8 +151,7 @@ def generate_demo_generation(
 
     Fuel types: gas, nuclear, coal, wind, solar, hydro, other.
     """
-    # Deterministic seed based on region so data is stable across refreshes
-    np.random.seed(hash(region) % (2**32) + 2)
+    rng = np.random.default_rng(hash(region) % (2**32) + 2)
     n = days * 24
     now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
     start = now - timedelta(days=days)
@@ -169,7 +160,6 @@ def generate_demo_generation(
 
     capacity = REGION_CAPACITY_MW.get(region, 50000)
 
-    # Base generation shares (region-specific)
     shares = _get_fuel_shares(region)
 
     records = []
@@ -178,15 +168,14 @@ def generate_demo_generation(
 
         if fuel == "solar":
             gen = base * 2.5 * np.maximum(0, np.sin(2 * np.pi * (hours % 24 - 6) / 24))
-            gen *= 0.7 + 0.3 * np.random.random(n)
+            gen *= 0.7 + 0.3 * rng.random(n)
         elif fuel == "wind":
-            gen = base * (0.8 + 0.4 * np.random.random(n))
+            gen = base * (0.8 + 0.4 * rng.random(n))
         elif fuel == "gas":
-            # Gas peakers ramp up during peak hours
             daily_factor = 1 + 0.5 * np.sin(2 * np.pi * (hours % 24 - 6) / 24)
-            gen = base * daily_factor + np.random.normal(0, base * 0.1, n)
+            gen = base * daily_factor + rng.normal(0, base * 0.1, n)
         else:
-            gen = base + np.random.normal(0, base * 0.05, n)
+            gen = base + rng.normal(0, base * 0.05, n)
 
         gen = np.maximum(gen, 0)
 
