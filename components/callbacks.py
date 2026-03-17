@@ -44,7 +44,7 @@ import threading  # noqa: E402
 
 _cache_lock = threading.Lock()
 
-_MODEL_CACHE: dict = {}  # {region: (model, data_hash, timestamp)}
+_MODEL_CACHE: dict = {}  # {(region, model_name): (model, data_hash, timestamp)}
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
 _BACKTEST_CACHE: dict = {}  # {(region, horizon, model): (result_dict, data_hash, time)}
 
@@ -90,15 +90,17 @@ ALL_TAB_IDS = [
 
 
 def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region: str) -> int:
-    """Content-aware hash: uses timestamps + row counts + region for cache invalidation."""
+    """Content-aware hash: uses date range + region for cache invalidation.
+
+    Uses only start/end timestamps (not row count) so that minor row-count
+    drift between precompute and user load doesn't bust the cache.
+    """
     demand_sig = ""
     weather_sig = ""
     if "timestamp" in demand_df.columns and len(demand_df) > 0:
-        demand_sig = (
-            f"{demand_df['timestamp'].iloc[0]}_{demand_df['timestamp'].iloc[-1]}_{len(demand_df)}"
-        )
+        demand_sig = f"{demand_df['timestamp'].iloc[0]}_{demand_df['timestamp'].iloc[-1]}"
     if "timestamp" in weather_df.columns and len(weather_df) > 0:
-        weather_sig = f"{weather_df['timestamp'].iloc[0]}_{weather_df['timestamp'].iloc[-1]}_{len(weather_df)}"
+        weather_sig = f"{weather_df['timestamp'].iloc[0]}_{weather_df['timestamp'].iloc[-1]}"
     return hash((demand_sig, weather_sig, region))
 
 
@@ -142,20 +144,21 @@ def _run_forecast_outlook(
 
     # Check model cache (avoids retraining)
     xgb_model = None
-    if region in _MODEL_CACHE:
-        cached_model, cached_hash, cached_time = _MODEL_CACHE[region]
+    model_cache_key = (region, "xgboost")
+    if model_cache_key in _MODEL_CACHE:
+        cached_model, cached_hash, cached_time = _MODEL_CACHE[model_cache_key]
         if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
             xgb_model = cached_model
-            log.info("model_cache_hit", region=region)
+            log.info("model_cache_hit", region=region, model="xgboost")
 
     try:
         from models.xgboost_model import predict_xgboost, train_xgboost
 
         if xgb_model is None:
-            log.info("model_training_start", region=region)
+            log.info("model_training_start", region=region, model="xgboost")
             xgb_model = train_xgboost(train_df)
-            _MODEL_CACHE[region] = (xgb_model, data_hash, time.time())
-            log.info("model_cached", region=region)
+            _MODEL_CACHE[model_cache_key] = (xgb_model, data_hash, time.time())
+            log.info("model_cached", region=region, model="xgboost")
 
         predictions = predict_xgboost(xgb_model, future_df)[:horizon_hours]
 
@@ -2026,8 +2029,8 @@ def _empty_figure(message: str = "") -> go.Figure:
 
 def _get_feature_importance(region: str, top_n: int = 10) -> tuple[list[str], np.ndarray]:
     """Extract real feature importances from cached XGBoost model, or return defaults."""
-    if region in _MODEL_CACHE:
-        model_dict, _, _ = _MODEL_CACHE[region]
+    if (region, "xgboost") in _MODEL_CACHE:
+        model_dict, _, _ = _MODEL_CACHE[(region, "xgboost")]
         if isinstance(model_dict, dict) and "feature_importances" in model_dict:
             imp = model_dict["feature_importances"]
             sorted_feats = sorted(imp.items(), key=lambda x: x[1], reverse=True)[:top_n]
@@ -2164,57 +2167,67 @@ def _run_backtest_for_horizon(
 
     predictions = None
 
+    def _get_or_train_model(name: str, train_data: pd.DataFrame) -> object:
+        """Return cached model or train a new one and cache it."""
+        mck = (region, name)
+        if mck in _MODEL_CACHE:
+            cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+            if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                log.info("backtest_model_cache_hit", region=region, model=name)
+                return cached_m
+
+        log.info("backtest_model_training", region=region, model=name)
+        if name == "xgboost":
+            from models.xgboost_model import train_xgboost
+
+            m = train_xgboost(train_data)
+        elif name == "prophet":
+            from models.prophet_model import train_prophet
+
+            m = train_prophet(train_data)
+        elif name == "arima":
+            from models.arima_model import train_arima
+
+            m = train_arima(train_data)
+        else:
+            raise ValueError(f"Unknown model: {name}")
+        _MODEL_CACHE[mck] = (m, data_hash, time.time())
+        log.info("backtest_model_cached", region=region, model=name)
+        return m
+
+    def _predict_with_model(name: str, model: object, test_data: pd.DataFrame) -> np.ndarray:
+        """Run prediction for a given model type."""
+        if name == "xgboost":
+            from models.xgboost_model import predict_xgboost
+
+            return predict_xgboost(model, test_data)[: len(actual)]
+        elif name == "prophet":
+            from models.prophet_model import predict_prophet
+
+            result = predict_prophet(model, test_data, periods=len(test_data))
+            return result["forecast"][: len(actual)]
+        elif name == "arima":
+            from models.arima_model import predict_arima
+
+            return predict_arima(model, test_data, periods=len(test_data))[: len(actual)]
+        raise ValueError(f"Unknown model: {name}")
+
     try:
-        if model_name == "xgboost":
-            from models.xgboost_model import predict_xgboost, train_xgboost
-
-            xgb_model = train_xgboost(train_df)
-            predictions = predict_xgboost(xgb_model, test_df)[: len(actual)]
-
-        elif model_name == "prophet":
-            from models.prophet_model import predict_prophet, train_prophet
-
-            prophet_model = train_prophet(train_df)
-            prophet_result = predict_prophet(prophet_model, test_df, periods=len(test_df))
-            predictions = prophet_result["forecast"][: len(actual)]
-
-        elif model_name == "arima":
-            from models.arima_model import predict_arima, train_arima
-
-            arima_model = train_arima(train_df)
-            predictions = predict_arima(arima_model, test_df, periods=len(test_df))[: len(actual)]
+        if model_name in ("xgboost", "prophet", "arima"):
+            model = _get_or_train_model(model_name, train_df)
+            predictions = _predict_with_model(model_name, model, test_df)
 
         elif model_name == "ensemble":
             # Train all models and combine
             preds = {}
             weights = {}
 
-            try:
-                from models.xgboost_model import predict_xgboost, train_xgboost
-
-                xgb_model = train_xgboost(train_df)
-                preds["xgboost"] = predict_xgboost(xgb_model, test_df)[: len(actual)]
-            except Exception:
-                pass
-
-            try:
-                from models.prophet_model import predict_prophet, train_prophet
-
-                prophet_model = train_prophet(train_df)
-                prophet_result = predict_prophet(prophet_model, test_df, periods=len(test_df))
-                preds["prophet"] = prophet_result["forecast"][: len(actual)]
-            except Exception:
-                pass
-
-            try:
-                from models.arima_model import predict_arima, train_arima
-
-                arima_model = train_arima(train_df)
-                preds["arima"] = predict_arima(arima_model, test_df, periods=len(test_df))[
-                    : len(actual)
-                ]
-            except Exception:
-                pass
+            for m_name in ("xgboost", "prophet", "arima"):
+                try:
+                    m = _get_or_train_model(m_name, train_df)
+                    preds[m_name] = _predict_with_model(m_name, m, test_df)
+                except Exception:
+                    pass
 
             if preds:
                 # Compute 1/MAPE weights

@@ -180,16 +180,16 @@ def _precompute_model_and_predictions(
     featured_df: pd.DataFrame,
 ) -> None:
     """Train XGBoost model and generate predictions for all horizons."""
-    from components.callbacks import _MODEL_CACHE, _run_forecast_outlook
+    from components.callbacks import _MODEL_CACHE, _compute_data_hash, _run_forecast_outlook
 
-    data_hash = hash((len(demand_df), len(weather_df), region))
+    data_hash = _compute_data_hash(demand_df, weather_df, region)
 
     try:
         from models.xgboost_model import train_xgboost
 
         train_df = featured_df.copy()
         xgb_model = train_xgboost(train_df)
-        _MODEL_CACHE[region] = (xgb_model, data_hash, time.time())
+        _MODEL_CACHE[(region, "xgboost")] = (xgb_model, data_hash, time.time())
         log.info("precompute_model_trained", region=region)
 
         for horizon in [24, 168, 720]:
