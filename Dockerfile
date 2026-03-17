@@ -52,12 +52,14 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 # Gunicorn with:
 # - 2 workers (Cloud Run 2Gi memory budget)
 # - 300s timeout (long-running model training callbacks)
-# - Preload to share model memory across workers
 # - Access log to stdout for Cloud Run
+# NOTE: --preload is intentionally omitted. Workers load the app module
+# after gunicorn binds to PORT, allowing Cloud Run's startup probe to
+# connect immediately. Precompute runs in a background thread so workers
+# can serve /health while caches warm up.
 CMD ["gunicorn", "app:server", \
      "--bind", "0.0.0.0:8080", \
      "--workers", "2", \
      "--timeout", "300", \
-     "--preload", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

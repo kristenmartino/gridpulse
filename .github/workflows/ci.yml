@@ -7,8 +7,33 @@ on:
     branches: [main, dev]
 
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No hardcoded secrets
+        run: |
+          PATTERNS='AIza|sk-[a-zA-Z0-9]{20,}|AKIA|ghp_|API_KEY=["\x27]?[a-zA-Z0-9]{20,}'
+          MATCHES=$(grep -rEn "$PATTERNS" --include="*.py" --include="*.yml" --include="*.yaml" \
+            --exclude-dir=tests --exclude-dir=.github --exclude-dir=.venv . || true)
+          if [ -n "$MATCHES" ]; then
+            echo "FAIL: Possible hardcoded secrets detected:"
+            echo "$MATCHES"
+            exit 1
+          fi
+      - name: Ensure .env is not tracked
+        run: |
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "FAIL: .env is tracked in git — remove with git rm --cached .env"
+            exit 1
+          fi
+      - name: Check .env.example has placeholders
+        run: |
+          grep -q "your_" .env.example || (echo "FAIL: .env.example missing placeholders" && exit 1)
+
   lint:
     runs-on: ubuntu-latest
+    needs: security
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,7 +45,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    needs: lint
+    needs: [lint, security]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,16 +54,16 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Unit Tests
-        run: pytest tests/unit/ -v --tb=short -k "not test_precompute"
+        run: pytest tests/unit/ -v --tb=short -m "not slow"
       - name: Integration Tests
         run: pytest tests/integration/ -v --tb=short
       - name: E2E Tests
         run: pytest tests/e2e/ -v --tb=short
       - name: Coverage Report
         run: |
-          pytest tests/ -k "not test_precompute" \
+          pytest tests/ -m "not slow" \
             --cov=data --cov=models --cov=simulation --cov=personas --cov=components \
-            --cov-report=term-missing --cov-fail-under=40
+            --cov-report=term-missing --cov-fail-under=60
 
   docker:
     runs-on: ubuntu-latest
@@ -57,16 +82,3 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker rm -f gp-test || true
-
-  security:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: No hardcoded secrets
-        run: |
-          ! grep -rn "AIza\|sk-\|AKIA\|ghp_" --include="*.py" --include="*.yml" \
-            --exclude-dir=tests --exclude-dir=.github . || \
-            (echo "FAIL: Hardcoded secrets detected" && exit 1)
-      - name: Check .env.example has placeholders
-        run: |
-          grep -q "your_" .env.example || (echo "FAIL: .env.example missing placeholders" && exit 1)

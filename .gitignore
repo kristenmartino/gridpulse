@@ -29,6 +29,10 @@ htmlcov/
 coverage.xml
 .coverage
 
+# Linting
+.ruff_cache/
+.mypy_cache/
+
 # Models (large, regenerated)
 models/*.pkl
 models/*.joblib
