@@ -108,14 +108,22 @@ def fetch_demand(
 
     if not all_records:
         log.warning("eia_no_data", region=region, start=start, end=end)
-        # Try stale cache
         stale = cache.get(cache_key, allow_stale=True)
         if stale is not None:
             return stale
+        from data.gcs_store import read_parquet
+
+        gcs_df = read_parquet("demand", region)
+        if gcs_df is not None and not gcs_df.empty:
+            log.info("eia_demand_gcs_fallback", region=region, rows=len(gcs_df))
+            return gcs_df
         return pd.DataFrame(columns=["timestamp", "demand_mw", "forecast_mw", "region"])
 
     df = _parse_demand_records(all_records, region)
     cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
+    from data.gcs_store import write_parquet
+
+    write_parquet(df, "demand", region)
     log.info("eia_demand_cached", region=region, rows=len(df))
     return df
 
