@@ -44,7 +44,7 @@ import threading  # noqa: E402
 
 _cache_lock = threading.Lock()
 
-_MODEL_CACHE: dict = {}  # {(region, model_name): (model, data_hash, timestamp)}
+_MODEL_CACHE: dict = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
 _BACKTEST_CACHE: dict = {}  # {(region, horizon, model): (result_dict, data_hash, time)}
 
@@ -143,8 +143,9 @@ def _run_forecast_outlook(
     future_df = _create_future_features(train_df, future_timestamps)
 
     # Check model cache (avoids retraining)
+    # Key uses 0 for "full data" to distinguish from backtest models keyed by horizon
     xgb_model = None
-    model_cache_key = (region, "xgboost")
+    model_cache_key = (region, "xgboost", 0)
     if model_cache_key in _MODEL_CACHE:
         cached_model, cached_hash, cached_time = _MODEL_CACHE[model_cache_key]
         if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
@@ -2029,8 +2030,8 @@ def _empty_figure(message: str = "") -> go.Figure:
 
 def _get_feature_importance(region: str, top_n: int = 10) -> tuple[list[str], np.ndarray]:
     """Extract real feature importances from cached XGBoost model, or return defaults."""
-    if (region, "xgboost") in _MODEL_CACHE:
-        model_dict, _, _ = _MODEL_CACHE[(region, "xgboost")]
+    if (region, "xgboost", 0) in _MODEL_CACHE:
+        model_dict, _, _ = _MODEL_CACHE[(region, "xgboost", 0)]
         if isinstance(model_dict, dict) and "feature_importances" in model_dict:
             imp = model_dict["feature_importances"]
             sorted_feats = sorted(imp.items(), key=lambda x: x[1], reverse=True)[:top_n]
@@ -2169,7 +2170,9 @@ def _run_backtest_for_horizon(
 
     def _get_or_train_model(name: str, train_data: pd.DataFrame) -> object:
         """Return cached model or train a new one and cache it."""
-        mck = (region, name)
+        # Include horizon_hours so backtest models (trained on partial data)
+        # never collide with forecast models (trained on full data, keyed with 0)
+        mck = (region, name, horizon_hours)
         if mck in _MODEL_CACHE:
             cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
             if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
