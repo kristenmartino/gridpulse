@@ -167,8 +167,6 @@ def layout() -> html.Div:
                 ],
                 className="mt-3 g-2",
             ),
-            # Hourly breakdown table (for 24h view)
-            html.Div(id="outlook-hourly-table", className="mt-3"),
         ],
         className="p-2",
     )
