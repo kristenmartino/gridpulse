@@ -304,9 +304,6 @@ def _run_forecast_outlook(
         else:
             return {"error": f"Unknown model: {model_name}"}
 
-        # Demand cannot be negative — clamp all predictions
-        predictions = np.maximum(predictions, 0)
-
         # Cache predictions (in-memory)
         _PREDICTION_CACHE[cache_key] = (predictions, future_timestamps, data_hash, time.time())
 
