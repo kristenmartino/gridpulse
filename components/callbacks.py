@@ -365,43 +365,6 @@ def _create_future_features(
     return future_df
 
 
-def _build_hourly_forecast_table(timestamps: pd.DatetimeIndex, predictions: np.ndarray):
-    """Build an hourly breakdown table for 24h forecasts."""
-    import dash_bootstrap_components as dbc
-
-    rows = []
-    for ts, pred in zip(timestamps, predictions, strict=False):
-        rows.append(
-            html.Tr(
-                [
-                    html.Td(ts.strftime("%H:%M"), style={"fontSize": "0.8rem"}),
-                    html.Td(ts.strftime("%a"), style={"fontSize": "0.8rem"}),
-                    html.Td(f"{pred:,.0f} MW", style={"fontSize": "0.8rem", "fontWeight": "bold"}),
-                ]
-            )
-        )
-
-    return dbc.Table(
-        [
-            html.Thead(
-                html.Tr(
-                    [
-                        html.Th("Hour", style={"fontSize": "0.8rem"}),
-                        html.Th("Day", style={"fontSize": "0.8rem"}),
-                        html.Th("Forecast", style={"fontSize": "0.8rem"}),
-                    ]
-                )
-            ),
-            html.Tbody(rows),
-        ],
-        bordered=True,
-        striped=True,
-        hover=True,
-        size="sm",
-        style={"maxHeight": "300px", "overflowY": "auto"},
-    )
-
-
 def register_callbacks(app):
     """Register all callbacks with the Dash app."""
 
@@ -1891,7 +1854,6 @@ def register_callbacks(app):
             Output("outlook-min", "children"),
             Output("outlook-min-time", "children"),
             Output("outlook-range", "children"),
-            Output("outlook-hourly-table", "children"),
             Output("tab2-insight-card", "children"),
         ],
         [
@@ -1911,7 +1873,7 @@ def register_callbacks(app):
         """Generate forward-looking demand forecast."""
         # Only run when this tab is active — avoids 10s+ model training on page load
         if active_tab != "tab-outlook":
-            return [no_update] * 10
+            return [no_update] * 9
 
         log.info("outlook_callback_start", horizon=horizon, model=model_name, region=region)
 
@@ -1924,7 +1886,7 @@ def register_callbacks(app):
             fig.add_annotation(
                 text="Loading data...", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
             )
-            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", None, empty_insight
+            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", empty_insight
 
         try:
             demand_df = pd.read_json(io.StringIO(demand_json))
@@ -1933,7 +1895,7 @@ def register_callbacks(app):
             log.error("outlook_parse_error", error=str(e))
             fig = go.Figure()
             fig.update_layout(**PLOT_LAYOUT)
-            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", None, empty_insight
+            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", empty_insight
 
         # Get the data through date (last timestamp in demand data)
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
@@ -1954,7 +1916,7 @@ def register_callbacks(app):
                 y=0.5,
                 showarrow=False,
             )
-            return fig, data_through_str, "— MW", "", "— MW", "— MW", "", "— MW", None, empty_insight
+            return fig, data_through_str, "— MW", "", "— MW", "— MW", "", "— MW", empty_insight
 
         timestamps = pd.to_datetime(result["timestamps"])
         predictions = result["predictions"]
@@ -2017,11 +1979,6 @@ def register_callbacks(app):
         min_str = f"{min_val:,.0f} MW"
         range_str = f"{range_val:,.0f} MW"
 
-        # Hourly table for 24h view
-        hourly_table = None
-        if horizon_hours == 24:
-            hourly_table = _build_hourly_forecast_table(timestamps, predictions)
-
         # Generate insights
         from components.insights import build_insight_card, generate_tab2_insights
 
@@ -2042,7 +1999,6 @@ def register_callbacks(app):
             min_str,
             min_time,
             range_str,
-            hourly_table,
             insight_card,
         )
 
@@ -2467,17 +2423,54 @@ def _run_backtest_for_horizon(
             weights = {}
 
             # Fast path: check if individual model backtests are already cached
+            # (in-memory first, then SQLite fallback for cross-restart persistence)
             for sub_model in ["xgboost", "prophet", "arima"]:
                 sub_key = (region, horizon_hours, sub_model)
                 if sub_key in _BACKTEST_CACHE:
                     cr, ch, ct = _BACKTEST_CACHE[sub_key]
                     if ch == data_hash and (time.time() - ct) < CACHE_TTL_SECONDS:
                         preds[sub_model] = cr["predictions"]
-                        log.info("backtest_ensemble_reuse_cached", model=sub_model, horizon=horizon_hours)
+                        log.info("backtest_ensemble_reuse_cached", model=sub_model, horizon=horizon_hours,
+                                 source="memory")
+                        continue
+                # SQLite fallback
+                try:
+                    from data.cache import get_cache
+                    sc = get_cache()
+                    sr = sc.get(f"backtest:{region}:{horizon_hours}:{sub_model}")
+                    if sr is not None and isinstance(sr, dict) and "predictions" in sr:
+                        preds[sub_model] = np.array(sr["predictions"])
+                        # Populate in-memory cache too
+                        sr["timestamps"] = pd.to_datetime(sr["timestamps"]).values
+                        sr["actual"] = np.array(sr["actual"])
+                        sr["predictions"] = preds[sub_model]
+                        _BACKTEST_CACHE[sub_key] = (sr, data_hash, time.time())
+                        log.info("backtest_ensemble_reuse_cached", model=sub_model, horizon=horizon_hours,
+                                 source="sqlite")
+                except Exception:
+                    pass
 
             missing = [m for m in ["xgboost", "prophet", "arima"] if m not in preds]
 
             if missing:
+                def _cache_individual_backtest(name, pred):
+                    """Cache individual model backtest so ensemble can reuse it later."""
+                    sub_metrics = compute_all_metrics(actual, pred)
+                    sub_result = {"timestamps": timestamps, "actual": actual,
+                                  "predictions": pred, "metrics": sub_metrics}
+                    sub_key = (region, horizon_hours, name)
+                    _BACKTEST_CACHE[sub_key] = (sub_result, data_hash, time.time())
+                    try:
+                        from data.cache import get_cache
+                        sc = get_cache()
+                        sc.set(f"backtest:{region}:{horizon_hours}:{name}", {
+                            "timestamps": [str(t) for t in timestamps],
+                            "actual": actual.tolist(), "predictions": pred.tolist(),
+                            "metrics": sub_metrics,
+                        }, ttl=CACHE_TTL_SECONDS)
+                    except Exception:
+                        pass
+
                 def _train_xgb():
                     from models.xgboost_model import predict_xgboost, train_xgboost
 
@@ -2490,7 +2483,9 @@ def _run_backtest_for_horizon(
                     if xgb_model is None:
                         xgb_model = train_xgboost(train_df)
                         _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
-                    return "xgboost", predict_xgboost(xgb_model, test_df)[: len(actual)]
+                    p = predict_xgboost(xgb_model, test_df)[: len(actual)]
+                    _cache_individual_backtest("xgboost", p)
+                    return "xgboost", p
 
                 def _train_prophet():
                     from models.prophet_model import predict_prophet, train_prophet
@@ -2506,7 +2501,9 @@ def _run_backtest_for_horizon(
                         _MODEL_CACHE[mck] = (p_model, data_hash, time.time())
                     full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
                     p_result = predict_prophet(p_model, full_regressor_df, periods=len(test_df))
-                    return "prophet", p_result["forecast"][: len(actual)]
+                    p = p_result["forecast"][: len(actual)]
+                    _cache_individual_backtest("prophet", p)
+                    return "prophet", p
 
                 def _train_arima():
                     from models.arima_model import predict_arima, train_arima
@@ -2525,7 +2522,9 @@ def _run_backtest_for_horizon(
                                  "cooling_degree_days", "heating_degree_days"]:
                         if col in a_test_df.columns:
                             a_test_df[col] = a_test_df[col].ffill().bfill().fillna(0)
-                    return "arima", predict_arima(a_model, a_test_df, periods=len(test_df))[: len(actual)]
+                    p = predict_arima(a_model, a_test_df, periods=len(test_df))[: len(actual)]
+                    _cache_individual_backtest("arima", p)
+                    return "arima", p
 
                 model_fns = {"xgboost": _train_xgb, "prophet": _train_prophet, "arima": _train_arima}
                 with ThreadPoolExecutor(max_workers=3) as pool:
