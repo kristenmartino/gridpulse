@@ -152,6 +152,20 @@ body {
     margin-bottom: 8px;
 }
 
+/* ── Insight Cards ────────────────────────────────────── */
+.insight-card {
+    background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 8px 0;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.insight-card:empty {
+    display: none;
+}
+
 /* ── Scenario Simulator Sliders ────────────────────────── */
 .slider-container {
     background: #16213e;
@@ -331,7 +345,7 @@ body {
 
 /* ── Reduced Motion ────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-    .welcome-card { animation: none; }
+    .welcome-card, .insight-card { animation: none; }
     .kpi-card { transition: none; }
     * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }

@@ -318,6 +318,7 @@ FEATURE_FLAGS: dict[str, bool] = {
     "scenario_presets": True,
     "scenario_bookmarks": True,  # Sprint 4 (C2)
     "api_fallback_badges": True,  # Sprint 4 (G2)
+    "ai_insights": True,  # Persona-aware insight cards on all tabs
 }
 
 

@@ -85,6 +85,8 @@ def layout() -> html.Div:
                 "Forecast vs Actual Demand",
                 height="450px",
             ),
+            # AI insight card
+            html.Div(id="tab3-insight-card"),
             # Metrics row
             dbc.Row(
                 [
