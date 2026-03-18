@@ -542,6 +542,7 @@ def generate_tab3_insights(
     predictions: np.ndarray | None = None,
     timestamps: pd.DatetimeIndex | None = None,
     ensemble_weights: dict[str, float] | None = None,
+    num_folds: int = 1,
 ) -> list[Insight]:
     """Generate Backtest tab insights."""
     if not metrics:
@@ -558,8 +559,9 @@ def generate_tab3_insights(
         grade = mape_grade(mape_val, horizon_key)
         grade_label = grade.capitalize()
         model_label = {"xgboost": "XGBoost", "ensemble": "Ensemble", "prophet": "Prophet", "arima": "ARIMA"}.get(model_name, model_name)
+        fold_text = f" across {num_folds} folds" if num_folds > 1 else ""
         insights.append(Insight(
-            text=f"{model_label} achieves {mape_val:.2f}% MAPE ({grade_label} grade) on {horizon_hours}-hour ahead backtest.",
+            text=f"{model_label} achieves {mape_val:.2f}% MAPE ({grade_label} grade) on {horizon_hours}-hour ahead backtest{fold_text}.",
             category="performance",
             severity="warning" if grade == "rollback" else "notable" if grade == "acceptable" else "info",
             metric_name="mape",

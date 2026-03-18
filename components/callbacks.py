@@ -561,22 +561,38 @@ def register_callbacks(app):
             Output("kpi-cards", "children"),
             Output("dashboard-tabs", "active_tab"),
         ],
-        [Input("persona-selector", "value")],
         [
-            State("region-selector", "value"),
+            Input("persona-selector", "value"),
+            Input("region-selector", "value"),
+        ],
+        [
             State("demand-store", "data"),
             State("weather-store", "data"),
         ],
     )
     def switch_persona(persona_id, region, demand_json, weather_json):
-        """Reconfigure dashboard for selected persona with live data."""
+        """Reconfigure dashboard for selected persona with live data.
+
+        Fires on persona change AND region change (immediate, no API wait).
+        Uses precomputed _region_data cache for instant KPI updates.
+        Only switches active tab when the persona selector triggered the callback.
+        """
         card_data = get_welcome_card(persona_id)
         persona = get_persona(persona_id)
 
         from personas.welcome import generate_welcome_message
+        from precompute import _region_data
 
-        demand_df = pd.read_json(io.StringIO(demand_json)) if demand_json else None
-        weather_df = pd.read_json(io.StringIO(weather_json)) if weather_json else None
+        # Use precomputed data if available (instant), fall back to demand-store (parsed)
+        demand_df = None
+        weather_df = None
+        if region in _region_data:
+            demand_df, weather_df = _region_data[region]
+        elif demand_json:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+            if weather_json:
+                weather_df = pd.read_json(io.StringIO(weather_json))
+
         message = generate_welcome_message(persona_id, region, demand_df, weather_df)
 
         welcome = build_welcome_card(
@@ -585,8 +601,12 @@ def register_callbacks(app):
             avatar=card_data["avatar"],
             color=card_data["color"],
         )
-        kpis = _build_persona_kpis(persona_id, region)
-        return welcome, kpis, persona.default_tab
+        kpis = _build_persona_kpis(persona_id, region, demand_df, weather_df)
+
+        # Only switch active tab when persona changed (not on region/data change)
+        triggered = ctx.triggered_id
+        active_tab = persona.default_tab if triggered == "persona-selector" else no_update
+        return welcome, kpis, active_tab
 
     # ── 2b. PERSONA TAB VISIBILITY (AC-7.5) ──────────────────
 
@@ -2182,11 +2202,24 @@ def register_callbacks(app):
             )
         )
 
+        # Fold boundary lines
+        num_folds = result.get("num_folds", 1)
+        fold_boundaries = result.get("fold_boundaries", [0])
+        for boundary_idx in fold_boundaries[1:]:
+            fig.add_vline(
+                x=timestamps[boundary_idx],
+                line_dash="dot",
+                line_color="rgba(255, 255, 255, 0.3)",
+                line_width=1,
+            )
+
         # Layout
         horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
+        horizon_label = horizon_labels.get(horizon_hours, "")
+        fold_label = f" ({num_folds} folds)" if num_folds > 1 else ""
         fig.update_layout(
             **PLOT_LAYOUT,
-            title=f"{horizon_labels.get(horizon_hours, '')} Ahead Backtest: {model_name.upper()} vs Actual — {region}",
+            title=f"{horizon_label} Walk-Forward Backtest{fold_label}: {model_name.upper()} vs Actual — {region}",
             xaxis_title="Date/Time",
             yaxis_title="Demand (MW)",
             hovermode="x unified",
@@ -2208,6 +2241,7 @@ def register_callbacks(app):
             persona, region or "FPL", all_metrics,
             model_name=model_name, horizon_hours=horizon_hours,
             actual=actual, predictions=predictions, timestamps=timestamps,
+            num_folds=num_folds,
         )
         insight_card = build_insight_card(tab3_insights, persona, "tab-backtest")
 
@@ -2269,63 +2303,205 @@ def _get_feature_importance(region: str, top_n: int = 10) -> tuple[list[str], np
     return names, vals
 
 
-def _build_persona_kpis(persona_id: str, region: str) -> dbc.Row:
+def _build_persona_kpis(
+    persona_id: str,
+    region: str,
+    demand_df: pd.DataFrame | None = None,
+    weather_df: pd.DataFrame | None = None,
+) -> dbc.Row:
+    """Build persona-specific KPI cards from live demand/weather data."""
     capacity = REGION_CAPACITY_MW.get(region, 50000)
+
+    # Extract real stats from demand data
+    peak_mw = None
+    avg_mw = None
+    min_mw = None
+    pct_of_capacity = None
+    if demand_df is not None and "demand_mw" in demand_df.columns:
+        valid = demand_df.dropna(subset=["demand_mw"])
+        if not valid.empty:
+            peak_mw = valid["demand_mw"].max()
+            avg_mw = valid["demand_mw"].mean()
+            min_mw = valid["demand_mw"].min()
+            pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
+
+    # Extract weather stats
+    avg_temp = None
+    avg_wind = None
+    avg_solar = None
+    if weather_df is not None:
+        if "temperature_2m" in weather_df.columns:
+            avg_temp = weather_df["temperature_2m"].mean()
+        if "wind_speed_80m" in weather_df.columns:
+            avg_wind = weather_df["wind_speed_80m"].mean()
+        if "shortwave_radiation" in weather_df.columns:
+            avg_solar = weather_df["shortwave_radiation"].mean()
+
+    # Get backtest MAPE from cache if available
+    backtest_mape = None
+    backtest_rmse = None
+    for horizon in [168, 24, 720]:  # prefer 7-day, then 24h, then 30d
+        bt_key = (region, horizon, "xgboost")
+        if bt_key in _BACKTEST_CACHE:
+            cached_result, _, _ = _BACKTEST_CACHE[bt_key]
+            if "metrics" in cached_result:
+                backtest_mape = cached_result["metrics"].get("mape")
+                backtest_rmse = cached_result["metrics"].get("rmse")
+                break
+
+    # Format values
+    peak_str = f"{int(peak_mw):,} MW" if peak_mw is not None else "— MW"
+    avg_str = f"{int(avg_mw):,} MW" if avg_mw is not None else "— MW"
+    cap_str = f"{pct_of_capacity:.0f}% of capacity" if pct_of_capacity is not None else ""
+    mape_str = f"{backtest_mape:.1f}%" if backtest_mape is not None else "—%"
+    mape_dir = "positive" if backtest_mape is not None and backtest_mape < 5 else "negative"
+    rmse_str = f"{int(backtest_rmse):,} MW" if backtest_rmse is not None else "— MW"
+
     persona_kpis = {
         "grid_ops": [
             {
                 "label": "Peak Demand",
-                "value": f"{int(capacity * 0.72):,} MW",
-                "delta": "↑3% vs yesterday",
-                "direction": "negative",
+                "value": peak_str,
+                "delta": cap_str,
+                "direction": "negative" if pct_of_capacity and pct_of_capacity > 80 else "neutral",
             },
             {
                 "label": "Forecast Error",
-                "value": "2.8%",
-                "delta": "7-day MAPE",
-                "direction": "positive",
+                "value": mape_str,
+                "delta": "Walk-forward MAPE",
+                "direction": mape_dir,
             },
         ],
         "renewables": [
-            {"label": "Wind CF", "value": "32%", "delta": "↓6% vs 7d avg", "direction": "negative"},
             {
-                "label": "Solar CF",
-                "value": "68%",
-                "delta": "↑2% vs yesterday",
-                "direction": "positive",
+                "label": "Avg Wind",
+                "value": f"{avg_wind:.1f} m/s" if avg_wind is not None else "— m/s",
+                "delta": "80m hub height",
+                "direction": "neutral",
+            },
+            {
+                "label": "Avg Solar",
+                "value": f"{avg_solar:.0f} W/m²" if avg_solar is not None else "— W/m²",
+                "delta": "Shortwave radiation",
+                "direction": "neutral",
             },
         ],
         "trader": [
             {
-                "label": "Price Est.",
-                "value": f"${PRICING_BASE_USD_MWH:.0f}/MWh",
-                "delta": "Moderate load",
+                "label": "Peak Demand",
+                "value": peak_str,
+                "delta": cap_str,
                 "direction": "neutral",
             },
             {
-                "label": "Demand vs Forecast",
-                "value": "+2.1%",
-                "delta": "Above EIA forecast",
-                "direction": "negative",
+                "label": "Avg Demand",
+                "value": avg_str,
+                "delta": f"Range: {int(peak_mw - min_mw):,} MW" if peak_mw is not None and min_mw is not None else "",
+                "direction": "neutral",
             },
         ],
         "data_scientist": [
             {
-                "label": "Ensemble MAPE",
-                "value": "2.8%",
+                "label": "XGBoost MAPE",
+                "value": mape_str,
                 "delta": "Target: <5%",
-                "direction": "positive",
+                "direction": mape_dir,
             },
             {
                 "label": "RMSE",
-                "value": f"{int(capacity * 0.015):,} MW",
-                "delta": "7-day rolling",
+                "value": rmse_str,
+                "delta": "Walk-forward backtest",
                 "direction": "neutral",
             },
         ],
     }
     kpis = persona_kpis.get(persona_id, persona_kpis["grid_ops"])
     return build_kpi_row(kpis)
+
+
+
+
+def _predict_single_fold(
+    model_name: str,
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+) -> np.ndarray | None:
+    """Train a model on train_df and predict on test_df for one backtest fold.
+
+    Returns predictions array or None on failure.
+    """
+    n_test = len(test_df)
+
+    if model_name == "xgboost":
+        from models.xgboost_model import predict_xgboost, train_xgboost
+
+        model = train_xgboost(train_df)
+        return predict_xgboost(model, test_df)[:n_test]
+
+    elif model_name == "prophet":
+        from models.prophet_model import predict_prophet, train_prophet
+
+        model = train_prophet(train_df)
+        full_df = pd.concat([train_df, test_df], ignore_index=True)
+        result = predict_prophet(model, full_df, periods=n_test)
+        return result["forecast"][:n_test]
+
+    elif model_name == "arima":
+        from models.arima_model import predict_arima, train_arima
+
+        test_clean = test_df.copy()
+        for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
+                     "cooling_degree_days", "heating_degree_days"]:
+            if col in test_clean.columns:
+                test_clean[col] = test_clean[col].ffill().bfill().fillna(0)
+        model = train_arima(train_df)
+        return predict_arima(model, test_clean, periods=n_test)[:n_test]
+
+    return None
+
+
+def _ensemble_fold(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+) -> np.ndarray | None:
+    """Train all models on train_df, combine via 1/MAPE weighting for one fold.
+
+    Returns weighted ensemble predictions or None if all models fail.
+    """
+    from models.evaluation import compute_mape
+
+    actual = test_df["demand_mw"].values
+    preds: dict[str, np.ndarray] = {}
+
+    for name in ["xgboost", "prophet", "arima"]:
+        try:
+            pred = _predict_single_fold(name, train_df, test_df)
+            if pred is not None and not np.all(np.isnan(pred)):
+                preds[name] = pred
+        except Exception as e:
+            log.warning("ensemble_fold_model_failed", model=name, error=str(e))
+
+    if not preds:
+        return None
+
+    # 1/MAPE weighting
+    weights: dict[str, float] = {}
+    total_inv_mape = 0.0
+    for name, pred in preds.items():
+        mape = compute_mape(actual, pred)
+        if mape > 0:
+            weights[name] = 1.0 / mape
+            total_inv_mape += weights[name]
+
+    if total_inv_mape > 0:
+        ensemble_pred = np.zeros(len(actual))
+        for name, pred in preds.items():
+            w = weights.get(name, 0) / total_inv_mape
+            ensemble_pred += pred * w
+        return ensemble_pred
+
+    # Fallback: uniform average
+    return np.mean(list(preds.values()), axis=0)
 
 
 def _run_backtest_for_horizon(
@@ -2336,17 +2512,23 @@ def _run_backtest_for_horizon(
     region: str,
 ) -> dict:
     """
-    Run backtest for a specific forecast horizon.
+    Walk-forward backtest for a specific forecast horizon.
+
+    Uses expanding-window cross-validation: slides non-overlapping test
+    windows across the data (up to 5 folds), training on all data before
+    each window. Metrics are aggregated across all folds for a robust
+    accuracy estimate.
 
     Args:
         demand_df: Full demand dataframe with timestamp and demand_mw
         weather_df: Full weather dataframe
         horizon_hours: Forecast horizon (24, 168, or 720 hours)
-        model_name: Model to use (prophet, arima, xgboost, ensemble)
+        model_name: Model to use (xgboost, prophet, arima, ensemble)
         region: Region code
 
     Returns:
-        Dict with predictions, actuals, timestamps, and metrics
+        Dict with predictions, actuals, timestamps, metrics, num_folds,
+        and fold_boundaries.
     """
     import time
 
@@ -2357,13 +2539,14 @@ def _run_backtest_for_horizon(
     data_hash = _compute_data_hash(demand_df, weather_df, region)
     cache_key = (region, horizon_hours, model_name)
 
+    # Layer 1: In-memory cache
     if cache_key in _BACKTEST_CACHE:
         cached_result, cached_hash, cached_time = _BACKTEST_CACHE[cache_key]
         if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
             log.info("backtest_cache_hit", region=region, horizon=horizon_hours, model=model_name)
             return cached_result
 
-    # Check SQLite cache (survives page refresh / server restart)
+    # Layer 2: SQLite cache (survives page refresh / server restart)
     try:
         from data.cache import get_cache
 
@@ -2374,6 +2557,8 @@ def _run_backtest_for_horizon(
             cached_sqlite["timestamps"] = pd.to_datetime(cached_sqlite["timestamps"]).values
             cached_sqlite["actual"] = np.array(cached_sqlite["actual"])
             cached_sqlite["predictions"] = np.array(cached_sqlite["predictions"])
+            cached_sqlite.setdefault("num_folds", 1)
+            cached_sqlite.setdefault("fold_boundaries", [0])
             _BACKTEST_CACHE[cache_key] = (cached_sqlite, data_hash, time.time())
             log.info("backtest_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name)
             return cached_sqlite
@@ -2385,235 +2570,83 @@ def _run_backtest_for_horizon(
     featured_df = engineer_features(merged_df)
     featured_df = featured_df.dropna(subset=["demand_mw"])
 
-    if len(featured_df) < horizon_hours + 168:
+    min_train_size = 720  # 30 days minimum training data
+    n_total = len(featured_df)
+
+    if n_total < min_train_size + horizon_hours:
         return {"error": "Insufficient data"}
 
-    # Split: train on everything except last horizon_hours
-    cutoff_idx = len(featured_df) - horizon_hours
-    train_df = featured_df.iloc[:cutoff_idx].copy()
-    test_df = featured_df.iloc[cutoff_idx:].copy()
+    # Calculate number of non-overlapping folds (max 5)
+    max_possible_folds = (n_total - min_train_size) // horizon_hours
+    num_folds = min(5, max(1, max_possible_folds))
 
-    actual = test_df["demand_mw"].values
-    timestamps = test_df["timestamp"].values
+    log.info(
+        "backtest_walk_forward_start",
+        region=region, horizon=horizon_hours, model=model_name,
+        num_folds=num_folds, data_points=n_total,
+    )
 
-    predictions = None
+    all_actual: list[np.ndarray] = []
+    all_predictions: list[np.ndarray] = []
+    all_timestamps: list[np.ndarray] = []
+    fold_boundaries: list[int] = []
 
     try:
-        if model_name == "xgboost":
-            from models.xgboost_model import predict_xgboost, train_xgboost
+        for fold_idx in range(num_folds):
+            # Non-overlapping test windows from end, oldest first
+            offset_from_end = (num_folds - fold_idx) * horizon_hours
+            test_start = n_total - offset_from_end
+            test_end = test_start + horizon_hours
 
-            mck = (region, "xgboost", horizon_hours)
-            xgb_model = None
-            if mck in _MODEL_CACHE:
-                cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-                if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                    xgb_model = cached_m
-                    log.info("backtest_model_cache_hit", region=region, model="xgboost")
-            if xgb_model is None:
-                xgb_model = train_xgboost(train_df)
-                _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
-            predictions = predict_xgboost(xgb_model, test_df)[: len(actual)]
+            if test_start < min_train_size:
+                log.debug("backtest_fold_skipped", fold=fold_idx + 1, reason="insufficient_train_data")
+                continue
 
-        elif model_name == "prophet":
-            from models.prophet_model import predict_prophet, train_prophet
+            train_df = featured_df.iloc[:test_start].copy()
+            test_df = featured_df.iloc[test_start:test_end].copy()
 
-            mck = (region, "prophet", horizon_hours)
-            prophet_model = None
-            if mck in _MODEL_CACHE:
-                cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-                if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                    prophet_model = cached_m
-                    log.info("backtest_model_cache_hit", region=region, model="prophet")
-            if prophet_model is None:
-                prophet_model = train_prophet(train_df)
-                _MODEL_CACHE[mck] = (prophet_model, data_hash, time.time())
-            # Prophet's make_future_dataframe generates len(train)+periods rows.
-            # Pass full train+test so regressor values cover all timestamps.
-            full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
-            prophet_result = predict_prophet(prophet_model, full_regressor_df, periods=len(test_df))
-            predictions = prophet_result["forecast"][: len(actual)]
+            log.info(
+                "backtest_fold_start",
+                fold=fold_idx + 1, num_folds=num_folds,
+                train_rows=len(train_df), test_rows=len(test_df),
+            )
 
-        elif model_name == "arima":
-            from models.arima_model import predict_arima, train_arima
-
-            mck = (region, "arima", horizon_hours)
-            arima_model = None
-            if mck in _MODEL_CACHE:
-                cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-                if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                    arima_model = cached_m
-                    log.info("backtest_model_cache_hit", region=region, model="arima")
-            if arima_model is None:
-                arima_model = train_arima(train_df)
-                _MODEL_CACHE[mck] = (arima_model, data_hash, time.time())
-            # Fill NaN in exog columns to prevent SARIMAX forecast failure
-            arima_test_df = test_df.copy()
-            for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
-                         "cooling_degree_days", "heating_degree_days"]:
-                if col in arima_test_df.columns:
-                    arima_test_df[col] = arima_test_df[col].ffill().bfill().fillna(0)
-            predictions = predict_arima(arima_model, arima_test_df, periods=len(test_df))[: len(actual)]
-
-        elif model_name == "ensemble":
-            # Ensemble: reuse cached individual backtest results, then only
-            # train/predict for models that aren't cached yet.
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-
-            preds = {}
-            weights = {}
-
-            # Fast path: check if individual model backtests are already cached
-            # (in-memory first, then SQLite fallback for cross-restart persistence)
-            for sub_model in ["xgboost", "prophet", "arima"]:
-                sub_key = (region, horizon_hours, sub_model)
-                if sub_key in _BACKTEST_CACHE:
-                    cr, ch, ct = _BACKTEST_CACHE[sub_key]
-                    if ch == data_hash and (time.time() - ct) < CACHE_TTL_SECONDS:
-                        preds[sub_model] = cr["predictions"]
-                        log.info("backtest_ensemble_reuse_cached", model=sub_model, horizon=horizon_hours,
-                                 source="memory")
-                        continue
-                # SQLite fallback
-                try:
-                    from data.cache import get_cache
-                    sc = get_cache()
-                    sr = sc.get(f"backtest:{region}:{horizon_hours}:{sub_model}")
-                    if sr is not None and isinstance(sr, dict) and "predictions" in sr:
-                        preds[sub_model] = np.array(sr["predictions"])
-                        # Populate in-memory cache too
-                        sr["timestamps"] = pd.to_datetime(sr["timestamps"]).values
-                        sr["actual"] = np.array(sr["actual"])
-                        sr["predictions"] = preds[sub_model]
-                        _BACKTEST_CACHE[sub_key] = (sr, data_hash, time.time())
-                        log.info("backtest_ensemble_reuse_cached", model=sub_model, horizon=horizon_hours,
-                                 source="sqlite")
-                except Exception:
-                    pass
-
-            missing = [m for m in ["xgboost", "prophet", "arima"] if m not in preds]
-
-            if missing:
-                def _cache_individual_backtest(name, pred):
-                    """Cache individual model backtest so ensemble can reuse it later."""
-                    sub_metrics = compute_all_metrics(actual, pred)
-                    sub_result = {"timestamps": timestamps, "actual": actual,
-                                  "predictions": pred, "metrics": sub_metrics}
-                    sub_key = (region, horizon_hours, name)
-                    _BACKTEST_CACHE[sub_key] = (sub_result, data_hash, time.time())
-                    try:
-                        from data.cache import get_cache
-                        sc = get_cache()
-                        sc.set(f"backtest:{region}:{horizon_hours}:{name}", {
-                            "timestamps": [str(t) for t in timestamps],
-                            "actual": actual.tolist(), "predictions": pred.tolist(),
-                            "metrics": sub_metrics,
-                        }, ttl=CACHE_TTL_SECONDS)
-                    except Exception:
-                        pass
-
-                def _train_xgb():
-                    from models.xgboost_model import predict_xgboost, train_xgboost
-
-                    mck = (region, "xgboost", horizon_hours)
-                    xgb_model = None
-                    if mck in _MODEL_CACHE:
-                        cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-                        if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                            xgb_model = cached_m
-                    if xgb_model is None:
-                        xgb_model = train_xgboost(train_df)
-                        _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
-                    p = predict_xgboost(xgb_model, test_df)[: len(actual)]
-                    _cache_individual_backtest("xgboost", p)
-                    return "xgboost", p
-
-                def _train_prophet():
-                    from models.prophet_model import predict_prophet, train_prophet
-
-                    mck = (region, "prophet", horizon_hours)
-                    p_model = None
-                    if mck in _MODEL_CACHE:
-                        cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-                        if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                            p_model = cached_m
-                    if p_model is None:
-                        p_model = train_prophet(train_df)
-                        _MODEL_CACHE[mck] = (p_model, data_hash, time.time())
-                    full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
-                    p_result = predict_prophet(p_model, full_regressor_df, periods=len(test_df))
-                    p = p_result["forecast"][: len(actual)]
-                    _cache_individual_backtest("prophet", p)
-                    return "prophet", p
-
-                def _train_arima():
-                    from models.arima_model import predict_arima, train_arima
-
-                    mck = (region, "arima", horizon_hours)
-                    a_model = None
-                    if mck in _MODEL_CACHE:
-                        cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-                        if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                            a_model = cached_m
-                    if a_model is None:
-                        a_model = train_arima(train_df)
-                        _MODEL_CACHE[mck] = (a_model, data_hash, time.time())
-                    a_test_df = test_df.copy()
-                    for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
-                                 "cooling_degree_days", "heating_degree_days"]:
-                        if col in a_test_df.columns:
-                            a_test_df[col] = a_test_df[col].ffill().bfill().fillna(0)
-                    p = predict_arima(a_model, a_test_df, periods=len(test_df))[: len(actual)]
-                    _cache_individual_backtest("arima", p)
-                    return "arima", p
-
-                model_fns = {"xgboost": _train_xgb, "prophet": _train_prophet, "arima": _train_arima}
-                with ThreadPoolExecutor(max_workers=3) as pool:
-                    futures = {pool.submit(model_fns[m]): m for m in missing}
-                    for future in as_completed(futures):
-                        model_label = futures[future]
-                        try:
-                            name, pred = future.result()
-                            preds[name] = pred
-                        except Exception as e:
-                            log.warning("backtest_ensemble_model_failed", model=model_label, error=str(e))
-
-            log.info("backtest_ensemble_combined", models=list(preds.keys()), count=len(preds),
-                     cached=len(preds) - len(missing) if missing else len(preds))
-
-            if preds:
-                # Compute 1/MAPE weights
-                total_inv_mape = 0
-                for name, pred in preds.items():
-                    mape = np.mean(np.abs((actual - pred) / actual)) * 100
-                    if mape > 0:
-                        weights[name] = 1.0 / mape
-                        total_inv_mape += weights[name]
-
-                if total_inv_mape > 0:
-                    ensemble_pred = np.zeros(len(actual))
-                    for name, pred in preds.items():
-                        w = weights[name] / total_inv_mape
-                        ensemble_pred += pred * w
-                    predictions = ensemble_pred
-                else:
-                    predictions = np.mean(list(preds.values()), axis=0)
+            # Get predictions for this fold
+            if model_name == "ensemble":
+                fold_preds = _ensemble_fold(train_df, test_df)
             else:
-                return {"error": "No models trained successfully"}
+                fold_preds = _predict_single_fold(model_name, train_df, test_df)
+
+            if fold_preds is None:
+                log.warning("backtest_fold_failed", fold=fold_idx + 1, model=model_name)
+                continue
+
+            # NaN guard per fold
+            fold_actual = test_df["demand_mw"].values
+            if np.any(np.isnan(fold_preds)):
+                nan_pct = np.isnan(fold_preds).sum() / len(fold_preds) * 100
+                log.warning("backtest_fold_nan", fold=fold_idx + 1, nan_pct=round(nan_pct, 1))
+                fold_preds = np.where(np.isnan(fold_preds), np.mean(fold_actual), fold_preds)
+
+            # Track fold boundary (index in concatenated array)
+            fold_boundaries.append(sum(len(a) for a in all_actual))
+            all_actual.append(fold_actual)
+            all_predictions.append(fold_preds)
+            all_timestamps.append(test_df["timestamp"].values)
+
+            log.info("backtest_fold_complete", fold=fold_idx + 1, num_folds=num_folds)
 
     except Exception as e:
-        log.warning("backtest_model_failed", model=model_name, error=str(e))
+        log.warning("backtest_walk_forward_failed", model=model_name, error=str(e))
         return {"error": str(e)}
 
-    if predictions is None:
-        return {"error": "Model training failed"}
+    if not all_actual:
+        return {"error": "All folds failed"}
 
-    # Guard against NaN predictions (e.g. ARIMA forecast failure returns np.nan)
-    if np.any(np.isnan(predictions)):
-        nan_pct = np.isnan(predictions).sum() / len(predictions) * 100
-        log.warning("backtest_nan_predictions", model=model_name, nan_pct=round(nan_pct, 1))
-        # Replace NaN with mean of actual to avoid corrupting metrics
-        predictions = np.where(np.isnan(predictions), np.mean(actual), predictions)
-
+    # Concatenate across all folds and compute aggregate metrics
+    actual = np.concatenate(all_actual)
+    predictions = np.concatenate(all_predictions)
+    timestamps = np.concatenate(all_timestamps)
     metrics = compute_all_metrics(actual, predictions)
 
     result = {
@@ -2621,9 +2654,17 @@ def _run_backtest_for_horizon(
         "actual": actual,
         "predictions": predictions,
         "metrics": metrics,
+        "num_folds": len(fold_boundaries),
+        "fold_boundaries": fold_boundaries,
     }
 
-    # Cache the backtest result (in-memory)
+    log.info(
+        "backtest_walk_forward_complete",
+        region=region, horizon=horizon_hours, model=model_name,
+        folds=len(fold_boundaries), mape=round(metrics["mape"], 2),
+    )
+
+    # Cache the result (in-memory)
     _BACKTEST_CACHE[cache_key] = (result, data_hash, time.time())
 
     # Persist to SQLite for cross-restart durability
@@ -2637,11 +2678,11 @@ def _run_backtest_for_horizon(
             "actual": result["actual"].tolist(),
             "predictions": result["predictions"].tolist(),
             "metrics": result["metrics"],
+            "num_folds": result["num_folds"],
+            "fold_boundaries": result["fold_boundaries"],
         }
         sqlite_cache.set(sqlite_key, serializable, ttl=CACHE_TTL_SECONDS)
     except Exception as e:
         log.debug("backtest_sqlite_write_failed", error=str(e))
-
-    log.info("backtest_cached", region=region, horizon=horizon_hours, model=model_name)
 
     return result

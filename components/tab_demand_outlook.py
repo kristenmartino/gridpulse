@@ -61,26 +61,14 @@ def layout() -> html.Div:
                                 style={"fontSize": "0.85rem"},
                             ),
                         ],
-                        md=6,
+                        md=12,
                     ),
-                    dbc.Col(
-                        [
-                            html.Label(
-                                "Model:", className="fw-bold", style={"fontSize": "0.85rem"}
-                            ),
-                            dbc.RadioItems(
-                                id="outlook-model",
-                                options=[
-                                    {"label": "XGBoost (Recommended)", "value": "xgboost"},
-                                    {"label": "Ensemble", "value": "ensemble"},
-                                ],
-                                value="xgboost",
-                                inline=True,
-                                className="mt-1",
-                                style={"fontSize": "0.85rem"},
-                            ),
-                        ],
-                        md=6,
+                    # Hidden model selector — XGBoost only (other models deferred)
+                    dbc.RadioItems(
+                        id="outlook-model",
+                        options=[{"label": "XGBoost", "value": "xgboost"}],
+                        value="xgboost",
+                        style={"display": "none"},
                     ),
                 ],
                 className="mb-3",
