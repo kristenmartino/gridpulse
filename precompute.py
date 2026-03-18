@@ -58,7 +58,7 @@ def precompute_all() -> None:
         _train_all_models_parallel(all_regions)
 
         # Phase 2: Backtests for all regions in parallel
-        # Only 24h XGBoost backtest (the default view) — 168h deferred to on-demand
+        # XGBoost backtests for all 3 horizons (24h, 168h, 720h)
         _backtest_all_parallel(all_regions)
 
     except Exception as e:
@@ -106,7 +106,7 @@ def _backtest_all_parallel(regions: list[str]) -> None:
     with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
         futures = {}
         for r in regions_with_data:
-            for horizon in [24, 168]:
+            for horizon in [24, 168, 720]:
                 futures[pool.submit(_precompute_backtest, r, horizon, "xgboost")] = (
                     r, horizon, "xgboost",
                 )
