@@ -304,6 +304,9 @@ def _run_forecast_outlook(
         else:
             return {"error": f"Unknown model: {model_name}"}
 
+        # Demand cannot be negative — clamp all predictions
+        predictions = np.maximum(predictions, 0)
+
         # Cache predictions (in-memory)
         _PREDICTION_CACHE[cache_key] = (predictions, future_timestamps, data_hash, time.time())
 
@@ -335,14 +338,19 @@ def _run_forecast_outlook(
 def _create_future_features(
     train_df: pd.DataFrame, future_timestamps: pd.DatetimeIndex
 ) -> pd.DataFrame:
-    """Create feature dataframe for future predictions."""
-    # Get feature columns from training data
+    """Create feature dataframe for future predictions.
+
+    For short horizons (<=168h), uses last-known values for non-time features.
+    For longer horizons, fills weather, demand lag, and rolling features using
+    historical hour-of-day + day-of-week averages from training data so that
+    the model sees realistic daily/weekly patterns instead of a single frozen
+    value repeated for 720 hours.
+    """
     feature_cols = [c for c in train_df.columns if c not in ["timestamp", "demand_mw", "region"]]
 
-    # Create base dataframe
     future_df = pd.DataFrame({"timestamp": future_timestamps})
 
-    # Add time-based features
+    # Time-based features (always computed from the actual future timestamps)
     future_df["hour"] = future_df["timestamp"].dt.hour
     future_df["day_of_week"] = future_df["timestamp"].dt.dayofweek
     future_df["month"] = future_df["timestamp"].dt.month
@@ -353,13 +361,48 @@ def _create_future_features(
     future_df["dow_cos"] = np.cos(2 * np.pi * future_df["day_of_week"] / 7)
     future_df["is_weekend"] = (future_df["day_of_week"] >= 5).astype(int)
 
-    # Use last known values for weather and lag features
+    horizon = len(future_timestamps)
     last_row = train_df.iloc[-1]
-    for col in feature_cols:
-        if col not in future_df.columns:
-            if col in last_row.index:
-                future_df[col] = last_row[col]
-            else:
+
+    if horizon <= 168:
+        # Short horizon: last-known values are a reasonable proxy
+        for col in feature_cols:
+            if col not in future_df.columns:
+                if col in last_row.index:
+                    future_df[col] = last_row[col]
+                else:
+                    future_df[col] = 0
+    else:
+        # Long horizon: use historical (hour, day_of_week) averages so the
+        # model sees realistic daily demand curves and weather patterns
+        # instead of flat constant features.
+        hist = train_df.copy()
+        hist["_hour"] = hist["timestamp"].dt.hour
+        hist["_dow"] = hist["timestamp"].dt.dayofweek
+
+        # Compute (hour, dow) group means for all numeric feature columns
+        non_time_cols = [c for c in feature_cols if c not in future_df.columns]
+        numeric_cols = [c for c in non_time_cols if c in hist.columns]
+
+        group_means = hist.groupby(["_hour", "_dow"])[numeric_cols].mean()
+
+        # Map future timestamps to their (hour, dow) historical averages
+        future_hour = future_df["timestamp"].dt.hour
+        future_dow = future_df["timestamp"].dt.dayofweek
+
+        for col in numeric_cols:
+            values = np.empty(horizon)
+            for i in range(horizon):
+                key = (future_hour.iloc[i], future_dow.iloc[i])
+                if key in group_means.index:
+                    values[i] = group_means.loc[key, col]
+                else:
+                    values[i] = last_row[col] if col in last_row.index else 0
+            future_df[col] = values
+
+        # Fill any remaining feature columns not in training data
+        for col in feature_cols:
+            if col not in future_df.columns:
                 future_df[col] = 0
 
     return future_df
