@@ -147,11 +147,16 @@ def predict_prophet(
     # Extract the forecast period (last N rows)
     fc = forecast.tail(periods)
 
+    # Clamp negative forecasts to 0 (demand can't be negative)
+    yhat = np.maximum(fc["yhat"].values, 0)
+    yhat_lower = np.maximum(fc["yhat_lower"].values, 0)
+    yhat_upper = np.maximum(fc["yhat_upper"].values, 0)
+
     return {
-        "forecast": fc["yhat"].values,
-        "lower_80": fc["yhat_lower"].values,
-        "upper_80": fc["yhat_upper"].values,
-        "lower_95": fc["yhat_lower"].values * 0.95,  # Approximate 95% from 80%
-        "upper_95": fc["yhat_upper"].values * 1.05,
+        "forecast": yhat,
+        "lower_80": yhat_lower,
+        "upper_80": yhat_upper,
+        "lower_95": yhat_lower * 0.95,  # Approximate 95% from 80%
+        "upper_95": yhat_upper * 1.05,
         "timestamps": pd.to_datetime(fc["ds"]).values,
     }
