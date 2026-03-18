@@ -1,12 +1,17 @@
 """
 Startup precomputation for the Energy Forecast Dashboard.
 
-Runs at container startup (before gunicorn forks workers) to warm all
-in-memory caches. With --preload, workers inherit the warm caches via
-copy-on-write — zero additional memory cost.
+Runs in a background thread per gunicorn worker (--preload is omitted so
+workers can serve /health immediately). Each worker warms its own in-memory
+caches. SQLite cache provides cross-restart persistence.
 
-Phase 1 (sync):  Default region (FPL) — model + predictions + backtests
-Phase 2 (parallel): Remaining 7 regions — model + predictions + backtests
+Only XGBoost forecasts and backtests are precomputed (the default view).
+Ensemble forecasts/backtests train 3 models each (~15-20s) and are deferred
+to on-demand computation + cache after first user request.
+
+Phase 1: Fetch data for all 8 regions in parallel
+Phase 2: Train XGBoost + generate XGBoost predictions for all regions
+Phase 3: Run XGBoost backtests for all regions
 
 Never raises — failures log warnings and fall back to on-demand computation.
 """
@@ -91,16 +96,20 @@ def _train_all_models_parallel(regions: list[str]) -> None:
 
 
 def _backtest_all_parallel(regions: list[str]) -> None:
-    """Run XGBoost + ensemble backtests for all regions in parallel."""
+    """Run XGBoost backtests for all regions in parallel.
+
+    Only XGBoost backtests are precomputed (the default view).
+    Ensemble backtests require training all 3 models (~15-20s each)
+    and are deferred to on-demand computation + cache.
+    """
     regions_with_data = [r for r in regions if r in _region_data]
     with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
         futures = {}
         for r in regions_with_data:
             for horizon in [24, 168]:
-                for model in ["xgboost", "ensemble"]:
-                    futures[pool.submit(_precompute_backtest, r, horizon, model)] = (
-                        r, horizon, model,
-                    )
+                futures[pool.submit(_precompute_backtest, r, horizon, "xgboost")] = (
+                    r, horizon, "xgboost",
+                )
         for future in as_completed(futures):
             region, horizon, model = futures[future]
             try:
@@ -196,16 +205,19 @@ def _precompute_model_and_predictions(
         _MODEL_CACHE[(region, "xgboost", 0)] = (xgb_model, data_hash, time.time())
         log.info("precompute_model_trained", region=region)
 
-        for horizon in [24, 168, 720]:
-            for model in ["xgboost", "ensemble"]:
-                try:
-                    result = _run_forecast_outlook(demand_df, weather_df, horizon, model, region)
-                    if "error" not in result:
-                        log.info("precompute_predictions_cached", region=region, horizon=horizon, model=model)
-                except Exception as e:
-                    log.warning(
-                        "precompute_prediction_error", region=region, horizon=horizon, model=model, error=str(e),
-                    )
+        # Only precompute XGBoost forecasts (fast, single model already trained).
+        # Ensemble forecasts require training Prophet + ARIMA from scratch each time
+        # (~15-20s each) and are deferred to on-demand computation + cache.
+        # Order: default horizon (168h) first for fastest time-to-interactive.
+        for horizon in [168, 24, 720]:
+            try:
+                result = _run_forecast_outlook(demand_df, weather_df, horizon, "xgboost", region)
+                if "error" not in result:
+                    log.info("precompute_predictions_cached", region=region, horizon=horizon, model="xgboost")
+            except Exception as e:
+                log.warning(
+                    "precompute_prediction_error", region=region, horizon=horizon, model="xgboost", error=str(e),
+                )
 
     except Exception as e:
         log.warning("precompute_model_training_failed", region=region, error=str(e))
