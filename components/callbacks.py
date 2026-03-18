@@ -206,59 +206,94 @@ def _run_forecast_outlook(
             ]
 
         elif model_name == "ensemble":
-            # Equal-weight ensemble of all three models (no actuals for MAPE weighting)
+            # Equal-weight ensemble of all three models (no actuals for MAPE weighting).
+            # Strategy: reuse cached individual-model predictions when available,
+            # then only train/predict for models that aren't cached yet.
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             preds = {}
 
-            def _forecast_xgb():
-                from models.xgboost_model import predict_xgboost, train_xgboost
+            # Fast path: check if individual model predictions are already cached
+            for sub_model in ["xgboost", "prophet", "arima"]:
+                sub_key = (region, horizon_hours, sub_model)
+                if sub_key in _PREDICTION_CACHE:
+                    cp, ct, ch, ctm = _PREDICTION_CACHE[sub_key]
+                    if ch == data_hash and (time.time() - ctm) < CACHE_TTL_SECONDS:
+                        preds[sub_model] = cp
+                        log.info("ensemble_reuse_cached", model=sub_model, horizon=horizon_hours)
 
-                xgb_model = None
-                mck = (region, "xgboost", 0)
-                if mck in _MODEL_CACHE:
-                    cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
-                    if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
-                        xgb_model = cached_model
-                if xgb_model is None:
-                    xgb_model = train_xgboost(train_df)
-                    _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
-                return "xgboost", predict_xgboost(xgb_model, future_df)[:horizon_hours]
+            # Only train models whose predictions we don't already have
+            missing = [m for m in ["xgboost", "prophet", "arima"] if m not in preds]
 
-            def _forecast_prophet():
-                from models.prophet_model import predict_prophet, train_prophet
+            if missing:
+                def _forecast_xgb():
+                    from models.xgboost_model import predict_xgboost, train_xgboost
 
-                pm = train_prophet(train_df)
-                pr = predict_prophet(pm, future_df, periods=horizon_hours)
-                return "prophet", pr["forecast"][:horizon_hours]
+                    xgb_model = None
+                    mck = (region, "xgboost", 0)
+                    if mck in _MODEL_CACHE:
+                        cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
+                        if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
+                            xgb_model = cached_model
+                    if xgb_model is None:
+                        xgb_model = train_xgboost(train_df)
+                        _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
+                    p = predict_xgboost(xgb_model, future_df)[:horizon_hours]
+                    _PREDICTION_CACHE[(region, horizon_hours, "xgboost")] = (p, future_timestamps, data_hash, time.time())
+                    return "xgboost", p
 
-            def _forecast_arima():
-                from models.arima_model import predict_arima, train_arima
+                def _forecast_prophet():
+                    from models.prophet_model import predict_prophet, train_prophet
 
-                am = train_arima(train_df)
-                # Fill NaN in exog columns to prevent SARIMAX forecast failure
-                safe_future = future_df.copy()
-                for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
-                             "cooling_degree_days", "heating_degree_days"]:
-                    if col in safe_future.columns:
-                        safe_future[col] = safe_future[col].ffill().bfill().fillna(0)
-                return "arima", predict_arima(am, safe_future, periods=horizon_hours)[:horizon_hours]
+                    pm = None
+                    mck = (region, "prophet", 0)
+                    if mck in _MODEL_CACHE:
+                        cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
+                        if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
+                            pm = cached_model
+                    if pm is None:
+                        pm = train_prophet(train_df)
+                        _MODEL_CACHE[mck] = (pm, data_hash, time.time())
+                    pr = predict_prophet(pm, future_df, periods=horizon_hours)
+                    p = pr["forecast"][:horizon_hours]
+                    _PREDICTION_CACHE[(region, horizon_hours, "prophet")] = (p, future_timestamps, data_hash, time.time())
+                    return "prophet", p
 
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futures = {
-                    pool.submit(_forecast_xgb): "xgboost",
-                    pool.submit(_forecast_prophet): "prophet",
-                    pool.submit(_forecast_arima): "arima",
-                }
-                for future in as_completed(futures):
-                    model_label = futures[future]
-                    try:
-                        name, pred = future.result()
-                        preds[name] = pred
-                    except Exception as e:
-                        log.warning("forecast_ensemble_model_failed", model=model_label, error=str(e))
+                def _forecast_arima():
+                    from models.arima_model import predict_arima, train_arima
 
-            log.info("forecast_ensemble_combined", models=list(preds.keys()), count=len(preds))
+                    am = None
+                    mck = (region, "arima", 0)
+                    if mck in _MODEL_CACHE:
+                        cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
+                        if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
+                            am = cached_model
+                    if am is None:
+                        am = train_arima(train_df)
+                        _MODEL_CACHE[mck] = (am, data_hash, time.time())
+                    # Fill NaN in exog columns to prevent SARIMAX forecast failure
+                    safe_future = future_df.copy()
+                    for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
+                                 "cooling_degree_days", "heating_degree_days"]:
+                        if col in safe_future.columns:
+                            safe_future[col] = safe_future[col].ffill().bfill().fillna(0)
+                    p = predict_arima(am, safe_future, periods=horizon_hours)[:horizon_hours]
+                    _PREDICTION_CACHE[(region, horizon_hours, "arima")] = (p, future_timestamps, data_hash, time.time())
+                    return "arima", p
+
+                model_fns = {"xgboost": _forecast_xgb, "prophet": _forecast_prophet, "arima": _forecast_arima}
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = {pool.submit(model_fns[m]): m for m in missing}
+                    for future in as_completed(futures):
+                        model_label = futures[future]
+                        try:
+                            name, pred = future.result()
+                            preds[name] = pred
+                        except Exception as e:
+                            log.warning("forecast_ensemble_model_failed", model=model_label, error=str(e))
+
+            log.info("forecast_ensemble_combined", models=list(preds.keys()), count=len(preds),
+                     cached=len(preds) - len(missing) if missing else len(preds))
 
             if preds:
                 # Equal weights for forward forecast (no actuals to compute MAPE)
@@ -2371,8 +2406,6 @@ def _run_backtest_for_horizon(
         if model_name == "xgboost":
             from models.xgboost_model import predict_xgboost, train_xgboost
 
-            # Only XGBoost is cached in _MODEL_CACHE (small tree structure).
-            # Prophet/ARIMA are too large — their results are cached via _BACKTEST_CACHE.
             mck = (region, "xgboost", horizon_hours)
             xgb_model = None
             if mck in _MODEL_CACHE:
@@ -2388,7 +2421,16 @@ def _run_backtest_for_horizon(
         elif model_name == "prophet":
             from models.prophet_model import predict_prophet, train_prophet
 
-            prophet_model = train_prophet(train_df)
+            mck = (region, "prophet", horizon_hours)
+            prophet_model = None
+            if mck in _MODEL_CACHE:
+                cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+                if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                    prophet_model = cached_m
+                    log.info("backtest_model_cache_hit", region=region, model="prophet")
+            if prophet_model is None:
+                prophet_model = train_prophet(train_df)
+                _MODEL_CACHE[mck] = (prophet_model, data_hash, time.time())
             # Prophet's make_future_dataframe generates len(train)+periods rows.
             # Pass full train+test so regressor values cover all timestamps.
             full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
@@ -2398,7 +2440,16 @@ def _run_backtest_for_horizon(
         elif model_name == "arima":
             from models.arima_model import predict_arima, train_arima
 
-            arima_model = train_arima(train_df)
+            mck = (region, "arima", horizon_hours)
+            arima_model = None
+            if mck in _MODEL_CACHE:
+                cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+                if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                    arima_model = cached_m
+                    log.info("backtest_model_cache_hit", region=region, model="arima")
+            if arima_model is None:
+                arima_model = train_arima(train_df)
+                _MODEL_CACHE[mck] = (arima_model, data_hash, time.time())
             # Fill NaN in exog columns to prevent SARIMAX forecast failure
             arima_test_df = test_df.copy()
             for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
@@ -2408,63 +2459,87 @@ def _run_backtest_for_horizon(
             predictions = predict_arima(arima_model, arima_test_df, periods=len(test_df))[: len(actual)]
 
         elif model_name == "ensemble":
-            # Train all 3 models in parallel and combine via 1/MAPE weights
+            # Ensemble: reuse cached individual backtest results, then only
+            # train/predict for models that aren't cached yet.
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             preds = {}
             weights = {}
 
-            def _train_xgb():
-                from models.xgboost_model import predict_xgboost, train_xgboost
+            # Fast path: check if individual model backtests are already cached
+            for sub_model in ["xgboost", "prophet", "arima"]:
+                sub_key = (region, horizon_hours, sub_model)
+                if sub_key in _BACKTEST_CACHE:
+                    cr, ch, ct = _BACKTEST_CACHE[sub_key]
+                    if ch == data_hash and (time.time() - ct) < CACHE_TTL_SECONDS:
+                        preds[sub_model] = cr["predictions"]
+                        log.info("backtest_ensemble_reuse_cached", model=sub_model, horizon=horizon_hours)
 
-                mck = (region, "xgboost", horizon_hours)
-                xgb_model = None
-                if mck in _MODEL_CACHE:
-                    cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
-                    if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
-                        xgb_model = cached_m
-                if xgb_model is None:
-                    xgb_model = train_xgboost(train_df)
-                    _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
-                return "xgboost", predict_xgboost(xgb_model, test_df)[: len(actual)]
+            missing = [m for m in ["xgboost", "prophet", "arima"] if m not in preds]
 
-            def _train_prophet():
-                from models.prophet_model import predict_prophet, train_prophet
+            if missing:
+                def _train_xgb():
+                    from models.xgboost_model import predict_xgboost, train_xgboost
 
-                p_model = train_prophet(train_df)
-                # Prophet's make_future_dataframe generates len(train)+periods rows.
-                # Pass full train+test so regressor values cover all timestamps.
-                full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
-                p_result = predict_prophet(p_model, full_regressor_df, periods=len(test_df))
-                return "prophet", p_result["forecast"][: len(actual)]
+                    mck = (region, "xgboost", horizon_hours)
+                    xgb_model = None
+                    if mck in _MODEL_CACHE:
+                        cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+                        if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                            xgb_model = cached_m
+                    if xgb_model is None:
+                        xgb_model = train_xgboost(train_df)
+                        _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
+                    return "xgboost", predict_xgboost(xgb_model, test_df)[: len(actual)]
 
-            def _train_arima():
-                from models.arima_model import predict_arima, train_arima
+                def _train_prophet():
+                    from models.prophet_model import predict_prophet, train_prophet
 
-                a_model = train_arima(train_df)
-                # Fill NaN in exog columns to prevent SARIMAX forecast failure
-                a_test_df = test_df.copy()
-                for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
-                             "cooling_degree_days", "heating_degree_days"]:
-                    if col in a_test_df.columns:
-                        a_test_df[col] = a_test_df[col].ffill().bfill().fillna(0)
-                return "arima", predict_arima(a_model, a_test_df, periods=len(test_df))[: len(actual)]
+                    mck = (region, "prophet", horizon_hours)
+                    p_model = None
+                    if mck in _MODEL_CACHE:
+                        cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+                        if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                            p_model = cached_m
+                    if p_model is None:
+                        p_model = train_prophet(train_df)
+                        _MODEL_CACHE[mck] = (p_model, data_hash, time.time())
+                    full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
+                    p_result = predict_prophet(p_model, full_regressor_df, periods=len(test_df))
+                    return "prophet", p_result["forecast"][: len(actual)]
 
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futures = {
-                    pool.submit(_train_xgb): "xgboost",
-                    pool.submit(_train_prophet): "prophet",
-                    pool.submit(_train_arima): "arima",
-                }
-                for future in as_completed(futures):
-                    model_label = futures[future]
-                    try:
-                        name, pred = future.result()
-                        preds[name] = pred
-                    except Exception as e:
-                        log.warning("backtest_ensemble_model_failed", model=model_label, error=str(e))
+                def _train_arima():
+                    from models.arima_model import predict_arima, train_arima
 
-            log.info("backtest_ensemble_combined", models=list(preds.keys()), count=len(preds))
+                    mck = (region, "arima", horizon_hours)
+                    a_model = None
+                    if mck in _MODEL_CACHE:
+                        cached_m, cached_h, cached_t = _MODEL_CACHE[mck]
+                        if cached_h == data_hash and (time.time() - cached_t) < CACHE_TTL_SECONDS:
+                            a_model = cached_m
+                    if a_model is None:
+                        a_model = train_arima(train_df)
+                        _MODEL_CACHE[mck] = (a_model, data_hash, time.time())
+                    a_test_df = test_df.copy()
+                    for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
+                                 "cooling_degree_days", "heating_degree_days"]:
+                        if col in a_test_df.columns:
+                            a_test_df[col] = a_test_df[col].ffill().bfill().fillna(0)
+                    return "arima", predict_arima(a_model, a_test_df, periods=len(test_df))[: len(actual)]
+
+                model_fns = {"xgboost": _train_xgb, "prophet": _train_prophet, "arima": _train_arima}
+                with ThreadPoolExecutor(max_workers=3) as pool:
+                    futures = {pool.submit(model_fns[m]): m for m in missing}
+                    for future in as_completed(futures):
+                        model_label = futures[future]
+                        try:
+                            name, pred = future.result()
+                            preds[name] = pred
+                        except Exception as e:
+                            log.warning("backtest_ensemble_model_failed", model=model_label, error=str(e))
+
+            log.info("backtest_ensemble_combined", models=list(preds.keys()), count=len(preds),
+                     cached=len(preds) - len(missing) if missing else len(preds))
 
             if preds:
                 # Compute 1/MAPE weights
