@@ -94,13 +94,22 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
 
     Uses only start/end timestamps (not row count) so that minor row-count
     drift between precompute and user load doesn't bust the cache.
+    Normalizes timestamps to tz-naive UTC strings so precompute (tz-aware)
+    and callbacks (JSON-deserialized, tz-naive) produce the same hash.
     """
+    def _normalize_ts(ts) -> str:
+        """Strip timezone to produce a stable string regardless of tz-aware vs tz-naive."""
+        t = pd.Timestamp(ts)
+        if t.tzinfo is not None:
+            t = t.tz_convert("UTC").tz_localize(None)
+        return str(t)
+
     demand_sig = ""
     weather_sig = ""
     if "timestamp" in demand_df.columns and len(demand_df) > 0:
-        demand_sig = f"{demand_df['timestamp'].iloc[0]}_{demand_df['timestamp'].iloc[-1]}"
+        demand_sig = f"{_normalize_ts(demand_df['timestamp'].iloc[0])}_{_normalize_ts(demand_df['timestamp'].iloc[-1])}"
     if "timestamp" in weather_df.columns and len(weather_df) > 0:
-        weather_sig = f"{weather_df['timestamp'].iloc[0]}_{weather_df['timestamp'].iloc[-1]}"
+        weather_sig = f"{_normalize_ts(weather_df['timestamp'].iloc[0])}_{_normalize_ts(weather_df['timestamp'].iloc[-1])}"
     return hash((demand_sig, weather_sig, region))
 
 
