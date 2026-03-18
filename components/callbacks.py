@@ -2567,6 +2567,13 @@ def _run_backtest_for_horizon(
     if predictions is None:
         return {"error": "Model training failed"}
 
+    # Guard against NaN predictions (e.g. ARIMA forecast failure returns np.nan)
+    if np.any(np.isnan(predictions)):
+        nan_pct = np.isnan(predictions).sum() / len(predictions) * 100
+        log.warning("backtest_nan_predictions", model=model_name, nan_pct=round(nan_pct, 1))
+        # Replace NaN with mean of actual to avoid corrupting metrics
+        predictions = np.where(np.isnan(predictions), np.mean(actual), predictions)
+
     metrics = compute_all_metrics(actual, predictions)
 
     result = {
