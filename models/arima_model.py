@@ -4,7 +4,7 @@ SARIMAX forecasting model with exogenous weather variables.
 Classical statistical baseline per spec §Model 2:
 - SARIMAX with exogenous weather features
 - Auto-order selection via pmdarima
-- Seasonal order (1,1,1,24) for daily seasonality
+- Seasonal order with D=1 for daily seasonality (m=24)
 """
 
 from typing import Any
@@ -25,6 +25,7 @@ ARIMA_EXOG_COLS = [
 ]
 
 # Default order if auto_arima is too slow or fails
+# D=1 (seasonal differencing) is critical to prevent forecast drift
 DEFAULT_ORDER = (2, 1, 2)
 DEFAULT_SEASONAL_ORDER = (1, 1, 1, 24)
 
@@ -53,11 +54,42 @@ def train_arima(
 
     exog = _get_exog(train_df)
 
+    # Fill any NaN in exog to prevent SARIMAX fitting failures
+    if exog is not None:
+        nan_mask = np.isnan(exog)
+        if nan_mask.any():
+            log.warning("arima_exog_nan", nan_count=int(nan_mask.sum()))
+            # Column-wise forward/backward fill, then zero fill
+            for col_idx in range(exog.shape[1]):
+                col = exog[:, col_idx]
+                mask = np.isnan(col)
+                if mask.any():
+                    # Forward fill
+                    for i in range(1, len(col)):
+                        if np.isnan(col[i]):
+                            col[i] = col[i - 1]
+                    # Backward fill remaining
+                    for i in range(len(col) - 2, -1, -1):
+                        if np.isnan(col[i]):
+                            col[i] = col[i + 1]
+                    # Zero fill if still NaN (all-NaN column)
+                    col[np.isnan(col)] = 0
+
     order = DEFAULT_ORDER
     seasonal_order = DEFAULT_SEASONAL_ORDER
 
     if auto_order:
         order, seasonal_order = _auto_select_order(y, exog)
+
+    # Enforce seasonal differencing (D>=1) to prevent forecast drift.
+    # Without D=1, ARIMA's integrated component causes predictions to
+    # diverge from the daily cycle, especially beyond a few hours.
+    if seasonal_order[1] == 0 and seasonal_order[3] >= 24:
+        log.info(
+            "arima_enforcing_seasonal_diff",
+            original_seasonal=seasonal_order,
+        )
+        seasonal_order = (seasonal_order[0], 1, seasonal_order[2], seasonal_order[3])
 
     from statsmodels.tsa.statespace.sarimax import SARIMAX
 
@@ -74,20 +106,59 @@ def train_arima(
         )
         fitted = model.fit(disp=False, maxiter=200)
         log.info("arima_trained", aic=round(fitted.aic, 1))
+
+        # Validate: check last 24h in-sample residuals for drift
+        resid = fitted.resid[-24:]
+        drift = np.mean(resid[-12:]) - np.mean(resid[:12])
+        if abs(drift) > np.std(y) * 0.5:
+            log.warning(
+                "arima_drift_detected",
+                drift=round(drift, 1),
+                std=round(np.std(y), 1),
+                fallback="default_seasonal_order",
+            )
+            # Re-fit with stronger default seasonal order
+            model = SARIMAX(
+                y,
+                exog=exog,
+                order=DEFAULT_ORDER,
+                seasonal_order=DEFAULT_SEASONAL_ORDER,
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            fitted = model.fit(disp=False, maxiter=200)
+            order = DEFAULT_ORDER
+            seasonal_order = DEFAULT_SEASONAL_ORDER
+            log.info("arima_retrained_default", aic=round(fitted.aic, 1))
+
     except Exception as e:
         log.error("arima_training_failed", error=str(e), fallback="default_order")
-        # Fallback to simpler model
-        model = SARIMAX(
-            y,
-            exog=exog,
-            order=(1, 1, 1),
-            seasonal_order=(0, 0, 0, 0),
-            enforce_stationarity=False,
-            enforce_invertibility=False,
-        )
-        fitted = model.fit(disp=False, maxiter=100)
-        order = (1, 1, 1)
-        seasonal_order = (0, 0, 0, 0)
+        # Fallback to simpler model — still keep D=1
+        try:
+            model = SARIMAX(
+                y,
+                exog=exog,
+                order=(1, 1, 1),
+                seasonal_order=(1, 1, 1, 24),
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            fitted = model.fit(disp=False, maxiter=100)
+            order = (1, 1, 1)
+            seasonal_order = (1, 1, 1, 24)
+        except Exception as e2:
+            log.error("arima_fallback_failed", error=str(e2), fallback="no_seasonal")
+            model = SARIMAX(
+                y,
+                exog=exog,
+                order=(1, 1, 1),
+                seasonal_order=(0, 0, 0, 0),
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            fitted = model.fit(disp=False, maxiter=100)
+            order = (1, 1, 1)
+            seasonal_order = (0, 0, 0, 0)
 
     return {
         "model": fitted,
@@ -128,12 +199,31 @@ def predict_arima(
 
 
 def _get_exog(df: pd.DataFrame, n_rows: int | None = None) -> np.ndarray | None:
-    """Extract exogenous variables matrix from DataFrame."""
+    """Extract exogenous variables matrix from DataFrame.
+
+    Fills NaN values to prevent SARIMAX forecast failures.
+    """
     available = [c for c in ARIMA_EXOG_COLS if c in df.columns]
     if not available:
         return None
 
-    exog = df[available].values
+    exog = df[available].values.copy()
+
+    # Fill NaN in exog — SARIMAX cannot handle NaN in exogenous variables
+    if np.isnan(exog).any():
+        for col_idx in range(exog.shape[1]):
+            col = exog[:, col_idx]
+            mask = np.isnan(col)
+            if mask.any():
+                # Forward fill, then backward fill, then zero
+                for i in range(1, len(col)):
+                    if np.isnan(col[i]):
+                        col[i] = col[i - 1]
+                for i in range(len(col) - 2, -1, -1):
+                    if np.isnan(col[i]):
+                        col[i] = col[i + 1]
+                col[np.isnan(col)] = 0
+
     if n_rows is not None and len(exog) > n_rows:
         exog = exog[:n_rows]
     elif n_rows is not None and len(exog) < n_rows:
@@ -148,29 +238,37 @@ def _auto_select_order(
     y: np.ndarray,
     exog: np.ndarray | None,
 ) -> tuple[tuple, tuple]:
-    """Use pmdarima auto_arima for order selection."""
+    """Use pmdarima auto_arima for order selection.
+
+    Uses 1440 rows (60 days) for at least 2.5 full seasonal cycles at m=24.
+    Forces D=1 (seasonal differencing) to prevent forecast drift.
+    """
     try:
         import pmdarima as pm
 
-        # Use a subset for speed (auto_arima can be very slow)
-        y_sub = y[-720:] if len(y) > 720 else y  # Last 30 days
-        exog_sub = exog[-720:] if exog is not None and len(exog) > 720 else exog
+        # 30 days = 720 hours for order selection (D=1 is forced, so
+        # auto_arima only needs to select p,d,q,P,Q — fewer cycles needed)
+        subset_size = 720
+        y_sub = y[-subset_size:] if len(y) > subset_size else y
+        exog_sub = exog[-subset_size:] if exog is not None and len(exog) > subset_size else exog
 
         auto = pm.auto_arima(
             y_sub,
             exogenous=exog_sub,
             seasonal=True,
             m=24,
-            max_p=3,
-            max_q=3,
-            max_P=2,
-            max_Q=2,
-            max_d=2,
+            max_p=2,
+            max_q=2,
+            max_P=1,
+            max_Q=1,
+            max_d=1,
             max_D=1,
+            start_D=1,  # Start with seasonal differencing
+            D=1,  # Force D=1 to prevent drift
             stepwise=True,
             suppress_warnings=True,
             error_action="ignore",
-            n_fits=30,
+            n_fits=20,
         )
         order = auto.order
         seasonal_order = auto.seasonal_order
