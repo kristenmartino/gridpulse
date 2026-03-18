@@ -127,6 +127,24 @@ def _run_forecast_outlook(
             log.info("forecast_cache_hit", region=region, horizon=horizon_hours, model=model_name)
             return {"timestamps": cached_ts, "predictions": cached_pred}
 
+    # Check SQLite cache (survives page refresh / server restart)
+    try:
+        from data.cache import get_cache
+
+        sqlite_cache = get_cache()
+        sqlite_key = f"forecast:{region}:{horizon_hours}:{model_name}"
+        cached_sqlite = sqlite_cache.get(sqlite_key)
+        if cached_sqlite is not None and isinstance(cached_sqlite, dict) and "predictions" in cached_sqlite:
+            cached_sqlite["timestamps"] = pd.to_datetime(cached_sqlite["timestamps"])
+            cached_sqlite["predictions"] = np.array(cached_sqlite["predictions"])
+            _PREDICTION_CACHE[cache_key] = (
+                cached_sqlite["predictions"], cached_sqlite["timestamps"], data_hash, time.time(),
+            )
+            log.info("forecast_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name)
+            return cached_sqlite
+    except Exception as e:
+        log.debug("forecast_sqlite_cache_miss", error=str(e))
+
     # Merge and engineer features
     merged_df = merge_demand_weather(demand_df, weather_df)
     featured_df = engineer_features(merged_df)
@@ -180,40 +198,58 @@ def _run_forecast_outlook(
 
         elif model_name == "ensemble":
             # Equal-weight ensemble of all three models (no actuals for MAPE weighting)
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
             preds = {}
 
-            try:
+            def _forecast_xgb():
                 from models.xgboost_model import predict_xgboost, train_xgboost
 
                 xgb_model = None
                 mck = (region, "xgboost", 0)
                 if mck in _MODEL_CACHE:
-                    cached_model, cached_hash, cached_time = _MODEL_CACHE[mck]
-                    if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
+                    cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
+                    if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
                         xgb_model = cached_model
                 if xgb_model is None:
                     xgb_model = train_xgboost(train_df)
                     _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
-                preds["xgboost"] = predict_xgboost(xgb_model, future_df)[:horizon_hours]
-            except Exception:
-                pass
+                return "xgboost", predict_xgboost(xgb_model, future_df)[:horizon_hours]
 
-            try:
+            def _forecast_prophet():
                 from models.prophet_model import predict_prophet, train_prophet
 
                 pm = train_prophet(train_df)
                 pr = predict_prophet(pm, future_df, periods=horizon_hours)
-                preds["prophet"] = pr["forecast"][:horizon_hours]
-            except Exception:
-                pass
+                return "prophet", pr["forecast"][:horizon_hours]
 
-            try:
+            def _forecast_arima():
                 from models.arima_model import predict_arima, train_arima
 
                 am = train_arima(train_df)
-                preds["arima"] = predict_arima(am, future_df, periods=horizon_hours)[:horizon_hours]
-            except Exception:
-                pass
+                # Fill NaN in exog columns to prevent SARIMAX forecast failure
+                safe_future = future_df.copy()
+                for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
+                             "cooling_degree_days", "heating_degree_days"]:
+                    if col in safe_future.columns:
+                        safe_future[col] = safe_future[col].ffill().bfill().fillna(0)
+                return "arima", predict_arima(am, safe_future, periods=horizon_hours)[:horizon_hours]
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futures = {
+                    pool.submit(_forecast_xgb): "xgboost",
+                    pool.submit(_forecast_prophet): "prophet",
+                    pool.submit(_forecast_arima): "arima",
+                }
+                for future in as_completed(futures):
+                    model_label = futures[future]
+                    try:
+                        name, pred = future.result()
+                        preds[name] = pred
+                    except Exception as e:
+                        log.warning("forecast_ensemble_model_failed", model=model_label, error=str(e))
+
+            log.info("forecast_ensemble_combined", models=list(preds.keys()), count=len(preds))
 
             if preds:
                 # Equal weights for forward forecast (no actuals to compute MAPE)
@@ -224,8 +260,23 @@ def _run_forecast_outlook(
         else:
             return {"error": f"Unknown model: {model_name}"}
 
-        # Cache predictions
+        # Cache predictions (in-memory)
         _PREDICTION_CACHE[cache_key] = (predictions, future_timestamps, data_hash, time.time())
+
+        # Write-through to SQLite cache (survives page refresh / server restart)
+        try:
+            from data.cache import get_cache
+
+            sqlite_cache = get_cache()
+            sqlite_key = f"forecast:{region}:{horizon_hours}:{model_name}"
+            serializable = {
+                "timestamps": [str(t) for t in future_timestamps],
+                "predictions": predictions.tolist() if hasattr(predictions, "tolist") else list(predictions),
+            }
+            sqlite_cache.set(sqlite_key, serializable, ttl=CACHE_TTL_SECONDS)
+            log.debug("forecast_sqlite_cache_written", region=region, horizon=horizon_hours, model=model_name)
+        except Exception as e:
+            log.debug("forecast_sqlite_write_failed", error=str(e))
 
     except Exception as e:
         log.warning("outlook_model_failed", model=model_name, error=str(e))
@@ -636,6 +687,37 @@ def register_callbacks(app):
         )
 
         return peak_str, peak_time_str, avg_str, min_str, min_time_str, data_str, days_str
+
+    # ── 4c. TAB 1 INSIGHT CARD ───────────────────────────────────
+
+    @app.callback(
+        Output("tab1-insight-card", "children"),
+        [
+            Input("demand-store", "data"),
+            Input("weather-store", "data"),
+            Input("tab1-timerange", "value"),
+            Input("persona-selector", "value"),
+        ],
+        [State("region-selector", "value")],
+        prevent_initial_call=True,
+    )
+    def update_tab1_insights(demand_json, weather_json, timerange, persona_id, region):
+        """Generate persona-aware insights for Historical Demand tab."""
+        from components.insights import build_insight_card, generate_tab1_insights
+
+        if not demand_json:
+            return html.Div()
+
+        demand_df = pd.read_json(io.StringIO(demand_json))
+        weather_df = None
+        if weather_json:
+            weather_df = pd.read_json(io.StringIO(weather_json))
+
+        timerange_hours = int(timerange) if timerange else 168
+        persona = persona_id or "grid_ops"
+
+        insights = generate_tab1_insights(persona, region or "FPL", demand_df, weather_df, timerange_hours)
+        return build_insight_card(insights, persona, "tab-forecast")
 
     # ── 5. TAB 2: WEATHER CORRELATION ─────────────────────────
 
@@ -1766,12 +1848,14 @@ def register_callbacks(app):
             Output("outlook-min-time", "children"),
             Output("outlook-range", "children"),
             Output("outlook-hourly-table", "children"),
+            Output("tab2-insight-card", "children"),
         ],
         [
             Input("outlook-horizon", "value"),
             Input("outlook-model", "value"),
             Input("dashboard-tabs", "active_tab"),
             Input("demand-store", "data"),
+            Input("persona-selector", "value"),
         ],
         [
             State("weather-store", "data"),
@@ -1779,15 +1863,16 @@ def register_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def update_demand_outlook(horizon, model_name, active_tab, demand_json, weather_json, region):
+    def update_demand_outlook(horizon, model_name, active_tab, demand_json, persona_id, weather_json, region):
         """Generate forward-looking demand forecast."""
         # Only run when this tab is active — avoids 10s+ model training on page load
         if active_tab != "tab-outlook":
-            return [no_update] * 9
+            return [no_update] * 10
 
         log.info("outlook_callback_start", horizon=horizon, model=model_name, region=region)
 
         horizon_hours = int(horizon)
+        empty_insight = html.Div()
 
         if not demand_json or not weather_json:
             fig = go.Figure()
@@ -1795,7 +1880,7 @@ def register_callbacks(app):
             fig.add_annotation(
                 text="Loading data...", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
             )
-            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", None
+            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", None, empty_insight
 
         try:
             demand_df = pd.read_json(io.StringIO(demand_json))
@@ -1804,7 +1889,7 @@ def register_callbacks(app):
             log.error("outlook_parse_error", error=str(e))
             fig = go.Figure()
             fig.update_layout(**PLOT_LAYOUT)
-            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", None
+            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", None, empty_insight
 
         # Get the data through date (last timestamp in demand data)
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
@@ -1825,7 +1910,7 @@ def register_callbacks(app):
                 y=0.5,
                 showarrow=False,
             )
-            return fig, data_through_str, "— MW", "", "— MW", "— MW", "", "— MW", None
+            return fig, data_through_str, "— MW", "", "— MW", "— MW", "", "— MW", None, empty_insight
 
         timestamps = pd.to_datetime(result["timestamps"])
         predictions = result["predictions"]
@@ -1893,6 +1978,16 @@ def register_callbacks(app):
         if horizon_hours == 24:
             hourly_table = _build_hourly_forecast_table(timestamps, predictions)
 
+        # Generate insights
+        from components.insights import build_insight_card, generate_tab2_insights
+
+        persona = persona_id or "grid_ops"
+        tab2_insights = generate_tab2_insights(
+            persona, region or "FPL", predictions, timestamps,
+            model_name=model_name, horizon_hours=horizon_hours, weather_df=weather_df,
+        )
+        insight_card = build_insight_card(tab2_insights, persona, "tab-outlook")
+
         log.info("outlook_callback_complete", horizon=horizon_hours, peak=peak_str)
         return (
             fig,
@@ -1904,6 +1999,7 @@ def register_callbacks(app):
             min_time,
             range_str,
             hourly_table,
+            insight_card,
         )
 
     # ── TAB 7: BACKTEST ─────────────────────────────────────────
@@ -1916,12 +2012,14 @@ def register_callbacks(app):
             Output("backtest-mae", "children"),
             Output("backtest-r2", "children"),
             Output("backtest-horizon-explanation", "children"),
+            Output("tab3-insight-card", "children"),
         ],
         [
             Input("backtest-horizon", "value"),
             Input("backtest-model", "value"),
             Input("dashboard-tabs", "active_tab"),
             Input("demand-store", "data"),
+            Input("persona-selector", "value"),
         ],
         [
             State("weather-store", "data"),
@@ -1929,11 +2027,11 @@ def register_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def update_backtest_chart(horizon, model_name, active_tab, demand_json, weather_json, region):
+    def update_backtest_chart(horizon, model_name, active_tab, demand_json, persona_id, weather_json, region):
         """Build the backtest chart comparing forecast vs actual."""
         # Only run when this tab is active — avoids expensive model evaluation on page load
         if active_tab != "tab-backtest":
-            return [no_update] * 6
+            return [no_update] * 7
 
         log.info(
             "backtest_callback_start",
@@ -1945,6 +2043,7 @@ def register_callbacks(app):
         )
 
         horizon_hours = int(horizon)
+        empty_insight = html.Div()
 
         # Horizon explanations
         explanations = {
@@ -1965,7 +2064,7 @@ def register_callbacks(app):
                 y=0.5,
                 showarrow=False,
             )
-            return fig, "—%", "— MW", "— MW", "—", explanations.get(horizon_hours, "")
+            return fig, "—%", "— MW", "— MW", "—", explanations.get(horizon_hours, ""), empty_insight
 
         # Parse data
         demand_df = pd.read_json(io.StringIO(demand_json))
@@ -1990,7 +2089,7 @@ def register_callbacks(app):
                 y=0.5,
                 showarrow=False,
             )
-            return fig, "—%", "— MW", "— MW", "—", explanations.get(horizon_hours, "")
+            return fig, "—%", "— MW", "— MW", "—", explanations.get(horizon_hours, ""), empty_insight
 
         timestamps = pd.to_datetime(result["timestamps"])
         actual = result["actual"]
@@ -2059,10 +2158,23 @@ def register_callbacks(app):
         mae_str = f"{metrics['mae']:,.0f} MW"
         r2_str = f"{metrics['r2']:.3f}"
 
+        # Generate insights
+        from components.insights import build_insight_card, generate_tab3_insights
+
+        persona = persona_id or "grid_ops"
+        # Collect all model metrics for cross-model comparison
+        all_metrics = {model_name: metrics}
+        tab3_insights = generate_tab3_insights(
+            persona, region or "FPL", all_metrics,
+            model_name=model_name, horizon_hours=horizon_hours,
+            actual=actual, predictions=predictions, timestamps=timestamps,
+        )
+        insight_card = build_insight_card(tab3_insights, persona, "tab-backtest")
+
         log.info(
             "backtest_callback_complete", mape=mape_str, model=model_name, horizon=horizon_hours
         )
-        return fig, mape_str, rmse_str, mae_str, r2_str, explanations.get(horizon_hours, "")
+        return fig, mape_str, rmse_str, mae_str, r2_str, explanations.get(horizon_hours, ""), insight_card
 
 
 # ── HELPER FUNCTIONS ──────────────────────────────────────────
@@ -2211,6 +2323,23 @@ def _run_backtest_for_horizon(
             log.info("backtest_cache_hit", region=region, horizon=horizon_hours, model=model_name)
             return cached_result
 
+    # Check SQLite cache (survives page refresh / server restart)
+    try:
+        from data.cache import get_cache
+
+        sqlite_cache = get_cache()
+        sqlite_key = f"backtest:{region}:{horizon_hours}:{model_name}"
+        cached_sqlite = sqlite_cache.get(sqlite_key)
+        if cached_sqlite is not None and isinstance(cached_sqlite, dict) and "actual" in cached_sqlite:
+            cached_sqlite["timestamps"] = pd.to_datetime(cached_sqlite["timestamps"]).values
+            cached_sqlite["actual"] = np.array(cached_sqlite["actual"])
+            cached_sqlite["predictions"] = np.array(cached_sqlite["predictions"])
+            _BACKTEST_CACHE[cache_key] = (cached_sqlite, data_hash, time.time())
+            log.info("backtest_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name)
+            return cached_sqlite
+    except Exception as e:
+        log.debug("backtest_sqlite_cache_miss", error=str(e))
+
     # Merge and engineer features
     merged_df = merge_demand_weather(demand_df, weather_df)
     featured_df = engineer_features(merged_df)
@@ -2251,21 +2380,32 @@ def _run_backtest_for_horizon(
             from models.prophet_model import predict_prophet, train_prophet
 
             prophet_model = train_prophet(train_df)
-            prophet_result = predict_prophet(prophet_model, test_df, periods=len(test_df))
+            # Prophet's make_future_dataframe generates len(train)+periods rows.
+            # Pass full train+test so regressor values cover all timestamps.
+            full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
+            prophet_result = predict_prophet(prophet_model, full_regressor_df, periods=len(test_df))
             predictions = prophet_result["forecast"][: len(actual)]
 
         elif model_name == "arima":
             from models.arima_model import predict_arima, train_arima
 
             arima_model = train_arima(train_df)
-            predictions = predict_arima(arima_model, test_df, periods=len(test_df))[: len(actual)]
+            # Fill NaN in exog columns to prevent SARIMAX forecast failure
+            arima_test_df = test_df.copy()
+            for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
+                         "cooling_degree_days", "heating_degree_days"]:
+                if col in arima_test_df.columns:
+                    arima_test_df[col] = arima_test_df[col].ffill().bfill().fillna(0)
+            predictions = predict_arima(arima_model, arima_test_df, periods=len(test_df))[: len(actual)]
 
         elif model_name == "ensemble":
-            # Train all models and combine
+            # Train all 3 models in parallel and combine via 1/MAPE weights
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
             preds = {}
             weights = {}
 
-            try:
+            def _train_xgb():
                 from models.xgboost_model import predict_xgboost, train_xgboost
 
                 mck = (region, "xgboost", horizon_hours)
@@ -2277,28 +2417,45 @@ def _run_backtest_for_horizon(
                 if xgb_model is None:
                     xgb_model = train_xgboost(train_df)
                     _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
-                preds["xgboost"] = predict_xgboost(xgb_model, test_df)[: len(actual)]
-            except Exception:
-                pass
+                return "xgboost", predict_xgboost(xgb_model, test_df)[: len(actual)]
 
-            try:
+            def _train_prophet():
                 from models.prophet_model import predict_prophet, train_prophet
 
-                prophet_model = train_prophet(train_df)
-                prophet_result = predict_prophet(prophet_model, test_df, periods=len(test_df))
-                preds["prophet"] = prophet_result["forecast"][: len(actual)]
-            except Exception:
-                pass
+                p_model = train_prophet(train_df)
+                # Prophet's make_future_dataframe generates len(train)+periods rows.
+                # Pass full train+test so regressor values cover all timestamps.
+                full_regressor_df = pd.concat([train_df, test_df], ignore_index=True)
+                p_result = predict_prophet(p_model, full_regressor_df, periods=len(test_df))
+                return "prophet", p_result["forecast"][: len(actual)]
 
-            try:
+            def _train_arima():
                 from models.arima_model import predict_arima, train_arima
 
-                arima_model = train_arima(train_df)
-                preds["arima"] = predict_arima(arima_model, test_df, periods=len(test_df))[
-                    : len(actual)
-                ]
-            except Exception:
-                pass
+                a_model = train_arima(train_df)
+                # Fill NaN in exog columns to prevent SARIMAX forecast failure
+                a_test_df = test_df.copy()
+                for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
+                             "cooling_degree_days", "heating_degree_days"]:
+                    if col in a_test_df.columns:
+                        a_test_df[col] = a_test_df[col].ffill().bfill().fillna(0)
+                return "arima", predict_arima(a_model, a_test_df, periods=len(test_df))[: len(actual)]
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futures = {
+                    pool.submit(_train_xgb): "xgboost",
+                    pool.submit(_train_prophet): "prophet",
+                    pool.submit(_train_arima): "arima",
+                }
+                for future in as_completed(futures):
+                    model_label = futures[future]
+                    try:
+                        name, pred = future.result()
+                        preds[name] = pred
+                    except Exception as e:
+                        log.warning("backtest_ensemble_model_failed", model=model_label, error=str(e))
+
+            log.info("backtest_ensemble_combined", models=list(preds.keys()), count=len(preds))
 
             if preds:
                 # Compute 1/MAPE weights
@@ -2336,8 +2493,25 @@ def _run_backtest_for_horizon(
         "metrics": metrics,
     }
 
-    # Cache the backtest result
+    # Cache the backtest result (in-memory)
     _BACKTEST_CACHE[cache_key] = (result, data_hash, time.time())
+
+    # Persist to SQLite for cross-restart durability
+    try:
+        from data.cache import get_cache
+
+        sqlite_cache = get_cache()
+        sqlite_key = f"backtest:{region}:{horizon_hours}:{model_name}"
+        serializable = {
+            "timestamps": [str(t) for t in result["timestamps"]],
+            "actual": result["actual"].tolist(),
+            "predictions": result["predictions"].tolist(),
+            "metrics": result["metrics"],
+        }
+        sqlite_cache.set(sqlite_key, serializable, ttl=CACHE_TTL_SECONDS)
+    except Exception as e:
+        log.debug("backtest_sqlite_write_failed", error=str(e))
+
     log.info("backtest_cached", region=region, horizon=horizon_hours, model=model_name)
 
     return result

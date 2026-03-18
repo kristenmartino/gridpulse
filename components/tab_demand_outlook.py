@@ -91,6 +91,8 @@ def layout() -> html.Div:
                 "Demand Forecast",
                 height="400px",
             ),
+            # AI insight card
+            html.Div(id="tab2-insight-card"),
             # KPI cards row
             dbc.Row(
                 [

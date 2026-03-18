@@ -69,6 +69,8 @@ def layout() -> html.Div:
             ),
             # Main chart
             build_chart_container("tab1-forecast-chart", "Historical Demand", height="420px"),
+            # AI insight card
+            html.Div(id="tab1-insight-card"),
             # Bottom row: KPI cards
             dbc.Row(
                 [

@@ -50,9 +50,9 @@ class TestPrecomputeRegion:
     def test_precompute_populates_prediction_cache(self, precompute_region):
         """After precomputing, _PREDICTION_CACHE has entries for all horizons."""
         precompute_region("ERCOT")
-        assert ("ERCOT", 24) in _PREDICTION_CACHE
-        assert ("ERCOT", 168) in _PREDICTION_CACHE
-        assert ("ERCOT", 720) in _PREDICTION_CACHE
+        assert ("ERCOT", 24, "xgboost") in _PREDICTION_CACHE
+        assert ("ERCOT", 168, "xgboost") in _PREDICTION_CACHE
+        assert ("ERCOT", 720, "xgboost") in _PREDICTION_CACHE
 
     def test_precompute_with_backtest(self, precompute_region):
         """Backtest results are cached after _precompute_backtest."""
@@ -81,7 +81,7 @@ class TestPrecomputeRegion:
     def test_prediction_cache_structure(self, precompute_region):
         """Prediction cache entries have timestamps and predictions arrays."""
         precompute_region("FPL")
-        predictions, timestamps, data_hash, ts = _PREDICTION_CACHE[("FPL", 24)]
+        predictions, timestamps, data_hash, ts = _PREDICTION_CACHE[("FPL", 24, "xgboost")]
         assert len(predictions) == 24
         assert len(timestamps) == 24
 

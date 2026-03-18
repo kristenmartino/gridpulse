@@ -14,10 +14,14 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-# Mock heavy deps
-for mod in ["structlog", "prophet", "xgboost", "pmdarima", "shap"]:
+# Track which modules we mock so we can restore them after
+_mocked_modules = {}
+for mod in ["prophet", "pmdarima", "shap"]:
     if mod not in sys.modules:
+        _mocked_modules[mod] = None  # didn't exist before
         sys.modules[mod] = MagicMock()
+    else:
+        _mocked_modules[mod] = sys.modules[mod]  # save original
 
 from config import REGION_COORDINATES  # noqa: E402
 from models.model_service import (  # noqa: E402
@@ -26,6 +30,15 @@ from models.model_service import (  # noqa: E402
     get_model_metrics,
     is_trained,
 )
+
+
+def teardown_module():
+    """Restore real modules so downstream tests (e.g. test_precompute) aren't polluted."""
+    for mod, original in _mocked_modules.items():
+        if original is None:
+            sys.modules.pop(mod, None)
+        else:
+            sys.modules[mod] = original
 
 
 @pytest.fixture

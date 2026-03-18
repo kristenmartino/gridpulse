@@ -91,20 +91,24 @@ def _train_all_models_parallel(regions: list[str]) -> None:
 
 
 def _backtest_all_parallel(regions: list[str]) -> None:
-    """Run XGBoost 24h backtest for all regions in parallel."""
+    """Run XGBoost + ensemble backtests for all regions in parallel."""
     regions_with_data = [r for r in regions if r in _region_data]
     with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
         futures = {}
         for r in regions_with_data:
             for horizon in [24, 168]:
-                futures[pool.submit(_precompute_backtest, r, horizon)] = (r, horizon)
+                for model in ["xgboost", "ensemble"]:
+                    futures[pool.submit(_precompute_backtest, r, horizon, model)] = (
+                        r, horizon, model,
+                    )
         for future in as_completed(futures):
-            region, horizon = futures[future]
+            region, horizon, model = futures[future]
             try:
                 future.result()
             except Exception as e:
                 log.warning(
-                    "precompute_backtest_failed", region=region, horizon=horizon, error=str(e)
+                    "precompute_backtest_failed",
+                    region=region, horizon=horizon, model=model, error=str(e),
                 )
 
 
@@ -193,21 +197,22 @@ def _precompute_model_and_predictions(
         log.info("precompute_model_trained", region=region)
 
         for horizon in [24, 168, 720]:
-            try:
-                result = _run_forecast_outlook(demand_df, weather_df, horizon, "xgboost", region)
-                if "error" not in result:
-                    log.info("precompute_predictions_cached", region=region, horizon=horizon)
-            except Exception as e:
-                log.warning(
-                    "precompute_prediction_error", region=region, horizon=horizon, error=str(e)
-                )
+            for model in ["xgboost", "ensemble"]:
+                try:
+                    result = _run_forecast_outlook(demand_df, weather_df, horizon, model, region)
+                    if "error" not in result:
+                        log.info("precompute_predictions_cached", region=region, horizon=horizon, model=model)
+                except Exception as e:
+                    log.warning(
+                        "precompute_prediction_error", region=region, horizon=horizon, model=model, error=str(e),
+                    )
 
     except Exception as e:
         log.warning("precompute_model_training_failed", region=region, error=str(e))
 
 
-def _precompute_backtest(region: str, horizon: int) -> None:
-    """Run XGBoost backtest for a specific region and horizon."""
+def _precompute_backtest(region: str, horizon: int, model: str = "xgboost") -> None:
+    """Run backtest for a specific region, horizon, and model."""
     if region not in _region_data:
         return
 
@@ -215,15 +220,18 @@ def _precompute_backtest(region: str, horizon: int) -> None:
     from components.callbacks import _run_backtest_for_horizon
 
     try:
-        result = _run_backtest_for_horizon(demand_df, weather_df, horizon, "xgboost", region)
+        result = _run_backtest_for_horizon(demand_df, weather_df, horizon, model, region)
         if "error" not in result:
-            log.info("precompute_backtest_cached", region=region, horizon=horizon)
+            log.info("precompute_backtest_cached", region=region, horizon=horizon, model=model)
         else:
             log.warning(
                 "precompute_backtest_error",
                 region=region,
                 horizon=horizon,
+                model=model,
                 error=result.get("error"),
             )
     except Exception as e:
-        log.warning("precompute_backtest_error", region=region, horizon=horizon, error=str(e))
+        log.warning(
+            "precompute_backtest_error", region=region, horizon=horizon, model=model, error=str(e),
+        )
