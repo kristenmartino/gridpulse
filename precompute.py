@@ -109,7 +109,9 @@ def _backtest_all_parallel(regions: list[str]) -> None:
         for r in regions_with_data:
             for horizon in [24, 168, 720]:
                 futures[pool.submit(_precompute_backtest, r, horizon, "xgboost")] = (
-                    r, horizon, "xgboost",
+                    r,
+                    horizon,
+                    "xgboost",
                 )
         for future in as_completed(futures):
             region, horizon, model = futures[future]
@@ -118,7 +120,10 @@ def _backtest_all_parallel(regions: list[str]) -> None:
             except Exception as e:
                 log.warning(
                     "precompute_backtest_failed",
-                    region=region, horizon=horizon, model=model, error=str(e),
+                    region=region,
+                    horizon=horizon,
+                    model=model,
+                    error=str(e),
                 )
 
 
@@ -214,10 +219,19 @@ def _precompute_model_and_predictions(
             try:
                 result = _run_forecast_outlook(demand_df, weather_df, horizon, "xgboost", region)
                 if "error" not in result:
-                    log.info("precompute_predictions_cached", region=region, horizon=horizon, model="xgboost")
+                    log.info(
+                        "precompute_predictions_cached",
+                        region=region,
+                        horizon=horizon,
+                        model="xgboost",
+                    )
             except Exception as e:
                 log.warning(
-                    "precompute_prediction_error", region=region, horizon=horizon, model="xgboost", error=str(e),
+                    "precompute_prediction_error",
+                    region=region,
+                    horizon=horizon,
+                    model="xgboost",
+                    error=str(e),
                 )
 
     except Exception as e:
@@ -246,7 +260,11 @@ def _precompute_backtest(region: str, horizon: int, model: str = "xgboost") -> N
             )
     except Exception as e:
         log.warning(
-            "precompute_backtest_error", region=region, horizon=horizon, model=model, error=str(e),
+            "precompute_backtest_error",
+            region=region,
+            horizon=horizon,
+            model=model,
+            error=str(e),
         )
 
 

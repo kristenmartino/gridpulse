@@ -50,10 +50,20 @@ _GENERATION_CACHE: dict = {}  # {region: (gen_df, fetch_timestamp)}
 
 # EIA fuel type code normalization
 _EIA_FUEL_MAP: dict[str, str] = {
-    "SUN": "solar", "WND": "wind", "NG": "gas", "NUC": "nuclear",
-    "COL": "coal", "WAT": "hydro", "OTH": "other",
-    "Solar": "solar", "Wind": "wind", "Natural Gas": "gas",
-    "Nuclear": "nuclear", "Coal": "coal", "Hydro": "hydro", "Other": "other",
+    "SUN": "solar",
+    "WND": "wind",
+    "NG": "gas",
+    "NUC": "nuclear",
+    "COL": "coal",
+    "WAT": "hydro",
+    "OTH": "other",
+    "Solar": "solar",
+    "Wind": "wind",
+    "Natural Gas": "gas",
+    "Nuclear": "nuclear",
+    "Coal": "coal",
+    "Hydro": "hydro",
+    "Other": "other",
 }
 
 # Plotly dark theme defaults
@@ -106,6 +116,7 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
     Normalizes timestamps to tz-naive UTC strings so precompute (tz-aware)
     and callbacks (JSON-deserialized, tz-naive) produce the same hash.
     """
+
     def _normalize_ts(ts) -> str:
         """Strip timezone to produce a stable string regardless of tz-aware vs tz-naive."""
         t = pd.Timestamp(ts)
@@ -152,13 +163,22 @@ def _run_forecast_outlook(
         sqlite_cache = get_cache()
         sqlite_key = f"forecast:{region}:{horizon_hours}:{model_name}"
         cached_sqlite = sqlite_cache.get(sqlite_key)
-        if cached_sqlite is not None and isinstance(cached_sqlite, dict) and "predictions" in cached_sqlite:
+        if (
+            cached_sqlite is not None
+            and isinstance(cached_sqlite, dict)
+            and "predictions" in cached_sqlite
+        ):
             cached_sqlite["timestamps"] = pd.to_datetime(cached_sqlite["timestamps"])
             cached_sqlite["predictions"] = np.array(cached_sqlite["predictions"])
             _PREDICTION_CACHE[cache_key] = (
-                cached_sqlite["predictions"], cached_sqlite["timestamps"], data_hash, time.time(),
+                cached_sqlite["predictions"],
+                cached_sqlite["timestamps"],
+                data_hash,
+                time.time(),
             )
-            log.info("forecast_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name)
+            log.info(
+                "forecast_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name
+            )
             return cached_sqlite
     except Exception as e:
         log.debug("forecast_sqlite_cache_miss", error=str(e))
@@ -235,6 +255,7 @@ def _run_forecast_outlook(
             missing = [m for m in ["xgboost", "prophet", "arima"] if m not in preds]
 
             if missing:
+
                 def _forecast_xgb():
                     from models.xgboost_model import predict_xgboost, train_xgboost
 
@@ -242,13 +263,21 @@ def _run_forecast_outlook(
                     mck = (region, "xgboost", 0)
                     if mck in _MODEL_CACHE:
                         cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
-                        if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
+                        if (
+                            cached_hash_c == data_hash
+                            and (time.time() - cached_time_c) < CACHE_TTL_SECONDS
+                        ):
                             xgb_model = cached_model
                     if xgb_model is None:
                         xgb_model = train_xgboost(train_df)
                         _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
                     p = predict_xgboost(xgb_model, future_df)[:horizon_hours]
-                    _PREDICTION_CACHE[(region, horizon_hours, "xgboost")] = (p, future_timestamps, data_hash, time.time())
+                    _PREDICTION_CACHE[(region, horizon_hours, "xgboost")] = (
+                        p,
+                        future_timestamps,
+                        data_hash,
+                        time.time(),
+                    )
                     return "xgboost", p
 
                 def _forecast_prophet():
@@ -258,14 +287,22 @@ def _run_forecast_outlook(
                     mck = (region, "prophet", 0)
                     if mck in _MODEL_CACHE:
                         cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
-                        if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
+                        if (
+                            cached_hash_c == data_hash
+                            and (time.time() - cached_time_c) < CACHE_TTL_SECONDS
+                        ):
                             pm = cached_model
                     if pm is None:
                         pm = train_prophet(train_df)
                         _MODEL_CACHE[mck] = (pm, data_hash, time.time())
                     pr = predict_prophet(pm, future_df, periods=horizon_hours)
                     p = pr["forecast"][:horizon_hours]
-                    _PREDICTION_CACHE[(region, horizon_hours, "prophet")] = (p, future_timestamps, data_hash, time.time())
+                    _PREDICTION_CACHE[(region, horizon_hours, "prophet")] = (
+                        p,
+                        future_timestamps,
+                        data_hash,
+                        time.time(),
+                    )
                     return "prophet", p
 
                 def _forecast_arima():
@@ -275,22 +312,39 @@ def _run_forecast_outlook(
                     mck = (region, "arima", 0)
                     if mck in _MODEL_CACHE:
                         cached_model, cached_hash_c, cached_time_c = _MODEL_CACHE[mck]
-                        if cached_hash_c == data_hash and (time.time() - cached_time_c) < CACHE_TTL_SECONDS:
+                        if (
+                            cached_hash_c == data_hash
+                            and (time.time() - cached_time_c) < CACHE_TTL_SECONDS
+                        ):
                             am = cached_model
                     if am is None:
                         am = train_arima(train_df)
                         _MODEL_CACHE[mck] = (am, data_hash, time.time())
                     # Fill NaN in exog columns to prevent SARIMAX forecast failure
                     safe_future = future_df.copy()
-                    for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
-                                 "cooling_degree_days", "heating_degree_days"]:
+                    for col in [
+                        "temperature_2m",
+                        "wind_speed_80m",
+                        "shortwave_radiation",
+                        "cooling_degree_days",
+                        "heating_degree_days",
+                    ]:
                         if col in safe_future.columns:
                             safe_future[col] = safe_future[col].ffill().bfill().fillna(0)
                     p = predict_arima(am, safe_future, periods=horizon_hours)[:horizon_hours]
-                    _PREDICTION_CACHE[(region, horizon_hours, "arima")] = (p, future_timestamps, data_hash, time.time())
+                    _PREDICTION_CACHE[(region, horizon_hours, "arima")] = (
+                        p,
+                        future_timestamps,
+                        data_hash,
+                        time.time(),
+                    )
                     return "arima", p
 
-                model_fns = {"xgboost": _forecast_xgb, "prophet": _forecast_prophet, "arima": _forecast_arima}
+                model_fns = {
+                    "xgboost": _forecast_xgb,
+                    "prophet": _forecast_prophet,
+                    "arima": _forecast_arima,
+                }
                 with ThreadPoolExecutor(max_workers=3) as pool:
                     futures = {pool.submit(model_fns[m]): m for m in missing}
                     for future in as_completed(futures):
@@ -299,10 +353,16 @@ def _run_forecast_outlook(
                             name, pred = future.result()
                             preds[name] = pred
                         except Exception as e:
-                            log.warning("forecast_ensemble_model_failed", model=model_label, error=str(e))
+                            log.warning(
+                                "forecast_ensemble_model_failed", model=model_label, error=str(e)
+                            )
 
-            log.info("forecast_ensemble_combined", models=list(preds.keys()), count=len(preds),
-                     cached=len(preds) - len(missing) if missing else len(preds))
+            log.info(
+                "forecast_ensemble_combined",
+                models=list(preds.keys()),
+                count=len(preds),
+                cached=len(preds) - len(missing) if missing else len(preds),
+            )
 
             if preds:
                 # Equal weights for forward forecast (no actuals to compute MAPE)
@@ -324,10 +384,17 @@ def _run_forecast_outlook(
             sqlite_key = f"forecast:{region}:{horizon_hours}:{model_name}"
             serializable = {
                 "timestamps": [str(t) for t in future_timestamps],
-                "predictions": predictions.tolist() if hasattr(predictions, "tolist") else list(predictions),
+                "predictions": predictions.tolist()
+                if hasattr(predictions, "tolist")
+                else list(predictions),
             }
             sqlite_cache.set(sqlite_key, serializable, ttl=CACHE_TTL_SECONDS)
-            log.debug("forecast_sqlite_cache_written", region=region, horizon=horizon_hours, model=model_name)
+            log.debug(
+                "forecast_sqlite_cache_written",
+                region=region,
+                horizon=horizon_hours,
+                model=model_name,
+            )
         except Exception as e:
             log.debug("forecast_sqlite_write_failed", error=str(e))
 
@@ -443,9 +510,7 @@ def _fetch_generation_cached(region: str) -> pd.DataFrame | None:
             if gen_df is not None and not gen_df.empty:
                 # Normalize fuel type codes
                 gen_df["fuel_type"] = (
-                    gen_df["fuel_type"]
-                    .map(_EIA_FUEL_MAP)
-                    .fillna(gen_df["fuel_type"].str.lower())
+                    gen_df["fuel_type"].map(_EIA_FUEL_MAP).fillna(gen_df["fuel_type"].str.lower())
                 )
                 _GENERATION_CACHE[region] = (gen_df, _time.time())
                 log.info("generation_eia_fetched", region=region, rows=len(gen_df))
@@ -844,7 +909,9 @@ def register_callbacks(app):
         timerange_hours = int(timerange) if timerange else 168
         persona = persona_id or "grid_ops"
 
-        insights = generate_tab1_insights(persona, region or "FPL", demand_df, weather_df, timerange_hours)
+        insights = generate_tab1_insights(
+            persona, region or "FPL", demand_df, weather_df, timerange_hours
+        )
         return build_insight_card(insights, persona, "tab-forecast")
 
     # ── 5. TAB 2: WEATHER CORRELATION ─────────────────────────
@@ -1191,8 +1258,10 @@ def register_callbacks(app):
 
         # ── Pivot generation by fuel type ──
         pivot = gen_df.pivot_table(
-            index="timestamp", columns="fuel_type",
-            values="generation_mw", aggfunc="sum",
+            index="timestamp",
+            columns="fuel_type",
+            values="generation_mw",
+            aggfunc="sum",
         ).fillna(0)
 
         total_gen = pivot.sum(axis=1)
@@ -1243,40 +1312,48 @@ def register_callbacks(app):
         # ── Hero Chart: Demand vs Net Load ──
         fig_hero = go.Figure()
 
-        fig_hero.add_trace(go.Scatter(
-            x=common_idx,
-            y=demand_series.values if hasattr(demand_series, "values") else demand_series,
-            mode="lines",
-            name="Total Demand",
-            line=dict(color=COLORS["actual"], width=2),
-        ))
+        fig_hero.add_trace(
+            go.Scatter(
+                x=common_idx,
+                y=demand_series.values if hasattr(demand_series, "values") else demand_series,
+                mode="lines",
+                name="Total Demand",
+                line=dict(color=COLORS["actual"], width=2),
+            )
+        )
 
-        fig_hero.add_trace(go.Scatter(
-            x=common_idx,
-            y=net_load.values,
-            mode="lines",
-            name="Net Load",
-            line=dict(color=COLORS["ensemble"], width=2.5),
-        ))
+        fig_hero.add_trace(
+            go.Scatter(
+                x=common_idx,
+                y=net_load.values,
+                mode="lines",
+                name="Net Load",
+                line=dict(color=COLORS["ensemble"], width=2.5),
+            )
+        )
 
         # Shaded area between demand and net load (= renewable contribution)
-        fig_hero.add_trace(go.Scatter(
-            x=common_idx,
-            y=demand_series.values if hasattr(demand_series, "values") else demand_series,
-            mode="lines",
-            line=dict(width=0),
-            showlegend=False,
-            hoverinfo="skip",
-        ))
-        fig_hero.add_trace(go.Scatter(
-            x=common_idx,
-            y=net_load.values,
-            mode="lines",
-            name="Renewable Contribution",
-            line=dict(width=0),
-            fill="tonexty",
-            fillcolor="rgba(46,204,113,0.20)",
-        ))
+        fig_hero.add_trace(
+            go.Scatter(
+                x=common_idx,
+                y=demand_series.values if hasattr(demand_series, "values") else demand_series,
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig_hero.add_trace(
+            go.Scatter(
+                x=common_idx,
+                y=net_load.values,
+                mode="lines",
+                name="Renewable Contribution",
+                line=dict(width=0),
+                fill="tonexty",
+                fillcolor="rgba(46,204,113,0.20)",
+            )
+        )
 
         fig_hero.update_layout(
             **PLOT_LAYOUT,
@@ -1290,15 +1367,17 @@ def register_callbacks(app):
         fuel_order = ["nuclear", "coal", "gas", "hydro", "wind", "solar", "other"]
         for fuel in fuel_order:
             if fuel in pivot.columns:
-                fig_mix.add_trace(go.Scatter(
-                    x=pivot.index,
-                    y=pivot[fuel],
-                    mode="lines",
-                    name=fuel.title(),
-                    stackgroup="one",
-                    line=dict(width=0),
-                    fillcolor=COLORS.get(fuel, "#95a5a6"),
-                ))
+                fig_mix.add_trace(
+                    go.Scatter(
+                        x=pivot.index,
+                        y=pivot[fuel],
+                        mode="lines",
+                        name=fuel.title(),
+                        stackgroup="one",
+                        line=dict(width=0),
+                        fillcolor=COLORS.get(fuel, "#95a5a6"),
+                    )
+                )
         fig_mix.update_layout(
             **PLOT_LAYOUT,
             yaxis_title="Generation (MW)",
@@ -2021,7 +2100,9 @@ def register_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def update_demand_outlook(horizon, model_name, active_tab, demand_json, persona_id, weather_json, region):
+    def update_demand_outlook(
+        horizon, model_name, active_tab, demand_json, persona_id, weather_json, region
+    ):
         """Generate forward-looking demand forecast."""
         # Only run when this tab is active — avoids 10s+ model training on page load
         if active_tab != "tab-outlook":
@@ -2136,8 +2217,13 @@ def register_callbacks(app):
 
         persona = persona_id or "grid_ops"
         tab2_insights = generate_tab2_insights(
-            persona, region or "FPL", predictions, timestamps,
-            model_name=model_name, horizon_hours=horizon_hours, weather_df=weather_df,
+            persona,
+            region or "FPL",
+            predictions,
+            timestamps,
+            model_name=model_name,
+            horizon_hours=horizon_hours,
+            weather_df=weather_df,
         )
         insight_card = build_insight_card(tab2_insights, persona, "tab-outlook")
 
@@ -2179,7 +2265,9 @@ def register_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def update_backtest_chart(horizon, model_name, active_tab, demand_json, persona_id, weather_json, region):
+    def update_backtest_chart(
+        horizon, model_name, active_tab, demand_json, persona_id, weather_json, region
+    ):
         """Build the backtest chart comparing forecast vs actual."""
         # Only run when this tab is active — avoids expensive model evaluation on page load
         if active_tab != "tab-backtest":
@@ -2216,7 +2304,15 @@ def register_callbacks(app):
                 y=0.5,
                 showarrow=False,
             )
-            return fig, "—%", "— MW", "— MW", "—", explanations.get(horizon_hours, ""), empty_insight
+            return (
+                fig,
+                "—%",
+                "— MW",
+                "— MW",
+                "—",
+                explanations.get(horizon_hours, ""),
+                empty_insight,
+            )
 
         # Parse data
         demand_df = pd.read_json(io.StringIO(demand_json))
@@ -2241,7 +2337,15 @@ def register_callbacks(app):
                 y=0.5,
                 showarrow=False,
             )
-            return fig, "—%", "— MW", "— MW", "—", explanations.get(horizon_hours, ""), empty_insight
+            return (
+                fig,
+                "—%",
+                "— MW",
+                "— MW",
+                "—",
+                explanations.get(horizon_hours, ""),
+                empty_insight,
+            )
 
         timestamps = pd.to_datetime(result["timestamps"])
         actual = result["actual"]
@@ -2330,9 +2434,14 @@ def register_callbacks(app):
         # Collect all model metrics for cross-model comparison
         all_metrics = {model_name: metrics}
         tab3_insights = generate_tab3_insights(
-            persona, region or "FPL", all_metrics,
-            model_name=model_name, horizon_hours=horizon_hours,
-            actual=actual, predictions=predictions, timestamps=timestamps,
+            persona,
+            region or "FPL",
+            all_metrics,
+            model_name=model_name,
+            horizon_hours=horizon_hours,
+            actual=actual,
+            predictions=predictions,
+            timestamps=timestamps,
             num_folds=num_folds,
         )
         insight_card = build_insight_card(tab3_insights, persona, "tab-backtest")
@@ -2340,7 +2449,15 @@ def register_callbacks(app):
         log.info(
             "backtest_callback_complete", mape=mape_str, model=model_name, horizon=horizon_hours
         )
-        return fig, mape_str, rmse_str, mae_str, r2_str, explanations.get(horizon_hours, ""), insight_card
+        return (
+            fig,
+            mape_str,
+            rmse_str,
+            mae_str,
+            r2_str,
+            explanations.get(horizon_hours, ""),
+            insight_card,
+        )
 
 
 # ── HELPER FUNCTIONS ──────────────────────────────────────────
@@ -2485,7 +2602,9 @@ def _build_persona_kpis(
             {
                 "label": "Avg Demand",
                 "value": avg_str,
-                "delta": f"Range: {int(peak_mw - min_mw):,} MW" if peak_mw is not None and min_mw is not None else "",
+                "delta": f"Range: {int(peak_mw - min_mw):,} MW"
+                if peak_mw is not None and min_mw is not None
+                else "",
                 "direction": "neutral",
             },
         ],
@@ -2506,8 +2625,6 @@ def _build_persona_kpis(
     }
     kpis = persona_kpis.get(persona_id, persona_kpis["grid_ops"])
     return build_kpi_row(kpis)
-
-
 
 
 def _predict_single_fold(
@@ -2539,8 +2656,13 @@ def _predict_single_fold(
         from models.arima_model import predict_arima, train_arima
 
         test_clean = test_df.copy()
-        for col in ["temperature_2m", "wind_speed_80m", "shortwave_radiation",
-                     "cooling_degree_days", "heating_degree_days"]:
+        for col in [
+            "temperature_2m",
+            "wind_speed_80m",
+            "shortwave_radiation",
+            "cooling_degree_days",
+            "heating_degree_days",
+        ]:
             if col in test_clean.columns:
                 test_clean[col] = test_clean[col].ffill().bfill().fillna(0)
         model = train_arima(train_df)
@@ -2642,14 +2764,20 @@ def _run_backtest_for_horizon(
         sqlite_cache = get_cache()
         sqlite_key = f"backtest:{region}:{horizon_hours}:{model_name}"
         cached_sqlite = sqlite_cache.get(sqlite_key)
-        if cached_sqlite is not None and isinstance(cached_sqlite, dict) and "actual" in cached_sqlite:
+        if (
+            cached_sqlite is not None
+            and isinstance(cached_sqlite, dict)
+            and "actual" in cached_sqlite
+        ):
             cached_sqlite["timestamps"] = pd.to_datetime(cached_sqlite["timestamps"]).values
             cached_sqlite["actual"] = np.array(cached_sqlite["actual"])
             cached_sqlite["predictions"] = np.array(cached_sqlite["predictions"])
             cached_sqlite.setdefault("num_folds", 1)
             cached_sqlite.setdefault("fold_boundaries", [0])
             _BACKTEST_CACHE[cache_key] = (cached_sqlite, data_hash, time.time())
-            log.info("backtest_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name)
+            log.info(
+                "backtest_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name
+            )
             return cached_sqlite
     except Exception as e:
         log.debug("backtest_sqlite_cache_miss", error=str(e))
@@ -2671,8 +2799,11 @@ def _run_backtest_for_horizon(
 
     log.info(
         "backtest_walk_forward_start",
-        region=region, horizon=horizon_hours, model=model_name,
-        num_folds=num_folds, data_points=n_total,
+        region=region,
+        horizon=horizon_hours,
+        model=model_name,
+        num_folds=num_folds,
+        data_points=n_total,
     )
 
     all_actual: list[np.ndarray] = []
@@ -2688,7 +2819,9 @@ def _run_backtest_for_horizon(
             test_end = test_start + horizon_hours
 
             if test_start < min_train_size:
-                log.debug("backtest_fold_skipped", fold=fold_idx + 1, reason="insufficient_train_data")
+                log.debug(
+                    "backtest_fold_skipped", fold=fold_idx + 1, reason="insufficient_train_data"
+                )
                 continue
 
             train_df = featured_df.iloc[:test_start].copy()
@@ -2696,8 +2829,10 @@ def _run_backtest_for_horizon(
 
             log.info(
                 "backtest_fold_start",
-                fold=fold_idx + 1, num_folds=num_folds,
-                train_rows=len(train_df), test_rows=len(test_df),
+                fold=fold_idx + 1,
+                num_folds=num_folds,
+                train_rows=len(train_df),
+                test_rows=len(test_df),
             )
 
             # Get predictions for this fold
@@ -2749,8 +2884,11 @@ def _run_backtest_for_horizon(
 
     log.info(
         "backtest_walk_forward_complete",
-        region=region, horizon=horizon_hours, model=model_name,
-        folds=len(fold_boundaries), mape=round(metrics["mape"], 2),
+        region=region,
+        horizon=horizon_hours,
+        model=model_name,
+        folds=len(fold_boundaries),
+        mape=round(metrics["mape"], 2),
     )
 
     # Cache the result (in-memory)
