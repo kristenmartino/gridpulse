@@ -1,8 +1,7 @@
 """Tests for the audit module."""
-from unittest.mock import MagicMock, patch
-from datetime import datetime, timezone
 
-import pytest
+from datetime import UTC, datetime
+from unittest.mock import MagicMock
 
 
 def _make_mock_conn(fetchone_return=None, description=None, side_effect=None):
@@ -24,7 +23,6 @@ def _make_mock_conn(fetchone_return=None, description=None, side_effect=None):
 
 
 class TestReadLatestAudit:
-
     def test_returns_none_when_no_records(self):
         """read_latest_audit returns None when no audit records exist."""
         from src.processing.audit import read_latest_audit
@@ -37,18 +35,39 @@ class TestReadLatestAudit:
         """read_latest_audit returns dict with audit fields."""
         from src.processing.audit import read_latest_audit
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         mock_conn = _make_mock_conn(
             fetchone_return=(
-                "ERCOT", "2025-01-15T12:00:00+00:00", "postgres", "postgres",
-                500, 500, '["xgboost"]', '{"xgboost": 1.0}',
-                43, "abc123", '{"xgboost": {"mape": 3.13}}', 48000.0, "full", now,
+                "ERCOT",
+                "2025-01-15T12:00:00+00:00",
+                "postgres",
+                "postgres",
+                500,
+                500,
+                '["xgboost"]',
+                '{"xgboost": 1.0}',
+                43,
+                "abc123",
+                '{"xgboost": {"mape": 3.13}}',
+                48000.0,
+                "full",
+                now,
             ),
             description=[
-                ("region",), ("scored_at",), ("demand_source",), ("weather_source",),
-                ("demand_rows",), ("weather_rows",), ("model_versions",), ("ensemble_weights",),
-                ("feature_count",), ("feature_hash",), ("mape",), ("peak_forecast_mw",),
-                ("scoring_mode",), ("created_at",),
+                ("region",),
+                ("scored_at",),
+                ("demand_source",),
+                ("weather_source",),
+                ("demand_rows",),
+                ("weather_rows",),
+                ("model_versions",),
+                ("ensemble_weights",),
+                ("feature_count",),
+                ("feature_hash",),
+                ("mape",),
+                ("peak_forecast_mw",),
+                ("scoring_mode",),
+                ("created_at",),
             ],
         )
 
@@ -70,7 +89,6 @@ class TestReadLatestAudit:
 
 
 class TestGetDataFreshness:
-
     def test_returns_list_of_sources(self):
         """get_data_freshness returns status for all monitored tables."""
         from src.processing.audit import get_data_freshness

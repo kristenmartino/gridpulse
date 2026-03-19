@@ -1,6 +1,6 @@
 """Tests for the Kafka consumer (topics -> Postgres)."""
-import json
-from unittest.mock import patch, MagicMock, PropertyMock
+
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -49,10 +49,9 @@ def demand_messages():
 
 
 class TestInsertFunctions:
-
     def test_insert_weather_builds_correct_sql(self, weather_messages):
         """_insert_weather builds UPSERT SQL with all 17 weather columns."""
-        from src.processing.kafka_consumer import _insert_weather, WEATHER_COLUMNS
+        from src.processing.kafka_consumer import _insert_weather
 
         mock_conn = MagicMock()
         mock_cursor = MagicMock()
@@ -63,7 +62,7 @@ class TestInsertFunctions:
 
         mock_conn.commit.assert_called_once()
         # execute_values was called
-        assert mock_cursor.method_calls or True  # Just verify no exception
+        assert True  # Just verify no exception
 
     def test_insert_demand_builds_correct_sql(self, demand_messages):
         """_insert_demand builds UPSERT SQL for demand records."""
@@ -81,6 +80,7 @@ class TestInsertFunctions:
     def test_weather_columns_list_has_19_entries(self):
         """WEATHER_COLUMNS should have region + timestamp + 17 weather vars."""
         from src.processing.kafka_consumer import WEATHER_COLUMNS
+
         assert len(WEATHER_COLUMNS) == 19
         assert "region" in WEATHER_COLUMNS
         assert "timestamp" in WEATHER_COLUMNS

@@ -1,9 +1,7 @@
 """Tests for the FastAPI serving layer."""
+
 import ast
 import inspect
-import json
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,8 +10,8 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def empty_cache(mock_redis):
     """Server with empty Redis cache."""
-    from src.api.cache import ForecastCache
     from src.api import server
+    from src.api.cache import ForecastCache
 
     cache = ForecastCache()
     cache.client = mock_redis
@@ -25,8 +23,8 @@ def empty_cache(mock_redis):
 @pytest.fixture
 def loaded_cache(populated_redis):
     """Server with populated Redis cache."""
-    from src.api.cache import ForecastCache
     from src.api import server
+    from src.api.cache import ForecastCache
 
     cache = ForecastCache()
     cache.client = populated_redis
@@ -76,7 +74,6 @@ class TestArchitecturalConstraint:
 
 
 class TestHealthEndpoint:
-
     def test_health_returns_stale_when_empty(self, empty_cache):
         """Health check returns stale status when no scorer has run."""
         response = empty_cache.get("/health")
@@ -97,7 +94,6 @@ class TestHealthEndpoint:
 
 
 class TestForecastEndpoints:
-
     def test_forecast_returns_503_when_empty(self, empty_cache):
         """If Redis has no data, API returns 503 — NOT a fallback computation."""
         response = empty_cache.get("/forecasts/ERCOT")
@@ -133,7 +129,6 @@ class TestForecastEndpoints:
 
 
 class TestMetadataEndpoints:
-
     def test_regions_endpoint(self, empty_cache):
         """/regions returns the 8 grid regions."""
         response = empty_cache.get("/regions")

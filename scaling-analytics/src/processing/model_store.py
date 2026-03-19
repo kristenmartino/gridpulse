@@ -5,12 +5,12 @@ Handles saving, loading, age checking, and cleanup of trained model artifacts.
 Models are stored at models/artifacts/{region}/ with timestamped filenames
 and a metadata.json sidecar for weights, metrics, and feature info.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-import shutil
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import joblib
@@ -35,7 +35,7 @@ class ModelStore:
         return self.base_dir / region
 
     def _timestamp_str(self) -> str:
-        return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M")
+        return datetime.now(UTC).strftime("%Y%m%d_%H%M")
 
     def save_models(
         self,
@@ -76,7 +76,7 @@ class ModelStore:
         # Write metadata sidecar
         metadata = {
             "region": region,
-            "trained_at": datetime.now(timezone.utc).isoformat(),
+            "trained_at": datetime.now(UTC).isoformat(),
             "artifact_paths": artifact_paths,
             "weights": weights,
             "metrics": metrics,
@@ -88,7 +88,9 @@ class ModelStore:
 
         logger.info(
             "Saved %d models for %s (weights=%s)",
-            len(models), region, weights,
+            len(models),
+            region,
+            weights,
         )
         return region_dir
 
@@ -154,8 +156,8 @@ class ModelStore:
             metadata = json.loads(meta_path.read_text())
             trained_at = datetime.fromisoformat(metadata["trained_at"])
             if trained_at.tzinfo is None:
-                trained_at = trained_at.replace(tzinfo=timezone.utc)
-            age = datetime.now(timezone.utc) - trained_at
+                trained_at = trained_at.replace(tzinfo=UTC)
+            age = datetime.now(UTC) - trained_at
             return age.total_seconds() / 3600
         except (json.JSONDecodeError, KeyError, ValueError) as e:
             logger.warning("Failed to compute model age for %s: %s", region, e)
@@ -185,10 +187,7 @@ class ModelStore:
         if meta_path.exists():
             try:
                 metadata = json.loads(meta_path.read_text())
-                active_files = {
-                    region_dir / f
-                    for f in metadata.get("artifact_paths", {}).values()
-                }
+                active_files = {region_dir / f for f in metadata.get("artifact_paths", {}).values()}
             except (json.JSONDecodeError, OSError):
                 pass
 

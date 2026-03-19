@@ -5,11 +5,13 @@ Records model versions, data hashes, feature hashes, and ensemble weights
 into the Postgres audit_trail table. The latest audit record is also
 cached in Redis for the /audit/{region} endpoint.
 """
+
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -45,14 +47,12 @@ def read_latest_audit(conn, region: str) -> dict | None:
                 return None
 
             cols = [desc[0] for desc in cur.description]
-            record = dict(zip(cols, row))
+            record = dict(zip(cols, row, strict=False))
             # Serialize non-JSON-native fields
             for key in ("model_versions", "ensemble_weights", "mape"):
                 if isinstance(record.get(key), str):
-                    try:
+                    with contextlib.suppress(json.JSONDecodeError, TypeError):
                         record[key] = json.loads(record[key])
-                    except (json.JSONDecodeError, TypeError):
-                        pass
             if record.get("created_at"):
                 record["created_at"] = record["created_at"].isoformat()
             return record
@@ -68,7 +68,7 @@ def get_data_freshness(conn) -> list[dict]:
     Returns a list of dicts with source name, last update time, status.
     """
     sources = []
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     checks = [
         ("raw_demand", "EIA Demand", 3600),
@@ -91,26 +91,29 @@ def get_data_freshness(conn) -> list[dict]:
                 age_seconds = None
             else:
                 if last_update.tzinfo is None:
-                    from datetime import timezone as tz
-                    last_update = last_update.replace(tzinfo=tz.utc)
+                    last_update = last_update.replace(tzinfo=UTC)
                 age_seconds = (now - last_update).total_seconds()
                 status = "fresh" if age_seconds < max_age_seconds else "stale"
 
-            sources.append({
-                "source": label,
-                "table": table,
-                "last_update": last_update.isoformat() if last_update else None,
-                "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
-                "status": status,
-            })
+            sources.append(
+                {
+                    "source": label,
+                    "table": table,
+                    "last_update": last_update.isoformat() if last_update else None,
+                    "age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
+                    "status": status,
+                }
+            )
         except Exception as e:
-            sources.append({
-                "source": label,
-                "table": table,
-                "last_update": None,
-                "age_seconds": None,
-                "status": "error",
-                "error": str(e),
-            })
+            sources.append(
+                {
+                    "source": label,
+                    "table": table,
+                    "last_update": None,
+                    "age_seconds": None,
+                    "status": "error",
+                    "error": str(e),
+                }
+            )
 
     return sources

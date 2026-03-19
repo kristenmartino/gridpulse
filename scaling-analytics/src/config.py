@@ -8,6 +8,7 @@ import from a single location.
 Usage:
     from src.config import RedisConfig, GRID_REGIONS, REGION_COORDINATES
 """
+
 import importlib.util
 import os
 import sys
@@ -57,11 +58,23 @@ OPEN_METEO_BASE_URL = _v1_config.OPEN_METEO_BASE_URL
 
 __all__ = [
     # v2
-    "KafkaConfig", "RedisConfig", "DatabaseConfig", "ModelConfig",
-    "GRID_REGIONS", "FORECAST_GRANULARITIES", "SCORING_INTERVAL_MINUTES",
-    "TRAINING_INTERVAL_HOURS", "MODEL_ARTIFACT_DIR", "MODEL_MAX_AGE_HOURS",
+    "KafkaConfig",
+    "RedisConfig",
+    "DatabaseConfig",
+    "ModelConfig",
+    "GRID_REGIONS",
+    "FORECAST_GRANULARITIES",
+    "SCORING_INTERVAL_MINUTES",
+    "TRAINING_INTERVAL_HOURS",
+    "MODEL_ARTIFACT_DIR",
+    "MODEL_MAX_AGE_HOURS",
     "MODEL_KEEP_SNAPSHOTS",
     # v1
-    "REGION_COORDINATES", "WEATHER_VARIABLES", "EIA_API_KEY",
-    "EIA_BASE_URL", "EIA_ENDPOINTS", "CACHE_TTL_SECONDS", "OPEN_METEO_BASE_URL",
+    "REGION_COORDINATES",
+    "WEATHER_VARIABLES",
+    "EIA_API_KEY",
+    "EIA_BASE_URL",
+    "EIA_ENDPOINTS",
+    "CACHE_TTL_SECONDS",
+    "OPEN_METEO_BASE_URL",
 ]

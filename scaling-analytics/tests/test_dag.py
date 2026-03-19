@@ -1,15 +1,12 @@
 """Tests for the Airflow DAG structures."""
+
 import ast
 from pathlib import Path
-
-import pytest
-
 
 DAGS_DIR = Path(__file__).resolve().parent.parent / "dags"
 
 
 class TestScoringDag:
-
     def test_dag_loads_without_error(self):
         """Scoring DAG Python file parses without import/syntax errors."""
         dag_path = DAGS_DIR / "wattcast_scoring_dag.py"
@@ -25,10 +22,7 @@ class TestScoringDag:
             source = f.read()
         tree = ast.parse(source)
 
-        function_names = [
-            node.name for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-        ]
+        function_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
         assert "check_freshness" in function_names
         assert "ingest_weather" in function_names
         assert "ingest_grid_demand" in function_names
@@ -67,7 +61,6 @@ class TestScoringDag:
 
 
 class TestTrainingDag:
-
     def test_dag_loads_without_error(self):
         """Training DAG Python file parses without errors."""
         dag_path = DAGS_DIR / "wattcast_training_dag.py"
@@ -83,10 +76,7 @@ class TestTrainingDag:
             source = f.read()
         tree = ast.parse(source)
 
-        function_names = [
-            node.name for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-        ]
+        function_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
         assert "ingest_weather" in function_names
         assert "ingest_grid_demand" in function_names
         assert "consume_to_feature_store" in function_names
@@ -116,7 +106,6 @@ class TestTrainingDag:
 
 
 class TestBacktestDag:
-
     def test_dag_loads_without_error(self):
         """Backtest DAG Python file parses without errors."""
         dag_path = DAGS_DIR / "wattcast_backtest_dag.py"
@@ -132,10 +121,7 @@ class TestBacktestDag:
             source = f.read()
         tree = ast.parse(source)
 
-        function_names = [
-            node.name for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef)
-        ]
+        function_names = [node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)]
         assert "run_backtests" in function_names
         assert "log_pipeline_run" in function_names
 

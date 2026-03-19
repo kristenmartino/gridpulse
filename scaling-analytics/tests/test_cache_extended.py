@@ -1,12 +1,7 @@
 """Tests for the extended ForecastCache (all new read methods)."""
-import json
-from datetime import datetime, timezone
-
-import pytest
 
 
 class TestBacktestCache:
-
     def test_get_backtest_returns_data(self, populated_redis, sample_backtest):
         """get_backtest returns full backtest data."""
         from src.api.cache import ForecastCache
@@ -68,7 +63,6 @@ class TestBacktestCache:
 
 
 class TestActualsCache:
-
     def test_get_actuals_returns_data(self, populated_redis, sample_actuals):
         """get_actuals returns historical demand data."""
         from src.api.cache import ForecastCache
@@ -91,7 +85,6 @@ class TestActualsCache:
 
 
 class TestWeatherCache:
-
     def test_get_weather_returns_data(self, populated_redis, sample_weather):
         """get_weather returns weather data with all variables."""
         from src.api.cache import ForecastCache
@@ -108,7 +101,6 @@ class TestWeatherCache:
 
 
 class TestWeightsCache:
-
     def test_get_ensemble_weights_returns_data(self, populated_redis, sample_weights):
         """get_ensemble_weights returns weights and metrics."""
         from src.api.cache import ForecastCache
@@ -125,7 +117,6 @@ class TestWeightsCache:
 
 
 class TestScenarioCache:
-
     def test_get_scenario_preset_returns_data(self, populated_redis, sample_scenario_preset):
         """get_scenario_preset returns pre-computed preset data."""
         from src.api.cache import ForecastCache
@@ -163,7 +154,6 @@ class TestScenarioCache:
 
 
 class TestGenerationCache:
-
     def test_get_generation_returns_data(self, populated_redis, sample_generation):
         """get_generation returns generation mix data."""
         from src.api.cache import ForecastCache
@@ -180,7 +170,6 @@ class TestGenerationCache:
 
 
 class TestAlertsCache:
-
     def test_get_alerts_returns_data(self, populated_redis, sample_alerts):
         """get_alerts returns alerts and stress score."""
         from src.api.cache import ForecastCache
@@ -197,7 +186,6 @@ class TestAlertsCache:
 
 
 class TestNewsCache:
-
     def test_get_news_returns_data(self, populated_redis, sample_news):
         """get_news returns news articles."""
         from src.api.cache import ForecastCache

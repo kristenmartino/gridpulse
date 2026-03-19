@@ -11,10 +11,12 @@ DESIGN RULE:
     It's lazy-imported inside the POST handler to keep the read-only
     endpoints fully isolated from model imports.
 """
+
 from __future__ import annotations
 
+import contextlib
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
@@ -48,13 +50,13 @@ def simulate_custom_scenario(
     region = region.upper()
 
     # Lazy imports — keep model code out of module-level scope
-    from simulation.scenario_engine import simulate_scenario, compute_scenario_impact
-    from models.xgboost_model import train_xgboost, predict_xgboost
-    from models.pricing import estimate_price_impact, compute_reserve_margin
-    from data.demo_data import generate_demo_demand, generate_demo_weather
-    from data.preprocessing import merge_demand_weather, handle_missing_values
-    from data.feature_engineering import engineer_features, get_feature_names
     from config import REGION_CAPACITY_MW
+    from data.demo_data import generate_demo_demand, generate_demo_weather
+    from data.feature_engineering import engineer_features, get_feature_names
+    from data.preprocessing import handle_missing_values, merge_demand_weather
+    from models.pricing import compute_reserve_margin, estimate_price_impact
+    from models.xgboost_model import predict_xgboost, train_xgboost
+    from simulation.scenario_engine import compute_scenario_impact, simulate_scenario
 
     # Build features from recent data (demo fallback)
     demand_df = generate_demo_demand(region, days=30)
@@ -64,7 +66,7 @@ def simulate_custom_scenario(
     features_df = engineer_features(merged)
 
     feature_cols = get_feature_names()
-    available_cols = [c for c in feature_cols if c in features_df.columns]
+    [c for c in feature_cols if c in features_df.columns]
     target_col = "demand_mw"
 
     if target_col not in features_df.columns or len(features_df) < 48:
@@ -92,7 +94,7 @@ def simulate_custom_scenario(
         )
 
     # Compute impacts
-    impact = compute_scenario_impact(scenario_forecast, baseline, region)
+    compute_scenario_impact(scenario_forecast, baseline, region)
 
     capacity = REGION_CAPACITY_MW.get(region, 100_000)
     base_prices = estimate_price_impact(baseline, capacity)
@@ -113,23 +115,26 @@ def simulate_custom_scenario(
         "baseline": np.round(baseline, 2).tolist(),
         "scenario": np.round(scenario_forecast, 2).tolist(),
         "delta_mw": np.round(delta, 2).tolist(),
-        "delta_pct": float(np.round(
-            np.mean(delta) / np.mean(baseline) * 100, 2
-        )) if np.mean(baseline) != 0 else 0.0,
+        "delta_pct": float(np.round(np.mean(delta) / np.mean(baseline) * 100, 2))
+        if np.mean(baseline) != 0
+        else 0.0,
         "pricing": {
             "base_avg": float(np.round(np.mean(np.atleast_1d(base_prices)), 2)),
             "scenario_avg": float(np.round(np.mean(np.atleast_1d(scenario_prices)), 2)),
-            "delta": float(np.round(
-                np.mean(np.atleast_1d(scenario_prices))
-                - np.mean(np.atleast_1d(base_prices)), 2
-            )),
+            "delta": float(
+                np.round(
+                    np.mean(np.atleast_1d(scenario_prices)) - np.mean(np.atleast_1d(base_prices)), 2
+                )
+            ),
         },
         "reserve_margin": {
             "min_pct": float(np.round(np.min(np.atleast_1d(scenario_reserve)), 2)),
             "avg_pct": float(np.round(np.mean(np.atleast_1d(scenario_reserve)), 2)),
             "status": (
-                "CRITICAL" if np.min(np.atleast_1d(scenario_reserve)) < 5
-                else "Low" if np.min(np.atleast_1d(scenario_reserve)) < 15
+                "CRITICAL"
+                if np.min(np.atleast_1d(scenario_reserve)) < 5
+                else "Low"
+                if np.min(np.atleast_1d(scenario_reserve)) < 15
                 else "Adequate"
             ),
         },
@@ -137,7 +142,7 @@ def simulate_custom_scenario(
             "wind_power_pct": round(wind_power_pct, 1),
             "solar_cf_pct": round(solar_cf_pct, 1),
         },
-        "computed_at": datetime.now(timezone.utc).isoformat(),
+        "computed_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -152,8 +157,8 @@ def _manual_scenario(
 
     Copies features, overrides weather columns, re-scores with XGBoost.
     """
-    from models.xgboost_model import predict_xgboost
     from data.feature_engineering import engineer_features
+    from models.xgboost_model import predict_xgboost
 
     scenario_df = future_df.copy()
 
@@ -163,10 +168,8 @@ def _manual_scenario(
             scenario_df[col] = val
 
     # Recompute derived features
-    try:
+    with contextlib.suppress(Exception):
         scenario_df = engineer_features(scenario_df)
-    except Exception:
-        pass  # Use overrides as-is if re-engineering fails
 
     scenario_preds = predict_xgboost(xgb_result, scenario_df)
     delta = scenario_preds - baseline

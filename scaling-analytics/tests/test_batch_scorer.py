@@ -1,6 +1,6 @@
 """Tests for the BatchScorer."""
+
 import json
-from unittest.mock import patch, MagicMock
 
 import numpy as np
 import pandas as pd
@@ -13,19 +13,21 @@ pytest.importorskip("psycopg2", reason="psycopg2 not installed")
 def sample_predictions():
     """Sample predictions DataFrame as produced by _train_and_score_region."""
     timestamps = pd.date_range("2024-01-15 12:00", periods=24, freq="h")
-    return pd.DataFrame({
-        "timestamp": timestamps,
-        "region": "ERCOT",
-        "predicted_demand_mw": np.random.uniform(35000, 50000, 24).round(2),
-        "xgboost": np.random.uniform(35000, 50000, 24).round(2),
-        "prophet": np.random.uniform(35000, 50000, 24).round(2),
-        "arima": np.random.uniform(35000, 50000, 24).round(2),
-        "upper_80": np.random.uniform(40000, 55000, 24).round(2),
-        "lower_80": np.random.uniform(30000, 45000, 24).round(2),
-        "price_usd_mwh": np.random.uniform(40, 80, 24).round(2),
-        "reserve_margin_pct": np.random.uniform(10, 30, 24).round(2),
-        "scored_at": "2024-01-15T12:00:00+00:00",
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": timestamps,
+            "region": "ERCOT",
+            "predicted_demand_mw": np.random.uniform(35000, 50000, 24).round(2),
+            "xgboost": np.random.uniform(35000, 50000, 24).round(2),
+            "prophet": np.random.uniform(35000, 50000, 24).round(2),
+            "arima": np.random.uniform(35000, 50000, 24).round(2),
+            "upper_80": np.random.uniform(40000, 55000, 24).round(2),
+            "lower_80": np.random.uniform(30000, 45000, 24).round(2),
+            "price_usd_mwh": np.random.uniform(40, 80, 24).round(2),
+            "reserve_margin_pct": np.random.uniform(10, 30, 24).round(2),
+            "scored_at": "2024-01-15T12:00:00+00:00",
+        }
+    )
 
 
 @pytest.fixture
@@ -47,11 +49,10 @@ def sample_result(sample_predictions):
 
 
 class TestCacheForecasts:
-
     def test_writes_all_granularity_keys(self, mock_redis, sample_result):
         """_cache_forecasts writes 15min, 1h, 1d, and latest keys."""
-        from src.processing.batch_scorer import BatchScorer
         from src.config import RedisConfig
+        from src.processing.batch_scorer import BatchScorer
 
         config = RedisConfig()
         pipeline = mock_redis.pipeline()
@@ -59,8 +60,12 @@ class TestCacheForecasts:
         scorer = object.__new__(BatchScorer)
         scorer.redis_config = config
         scorer._cache_forecasts(
-            pipeline, "ERCOT", sample_result,
-            "2024-01-15T12:00:00+00:00", config.forecast_ttl_seconds, config.key_prefix,
+            pipeline,
+            "ERCOT",
+            sample_result,
+            "2024-01-15T12:00:00+00:00",
+            config.forecast_ttl_seconds,
+            config.key_prefix,
         )
         pipeline.execute()
 
@@ -71,8 +76,8 @@ class TestCacheForecasts:
 
     def test_hourly_rollup_has_fewer_entries(self, mock_redis, sample_result):
         """Hourly rollup should have fewer entries than 15-min."""
-        from src.processing.batch_scorer import BatchScorer
         from src.config import RedisConfig
+        from src.processing.batch_scorer import BatchScorer
 
         config = RedisConfig()
         pipeline = mock_redis.pipeline()
@@ -80,8 +85,12 @@ class TestCacheForecasts:
         scorer = object.__new__(BatchScorer)
         scorer.redis_config = config
         scorer._cache_forecasts(
-            pipeline, "ERCOT", sample_result,
-            "2024-01-15T12:00:00+00:00", config.forecast_ttl_seconds, config.key_prefix,
+            pipeline,
+            "ERCOT",
+            sample_result,
+            "2024-01-15T12:00:00+00:00",
+            config.forecast_ttl_seconds,
+            config.key_prefix,
         )
         pipeline.execute()
 
@@ -91,8 +100,8 @@ class TestCacheForecasts:
 
     def test_payload_has_required_fields(self, mock_redis, sample_result):
         """Each cached payload has region, scored_at, granularity, forecasts."""
-        from src.processing.batch_scorer import BatchScorer
         from src.config import RedisConfig
+        from src.processing.batch_scorer import BatchScorer
 
         config = RedisConfig()
         pipeline = mock_redis.pipeline()
@@ -100,8 +109,12 @@ class TestCacheForecasts:
         scorer = object.__new__(BatchScorer)
         scorer.redis_config = config
         scorer._cache_forecasts(
-            pipeline, "ERCOT", sample_result,
-            "2024-01-15T12:00:00+00:00", config.forecast_ttl_seconds, config.key_prefix,
+            pipeline,
+            "ERCOT",
+            sample_result,
+            "2024-01-15T12:00:00+00:00",
+            config.forecast_ttl_seconds,
+            config.key_prefix,
         )
         pipeline.execute()
 
@@ -113,8 +126,8 @@ class TestCacheForecasts:
 
     def test_forecast_payload_has_enriched_fields(self, mock_redis, sample_result):
         """Forecasts include per-model predictions, confidence bands, pricing."""
-        from src.processing.batch_scorer import BatchScorer
         from src.config import RedisConfig
+        from src.processing.batch_scorer import BatchScorer
 
         config = RedisConfig()
         pipeline = mock_redis.pipeline()
@@ -122,8 +135,12 @@ class TestCacheForecasts:
         scorer = object.__new__(BatchScorer)
         scorer.redis_config = config
         scorer._cache_forecasts(
-            pipeline, "ERCOT", sample_result,
-            "2024-01-15T12:00:00+00:00", config.forecast_ttl_seconds, config.key_prefix,
+            pipeline,
+            "ERCOT",
+            sample_result,
+            "2024-01-15T12:00:00+00:00",
+            config.forecast_ttl_seconds,
+            config.key_prefix,
         )
         pipeline.execute()
 
@@ -137,19 +154,22 @@ class TestCacheForecasts:
 
 
 class TestCacheWeights:
-
     def test_writes_weights_key(self, mock_redis, sample_result):
         """_cache_weights writes ensemble weights to Redis."""
-        from src.processing.batch_scorer import BatchScorer
         from src.config import RedisConfig
+        from src.processing.batch_scorer import BatchScorer
 
         config = RedisConfig()
         pipeline = mock_redis.pipeline()
         scorer = object.__new__(BatchScorer)
         scorer.redis_config = config
         scorer._cache_weights(
-            pipeline, "ERCOT", sample_result,
-            "2024-01-15T12:00:00+00:00", config.forecast_ttl_seconds, config.key_prefix,
+            pipeline,
+            "ERCOT",
+            sample_result,
+            "2024-01-15T12:00:00+00:00",
+            config.forecast_ttl_seconds,
+            config.key_prefix,
         )
         pipeline.execute()
 
@@ -160,11 +180,10 @@ class TestCacheWeights:
 
 
 class TestCacheBacktests:
-
     def test_writes_backtest_keys(self, mock_redis, sample_result):
         """_cache_backtests writes backtest results per horizon."""
-        from src.processing.batch_scorer import BatchScorer
         from src.config import RedisConfig
+        from src.processing.batch_scorer import BatchScorer
 
         sample_result["backtests"] = {
             24: {"horizon": 24, "metrics": {"xgboost": {"mape": 3.0}}, "actual": [1, 2, 3]},
@@ -174,8 +193,11 @@ class TestCacheBacktests:
         scorer = object.__new__(BatchScorer)
         scorer.redis_config = config
         scorer._cache_backtests(
-            pipeline, "ERCOT", sample_result,
-            config.forecast_ttl_seconds, config.key_prefix,
+            pipeline,
+            "ERCOT",
+            sample_result,
+            config.forecast_ttl_seconds,
+            config.key_prefix,
         )
         pipeline.execute()
 
@@ -183,10 +205,10 @@ class TestCacheBacktests:
 
 
 class TestBatchScorerStructure:
-
     def test_no_syntax_error(self):
         """batch_scorer.py parses without syntax error."""
         import ast
+
         from src.processing import batch_scorer
 
         source_path = batch_scorer.__file__
@@ -198,6 +220,7 @@ class TestBatchScorerStructure:
     def test_run_accepts_mode_parameter(self):
         """run() function accepts a mode parameter."""
         import inspect
+
         from src.processing.batch_scorer import run
 
         sig = inspect.signature(run)
@@ -209,7 +232,9 @@ class TestBatchScorerStructure:
         from src.processing.batch_scorer import BatchScorer
 
         scorer = object.__new__(BatchScorer)
-        scorer.redis_config = type("R", (), {"key_prefix": "wattcast", "forecast_ttl_seconds": 3600})()
+        scorer.redis_config = type(
+            "R", (), {"key_prefix": "wattcast", "forecast_ttl_seconds": 3600}
+        )()
         scorer.redis_client = mock_redis
         scorer.model_config = type("M", (), {"fast_mode": False})()
 

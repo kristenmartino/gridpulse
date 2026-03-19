@@ -1,9 +1,7 @@
 """Tests for the ForecastCache Redis read helper."""
-import json
-from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
-import pytest
+import json
+from datetime import UTC, datetime, timedelta
 
 
 class TestForecastCache:
@@ -98,7 +96,7 @@ class TestForecastCache:
         """is_healthy returns False when last scored is too old."""
         from src.api.cache import ForecastCache
 
-        stale_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        stale_time = (datetime.now(UTC) - timedelta(hours=2)).isoformat()
         mock_redis.set(
             "wattcast:meta:last_scored",
             json.dumps({"scored_at": stale_time, "regions_scored": 8}),

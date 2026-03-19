@@ -1,12 +1,8 @@
 """Tests for the ModelStore — filesystem model persistence."""
+
 import json
-import os
-import tempfile
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
 
 import pytest
-
 from src.processing.model_store import ModelStore
 
 
@@ -39,12 +35,17 @@ def sample_metrics():
 
 
 class TestSaveModels:
-
-    def test_creates_region_directory(self, tmp_store, sample_models, sample_weights, sample_metrics):
+    def test_creates_region_directory(
+        self, tmp_store, sample_models, sample_weights, sample_metrics
+    ):
         """save_models creates the region directory."""
         result = tmp_store.save_models(
-            "ERCOT", sample_models, sample_weights, sample_metrics,
-            ["temp", "hour_sin"], "abc123",
+            "ERCOT",
+            sample_models,
+            sample_weights,
+            sample_metrics,
+            ["temp", "hour_sin"],
+            "abc123",
         )
         assert result.exists()
         assert result.name == "ERCOT"
@@ -52,8 +53,12 @@ class TestSaveModels:
     def test_saves_joblib_files(self, tmp_store, sample_models, sample_weights, sample_metrics):
         """save_models creates a .joblib file per model."""
         tmp_store.save_models(
-            "ERCOT", sample_models, sample_weights, sample_metrics,
-            ["temp", "hour_sin"], "abc123",
+            "ERCOT",
+            sample_models,
+            sample_weights,
+            sample_metrics,
+            ["temp", "hour_sin"],
+            "abc123",
         )
         region_dir = tmp_store._region_dir("ERCOT")
         joblib_files = list(region_dir.glob("*.joblib"))
@@ -62,8 +67,12 @@ class TestSaveModels:
     def test_writes_metadata_json(self, tmp_store, sample_models, sample_weights, sample_metrics):
         """save_models creates metadata.json with correct fields."""
         tmp_store.save_models(
-            "ERCOT", sample_models, sample_weights, sample_metrics,
-            ["temp", "hour_sin"], "abc123",
+            "ERCOT",
+            sample_models,
+            sample_weights,
+            sample_metrics,
+            ["temp", "hour_sin"],
+            "abc123",
         )
         meta_path = tmp_store._region_dir("ERCOT") / "metadata.json"
         assert meta_path.exists()
@@ -78,7 +87,6 @@ class TestSaveModels:
 
 
 class TestLoadModels:
-
     def test_returns_none_when_no_artifacts(self, tmp_store):
         """load_models returns None if no artifacts exist."""
         result = tmp_store.load_models("ERCOT")
@@ -87,8 +95,12 @@ class TestLoadModels:
     def test_loads_saved_models(self, tmp_store, sample_models, sample_weights, sample_metrics):
         """load_models returns models saved by save_models."""
         tmp_store.save_models(
-            "ERCOT", sample_models, sample_weights, sample_metrics,
-            ["temp", "hour_sin"], "abc123",
+            "ERCOT",
+            sample_models,
+            sample_weights,
+            sample_metrics,
+            ["temp", "hour_sin"],
+            "abc123",
         )
         loaded = tmp_store.load_models("ERCOT")
         assert loaded is not None
@@ -98,30 +110,45 @@ class TestLoadModels:
         assert loaded["feature_hash"] == "abc123"
         assert loaded["trained_at"] != ""
 
-    def test_returns_correct_structure(self, tmp_store, sample_models, sample_weights, sample_metrics):
+    def test_returns_correct_structure(
+        self, tmp_store, sample_models, sample_weights, sample_metrics
+    ):
         """load_models returns dict with expected keys."""
         tmp_store.save_models(
-            "ERCOT", sample_models, sample_weights, sample_metrics,
-            ["temp", "hour_sin"], "abc123",
+            "ERCOT",
+            sample_models,
+            sample_weights,
+            sample_metrics,
+            ["temp", "hour_sin"],
+            "abc123",
         )
         loaded = tmp_store.load_models("ERCOT")
         assert set(loaded.keys()) == {
-            "models", "weights", "metrics", "feature_cols",
-            "feature_hash", "trained_at",
+            "models",
+            "weights",
+            "metrics",
+            "feature_cols",
+            "feature_hash",
+            "trained_at",
         }
 
 
 class TestModelAge:
-
     def test_returns_none_when_no_artifacts(self, tmp_store):
         """model_age_hours returns None if no artifacts exist."""
         assert tmp_store.model_age_hours("ERCOT") is None
 
-    def test_returns_small_age_after_save(self, tmp_store, sample_models, sample_weights, sample_metrics):
+    def test_returns_small_age_after_save(
+        self, tmp_store, sample_models, sample_weights, sample_metrics
+    ):
         """model_age_hours returns a small number right after saving."""
         tmp_store.save_models(
-            "ERCOT", sample_models, sample_weights, sample_metrics,
-            ["temp"], "abc",
+            "ERCOT",
+            sample_models,
+            sample_weights,
+            sample_metrics,
+            ["temp"],
+            "abc",
         )
         age = tmp_store.model_age_hours("ERCOT")
         assert age is not None
@@ -129,14 +156,19 @@ class TestModelAge:
 
 
 class TestCleanupOld:
-
-    def test_cleanup_removes_extra_files(self, tmp_store, sample_models, sample_weights, sample_metrics):
+    def test_cleanup_removes_extra_files(
+        self, tmp_store, sample_models, sample_weights, sample_metrics
+    ):
         """cleanup_old keeps only the N most recent files."""
         # Save models 3 times to create multiple snapshots
         for _ in range(3):
             tmp_store.save_models(
-                "ERCOT", sample_models, sample_weights, sample_metrics,
-                ["temp"], "abc",
+                "ERCOT",
+                sample_models,
+                sample_weights,
+                sample_metrics,
+                ["temp"],
+                "abc",
             )
 
         region_dir = tmp_store._region_dir("ERCOT")
@@ -155,7 +187,6 @@ class TestCleanupOld:
 
 
 class TestHasModels:
-
     def test_false_when_no_artifacts(self, tmp_store):
         """has_models returns False if no artifacts exist."""
         assert tmp_store.has_models("ERCOT") is False
@@ -163,7 +194,11 @@ class TestHasModels:
     def test_true_after_save(self, tmp_store, sample_models, sample_weights, sample_metrics):
         """has_models returns True after saving."""
         tmp_store.save_models(
-            "ERCOT", sample_models, sample_weights, sample_metrics,
-            ["temp"], "abc",
+            "ERCOT",
+            sample_models,
+            sample_weights,
+            sample_metrics,
+            ["temp"],
+            "abc",
         )
         assert tmp_store.has_models("ERCOT") is True

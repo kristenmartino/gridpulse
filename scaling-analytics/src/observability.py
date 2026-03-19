@@ -4,12 +4,13 @@ Pipeline observability — step-level timing and logging.
 Wraps v1's PipelineLogger pattern and writes completed pipeline
 runs to the Postgres pipeline_logs table.
 """
+
 from __future__ import annotations
 
 import json
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class PipelineLogger:
             "total_ms": total_ms,
             "steps": self.steps,
             "context": self.context,
-            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": datetime.now(UTC).isoformat(),
         }
         logger.info(
             "pipeline_complete",

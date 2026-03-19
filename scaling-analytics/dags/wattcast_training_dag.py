@@ -11,6 +11,7 @@ CADENCE: Daily at 02:00 UTC. Model weights don't change meaningfully
 hour-to-hour when training on a 365-day window. Adding 24 new hours
 to 8,760 is noise. Daily retraining is standard practice.
 """
+
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -42,35 +43,41 @@ dag = DAG(
 def ingest_weather():
     """Pull weather data from APIs -> Kafka topic."""
     from src.ingestion.weather_producer import run
+
     run()
 
 
 def ingest_grid_demand():
     """Pull grid demand data from EIA -> Kafka topic."""
     from src.ingestion.grid_producer import run
+
     run()
 
 
 def consume_to_feature_store():
     """Kafka topics -> Postgres feature store."""
     from src.processing.kafka_consumer import run
+
     run()
 
 
 def train_score_and_cache():
     """Train all models, persist to disk, score, write to Redis + Postgres."""
     from src.processing.batch_scorer import run
+
     run(mode="train")
 
 
 def log_pipeline_run():
     """Record training pipeline run metadata."""
     from src.observability import PipelineLogger
+
     pl = PipelineLogger("wattcast_training_completion")
     pl.step("dag_completed", status="success", mode="train")
     try:
         import psycopg2
         from src.config import DatabaseConfig
+
         conn = psycopg2.connect(DatabaseConfig().url)
         pl.persist(conn)
         conn.close()
