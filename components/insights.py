@@ -618,18 +618,17 @@ def generate_tab3_insights(
         ))
 
     # Error-by-hour pattern
-    if bt_stats["peak_hour_error_avg"] is not None and bt_stats["offpeak_error_avg"] is not None:
-        if bt_stats["offpeak_error_avg"] > 0:
-            ratio = bt_stats["peak_hour_error_avg"] / bt_stats["offpeak_error_avg"]
-            if ratio > 1.3:
-                insights.append(Insight(
-                    text=f"Errors concentrate in afternoon hours (2\u20136 PM), averaging {bt_stats['peak_hour_error_avg']:,.0f} MW vs {bt_stats['offpeak_error_avg']:,.0f} MW off-peak.",
-                    category="pattern",
-                    severity="info",
-                    metric_name="error_by_hour",
-                    metric_value=ratio,
-                    persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
-                ))
+    if bt_stats["peak_hour_error_avg"] is not None and bt_stats["offpeak_error_avg"] is not None and bt_stats["offpeak_error_avg"] > 0:
+        ratio = bt_stats["peak_hour_error_avg"] / bt_stats["offpeak_error_avg"]
+        if ratio > 1.3:
+            insights.append(Insight(
+                text=f"Errors concentrate in afternoon hours (2\u20136 PM), averaging {bt_stats['peak_hour_error_avg']:,.0f} MW vs {bt_stats['offpeak_error_avg']:,.0f} MW off-peak.",
+                category="pattern",
+                severity="info",
+                metric_name="error_by_hour",
+                metric_value=ratio,
+                persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+            ))
 
     # Ensemble weights
     if ensemble_weights and model_name == "ensemble":

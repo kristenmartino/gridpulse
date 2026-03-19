@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 from dash import html
 
 from components.insights import (
@@ -16,7 +15,6 @@ from components.insights import (
     generate_tab2_insights,
     generate_tab3_insights,
 )
-
 
 # ── Test helpers ──────────────────────────────────────────
 
