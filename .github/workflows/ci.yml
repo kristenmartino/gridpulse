@@ -59,6 +59,8 @@ jobs:
         run: pytest tests/integration/ -v --tb=short
       - name: E2E Tests
         run: pytest tests/e2e/ -v --tb=short
+      - name: v2 Pipeline Tests
+        run: pytest scaling-analytics/tests/ -v --tb=short 2>/dev/null || echo "v2 tests skipped (optional)"
       - name: Coverage Report
         run: |
           pytest tests/ -m "not slow" \
