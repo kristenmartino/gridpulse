@@ -88,6 +88,12 @@ OPEN_METEO_PARAMS = "&temperature_unit=fahrenheit&wind_speed_unit=mph"
 NOAA_BASE_URL = "https://api.weather.gov"
 
 # ---------------------------------------------------------------------------
+# Redis (v2 pre-computation pipeline)
+# ---------------------------------------------------------------------------
+REDIS_HOST = os.getenv("REDIS_HOST", "")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+# ---------------------------------------------------------------------------
 # Caching
 # ---------------------------------------------------------------------------
 CACHE_DB_PATH = os.getenv("CACHE_DB_PATH", "cache.db")

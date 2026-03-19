@@ -20,6 +20,7 @@ plotly>=5.22.0
 # API & networking
 requests>=2.31.0
 google-cloud-storage>=2.14.0
+redis>=5.0.0
 
 # Parquet serialization
 pyarrow>=15.0.0
