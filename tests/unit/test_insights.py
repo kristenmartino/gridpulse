@@ -322,7 +322,9 @@ class TestGenerateTab2Insights:
     def test_model_info_included(self):
         predictions = np.full(24, 25000)
         timestamps = pd.date_range("2024-01-01", periods=24, freq="h")
-        insights = generate_tab2_insights("data_scientist", "FPL", predictions, timestamps, model_name="ensemble")
+        insights = generate_tab2_insights(
+            "data_scientist", "FPL", predictions, timestamps, model_name="ensemble"
+        )
         texts = " ".join([i.text for i in insights])
         assert "Ensemble" in texts
 
@@ -355,8 +357,11 @@ class TestGenerateTab3Insights:
         actual = np.array([1000, 2000, 3000, 4000, 5000])
         predictions = np.array([700, 1700, 2700, 3700, 4700])  # bias of +300
         insights = generate_tab3_insights(
-            "grid_ops", "FPL", metrics,
-            actual=actual, predictions=predictions,
+            "grid_ops",
+            "FPL",
+            metrics,
+            actual=actual,
+            predictions=predictions,
         )
         texts = " ".join([i.text for i in insights])
         assert "underforecast" in texts.lower() or "bias" in texts.lower()
@@ -365,8 +370,11 @@ class TestGenerateTab3Insights:
         metrics = {"ensemble": {"mape": 1.9, "rmse": 340, "mae": 250, "r2": 0.979}}
         weights = {"xgboost": 0.50, "prophet": 0.30, "arima": 0.20}
         insights = generate_tab3_insights(
-            "data_scientist", "FPL", metrics,
-            model_name="ensemble", ensemble_weights=weights,
+            "data_scientist",
+            "FPL",
+            metrics,
+            model_name="ensemble",
+            ensemble_weights=weights,
         )
         texts = " ".join([i.text for i in insights])
         assert "XGBoost" in texts and "50%" in texts

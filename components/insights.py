@@ -143,7 +143,9 @@ def _extract_historical_stats(
         morning = df[(df["_hour"] >= 6) & (df["_hour"] <= 10)].copy()
         if len(morning) > 1:
             hourly_diff = morning["demand_mw"].diff()
-            stats["morning_ramp_mw_per_hour"] = float(hourly_diff.max()) if not hourly_diff.isna().all() else None
+            stats["morning_ramp_mw_per_hour"] = (
+                float(hourly_diff.max()) if not hourly_diff.isna().all() else None
+            )
 
     # Week-over-week trend
     if len(df) >= 336:  # 2 weeks
@@ -171,7 +173,9 @@ def _extract_historical_stats(
             t_vals = wdf["temperature_2m"].tail(min_len).values
             mask = ~(np.isnan(d_vals) | np.isnan(t_vals))
             if mask.sum() > 10:
-                stats["temp_demand_correlation"] = float(np.corrcoef(d_vals[mask], t_vals[mask])[0, 1])
+                stats["temp_demand_correlation"] = float(
+                    np.corrcoef(d_vals[mask], t_vals[mask])[0, 1]
+                )
 
             # Temperature at peak demand
             if stats["peak_time"] is not None and "timestamp" in wdf.columns:
@@ -327,50 +331,58 @@ def generate_tab1_insights(
         time_str = ""
         if stats["peak_time"] is not None:
             time_str = f" at {pd.Timestamp(stats['peak_time']).strftime('%a %I %p')}"
-        insights.append(Insight(
-            text=f"Peak demand reached {peak_str} MW{time_str}, {stats['pct_above_avg']:.0f}% above period average.",
-            category="pattern",
-            severity="info",
-            metric_name="peak_demand",
-            metric_value=stats["peak_mw"],
-            persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Peak demand reached {peak_str} MW{time_str}, {stats['pct_above_avg']:.0f}% above period average.",
+                category="pattern",
+                severity="info",
+                metric_name="peak_demand",
+                metric_value=stats["peak_mw"],
+                persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+            )
+        )
 
     # Morning ramp rate
     if stats["morning_ramp_mw_per_hour"] is not None and stats["morning_ramp_mw_per_hour"] > 0:
-        insights.append(Insight(
-            text=f"Morning ramp rate peaked at {stats['morning_ramp_mw_per_hour']:,.0f} MW/hr (6\u201310 AM window).",
-            category="pattern",
-            severity="info",
-            metric_name="ramp_rate",
-            metric_value=stats["morning_ramp_mw_per_hour"],
-            persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Morning ramp rate peaked at {stats['morning_ramp_mw_per_hour']:,.0f} MW/hr (6\u201310 AM window).",
+                category="pattern",
+                severity="info",
+                metric_name="ramp_rate",
+                metric_value=stats["morning_ramp_mw_per_hour"],
+                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+            )
+        )
 
     # Weekday vs weekend
     if stats["weekday_avg"] and stats["weekend_avg"] and stats["weekday_avg"] > 0:
         ratio = (stats["weekday_avg"] - stats["weekend_avg"]) / stats["weekday_avg"] * 100
         if abs(ratio) > 3:
             direction = "higher" if ratio > 0 else "lower"
-            insights.append(Insight(
-                text=f"Weekday demand averages {abs(ratio):.0f}% {direction} than weekend ({stats['weekday_avg']:,.0f} vs {stats['weekend_avg']:,.0f} MW).",
-                category="pattern",
-                severity="info",
-                metric_name="weekday_weekend_ratio",
-                metric_value=ratio,
-                persona_relevance=["data_scientist", "trader", "grid_ops", "renewables"],
-            ))
+            insights.append(
+                Insight(
+                    text=f"Weekday demand averages {abs(ratio):.0f}% {direction} than weekend ({stats['weekday_avg']:,.0f} vs {stats['weekend_avg']:,.0f} MW).",
+                    category="pattern",
+                    severity="info",
+                    metric_name="weekday_weekend_ratio",
+                    metric_value=ratio,
+                    persona_relevance=["data_scientist", "trader", "grid_ops", "renewables"],
+                )
+            )
 
     # Anomaly: hours above P90
     if stats["hours_above_p90"] is not None and stats["hours_above_p90"] > timerange_hours * 0.15:
-        insights.append(Insight(
-            text=f"Demand exceeded the 90th percentile for {stats['hours_above_p90']} hours during this period.",
-            category="anomaly",
-            severity="notable",
-            metric_name="hours_above_p90",
-            metric_value=float(stats["hours_above_p90"]),
-            persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Demand exceeded the 90th percentile for {stats['hours_above_p90']} hours during this period.",
+                category="anomaly",
+                severity="notable",
+                metric_name="hours_above_p90",
+                metric_value=float(stats["hours_above_p90"]),
+                persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+            )
+        )
 
     # Temperature-demand correlation
     if stats["temp_demand_correlation"] is not None:
@@ -380,41 +392,47 @@ def generate_tab1_insights(
             temp_str = ""
             if stats["temp_at_peak_demand"] is not None:
                 temp_str = f" Peak demand coincided with {stats['temp_at_peak_demand']:.0f}\u00b0F."
-            insights.append(Insight(
-                text=f"Temperature shows {strength} correlation (r={r:.2f}) with demand.{temp_str}",
-                category="driver",
-                severity="info" if abs(r) < 0.7 else "notable",
-                metric_name="temp_correlation",
-                metric_value=r,
-                persona_relevance=["renewables", "data_scientist", "grid_ops", "trader"],
-            ))
+            insights.append(
+                Insight(
+                    text=f"Temperature shows {strength} correlation (r={r:.2f}) with demand.{temp_str}",
+                    category="driver",
+                    severity="info" if abs(r) < 0.7 else "notable",
+                    metric_name="temp_correlation",
+                    metric_value=r,
+                    persona_relevance=["renewables", "data_scientist", "grid_ops", "trader"],
+                )
+            )
 
     # Week-over-week trend
     if stats["week_over_week_pct"] is not None and abs(stats["week_over_week_pct"]) > 1.5:
         direction = "up" if stats["week_over_week_pct"] > 0 else "down"
         load_trend = "rising" if direction == "up" else "falling"
         sev = "notable" if abs(stats["week_over_week_pct"]) > 5 else "info"
-        insights.append(Insight(
-            text=f"Week-over-week demand {direction} {abs(stats['week_over_week_pct']):.1f}%, indicating {load_trend} load trend.",
-            category="trend",
-            severity=sev,
-            metric_name="wow_trend",
-            metric_value=stats["week_over_week_pct"],
-            persona_relevance=["trader", "grid_ops", "renewables", "data_scientist"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Week-over-week demand {direction} {abs(stats['week_over_week_pct']):.1f}%, indicating {load_trend} load trend.",
+                category="trend",
+                severity=sev,
+                metric_name="wow_trend",
+                metric_value=stats["week_over_week_pct"],
+                persona_relevance=["trader", "grid_ops", "renewables", "data_scientist"],
+            )
+        )
 
     # Demand variability (std)
     if stats["std_mw"] and stats["avg_mw"] and stats["avg_mw"] > 0:
         cv = stats["std_mw"] / stats["avg_mw"] * 100
         if cv > 10:
-            insights.append(Insight(
-                text=f"Demand variability is elevated (CV={cv:.1f}%), with \u00b1{stats['std_mw']:,.0f} MW standard deviation.",
-                category="pattern",
-                severity="info",
-                metric_name="demand_cv",
-                metric_value=cv,
-                persona_relevance=["data_scientist", "trader", "grid_ops", "renewables"],
-            ))
+            insights.append(
+                Insight(
+                    text=f"Demand variability is elevated (CV={cv:.1f}%), with \u00b1{stats['std_mw']:,.0f} MW standard deviation.",
+                    category="pattern",
+                    severity="info",
+                    metric_name="demand_cv",
+                    metric_value=cv,
+                    persona_relevance=["data_scientist", "trader", "grid_ops", "renewables"],
+                )
+            )
 
     return _filter_for_persona(insights, persona_id)
 
@@ -450,79 +468,93 @@ def generate_tab2_insights(
     time_str = ""
     if stats["peak_time"] is not None:
         time_str = f" at {pd.Timestamp(stats['peak_time']).strftime('%I %p')}"
-    insights.append(Insight(
-        text=f"Peak demand of {peak_str} MW forecast{day_str}{time_str}, with {stats['range_mw']:,.0f} MW demand range.",
-        category="pattern",
-        severity="info",
-        metric_name="peak_demand",
-        metric_value=stats["peak_mw"],
-        persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
-    ))
+    insights.append(
+        Insight(
+            text=f"Peak demand of {peak_str} MW forecast{day_str}{time_str}, with {stats['range_mw']:,.0f} MW demand range.",
+            category="pattern",
+            severity="info",
+            metric_name="peak_demand",
+            metric_value=stats["peak_mw"],
+            persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+        )
+    )
 
     # Ramp rate
     if stats["max_hourly_ramp"] is not None and stats["max_hourly_ramp"] > 0:
         ramp_time_str = ""
         if stats["max_hourly_ramp_time"] is not None:
-            ramp_time_str = f" near {pd.Timestamp(stats['max_hourly_ramp_time']).strftime('%a %I %p')}"
-        insights.append(Insight(
-            text=f"Maximum hourly ramp of {stats['max_hourly_ramp']:,.0f} MW expected{ramp_time_str}.",
-            category="driver",
-            severity="info",
-            metric_name="ramp_rate",
-            metric_value=stats["max_hourly_ramp"],
-            persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
-        ))
+            ramp_time_str = (
+                f" near {pd.Timestamp(stats['max_hourly_ramp_time']).strftime('%a %I %p')}"
+            )
+        insights.append(
+            Insight(
+                text=f"Maximum hourly ramp of {stats['max_hourly_ramp']:,.0f} MW expected{ramp_time_str}.",
+                category="driver",
+                severity="info",
+                metric_name="ramp_rate",
+                metric_value=stats["max_hourly_ramp"],
+                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+            )
+        )
 
     # Capacity proximity
     if stats["peak_mw"] and capacity > 0:
         utilization_pct = stats["peak_mw"] / capacity * 100
         if utilization_pct > 75:
             sev = "warning" if utilization_pct > 85 else "notable"
-            insights.append(Insight(
-                text=f"Peak forecast reaches {utilization_pct:.0f}% of regional capacity ({capacity:,.0f} MW).",
-                category="risk",
-                severity=sev,
-                metric_name="capacity_pct",
-                metric_value=utilization_pct,
-                persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
-            ))
+            insights.append(
+                Insight(
+                    text=f"Peak forecast reaches {utilization_pct:.0f}% of regional capacity ({capacity:,.0f} MW).",
+                    category="risk",
+                    severity=sev,
+                    metric_name="capacity_pct",
+                    metric_value=utilization_pct,
+                    persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+                )
+            )
 
     # Weekday vs weekend split
     if stats["weekday_avg"] and stats["weekend_avg"] and stats["weekday_avg"] > 0:
         diff_pct = (stats["weekday_avg"] - stats["weekend_avg"]) / stats["weekday_avg"] * 100
         if abs(diff_pct) > 3 and horizon_hours >= 168:
             lower_period = "weekend" if diff_pct > 0 else "weekday"
-            insights.append(Insight(
-                text=f"Weekday forecast averages {stats['weekday_avg']:,.0f} MW vs {stats['weekend_avg']:,.0f} MW on weekends ({abs(diff_pct):.0f}% {lower_period} reduction).",
-                category="pattern",
-                severity="info",
-                metric_name="weekday_weekend_diff",
-                metric_value=diff_pct,
-                persona_relevance=["trader", "grid_ops", "data_scientist", "renewables"],
-            ))
+            insights.append(
+                Insight(
+                    text=f"Weekday forecast averages {stats['weekday_avg']:,.0f} MW vs {stats['weekend_avg']:,.0f} MW on weekends ({abs(diff_pct):.0f}% {lower_period} reduction).",
+                    category="pattern",
+                    severity="info",
+                    metric_name="weekday_weekend_diff",
+                    metric_value=diff_pct,
+                    persona_relevance=["trader", "grid_ops", "data_scientist", "renewables"],
+                )
+            )
 
     # Min demand (overnight trough)
     if stats["min_mw"] and stats["min_time"] is not None:
         min_time_str = pd.Timestamp(stats["min_time"]).strftime("%a %I %p")
-        insights.append(Insight(
-            text=f"Minimum demand of {stats['min_mw']:,.0f} MW expected {min_time_str}.",
-            category="pattern",
-            severity="info",
-            metric_name="min_demand",
-            metric_value=stats["min_mw"],
-            persona_relevance=["renewables", "trader", "grid_ops", "data_scientist"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Minimum demand of {stats['min_mw']:,.0f} MW expected {min_time_str}.",
+                category="pattern",
+                severity="info",
+                metric_name="min_demand",
+                metric_value=stats["min_mw"],
+                persona_relevance=["renewables", "trader", "grid_ops", "data_scientist"],
+            )
+        )
 
     # Model used
     model_label = {"xgboost": "XGBoost", "ensemble": "Ensemble"}.get(model_name, model_name)
-    insights.append(Insight(
-        text=f"Forecast generated using {model_label} model over {horizon_hours}-hour horizon.",
-        category="performance",
-        severity="info",
-        metric_name="model",
-        metric_value=None,
-        persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
-    ))
+    insights.append(
+        Insight(
+            text=f"Forecast generated using {model_label} model over {horizon_hours}-hour horizon.",
+            category="performance",
+            severity="info",
+            metric_name="model",
+            metric_value=None,
+            persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+        )
+    )
 
     return _filter_for_persona(insights, persona_id)
 
@@ -558,16 +590,27 @@ def generate_tab3_insights(
         horizon_key = {24: "24h", 168: "7d", 720: "7d"}.get(horizon_hours, "48h")
         grade = mape_grade(mape_val, horizon_key)
         grade_label = grade.capitalize()
-        model_label = {"xgboost": "XGBoost", "ensemble": "Ensemble", "prophet": "Prophet", "arima": "ARIMA"}.get(model_name, model_name)
+        model_label = {
+            "xgboost": "XGBoost",
+            "ensemble": "Ensemble",
+            "prophet": "Prophet",
+            "arima": "ARIMA",
+        }.get(model_name, model_name)
         fold_text = f" across {num_folds} folds" if num_folds > 1 else ""
-        insights.append(Insight(
-            text=f"{model_label} achieves {mape_val:.2f}% MAPE ({grade_label} grade) on {horizon_hours}-hour ahead backtest{fold_text}.",
-            category="performance",
-            severity="warning" if grade == "rollback" else "notable" if grade == "acceptable" else "info",
-            metric_name="mape",
-            metric_value=mape_val,
-            persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
-        ))
+        insights.append(
+            Insight(
+                text=f"{model_label} achieves {mape_val:.2f}% MAPE ({grade_label} grade) on {horizon_hours}-hour ahead backtest{fold_text}.",
+                category="performance",
+                severity="warning"
+                if grade == "rollback"
+                else "notable"
+                if grade == "acceptable"
+                else "info",
+                metric_name="mape",
+                metric_value=mape_val,
+                persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+            )
+        )
 
     # R-squared interpretation
     if model_metrics and "r2" in model_metrics:
@@ -580,86 +623,126 @@ def generate_tab3_insights(
             r2_label = "moderate"
         else:
             r2_label = "weak"
-        insights.append(Insight(
-            text=f"R\u00b2 of {r2:.4f} indicates {r2_label} goodness of fit \u2014 model explains {r2 * 100:.1f}% of demand variance.",
-            category="performance",
-            severity="info" if r2 > 0.95 else "notable",
-            metric_name="r2",
-            metric_value=r2,
-            persona_relevance=["data_scientist", "renewables", "grid_ops", "trader"],
-        ))
+        insights.append(
+            Insight(
+                text=f"R\u00b2 of {r2:.4f} indicates {r2_label} goodness of fit \u2014 model explains {r2 * 100:.1f}% of demand variance.",
+                category="performance",
+                severity="info" if r2 > 0.95 else "notable",
+                metric_name="r2",
+                metric_value=r2,
+                persona_relevance=["data_scientist", "renewables", "grid_ops", "trader"],
+            )
+        )
 
     # Cross-model comparison
-    if bt_stats["best_model"] and bt_stats["worst_model"] and bt_stats["best_model"] != bt_stats["worst_model"]:
+    if (
+        bt_stats["best_model"]
+        and bt_stats["worst_model"]
+        and bt_stats["best_model"] != bt_stats["worst_model"]
+    ):
         spread = bt_stats["mape_spread"] or 0
         if spread > 0.3:
-            best_label = bt_stats["best_model"].replace("xgboost", "XGBoost").replace("prophet", "Prophet").replace("arima", "ARIMA").replace("ensemble", "Ensemble")
-            worst_label = bt_stats["worst_model"].replace("xgboost", "XGBoost").replace("prophet", "Prophet").replace("arima", "ARIMA").replace("ensemble", "Ensemble")
-            insights.append(Insight(
-                text=f"{best_label} leads with {bt_stats['best_mape']:.2f}% MAPE, outperforming {worst_label} by {spread:.1f} percentage points.",
-                category="performance",
-                severity="info",
-                metric_name="model_comparison",
-                metric_value=spread,
-                persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
-            ))
+            best_label = (
+                bt_stats["best_model"]
+                .replace("xgboost", "XGBoost")
+                .replace("prophet", "Prophet")
+                .replace("arima", "ARIMA")
+                .replace("ensemble", "Ensemble")
+            )
+            worst_label = (
+                bt_stats["worst_model"]
+                .replace("xgboost", "XGBoost")
+                .replace("prophet", "Prophet")
+                .replace("arima", "ARIMA")
+                .replace("ensemble", "Ensemble")
+            )
+            insights.append(
+                Insight(
+                    text=f"{best_label} leads with {bt_stats['best_mape']:.2f}% MAPE, outperforming {worst_label} by {spread:.1f} percentage points.",
+                    category="performance",
+                    severity="info",
+                    metric_name="model_comparison",
+                    metric_value=spread,
+                    persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+                )
+            )
 
     # Bias detection
     if bt_stats["mean_bias"] is not None and abs(bt_stats["mean_bias"]) > 50:
         direction = "underforecast" if bt_stats["mean_bias"] > 0 else "overforecast"
         sev = "warning" if abs(bt_stats["mean_bias"]) > 200 else "notable"
-        insights.append(Insight(
-            text=f"Systematic {direction} detected: mean bias of {bt_stats['mean_bias']:+,.0f} MW.",
-            category="anomaly",
-            severity=sev,
-            metric_name="bias",
-            metric_value=bt_stats["mean_bias"],
-            persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Systematic {direction} detected: mean bias of {bt_stats['mean_bias']:+,.0f} MW.",
+                category="anomaly",
+                severity=sev,
+                metric_name="bias",
+                metric_value=bt_stats["mean_bias"],
+                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+            )
+        )
 
     # Error-by-hour pattern
-    if bt_stats["peak_hour_error_avg"] is not None and bt_stats["offpeak_error_avg"] is not None and bt_stats["offpeak_error_avg"] > 0:
+    if (
+        bt_stats["peak_hour_error_avg"] is not None
+        and bt_stats["offpeak_error_avg"] is not None
+        and bt_stats["offpeak_error_avg"] > 0
+    ):
         ratio = bt_stats["peak_hour_error_avg"] / bt_stats["offpeak_error_avg"]
         if ratio > 1.3:
-            insights.append(Insight(
-                text=f"Errors concentrate in afternoon hours (2\u20136 PM), averaging {bt_stats['peak_hour_error_avg']:,.0f} MW vs {bt_stats['offpeak_error_avg']:,.0f} MW off-peak.",
-                category="pattern",
-                severity="info",
-                metric_name="error_by_hour",
-                metric_value=ratio,
-                persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
-            ))
+            insights.append(
+                Insight(
+                    text=f"Errors concentrate in afternoon hours (2\u20136 PM), averaging {bt_stats['peak_hour_error_avg']:,.0f} MW vs {bt_stats['offpeak_error_avg']:,.0f} MW off-peak.",
+                    category="pattern",
+                    severity="info",
+                    metric_name="error_by_hour",
+                    metric_value=ratio,
+                    persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+                )
+            )
 
     # Ensemble weights
     if ensemble_weights and model_name == "ensemble":
         weight_parts = []
         for m in sorted(ensemble_weights, key=ensemble_weights.get, reverse=True):
-            label = m.replace("xgboost", "XGBoost").replace("prophet", "Prophet").replace("arima", "ARIMA")
+            label = (
+                m.replace("xgboost", "XGBoost")
+                .replace("prophet", "Prophet")
+                .replace("arima", "ARIMA")
+            )
             weight_parts.append(f"{label} {ensemble_weights[m]:.0%}")
         dominant = max(ensemble_weights, key=ensemble_weights.get)
-        dominant_label = dominant.replace("xgboost", "XGBoost").replace("prophet", "Prophet").replace("arima", "ARIMA")
-        insights.append(Insight(
-            text=f"Ensemble weights: {', '.join(weight_parts)} \u2014 {dominant_label} dominates due to lowest individual MAPE.",
-            category="performance",
-            severity="info",
-            metric_name="ensemble_weights",
-            metric_value=None,
-            persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
-        ))
+        dominant_label = (
+            dominant.replace("xgboost", "XGBoost")
+            .replace("prophet", "Prophet")
+            .replace("arima", "ARIMA")
+        )
+        insights.append(
+            Insight(
+                text=f"Ensemble weights: {', '.join(weight_parts)} \u2014 {dominant_label} dominates due to lowest individual MAPE.",
+                category="performance",
+                severity="info",
+                metric_name="ensemble_weights",
+                metric_value=None,
+                persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+            )
+        )
 
     # RMSE context
     if model_metrics and "rmse" in model_metrics and stats_avg_mw_from_actual(actual):
         rmse = model_metrics["rmse"]
         avg_mw = float(np.nanmean(actual))
         rmse_pct = rmse / avg_mw * 100 if avg_mw > 0 else 0
-        insights.append(Insight(
-            text=f"RMSE of {rmse:,.0f} MW represents {rmse_pct:.1f}% of average demand ({avg_mw:,.0f} MW).",
-            category="performance",
-            severity="info",
-            metric_name="rmse",
-            metric_value=rmse,
-            persona_relevance=["data_scientist", "renewables", "grid_ops", "trader"],
-        ))
+        insights.append(
+            Insight(
+                text=f"RMSE of {rmse:,.0f} MW represents {rmse_pct:.1f}% of average demand ({avg_mw:,.0f} MW).",
+                category="performance",
+                severity="info",
+                metric_name="rmse",
+                metric_value=rmse,
+                persona_relevance=["data_scientist", "renewables", "grid_ops", "trader"],
+            )
+        )
 
     return _filter_for_persona(insights, persona_id)
 
@@ -809,14 +892,16 @@ def generate_tab4_insights(
 
     # 1. Renewable penetration headline
     level = "high" if renewable_pct > 30 else "moderate" if renewable_pct > 15 else "low"
-    insights.append(Insight(
-        text=f"Renewables supplied {renewable_pct:.1f}% of generation ({level} penetration for {region}).",
-        category="pattern",
-        severity="notable" if renewable_pct > 40 else "info",
-        metric_name="renewable_pct",
-        metric_value=renewable_pct,
-        persona_relevance=["renewables", "trader", "grid_ops", "data_scientist"],
-    ))
+    insights.append(
+        Insight(
+            text=f"Renewables supplied {renewable_pct:.1f}% of generation ({level} penetration for {region}).",
+            category="pattern",
+            severity="notable" if renewable_pct > 40 else "info",
+            metric_name="renewable_pct",
+            metric_value=renewable_pct,
+            persona_relevance=["renewables", "trader", "grid_ops", "data_scientist"],
+        )
+    )
 
     # 2. Evening ramp (duck curve effect, 4-7 PM)
     hourly_diff = net_load.diff()
@@ -829,69 +914,84 @@ def generate_tab4_insights(
                 max_evening_ramp = float(evening_ramps.max())
                 if max_evening_ramp > 0:
                     severity = "warning" if max_evening_ramp > capacity * 0.03 else "info"
-                    insights.append(Insight(
-                        text=f"Evening net load ramp reaches {max_evening_ramp:,.0f} MW/hr (4\u20137 PM) as solar generation drops off.",
-                        category="driver",
-                        severity=severity,
-                        metric_name="evening_ramp",
-                        metric_value=max_evening_ramp,
-                        persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
-                    ))
+                    insights.append(
+                        Insight(
+                            text=f"Evening net load ramp reaches {max_evening_ramp:,.0f} MW/hr (4\u20137 PM) as solar generation drops off.",
+                            category="driver",
+                            severity=severity,
+                            metric_name="evening_ramp",
+                            metric_value=max_evening_ramp,
+                            persona_relevance=[
+                                "grid_ops",
+                                "trader",
+                                "renewables",
+                                "data_scientist",
+                            ],
+                        )
+                    )
 
     # 3. Duck curve belly (min net load)
     min_net = float(net_load.min())
     min_pct = min_net / capacity * 100 if capacity > 0 else 0
     if min_pct < 25:
-        insights.append(Insight(
-            text=f"Net load dips to {min_net:,.0f} MW ({min_pct:.0f}% of capacity) \u2014 midday solar surplus depresses dispatchable requirements.",
-            category="risk",
-            severity="notable" if min_pct < 15 else "info",
-            metric_name="min_net_load",
-            metric_value=min_net,
-            persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Net load dips to {min_net:,.0f} MW ({min_pct:.0f}% of capacity) \u2014 midday solar surplus depresses dispatchable requirements.",
+                category="risk",
+                severity="notable" if min_pct < 15 else "info",
+                metric_name="min_net_load",
+                metric_value=min_net,
+                persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
+            )
+        )
 
     # 4. Curtailment risk hours
     peak_net = float(net_load.max())
     if peak_net > 0:
         curtailment_hours = int((net_load < peak_net * 0.20).sum())
         if curtailment_hours > 0:
-            insights.append(Insight(
-                text=f"Net load fell below 20% of peak for {curtailment_hours} hours \u2014 elevated curtailment risk.",
-                category="risk",
-                severity="warning" if curtailment_hours > 24 else "notable",
-                metric_name="curtailment_hours",
-                metric_value=float(curtailment_hours),
-                persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
-            ))
+            insights.append(
+                Insight(
+                    text=f"Net load fell below 20% of peak for {curtailment_hours} hours \u2014 elevated curtailment risk.",
+                    category="risk",
+                    severity="warning" if curtailment_hours > 24 else "notable",
+                    metric_name="curtailment_hours",
+                    metric_value=float(curtailment_hours),
+                    persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
+                )
+            )
 
     # 5. Net load range (volatility)
     net_range = peak_net - min_net
     range_pct = net_range / capacity * 100 if capacity > 0 else 0
     if range_pct > 30:
-        insights.append(Insight(
-            text=f"Net load swings {net_range:,.0f} MW ({range_pct:.0f}% of capacity) between peak and trough.",
-            category="pattern",
-            severity="info",
-            metric_name="net_load_range",
-            metric_value=net_range,
-            persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
-        ))
+        insights.append(
+            Insight(
+                text=f"Net load swings {net_range:,.0f} MW ({range_pct:.0f}% of capacity) between peak and trough.",
+                category="pattern",
+                severity="info",
+                metric_name="net_load_range",
+                metric_value=net_range,
+                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+            )
+        )
 
     # 6. Solar dominance
     if pivot is not None and "solar" in pivot.columns:
         total_gen = pivot.sum(axis=1)
         if total_gen.max() > 0:
-            solar_pct = (pivot["solar"] / total_gen * 100)
+            solar_pct = pivot["solar"] / total_gen * 100
             solar_peak = float(solar_pct.max())
             if solar_peak > 30:
-                insights.append(Insight(
-                    text=f"Solar peaked at {solar_peak:.0f}% of total generation, driving the midday net load trough.",
-                    category="driver",
-                    severity="info",
-                    metric_name="solar_peak_pct",
-                    metric_value=solar_peak,
-                    persona_relevance=["renewables", "data_scientist", "trader", "grid_ops"],
-                ))
+                insights.append(
+                    Insight(
+                        text=f"Solar peaked at {solar_peak:.0f}% of total generation, driving the midday net load trough.",
+                        category="driver",
+                        severity="info",
+                        metric_name="solar_peak_pct",
+                        metric_value=solar_peak,
+                        persona_relevance=["renewables", "data_scientist", "trader", "grid_ops"],
+                    )
+                )
 
     return _filter_for_persona(insights, persona_id)

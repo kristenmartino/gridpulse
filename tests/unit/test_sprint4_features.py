@@ -27,7 +27,9 @@ class TestEnvironmentConfig:
     def test_development_defaults(self):
         """Dev: verbose logging, 24h cache, demo data enabled (when not overridden)."""
         # Patch env to development defaults — clear USE_DEMO_DATA to test matrix default
-        with patch.dict(os.environ, {"ENVIRONMENT": "development", "USE_DEMO_DATA": "true"}, clear=False):
+        with patch.dict(
+            os.environ, {"ENVIRONMENT": "development", "USE_DEMO_DATA": "true"}, clear=False
+        ):
             import importlib
 
             import config
