@@ -63,7 +63,7 @@ def create_prophet_model() -> Any:
         seasonality_mode="additive",
     )
 
-    for regressor_name, mode in PROPHET_REGRESSORS:
+    for regressor_name, _mode in PROPHET_REGRESSORS:
         # Use additive mode for all regressors to match the global setting.
         # Multiplicative regressors on a logistic growth trend can cause
         # erratic extrapolation beyond the training data range.

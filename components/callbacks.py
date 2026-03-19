@@ -31,7 +31,6 @@ from components.cards import build_alert_card, build_kpi_row, build_news_feed, b
 from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
-    PRICING_BASE_USD_MWH,
     REGION_CAPACITY_MW,
     REGION_NAMES,
     TAB_LABELS,
@@ -1239,10 +1238,7 @@ def register_callbacks(app):
 
         # ── KPI 4: Curtailment risk hours (net load < 20% of peak) ──
         peak_net_load = float(net_load.max())
-        if peak_net_load > 0:
-            curtailment_hours = int((net_load < peak_net_load * 0.20).sum())
-        else:
-            curtailment_hours = 0
+        curtailment_hours = int((net_load < peak_net_load * 0.2).sum()) if peak_net_load > 0 else 0
 
         # ── Hero Chart: Demand vs Net Load ──
         fig_hero = go.Figure()
@@ -2422,12 +2418,9 @@ def _build_persona_kpis(
             pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
 
     # Extract weather stats
-    avg_temp = None
     avg_wind = None
     avg_solar = None
     if weather_df is not None:
-        if "temperature_2m" in weather_df.columns:
-            avg_temp = weather_df["temperature_2m"].mean()
         if "wind_speed_80m" in weather_df.columns:
             avg_wind = weather_df["wind_speed_80m"].mean()
         if "shortwave_radiation" in weather_df.columns:
