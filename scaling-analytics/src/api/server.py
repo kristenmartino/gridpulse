@@ -13,24 +13,25 @@ CRITICAL DESIGN RULE:
     inference (~2s). It lazy-imports the scenario service to keep
     model code out of the module-level scope.
 """
+
 from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from enum import Enum
-from typing import Any, Dict, List, Optional
+from enum import StrEnum
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from src.api.cache import ForecastCache
-from src.config import GRID_REGIONS, FORECAST_GRANULARITIES, DatabaseConfig
+from src.config import FORECAST_GRANULARITIES, GRID_REGIONS, DatabaseConfig
 
 logger = logging.getLogger(__name__)
 
 # ── Lifespan: init/cleanup connections ─────────
-cache: Optional[ForecastCache] = None
+cache: ForecastCache | None = None
 db_conn = None
 
 
@@ -40,6 +41,7 @@ async def lifespan(app: FastAPI):
     cache = ForecastCache()
     try:
         import psycopg2
+
         db_config = DatabaseConfig()
         db_conn = psycopg2.connect(db_config.url)
     except Exception as e:
@@ -70,7 +72,7 @@ app.add_middleware(
 
 
 # ── Enums ──────────────────────────────────────
-class Granularity(str, Enum):
+class Granularity(StrEnum):
     fifteen_min = "15min"
     one_hour = "1h"
     one_day = "1d"
@@ -78,18 +80,19 @@ class Granularity(str, Enum):
 
 # ── Pydantic Response Models ──────────────────
 
+
 class ForecastResponse(BaseModel):
     region: str
     scored_at: str
-    models_trained_at: Optional[str] = None
+    models_trained_at: str | None = None
     granularity: str
-    forecasts: List[dict]
+    forecasts: list[dict]
 
 
 class HealthResponse(BaseModel):
     status: str
-    last_scored: Optional[str]
-    models_trained_at: Optional[str] = None
+    last_scored: str | None
+    models_trained_at: str | None = None
     cache_healthy: bool
     regions_available: int
     scoring_interval_min: int
@@ -97,93 +100,93 @@ class HealthResponse(BaseModel):
 
 
 class BacktestResponse(BaseModel):
-    horizon: Optional[int] = None
-    actual: Optional[List[float]] = None
-    timestamps: Optional[List[str]] = None
-    metrics: Optional[Dict[str, Any]] = None
-    predictions: Optional[Dict[str, Any]] = None
-    residuals: Optional[List[float]] = None
-    error_by_hour: Optional[List[dict]] = None
+    horizon: int | None = None
+    actual: list[float] | None = None
+    timestamps: list[str] | None = None
+    metrics: dict[str, Any] | None = None
+    predictions: dict[str, Any] | None = None
+    residuals: list[float] | None = None
+    error_by_hour: list[dict] | None = None
 
 
 class ResidualsResponse(BaseModel):
     region: str
     horizon: int
-    residuals: List[float]
-    timestamps: List[str]
+    residuals: list[float]
+    timestamps: list[str]
 
 
 class ErrorByHourResponse(BaseModel):
     region: str
     horizon: int
-    error_by_hour: List[dict]
+    error_by_hour: list[dict]
 
 
 class ActualsResponse(BaseModel):
     region: str
-    timestamps: List[str]
-    demand_mw: List[float]
-    forecast_mw: Optional[List[Optional[float]]] = None
+    timestamps: list[str]
+    demand_mw: list[float]
+    forecast_mw: list[float | None] | None = None
 
 
 class WeatherResponse(BaseModel):
     region: str
-    timestamps: List[str]
+    timestamps: list[str]
     model_config = {"extra": "allow"}  # Allow dynamic weather columns
 
 
 class ModelMetricsResponse(BaseModel):
     region: str
-    metrics: Dict[str, Any]
-    updated_at: Optional[str] = None
+    metrics: dict[str, Any]
+    updated_at: str | None = None
 
 
 class WeightsResponse(BaseModel):
-    weights: Dict[str, float]
-    metrics: Optional[Dict[str, Any]] = None
-    updated_at: Optional[str] = None
+    weights: dict[str, float]
+    metrics: dict[str, Any] | None = None
+    updated_at: str | None = None
 
 
 class GenerationResponse(BaseModel):
     region: str
-    timestamps: List[str]
-    renewable_pct: Optional[List[float]] = None
+    timestamps: list[str]
+    renewable_pct: list[float] | None = None
     model_config = {"extra": "allow"}  # Allow dynamic fuel-type columns
 
 
 class AlertsResponse(BaseModel):
     region: str
-    alerts: List[dict]
+    alerts: list[dict]
     stress_score: int
     stress_label: str
 
 
 class ScenarioRequest(BaseModel):
     region: str
-    temperature_2m: Optional[float] = None
-    wind_speed_80m: Optional[float] = None
-    cloud_cover: Optional[float] = None
-    relative_humidity_2m: Optional[float] = None
-    shortwave_radiation: Optional[float] = None
+    temperature_2m: float | None = None
+    wind_speed_80m: float | None = None
+    cloud_cover: float | None = None
+    relative_humidity_2m: float | None = None
+    shortwave_radiation: float | None = None
     duration_hours: int = Field(default=24, ge=1, le=168)
 
 
 class ScenarioResponse(BaseModel):
     region: str
     duration_hours: int
-    weather_overrides: Dict[str, float]
-    baseline: List[float]
-    scenario: List[float]
-    delta_mw: List[float]
+    weather_overrides: dict[str, float]
+    baseline: list[float]
+    scenario: list[float]
+    delta_mw: list[float]
     delta_pct: float
-    pricing: Dict[str, float]
-    reserve_margin: Dict[str, Any]
-    renewable_impact: Dict[str, float]
-    computed_at: Optional[str] = None
+    pricing: dict[str, float]
+    reserve_margin: dict[str, Any]
+    renewable_impact: dict[str, float]
+    computed_at: str | None = None
 
 
 class PresetListResponse(BaseModel):
-    presets: List[dict]
+    presets: list[dict]
 
 
 class PersonaResponse(BaseModel):
@@ -192,8 +195,8 @@ class PersonaResponse(BaseModel):
     title: str
     avatar: str
     default_tab: str
-    priority_tabs: List[str]
-    kpi_metrics: List[str]
+    priority_tabs: list[str]
+    kpi_metrics: list[str]
     alert_threshold: str
     welcome_title: str
     welcome_message: str
@@ -207,31 +210,32 @@ class WelcomeResponse(BaseModel):
 
 
 class NewsResponse(BaseModel):
-    articles: List[dict]
+    articles: list[dict]
 
 
 class FreshnessResponse(BaseModel):
-    sources: List[dict]
+    sources: list[dict]
 
 
 class AuditResponse(BaseModel):
     region: str
-    scored_at: Optional[str] = None
-    demand_source: Optional[str] = None
-    weather_source: Optional[str] = None
-    demand_rows: Optional[int] = None
-    weather_rows: Optional[int] = None
-    model_versions: Optional[Any] = None
-    ensemble_weights: Optional[Any] = None
-    feature_count: Optional[int] = None
-    feature_hash: Optional[str] = None
-    mape: Optional[Any] = None
-    peak_forecast_mw: Optional[float] = None
-    scoring_mode: Optional[str] = None
-    created_at: Optional[str] = None
+    scored_at: str | None = None
+    demand_source: str | None = None
+    weather_source: str | None = None
+    demand_rows: int | None = None
+    weather_rows: int | None = None
+    model_versions: Any | None = None
+    ensemble_weights: Any | None = None
+    feature_count: int | None = None
+    feature_hash: str | None = None
+    mape: Any | None = None
+    peak_forecast_mw: float | None = None
+    scoring_mode: str | None = None
+    created_at: str | None = None
 
 
 # ── Helpers ────────────────────────────────────
+
 
 def _validate_region(region: str) -> str:
     """Validate and normalize region code."""
@@ -257,6 +261,7 @@ def _require_data(data, entity: str, region: str = ""):
 # ── Routes ─────────────────────────────────────
 
 # ─── Health ────────────────────────────────────
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -284,6 +289,7 @@ async def health_check():
 
 # ─── Forecasts (Tab 2) ────────────────────────
 
+
 @app.get("/forecasts/{region}", response_model=ForecastResponse)
 async def get_forecast(
     region: str,
@@ -296,7 +302,7 @@ async def get_forecast(
     return ForecastResponse(**result)
 
 
-@app.get("/forecasts", response_model=List[ForecastResponse])
+@app.get("/forecasts", response_model=list[ForecastResponse])
 async def get_all_forecasts(
     granularity: Granularity = Query(default=Granularity.one_hour),
 ):
@@ -311,6 +317,7 @@ async def get_all_forecasts(
 
 
 # ─── Actuals / Historical Demand (Tab 1) ──────
+
 
 @app.get("/actuals/{region}")
 async def get_actuals(
@@ -344,11 +351,12 @@ async def get_actuals_weather_overlay(region: str):
 
 # ─── Backtests (Tab 3) ────────────────────────
 
+
 @app.get("/backtests/{region}", response_model=BacktestResponse)
 async def get_backtest(
     region: str,
     horizon: int = Query(default=24, ge=1),
-    model: Optional[str] = Query(default=None),
+    model: str | None = Query(default=None),
 ):
     """Pre-computed backtest results for a region and horizon."""
     region = _validate_region(region)
@@ -383,6 +391,7 @@ async def get_error_by_hour(
 
 # ─── Weather (Tab 4) ──────────────────────────
 
+
 @app.get("/weather/{region}")
 async def get_weather(region: str):
     """Latest weather data for a region (17 variables)."""
@@ -407,10 +416,15 @@ async def get_weather_correlation(region: str):
 
     # Compute correlations from cached arrays
     import numpy as np
+
     demand = np.array(actuals.get("demand_mw", []))
     weather_vars = [
-        "temperature_2m", "relative_humidity_2m", "wind_speed_80m",
-        "cloud_cover", "shortwave_radiation", "surface_pressure",
+        "temperature_2m",
+        "relative_humidity_2m",
+        "wind_speed_80m",
+        "cloud_cover",
+        "shortwave_radiation",
+        "surface_pressure",
     ]
 
     correlations = {}
@@ -427,6 +441,7 @@ async def get_weather_correlation(region: str):
 
 
 # ─── Models (Tab 5) ───────────────────────────
+
 
 @app.get("/models/{region}/metrics")
 async def get_model_metrics(region: str):
@@ -473,6 +488,7 @@ async def get_feature_importance(region: str):
 
 # ─── Generation Mix (Tab 6) ───────────────────
 
+
 @app.get("/generation/{region}")
 async def get_generation(region: str):
     """Fuel-type generation breakdown + renewable percentage."""
@@ -490,19 +506,25 @@ async def get_capacity_factors(region: str):
     _require_data(gen, "generation", region)
 
     import numpy as np
+
     wind = np.array(gen.get("wind", []))
     solar = np.array(gen.get("solar", []))
     renewable_pct = gen.get("renewable_pct", [])
 
     return {
         "region": region,
-        "wind_cf_pct": round(float(np.mean(wind) / max(np.max(wind), 1) * 100), 1) if len(wind) > 0 else 0,
-        "solar_cf_pct": round(float(np.mean(solar) / max(np.max(solar), 1) * 100), 1) if len(solar) > 0 else 0,
+        "wind_cf_pct": round(float(np.mean(wind) / max(np.max(wind), 1) * 100), 1)
+        if len(wind) > 0
+        else 0,
+        "solar_cf_pct": round(float(np.mean(solar) / max(np.max(solar), 1) * 100), 1)
+        if len(solar) > 0
+        else 0,
         "avg_renewable_pct": round(float(np.mean(renewable_pct)), 1) if renewable_pct else 0,
     }
 
 
 # ─── Alerts (Tab 7) ───────────────────────────
+
 
 @app.get("/alerts/{region}", response_model=AlertsResponse)
 async def get_alerts(region: str):
@@ -541,11 +563,13 @@ async def get_extreme_events(region: str):
 
 # ─── Scenarios (Tab 8) ────────────────────────
 
+
 @app.get("/scenarios/presets")
 async def list_scenario_presets():
     """List available scenario presets."""
     try:
         from simulation.presets import list_presets
+
         presets = list_presets()
     except Exception:
         presets = []
@@ -576,8 +600,13 @@ async def simulate_scenario(request: ScenarioRequest):
 
     # Build weather overrides from non-None fields
     overrides = {}
-    for field in ("temperature_2m", "wind_speed_80m", "cloud_cover",
-                  "relative_humidity_2m", "shortwave_radiation"):
+    for field in (
+        "temperature_2m",
+        "wind_speed_80m",
+        "cloud_cover",
+        "relative_humidity_2m",
+        "shortwave_radiation",
+    ):
         val = getattr(request, field, None)
         if val is not None:
             overrides[field] = val
@@ -591,6 +620,7 @@ async def simulate_scenario(request: ScenarioRequest):
     try:
         # Lazy import — keeps model code out of module scope
         from src.processing.scenario_service import simulate_custom_scenario
+
         result = simulate_custom_scenario(
             region=region,
             weather_overrides=overrides,
@@ -598,22 +628,24 @@ async def simulate_scenario(request: ScenarioRequest):
         )
         return ScenarioResponse(**result)
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         logger.error("Scenario simulation failed: %s", e, exc_info=True)
         raise HTTPException(
             status_code=500,
             detail=f"Scenario simulation failed: {e}",
-        )
+        ) from e
 
 
 # ─── Personas ──────────────────────────────────
+
 
 @app.get("/personas")
 async def list_personas():
     """List available user personas."""
     try:
         from personas.config import list_personas as _list
+
         return {"personas": _list()}
     except Exception:
         return {"personas": []}
@@ -624,6 +656,7 @@ async def get_persona(persona_id: str):
     """Get persona configuration."""
     try:
         from personas.config import get_persona as _get
+
         persona = _get(persona_id)
         return PersonaResponse(
             id=persona.id,
@@ -639,7 +672,7 @@ async def get_persona(persona_id: str):
             color=persona.color,
         )
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found: {e}")
+        raise HTTPException(status_code=404, detail=f"Persona '{persona_id}' not found: {e}") from e
 
 
 @app.get("/personas/{persona_id}/welcome")
@@ -651,6 +684,7 @@ async def get_welcome_message(
     region = _validate_region(region)
     try:
         from personas.welcome import generate_welcome_message
+
         message = generate_welcome_message(persona_id, region)
         return WelcomeResponse(
             persona_id=persona_id,
@@ -658,10 +692,11 @@ async def get_welcome_message(
             message=message,
         )
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Welcome generation failed: {e}")
+        raise HTTPException(status_code=404, detail=f"Welcome generation failed: {e}") from e
 
 
 # ─── Cross-cutting ─────────────────────────────
+
 
 @app.get("/news", response_model=NewsResponse)
 async def get_news():
@@ -675,22 +710,31 @@ async def get_news():
 async def get_data_freshness():
     """Per-source data freshness status."""
     if db_conn is None:
-        return FreshnessResponse(sources=[{
-            "source": "Database",
-            "status": "unavailable",
-            "error": "No database connection",
-        }])
+        return FreshnessResponse(
+            sources=[
+                {
+                    "source": "Database",
+                    "status": "unavailable",
+                    "error": "No database connection",
+                }
+            ]
+        )
     try:
         from src.processing.audit import get_data_freshness as _freshness
+
         sources = _freshness(db_conn)
         return FreshnessResponse(sources=sources)
     except Exception as e:
         logger.warning("Data freshness check failed: %s", e)
-        return FreshnessResponse(sources=[{
-            "source": "Database",
-            "status": "error",
-            "error": str(e),
-        }])
+        return FreshnessResponse(
+            sources=[
+                {
+                    "source": "Database",
+                    "status": "error",
+                    "error": str(e),
+                }
+            ]
+        )
 
 
 @app.get("/audit/{region}", response_model=AuditResponse)
@@ -701,6 +745,7 @@ async def get_audit(region: str):
         raise HTTPException(status_code=503, detail="Database connection unavailable.")
     try:
         from src.processing.audit import read_latest_audit
+
         record = read_latest_audit(db_conn, region)
         if record is None:
             _require_data(None, "audit record", region)
@@ -710,7 +755,7 @@ async def get_audit(region: str):
         raise
     except Exception as e:
         logger.warning("Audit read failed for %s: %s", region, e)
-        raise HTTPException(status_code=500, detail=f"Audit read failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Audit read failed: {e}") from e
 
 
 @app.get("/regions")

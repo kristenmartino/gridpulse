@@ -10,6 +10,7 @@ CADENCE: Daily at 03:00 UTC. Backtests only need to update when models
 change. Running them hourly is wasteful — the holdout metrics don't
 change if the model hasn't been retrained.
 """
+
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -41,17 +42,20 @@ dag = DAG(
 def run_backtests():
     """Load persisted models and run backtests for all regions."""
     from src.processing.batch_scorer import run
+
     run(mode="backtest")
 
 
 def log_pipeline_run():
     """Record backtest pipeline run metadata."""
     from src.observability import PipelineLogger
+
     pl = PipelineLogger("wattcast_backtest_completion")
     pl.step("dag_completed", status="success", mode="backtest")
     try:
         import psycopg2
         from src.config import DatabaseConfig
+
         conn = psycopg2.connect(DatabaseConfig().url)
         pl.persist(conn)
         conn.close()

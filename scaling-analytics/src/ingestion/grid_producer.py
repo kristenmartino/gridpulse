@@ -4,6 +4,7 @@ Kafka producer wrapping the v1 eia_client.py.
 Calls fetch_demand() for each region and publishes to the
 'grid-demand-raw' Kafka topic as JSON messages.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,7 @@ import logging
 
 from confluent_kafka import Producer
 
-from src.config import KafkaConfig, GRID_REGIONS, REGION_COORDINATES
+from src.config import GRID_REGIONS, REGION_COORDINATES, KafkaConfig
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,12 @@ def produce_grid_demand(config: KafkaConfig | None = None):
     from data.eia_client import fetch_demand
 
     config = config or KafkaConfig()
-    producer = Producer({
-        "bootstrap.servers": config.bootstrap_servers,
-        "client.id": "wattcast-grid-producer",
-    })
+    producer = Producer(
+        {
+            "bootstrap.servers": config.bootstrap_servers,
+            "client.id": "wattcast-grid-producer",
+        }
+    )
 
     for region in GRID_REGIONS:
         if region not in REGION_COORDINATES:

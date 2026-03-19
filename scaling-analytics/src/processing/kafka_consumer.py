@@ -2,16 +2,17 @@
 Kafka consumer: reads from weather-raw and grid-demand-raw topics,
 writes normalized data to Postgres (the feature store).
 """
+
 from __future__ import annotations
 
 import json
 import logging
 
 import psycopg2
-from psycopg2.extras import execute_values
 from confluent_kafka import Consumer, KafkaError
+from psycopg2.extras import execute_values
 
-from src.config import KafkaConfig, DatabaseConfig
+from src.config import DatabaseConfig, KafkaConfig
 
 logger = logging.getLogger(__name__)
 
@@ -21,12 +22,25 @@ CONSUME_TIMEOUT_SECONDS = 30
 
 # All 17 weather columns matching the raw_weather table schema
 WEATHER_COLUMNS = [
-    "region", "timestamp", "temperature_2m", "apparent_temperature",
-    "relative_humidity_2m", "dew_point_2m", "wind_speed_10m",
-    "wind_speed_80m", "wind_speed_120m", "wind_direction_10m",
-    "shortwave_radiation", "direct_normal_irradiance", "diffuse_radiation",
-    "cloud_cover", "precipitation", "snowfall", "surface_pressure",
-    "soil_temperature_0cm", "weather_code",
+    "region",
+    "timestamp",
+    "temperature_2m",
+    "apparent_temperature",
+    "relative_humidity_2m",
+    "dew_point_2m",
+    "wind_speed_10m",
+    "wind_speed_80m",
+    "wind_speed_120m",
+    "wind_direction_10m",
+    "shortwave_radiation",
+    "direct_normal_irradiance",
+    "diffuse_radiation",
+    "cloud_cover",
+    "precipitation",
+    "snowfall",
+    "surface_pressure",
+    "soil_temperature_0cm",
+    "weather_code",
 ]
 
 
@@ -44,12 +58,14 @@ def consume_to_postgres(
     kafka_config = kafka_config or KafkaConfig()
     db_config = db_config or DatabaseConfig()
 
-    consumer = Consumer({
-        "bootstrap.servers": kafka_config.bootstrap_servers,
-        "group.id": kafka_config.consumer_group,
-        "auto.offset.reset": "earliest",
-        "enable.auto.commit": True,
-    })
+    consumer = Consumer(
+        {
+            "bootstrap.servers": kafka_config.bootstrap_servers,
+            "group.id": kafka_config.consumer_group,
+            "auto.offset.reset": "earliest",
+            "enable.auto.commit": True,
+        }
+    )
     consumer.subscribe([kafka_config.weather_topic, kafka_config.grid_topic])
 
     conn = psycopg2.connect(db_config.url)
@@ -100,16 +116,13 @@ def consume_to_postgres(
 
 def _insert_weather(conn, batch: list[dict]):
     """Bulk insert weather records into Postgres."""
-    rows = [
-        tuple(record.get(c) for c in WEATHER_COLUMNS)
-        for record in batch
-    ]
+    rows = [tuple(record.get(c) for c in WEATHER_COLUMNS) for record in batch]
     update_cols = [c for c in WEATHER_COLUMNS if c not in ("region", "timestamp")]
     sql = f"""
-        INSERT INTO raw_weather ({', '.join(WEATHER_COLUMNS)})
+        INSERT INTO raw_weather ({", ".join(WEATHER_COLUMNS)})
         VALUES %s
         ON CONFLICT (region, timestamp)
-        DO UPDATE SET {', '.join(f'{c} = EXCLUDED.{c}' for c in update_cols)}
+        DO UPDATE SET {", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)}
     """
     with conn.cursor() as cur:
         execute_values(cur, sql, rows)
@@ -119,10 +132,7 @@ def _insert_weather(conn, batch: list[dict]):
 
 def _insert_demand(conn, batch: list[dict]):
     """Bulk insert demand records into Postgres."""
-    rows = [
-        (r["region"], r["timestamp"], r.get("demand_mw"), r.get("forecast_mw"))
-        for r in batch
-    ]
+    rows = [(r["region"], r["timestamp"], r.get("demand_mw"), r.get("forecast_mw")) for r in batch]
     sql = """
         INSERT INTO raw_demand (region, timestamp, demand_mw, forecast_mw)
         VALUES %s

@@ -2,9 +2,9 @@
 WattCast v2 — Centralized Configuration
 All environment-driven settings in one place.
 """
-import os
-from dataclasses import dataclass, field
 
+import os
+from dataclasses import dataclass
 
 # ─── Pipeline Cadence ────────────────────────────────
 # The pipeline runs every 30 minutes because that matches the upstream
@@ -46,18 +46,16 @@ class RedisConfig:
     # TTL must exceed scoring interval so data survives one failed run.
     # Default: 1 hour (2x the 30-min scoring cycle). If you tighten to
     # 5-min cycles, set this to 600 (10 min = 2x the interval).
-    forecast_ttl_seconds: int = int(os.getenv(
-        "REDIS_FORECAST_TTL",
-        str(max(3600, SCORING_INTERVAL_MINUTES * 60 * 2))
-    ))
+    forecast_ttl_seconds: int = int(
+        os.getenv("REDIS_FORECAST_TTL", str(max(3600, SCORING_INTERVAL_MINUTES * 60 * 2)))
+    )
     key_prefix: str = "wattcast"
 
 
 @dataclass(frozen=True)
 class DatabaseConfig:
     url: str = os.getenv(
-        "DATABASE_URL",
-        "postgresql://wattcast:wattcast_dev@localhost:5432/wattcast"
+        "DATABASE_URL", "postgresql://wattcast:wattcast_dev@localhost:5432/wattcast"
     )
 
 
@@ -74,22 +72,22 @@ class ModelConfig:
 # ─── Grid Regions ──────────────────────────────────
 # The 8 U.S. grid regions WattCast covers
 GRID_REGIONS = [
-    "PJM",       # Mid-Atlantic
-    "ERCOT",     # Texas
-    "CAISO",     # California
-    "MISO",      # Midwest
-    "SPP",       # Southwest Power Pool
-    "NYISO",     # New York
-    "ISONE",     # New England
-    "FPL",       # Florida (FPL/NextEra)
+    "PJM",  # Mid-Atlantic
+    "ERCOT",  # Texas
+    "CAISO",  # California
+    "MISO",  # Midwest
+    "SPP",  # Southwest Power Pool
+    "NYISO",  # New York
+    "ISONE",  # New England
+    "FPL",  # Florida (FPL/NextEra)
 ]
 
 # ─── Time Granularities ───────────────────────────
 # Pre-compute forecasts at these intervals
 FORECAST_GRANULARITIES = {
-    "15min": 96,   # 96 intervals per day
-    "1h": 24,      # 24 intervals per day
-    "1d": 1,       # daily aggregate
+    "15min": 96,  # 96 intervals per day
+    "1h": 24,  # 24 intervals per day
+    "1d": 1,  # daily aggregate
 }
 
 # Total pre-computed values per scoring run:

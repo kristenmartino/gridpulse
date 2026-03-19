@@ -5,6 +5,7 @@ Thin wrapper around the v1 feature_engineering.py (379 lines of tested code).
 Reads raw data from Postgres, delegates to v1's engineer_features() for the
 43-feature pipeline, and returns the feature matrix for model inference.
 """
+
 from __future__ import annotations
 
 import logging
@@ -12,11 +13,10 @@ import logging
 import pandas as pd
 import psycopg2
 
-from src.config import DatabaseConfig
-
 # v1 imports — resolved via sys.path set in src/__init__.py
 from data.feature_engineering import engineer_features, get_feature_names
-from data.preprocessing import merge_demand_weather, handle_missing_values
+from data.preprocessing import handle_missing_values, merge_demand_weather
+from src.config import DatabaseConfig
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,9 @@ class FeatureBuilder:
 
         logger.info(
             "Features built for %s: %d rows, %d features",
-            region, len(featured), len(get_feature_names()),
+            region,
+            len(featured),
+            len(get_feature_names()),
         )
         return featured
 

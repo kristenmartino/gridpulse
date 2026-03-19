@@ -4,6 +4,7 @@ WattCast v2 src package.
 Adds the v1 project root to sys.path so v1 modules (data/, models/, config)
 can be imported without modification.
 """
+
 import sys
 from pathlib import Path
 

@@ -3,11 +3,12 @@ Shared test fixtures for WattCast v2 tests.
 
 Uses fakeredis for Redis mocking and in-memory data for Postgres mocking.
 """
+
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 import pytest
 
@@ -30,6 +31,7 @@ os.environ["PRECOMPUTE_ENABLED"] = "false"
 def mock_redis():
     """Fake Redis instance for testing (no real Redis needed)."""
     import fakeredis
+
     return fakeredis.FakeRedis(decode_responses=True)
 
 
@@ -38,7 +40,7 @@ def sample_forecast():
     """Sample forecast payload as stored in Redis."""
     return {
         "region": "ERCOT",
-        "scored_at": datetime.now(timezone.utc).isoformat(),
+        "scored_at": datetime.now(UTC).isoformat(),
         "granularity": "1h",
         "forecasts": [
             {
@@ -75,7 +77,7 @@ def sample_forecast():
 def sample_metadata():
     """Sample pipeline metadata as stored in Redis."""
     return {
-        "scored_at": datetime.now(timezone.utc).isoformat(),
+        "scored_at": datetime.now(UTC).isoformat(),
         "regions_scored": 8,
         "total_predictions": 768,
         "scoring_mode": "full (3-model ensemble)",
@@ -142,7 +144,7 @@ def sample_weights():
             "xgboost": {"mape": 3.13, "rmse": 1500, "mae": 1200, "r2": 0.95},
             "prophet": {"mape": 4.20, "rmse": 1800, "mae": 1400, "r2": 0.92},
         },
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }
 
 
@@ -169,7 +171,11 @@ def sample_alerts():
         "region": "ERCOT",
         "alerts": [
             {"severity": "warning", "type": "demand_spike", "message": "Demand approaching peak."},
-            {"severity": "critical", "type": "anomaly", "message": "Unusual demand pattern detected."},
+            {
+                "severity": "critical",
+                "type": "anomaly",
+                "message": "Unusual demand pattern detected.",
+            },
         ],
         "stress_score": 45,
         "stress_label": "Elevated",
@@ -197,18 +203,29 @@ def sample_news():
     """Sample news payload as stored in Redis."""
     return {
         "articles": [
-            {"title": "Energy Markets Update", "source": "Reuters",
-             "published_at": datetime.now(timezone.utc).isoformat(),
-             "description": "Latest developments in energy markets."},
+            {
+                "title": "Energy Markets Update",
+                "source": "Reuters",
+                "published_at": datetime.now(UTC).isoformat(),
+                "description": "Latest developments in energy markets.",
+            },
         ],
     }
 
 
 @pytest.fixture
 def populated_redis(
-    mock_redis, sample_forecast, sample_metadata, sample_backtest,
-    sample_actuals, sample_weather, sample_weights, sample_generation,
-    sample_alerts, sample_scenario_preset, sample_news,
+    mock_redis,
+    sample_forecast,
+    sample_metadata,
+    sample_backtest,
+    sample_actuals,
+    sample_weather,
+    sample_weights,
+    sample_generation,
+    sample_alerts,
+    sample_scenario_preset,
+    sample_news,
 ):
     """Redis pre-loaded with all data types for testing."""
     prefix = "wattcast"
@@ -216,10 +233,13 @@ def populated_redis(
 
     # Forecasts
     mock_redis.setex(
-        f"{prefix}:forecast:ERCOT:1h", ttl, json.dumps(sample_forecast),
+        f"{prefix}:forecast:ERCOT:1h",
+        ttl,
+        json.dumps(sample_forecast),
     )
     mock_redis.setex(
-        f"{prefix}:forecast:ERCOT:15min", ttl,
+        f"{prefix}:forecast:ERCOT:15min",
+        ttl,
         json.dumps({**sample_forecast, "granularity": "15min"}),
     )
 
@@ -228,37 +248,50 @@ def populated_redis(
 
     # Backtests
     mock_redis.setex(
-        f"{prefix}:backtest:ERCOT:24", ttl, json.dumps(sample_backtest),
+        f"{prefix}:backtest:ERCOT:24",
+        ttl,
+        json.dumps(sample_backtest),
     )
 
     # Actuals
     mock_redis.setex(
-        f"{prefix}:actuals:ERCOT", ttl, json.dumps(sample_actuals),
+        f"{prefix}:actuals:ERCOT",
+        ttl,
+        json.dumps(sample_actuals),
     )
 
     # Weather
     mock_redis.setex(
-        f"{prefix}:weather:ERCOT", ttl, json.dumps(sample_weather),
+        f"{prefix}:weather:ERCOT",
+        ttl,
+        json.dumps(sample_weather),
     )
 
     # Weights
     mock_redis.setex(
-        f"{prefix}:weights:ERCOT", ttl, json.dumps(sample_weights),
+        f"{prefix}:weights:ERCOT",
+        ttl,
+        json.dumps(sample_weights),
     )
 
     # Generation
     mock_redis.setex(
-        f"{prefix}:generation:ERCOT", ttl, json.dumps(sample_generation),
+        f"{prefix}:generation:ERCOT",
+        ttl,
+        json.dumps(sample_generation),
     )
 
     # Alerts
     mock_redis.setex(
-        f"{prefix}:alerts:ERCOT", ttl, json.dumps(sample_alerts),
+        f"{prefix}:alerts:ERCOT",
+        ttl,
+        json.dumps(sample_alerts),
     )
 
     # Scenario preset
     mock_redis.setex(
-        f"{prefix}:scenario:ERCOT:winter_storm_uri", ttl,
+        f"{prefix}:scenario:ERCOT:winter_storm_uri",
+        ttl,
         json.dumps(sample_scenario_preset),
     )
 

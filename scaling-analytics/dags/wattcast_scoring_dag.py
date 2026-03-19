@@ -14,6 +14,7 @@ Running at :05 ensures the :00 data has landed.
 
 This DAG does NOT train models. Training is done daily by wattcast_training_dag.
 """
+
 from datetime import datetime, timedelta
 
 from airflow import DAG
@@ -65,33 +66,38 @@ def check_freshness(**context):
 def ingest_weather():
     """Pull weather data from APIs -> Kafka topic."""
     from src.ingestion.weather_producer import run
+
     run()
 
 
 def ingest_grid_demand():
     """Pull grid demand data from EIA -> Kafka topic."""
     from src.ingestion.grid_producer import run
+
     run()
 
 
 def consume_to_feature_store():
     """Kafka topics -> Postgres feature store."""
     from src.processing.kafka_consumer import run
+
     run()
 
 
 def score_and_cache(**context):
     """Load persisted models -> Score -> Write to Redis + Postgres."""
     # Check if freshness checker said to skip
-    skip = context.get("ti", None)
+    skip = context.get("ti")
     if skip:
         skip_val = skip.xcom_pull(key="skip_scoring", default=False)
         if skip_val:
             import logging
+
             logging.getLogger(__name__).info("Skipping scoring — no new data")
             return
 
     from src.processing.batch_scorer import run
+
     run(mode="inference")
 
 
@@ -114,11 +120,13 @@ def record_freshness():
 def log_pipeline_run():
     """Record pipeline run metadata for observability."""
     from src.observability import PipelineLogger
+
     pl = PipelineLogger("wattcast_scoring_completion")
     pl.step("dag_completed", status="success", mode="inference")
     try:
         import psycopg2
         from src.config import DatabaseConfig
+
         conn = psycopg2.connect(DatabaseConfig().url)
         pl.persist(conn)
         conn.close()

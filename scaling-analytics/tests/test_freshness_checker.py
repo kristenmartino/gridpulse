@@ -1,8 +1,7 @@
 """Tests for the FreshnessChecker."""
-from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock
 
-import pytest
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 from src.processing.freshness_checker import FreshnessChecker
 
@@ -21,6 +20,7 @@ def _make_mock_conn(
         mock_cursor.execute.side_effect = side_effect
     else:
         call_count = [0]
+
         def execute_side_effect(sql, params=None):
             call_count[0] += 1
             # First call: SELECT MAX(timestamp) FROM raw_*
@@ -46,17 +46,16 @@ def _make_mock_conn(
 
 
 class TestHasNewData:
-
     def test_returns_true_when_never_checked(self):
         """has_new_data returns True when data_freshness has no record."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn = _make_mock_conn(max_ts=now, freshness_ts=None)
         checker = FreshnessChecker(conn)
         assert checker.has_new_data("demand") is True
 
     def test_returns_true_when_new_data(self):
         """has_new_data returns True when source has newer data."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         old = now - timedelta(hours=2)
         conn = _make_mock_conn(max_ts=now, freshness_ts=old)
         checker = FreshnessChecker(conn)
@@ -64,7 +63,7 @@ class TestHasNewData:
 
     def test_returns_false_when_no_new_data(self):
         """has_new_data returns False when last_timestamp matches current max."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn = _make_mock_conn(max_ts=now, freshness_ts=now)
         checker = FreshnessChecker(conn)
         assert checker.has_new_data("demand") is False
@@ -89,27 +88,25 @@ class TestHasNewData:
 
 
 class TestShouldScore:
-
     def test_returns_true_when_demand_has_new_data(self):
         """should_score returns True when demand source has new data."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn = _make_mock_conn(max_ts=now, freshness_ts=None)
         checker = FreshnessChecker(conn)
         assert checker.should_score() is True
 
     def test_returns_false_when_no_changes(self):
         """should_score returns False when neither source has new data."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn = _make_mock_conn(max_ts=now, freshness_ts=now)
         checker = FreshnessChecker(conn)
         assert checker.should_score() is False
 
 
 class TestRecordCheck:
-
     def test_records_without_error(self):
         """record_check does not raise on success."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         conn = _make_mock_conn(max_ts=now)
         checker = FreshnessChecker(conn)
         checker.record_check("demand", now)  # Should not raise

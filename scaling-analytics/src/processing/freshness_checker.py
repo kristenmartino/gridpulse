@@ -5,10 +5,11 @@ Compares the latest timestamp in raw data tables against the last-checked
 timestamp in the data_freshness table. If no new data has arrived since
 the last successful ingest, the scoring pipeline can skip redundant work.
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 logger = logging.getLogger(__name__)
 
@@ -74,9 +75,9 @@ class FreshnessChecker:
 
                 # Ensure both are timezone-aware for comparison
                 if current_max.tzinfo is None:
-                    current_max = current_max.replace(tzinfo=timezone.utc)
+                    current_max = current_max.replace(tzinfo=UTC)
                 if last_checked.tzinfo is None:
-                    last_checked = last_checked.replace(tzinfo=timezone.utc)
+                    last_checked = last_checked.replace(tzinfo=UTC)
 
                 return current_max > last_checked
 
@@ -138,7 +139,8 @@ class FreshnessChecker:
 
         logger.info(
             "Freshness check: demand_new=%s, weather_new=%s — proceeding",
-            demand_new, weather_new,
+            demand_new,
+            weather_new,
         )
         return True
 
@@ -149,7 +151,7 @@ class FreshnessChecker:
         Used by the /data-freshness API endpoint.
         """
         results = []
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         for source, config in SOURCE_CONFIG.items():
             try:
@@ -172,24 +174,32 @@ class FreshnessChecker:
                 age_seconds = None
                 if current_max is not None:
                     if current_max.tzinfo is None:
-                        current_max = current_max.replace(tzinfo=timezone.utc)
+                        current_max = current_max.replace(tzinfo=UTC)
                     age_seconds = round((now - current_max).total_seconds(), 1)
 
-                results.append({
-                    "source": source,
-                    "table": config["table"],
-                    "latest_data_at": current_max.isoformat() if current_max else None,
-                    "last_checked_at": fresh_row[1].isoformat() if fresh_row and fresh_row[1] else None,
-                    "age_seconds": age_seconds,
-                    "row_count": row_count,
-                    "status": "fresh" if age_seconds is not None and age_seconds < 7200 else "stale",
-                })
+                results.append(
+                    {
+                        "source": source,
+                        "table": config["table"],
+                        "latest_data_at": current_max.isoformat() if current_max else None,
+                        "last_checked_at": fresh_row[1].isoformat()
+                        if fresh_row and fresh_row[1]
+                        else None,
+                        "age_seconds": age_seconds,
+                        "row_count": row_count,
+                        "status": "fresh"
+                        if age_seconds is not None and age_seconds < 7200
+                        else "stale",
+                    }
+                )
             except Exception as e:
-                results.append({
-                    "source": source,
-                    "table": config["table"],
-                    "status": "error",
-                    "error": str(e),
-                })
+                results.append(
+                    {
+                        "source": source,
+                        "table": config["table"],
+                        "status": "error",
+                        "error": str(e),
+                    }
+                )
 
         return results

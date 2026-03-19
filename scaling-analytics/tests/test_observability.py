@@ -1,11 +1,9 @@
 """Tests for the PipelineLogger observability module."""
-import time
 
-import pytest
+import time
 
 
 class TestPipelineLogger:
-
     def test_step_records_entry(self):
         """step() records a step with elapsed time."""
         from src.observability import PipelineLogger

@@ -5,15 +5,16 @@ Redis read helper for the FastAPI serving layer.
 CRITICAL: This module NEVER imports from models/ or data/.
 It reads pre-computed JSON from Redis. That's it.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import redis
 
-from src.config import RedisConfig, GRID_REGIONS, SCORING_INTERVAL_MINUTES
+from src.config import GRID_REGIONS, SCORING_INTERVAL_MINUTES, RedisConfig
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +76,7 @@ class ForecastCache:
 
     # ── Backtests ──────────────────────────────────────
 
-    def get_backtest(
-        self, region: str, horizon: int, model: str | None = None
-    ) -> dict | None:
+    def get_backtest(self, region: str, horizon: int, model: str | None = None) -> dict | None:
         """
         Read pre-computed backtest results for a region and horizon.
 
@@ -194,7 +193,7 @@ class ForecastCache:
             return False
         try:
             scored_at = datetime.fromisoformat(meta["scored_at"])
-            age_seconds = (datetime.now(timezone.utc) - scored_at).total_seconds()
+            age_seconds = (datetime.now(UTC) - scored_at).total_seconds()
             max_age = SCORING_INTERVAL_MINUTES * 60 * 2
             return age_seconds < max_age
         except (KeyError, ValueError):

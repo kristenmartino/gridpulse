@@ -1,9 +1,7 @@
 """Tests for all new API endpoints in server.py."""
+
 import ast
 import inspect
-import json
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,8 +10,8 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def empty_cache(mock_redis):
     """Server with empty Redis cache."""
-    from src.api.cache import ForecastCache
     from src.api import server
+    from src.api.cache import ForecastCache
 
     cache = ForecastCache()
     cache.client = mock_redis
@@ -25,8 +23,8 @@ def empty_cache(mock_redis):
 @pytest.fixture
 def loaded_cache(populated_redis):
     """Server with populated Redis cache."""
-    from src.api.cache import ForecastCache
     from src.api import server
+    from src.api.cache import ForecastCache
 
     cache = ForecastCache()
     cache.client = populated_redis
@@ -36,6 +34,7 @@ def loaded_cache(populated_redis):
 
 
 # ── Architectural constraints ──────────────────
+
 
 class TestArchitecturalConstraint:
     """Verify the serving layer's import isolation."""
@@ -47,14 +46,15 @@ class TestArchitecturalConstraint:
         source = inspect.getsource(server)
         tree = ast.parse(source)
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                # Allow lazy imports inside functions
-                if isinstance(node, ast.ImportFrom):
-                    # Check if this import is at module level (col_offset == 0)
-                    if hasattr(node, "col_offset") and node.col_offset == 0:
-                        assert not node.module.startswith("models"), (
-                            f"server.py has module-level import from models/: {node.module}"
-                        )
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and hasattr(node, "col_offset")
+                and node.col_offset == 0
+            ):
+                assert not node.module.startswith("models"), (
+                    f"server.py has module-level import from models/: {node.module}"
+                )
 
     def test_cache_does_not_import_models(self):
         """cache.py must never import from models/."""
@@ -83,8 +83,8 @@ class TestArchitecturalConstraint:
 
 # ── Actuals (Tab 1) ───────────────────────────
 
-class TestActualsEndpoints:
 
+class TestActualsEndpoints:
     def test_actuals_returns_503_when_empty(self, empty_cache):
         response = empty_cache.get("/actuals/ERCOT")
         assert response.status_code == 503
@@ -118,8 +118,8 @@ class TestActualsEndpoints:
 
 # ── Backtests (Tab 3) ─────────────────────────
 
-class TestBacktestEndpoints:
 
+class TestBacktestEndpoints:
     def test_backtest_returns_503_when_empty(self, empty_cache):
         response = empty_cache.get("/backtests/ERCOT?horizon=24")
         assert response.status_code == 503
@@ -154,8 +154,8 @@ class TestBacktestEndpoints:
 
 # ── Weather (Tab 4) ───────────────────────────
 
-class TestWeatherEndpoints:
 
+class TestWeatherEndpoints:
     def test_weather_returns_503_when_empty(self, empty_cache):
         response = empty_cache.get("/weather/ERCOT")
         assert response.status_code == 503
@@ -177,8 +177,8 @@ class TestWeatherEndpoints:
 
 # ── Models (Tab 5) ────────────────────────────
 
-class TestModelEndpoints:
 
+class TestModelEndpoints:
     def test_model_metrics_returns_503_when_empty(self, empty_cache):
         response = empty_cache.get("/models/ERCOT/metrics")
         assert response.status_code == 503
@@ -204,8 +204,8 @@ class TestModelEndpoints:
 
 # ── Generation (Tab 6) ────────────────────────
 
-class TestGenerationEndpoints:
 
+class TestGenerationEndpoints:
     def test_generation_returns_503_when_empty(self, empty_cache):
         response = empty_cache.get("/generation/ERCOT")
         assert response.status_code == 503
@@ -228,8 +228,8 @@ class TestGenerationEndpoints:
 
 # ── Alerts (Tab 7) ────────────────────────────
 
-class TestAlertEndpoints:
 
+class TestAlertEndpoints:
     def test_alerts_returns_503_when_empty(self, empty_cache):
         response = empty_cache.get("/alerts/ERCOT")
         assert response.status_code == 503
@@ -262,8 +262,8 @@ class TestAlertEndpoints:
 
 # ── Scenarios (Tab 8) ─────────────────────────
 
-class TestScenarioEndpoints:
 
+class TestScenarioEndpoints:
     def test_presets_list_returns_200(self, loaded_cache):
         response = loaded_cache.get("/scenarios/presets")
         assert response.status_code == 200
@@ -301,8 +301,8 @@ class TestScenarioEndpoints:
 
 # ── Personas ──────────────────────────────────
 
-class TestPersonaEndpoints:
 
+class TestPersonaEndpoints:
     def test_list_personas_returns_200(self, loaded_cache):
         response = loaded_cache.get("/personas")
         assert response.status_code == 200
@@ -316,8 +316,8 @@ class TestPersonaEndpoints:
 
 # ── Cross-cutting ─────────────────────────────
 
-class TestCrossCuttingEndpoints:
 
+class TestCrossCuttingEndpoints:
     def test_news_returns_200(self, loaded_cache):
         response = loaded_cache.get("/news")
         assert response.status_code == 200
@@ -357,8 +357,8 @@ class TestCrossCuttingEndpoints:
 
 # ── CORS ──────────────────────────────────────
 
-class TestCORS:
 
+class TestCORS:
     def test_cors_allows_post(self, loaded_cache):
         """CORS middleware allows POST methods (needed for /scenarios/simulate)."""
         response = loaded_cache.options(

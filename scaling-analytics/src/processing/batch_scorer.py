@@ -9,50 +9,48 @@ Supports three operating modes:
 After this runs, the entire dashboard is served from Redis reads.
 Zero computation at request time.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
-import redis
 import psycopg2
+import redis
 from psycopg2.extras import execute_values
 
-from src.config import (
-    RedisConfig,
-    DatabaseConfig,
-    ModelConfig,
-    GRID_REGIONS,
-    FORECAST_GRANULARITIES,
-    SCORING_INTERVAL_MINUTES,
-    MODEL_ARTIFACT_DIR,
-    MODEL_MAX_AGE_HOURS,
-    MODEL_KEEP_SNAPSHOTS,
+from data.demo_data import (
+    generate_demo_alerts,
+    generate_demo_generation,
 )
-from src.processing.feature_builder import FeatureBuilder
-from src.processing.model_store import ModelStore
-
-# v1 model imports (available via sys.path set in src/__init__.py)
-from models.xgboost_model import train_xgboost, predict_xgboost
+from data.feature_engineering import get_feature_names
 from models.ensemble import compute_ensemble_weights, ensemble_combine
 from models.evaluation import (
     compute_all_metrics,
-    compute_residuals,
     compute_error_by_hour,
+    compute_residuals,
 )
-from models.pricing import estimate_price_impact, compute_reserve_margin
+from models.pricing import compute_reserve_margin, estimate_price_impact
+
+# v1 model imports (available via sys.path set in src/__init__.py)
+from models.xgboost_model import predict_xgboost, train_xgboost
 from simulation.presets import get_preset, list_presets
-from data.demo_data import (
-    generate_demo_demand,
-    generate_demo_generation,
-    generate_demo_alerts,
+from src.config import (
+    GRID_REGIONS,
+    MODEL_ARTIFACT_DIR,
+    MODEL_KEEP_SNAPSHOTS,
+    MODEL_MAX_AGE_HOURS,
+    SCORING_INTERVAL_MINUTES,
+    DatabaseConfig,
+    ModelConfig,
+    RedisConfig,
 )
-from data.feature_engineering import engineer_features, get_feature_names
-from data.preprocessing import merge_demand_weather, handle_missing_values
+from src.processing.feature_builder import FeatureBuilder
+from src.processing.model_store import ModelStore
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +86,8 @@ class BatchScorer:
 
         logger.info(
             "BatchScorer initialized (fast_mode=%s, artifact_dir=%s)",
-            self.model_config.fast_mode, MODEL_ARTIFACT_DIR,
+            self.model_config.fast_mode,
+            MODEL_ARTIFACT_DIR,
         )
 
     def score_all_regions(self, mode: str = "inference"):
@@ -104,7 +103,7 @@ class BatchScorer:
         if mode not in ("train", "inference", "backtest"):
             raise ValueError(f"Unknown mode: {mode}. Use 'train', 'inference', or 'backtest'.")
 
-        scored_at = datetime.now(timezone.utc).isoformat()
+        scored_at = datetime.now(UTC).isoformat()
         total_predictions = 0
         regions_scored = 0
         prefix = self.redis_config.key_prefix
@@ -154,7 +153,9 @@ class BatchScorer:
 
                 total_predictions += len(result["predictions_df"])
                 regions_scored += 1
-                logger.info("Scored %s (%s): %d predictions", region, mode, len(result["predictions_df"]))
+                logger.info(
+                    "Scored %s (%s): %d predictions", region, mode, len(result["predictions_df"])
+                )
 
             except Exception as e:
                 logger.error("Failed to score %s: %s", region, e, exc_info=True)
@@ -174,7 +175,9 @@ class BatchScorer:
             "scored_at": scored_at,
             "regions_scored": regions_scored,
             "total_predictions": total_predictions,
-            "scoring_mode": "fast (XGBoost only)" if self.model_config.fast_mode else "full (3-model ensemble)",
+            "scoring_mode": "fast (XGBoost only)"
+            if self.model_config.fast_mode
+            else "full (3-model ensemble)",
             "scoring_interval_min": SCORING_INTERVAL_MINUTES,
             "mode": mode,
         }
@@ -192,7 +195,9 @@ class BatchScorer:
 
         logger.info(
             "Batch scoring complete (%s): %d predictions across %d regions",
-            mode, total_predictions, regions_scored,
+            mode,
+            total_predictions,
+            regions_scored,
         )
 
     def _atomic_swap(self, staging_prefix: str, live_prefix: str, ttl: int):
@@ -237,9 +242,7 @@ class BatchScorer:
             cursor = 0
             extended = 0
             while True:
-                cursor, keys = self.redis_client.scan(
-                    cursor=cursor, match=f"{prefix}:*", count=100
-                )
+                cursor, keys = self.redis_client.scan(cursor=cursor, match=f"{prefix}:*", count=100)
                 pipe = self.redis_client.pipeline()
                 for key in keys:
                     if ":staging:" not in key and ":meta:" not in key:
@@ -255,7 +258,10 @@ class BatchScorer:
     # ── Core scoring ───────────────────────────────────
 
     def _train_and_score_region(
-        self, region: str, scored_at: str, mode: str = "train",
+        self,
+        region: str,
+        scored_at: str,
+        mode: str = "train",
     ) -> dict | None:
         """
         Build features and score for one region.
@@ -317,7 +323,9 @@ class BatchScorer:
                 if age is not None and age > MODEL_MAX_AGE_HOURS:
                     logger.warning(
                         "Models for %s are %.1fh old (max=%dh) — using anyway",
-                        region, age, MODEL_MAX_AGE_HOURS,
+                        region,
+                        age,
+                        MODEL_MAX_AGE_HOURS,
                     )
                 models, predictions, metrics_by_model, weights = self._predict_with_loaded(
                     region, loaded, future_df, train_df, target_col
@@ -338,25 +346,32 @@ class BatchScorer:
 
         # ── Pricing ───────────────────────────────────
         from config import REGION_CAPACITY_MW
+
         capacity = REGION_CAPACITY_MW.get(region, 100_000)
         prices = estimate_price_impact(ensemble_preds, capacity)
         reserve_margins = compute_reserve_margin(ensemble_preds, region)
 
         # ── Build predictions DataFrame ───────────────
-        timestamps = future_df.index if hasattr(future_df.index, 'to_pydatetime') else range(len(ensemble_preds))
-        predictions_df = pd.DataFrame({
-            "timestamp": timestamps,
-            "region": region,
-            "predicted_demand_mw": ensemble_preds,
-            "xgboost": predictions.get("xgboost", ensemble_preds),
-            "prophet": predictions.get("prophet", ensemble_preds),
-            "arima": predictions.get("arima", ensemble_preds),
-            "upper_80": upper_80,
-            "lower_80": lower_80,
-            "price_usd_mwh": np.round(np.atleast_1d(prices), 2),
-            "reserve_margin_pct": np.round(np.atleast_1d(reserve_margins), 2),
-            "scored_at": scored_at,
-        })
+        timestamps = (
+            future_df.index
+            if hasattr(future_df.index, "to_pydatetime")
+            else range(len(ensemble_preds))
+        )
+        predictions_df = pd.DataFrame(
+            {
+                "timestamp": timestamps,
+                "region": region,
+                "predicted_demand_mw": ensemble_preds,
+                "xgboost": predictions.get("xgboost", ensemble_preds),
+                "prophet": predictions.get("prophet", ensemble_preds),
+                "arima": predictions.get("arima", ensemble_preds),
+                "upper_80": upper_80,
+                "lower_80": lower_80,
+                "price_usd_mwh": np.round(np.atleast_1d(prices), 2),
+                "reserve_margin_pct": np.round(np.atleast_1d(reserve_margins), 2),
+                "scored_at": scored_at,
+            }
+        )
 
         # ── Backtests (only in train mode) ────────────
         backtests = {}
@@ -370,9 +385,7 @@ class BatchScorer:
                     logger.warning("Backtest %dh failed for %s: %s", horizon, region, e)
 
         # Feature hash for audit
-        feature_hash = hashlib.md5(
-            str(sorted(available_cols)).encode()
-        ).hexdigest()[:12]
+        feature_hash = hashlib.md5(str(sorted(available_cols)).encode()).hexdigest()[:12]
 
         return {
             "predictions_df": predictions_df,
@@ -384,11 +397,16 @@ class BatchScorer:
             "feature_hash": feature_hash,
             "train_rows": len(train_df),
             "models_trained_at": self.model_store.load_models(region).get("trained_at", "")
-            if self.model_store.has_models(region) else None,
+            if self.model_store.has_models(region)
+            else None,
         }
 
     def _train_models(
-        self, region: str, train_df, future_df, target_col: str,
+        self,
+        region: str,
+        train_df,
+        future_df,
+        target_col: str,
     ) -> tuple[dict, dict, dict, dict]:
         """Train all models from scratch, persist, and predict."""
         models = {}
@@ -408,7 +426,8 @@ class BatchScorer:
         # Prophet + ARIMA (only in full mode)
         if not self.model_config.fast_mode:
             try:
-                from models.prophet_model import train_prophet, predict_prophet
+                from models.prophet_model import predict_prophet, train_prophet
+
                 prophet_model = train_prophet(train_df, target_col=target_col)
                 prophet_result = predict_prophet(prophet_model, future_df, periods=len(future_df))
                 models["prophet"] = prophet_model
@@ -417,7 +436,8 @@ class BatchScorer:
                 logger.warning("Prophet training failed for %s: %s", region, e)
 
             try:
-                from models.arima_model import train_arima, predict_arima
+                from models.arima_model import predict_arima, train_arima
+
                 arima_result = train_arima(train_df, target_col=target_col)
                 arima_preds = predict_arima(arima_result, future_df, periods=len(future_df))
                 models["arima"] = arima_result
@@ -426,9 +446,7 @@ class BatchScorer:
                 logger.warning("ARIMA training failed for %s: %s", region, e)
 
         # Compute ensemble weights
-        weights, metrics_by_model = self._compute_weights(
-            models, predictions, train_df, target_col
-        )
+        weights, metrics_by_model = self._compute_weights(models, predictions, train_df, target_col)
         predictions["ensemble"] = np.round(
             ensemble_combine(predictions, weights)
             if len(predictions) > 1
@@ -448,7 +466,12 @@ class BatchScorer:
         return models, predictions, metrics_by_model, weights
 
     def _predict_with_loaded(
-        self, region: str, loaded: dict, future_df, train_df, target_col: str,
+        self,
+        region: str,
+        loaded: dict,
+        future_df,
+        train_df,
+        target_col: str,
     ) -> tuple[dict, dict, dict, dict]:
         """Predict using pre-loaded models (inference mode — no training)."""
         models = loaded["models"]
@@ -469,7 +492,10 @@ class BatchScorer:
         if "prophet" in models and not self.model_config.fast_mode:
             try:
                 from models.prophet_model import predict_prophet
-                prophet_result = predict_prophet(models["prophet"], future_df, periods=len(future_df))
+
+                prophet_result = predict_prophet(
+                    models["prophet"], future_df, periods=len(future_df)
+                )
                 predictions["prophet"] = np.round(prophet_result["forecast"], 2)
             except Exception as e:
                 logger.warning("Prophet inference failed for %s: %s", region, e)
@@ -478,6 +504,7 @@ class BatchScorer:
         if "arima" in models and not self.model_config.fast_mode:
             try:
                 from models.arima_model import predict_arima
+
                 arima_preds = predict_arima(models["arima"], future_df, periods=len(future_df))
                 predictions["arima"] = np.round(arima_preds, 2)
             except Exception as e:
@@ -498,7 +525,11 @@ class BatchScorer:
         return models, predictions, metrics_by_model, weights
 
     def _compute_weights(
-        self, models: dict, predictions: dict, train_df, target_col: str,
+        self,
+        models: dict,
+        predictions: dict,
+        train_df,
+        target_col: str,
     ) -> tuple[dict, dict]:
         """Compute ensemble weights from validation metrics."""
         metrics_by_model = {}
@@ -604,21 +635,23 @@ class BatchScorer:
         # Prophet backtest (full mode only)
         if not self.model_config.fast_mode:
             try:
-                from models.prophet_model import train_prophet, predict_prophet
+                from models.prophet_model import predict_prophet, train_prophet
+
                 p_model = train_prophet(train_part, target_col=target_col)
                 p_result = predict_prophet(p_model, test_part, periods=horizon)
                 p_preds = p_result["forecast"][:horizon]
                 bt_predictions["prophet"] = np.round(p_preds, 2).tolist()
-                bt_metrics["prophet"] = compute_all_metrics(actual[:len(p_preds)], p_preds)
+                bt_metrics["prophet"] = compute_all_metrics(actual[: len(p_preds)], p_preds)
             except Exception as e:
                 logger.warning("Backtest Prophet failed for %s/%dh: %s", region, horizon, e)
 
             try:
-                from models.arima_model import train_arima, predict_arima
+                from models.arima_model import predict_arima, train_arima
+
                 a_result = train_arima(train_part, target_col=target_col)
                 a_preds = predict_arima(a_result, test_part, periods=horizon)
                 bt_predictions["arima"] = np.round(a_preds, 2).tolist()
-                bt_metrics["arima"] = compute_all_metrics(actual[:len(a_preds)], a_preds)
+                bt_metrics["arima"] = compute_all_metrics(actual[: len(a_preds)], a_preds)
             except Exception as e:
                 logger.warning("Backtest ARIMA failed for %s/%dh: %s", region, horizon, e)
 
@@ -629,16 +662,16 @@ class BatchScorer:
             forecasts_dict = {k: np.array(v) for k, v in bt_predictions.items()}
             ens = ensemble_combine(forecasts_dict, w)
             bt_predictions["ensemble"] = np.round(ens, 2).tolist()
-            bt_metrics["ensemble"] = compute_all_metrics(actual[:len(ens)], ens)
+            bt_metrics["ensemble"] = compute_all_metrics(actual[: len(ens)], ens)
         else:
             bt_predictions["ensemble"] = bt_predictions.get("xgboost", [])
             bt_metrics["ensemble"] = bt_metrics.get("xgboost", {})
 
         # Residuals and error-by-hour (based on ensemble)
         ens_preds = np.array(bt_predictions["ensemble"])
-        actual_trimmed = actual[:len(ens_preds)]
+        actual_trimmed = actual[: len(ens_preds)]
         residuals = compute_residuals(actual_trimmed, ens_preds)
-        timestamps = test_part.index[:len(ens_preds)]
+        timestamps = test_part.index[: len(ens_preds)]
 
         try:
             error_by_hour_df = compute_error_by_hour(timestamps, actual_trimmed, ens_preds)
@@ -658,9 +691,7 @@ class BatchScorer:
 
     # ── Redis cache writers ────────────────────────────
 
-    def _cache_forecasts(
-        self, pipeline, region, result, scored_at, ttl, prefix
-    ):
+    def _cache_forecasts(self, pipeline, region, result, scored_at, ttl, prefix):
         """Write forecasts to Redis at 3 granularities with enriched payload."""
         predictions_df = result["predictions_df"]
         records = predictions_df.to_dict(orient="records")
@@ -670,13 +701,15 @@ class BatchScorer:
         # Include metadata
         models_trained_at = result.get("models_trained_at", "")
 
-        payload = json.dumps({
-            "region": region,
-            "scored_at": scored_at,
-            "models_trained_at": models_trained_at,
-            "granularity": "15min",
-            "forecasts": records,
-        })
+        payload = json.dumps(
+            {
+                "region": region,
+                "scored_at": scored_at,
+                "models_trained_at": models_trained_at,
+                "granularity": "15min",
+                "forecasts": records,
+            }
+        )
         pipeline.setex(f"{prefix}:forecast:{region}:latest", ttl, payload)
         pipeline.setex(f"{prefix}:forecast:{region}:15min", ttl, payload)
 
@@ -694,12 +727,17 @@ class BatchScorer:
             r["timestamp"] = str(r["timestamp"])
 
         pipeline.setex(
-            f"{prefix}:forecast:{region}:1h", ttl,
-            json.dumps({
-                "region": region, "scored_at": scored_at,
-                "models_trained_at": models_trained_at,
-                "granularity": "1h", "forecasts": hourly_records,
-            }),
+            f"{prefix}:forecast:{region}:1h",
+            ttl,
+            json.dumps(
+                {
+                    "region": region,
+                    "scored_at": scored_at,
+                    "models_trained_at": models_trained_at,
+                    "granularity": "1h",
+                    "forecasts": hourly_records,
+                }
+            ),
         )
 
         # Daily rollup
@@ -709,12 +747,17 @@ class BatchScorer:
             r["timestamp"] = str(r["timestamp"])
 
         pipeline.setex(
-            f"{prefix}:forecast:{region}:1d", ttl,
-            json.dumps({
-                "region": region, "scored_at": scored_at,
-                "models_trained_at": models_trained_at,
-                "granularity": "1d", "forecasts": daily_records,
-            }),
+            f"{prefix}:forecast:{region}:1d",
+            ttl,
+            json.dumps(
+                {
+                    "region": region,
+                    "scored_at": scored_at,
+                    "models_trained_at": models_trained_at,
+                    "granularity": "1d",
+                    "forecasts": daily_records,
+                }
+            ),
         )
 
     def _cache_backtests(self, pipeline, region, result, ttl, prefix):
@@ -813,8 +856,10 @@ class BatchScorer:
         try:
             gen_df = generate_demo_generation(region, days=30)
             pivoted = gen_df.pivot_table(
-                index="timestamp", columns="fuel_type",
-                values="generation_mw", aggfunc="sum",
+                index="timestamp",
+                columns="fuel_type",
+                values="generation_mw",
+                aggfunc="sum",
             ).reset_index()
 
             payload = {"region": region, "timestamps": [str(t) for t in pivoted["timestamp"]]}
@@ -900,20 +945,28 @@ class BatchScorer:
                     "baseline": ensemble_preds.tolist(),
                     "scenario": scenario_demand.tolist(),
                     "delta_mw": delta_mw.tolist(),
-                    "delta_pct": float(np.round(np.mean(delta_mw) / np.mean(ensemble_preds) * 100, 2)),
+                    "delta_pct": float(
+                        np.round(np.mean(delta_mw) / np.mean(ensemble_preds) * 100, 2)
+                    ),
                     "price_impact": {
                         "base_avg": float(np.round(np.mean(np.atleast_1d(base_prices)), 2)),
                         "scenario_avg": float(np.round(np.mean(np.atleast_1d(scenario_prices)), 2)),
-                        "delta": float(np.round(
-                            np.mean(np.atleast_1d(scenario_prices)) - np.mean(np.atleast_1d(base_prices)), 2
-                        )),
+                        "delta": float(
+                            np.round(
+                                np.mean(np.atleast_1d(scenario_prices))
+                                - np.mean(np.atleast_1d(base_prices)),
+                                2,
+                            )
+                        ),
                     },
                     "reserve_margin": {
                         "min_pct": float(np.round(np.min(np.atleast_1d(scenario_reserve)), 2)),
                         "avg_pct": float(np.round(np.mean(np.atleast_1d(scenario_reserve)), 2)),
-                        "status": "CRITICAL" if np.min(np.atleast_1d(scenario_reserve)) < 5
-                                  else "Low" if np.min(np.atleast_1d(scenario_reserve)) < 15
-                                  else "Adequate",
+                        "status": "CRITICAL"
+                        if np.min(np.atleast_1d(scenario_reserve)) < 5
+                        else "Low"
+                        if np.min(np.atleast_1d(scenario_reserve)) < 15
+                        else "Adequate",
                     },
                     "renewable_impact": {
                         "wind_power_pct": round(wind_power_pct, 1),
@@ -928,19 +981,25 @@ class BatchScorer:
             except Exception as e:
                 logger.warning(
                     "Failed to cache preset %s for %s: %s",
-                    preset_info.get("key", "?"), region, e,
+                    preset_info.get("key", "?"),
+                    region,
+                    e,
                 )
 
     def _cache_news(self, pipeline, ttl, prefix):
         """Cache energy news (demo placeholder)."""
         try:
             from data.news_client import fetch_energy_news
+
             articles = fetch_energy_news(page_size=5)
         except Exception:
             articles = [
-                {"title": "Energy Markets Update", "source": "Reuters",
-                 "published_at": datetime.now(timezone.utc).isoformat(),
-                 "description": "Latest developments in energy markets."},
+                {
+                    "title": "Energy Markets Update",
+                    "source": "Reuters",
+                    "published_at": datetime.now(UTC).isoformat(),
+                    "description": "Latest developments in energy markets.",
+                },
             ]
         pipeline.setex(f"{prefix}:news", ttl, json.dumps({"articles": articles}))
 
@@ -974,21 +1033,24 @@ class BatchScorer:
             """
             preds = result["predictions_df"]["predicted_demand_mw"]
             with self.conn.cursor() as cur:
-                cur.execute(sql, (
-                    region,
-                    scored_at,
-                    "postgres",
-                    "postgres",
-                    result["train_rows"],
-                    result["train_rows"],
-                    json.dumps(list(result["weights"].keys())),
-                    json.dumps(result["weights"]),
-                    len(result["feature_cols"]),
-                    result["feature_hash"],
-                    json.dumps(result.get("metrics", {})),
-                    float(preds.max()) if len(preds) > 0 else 0,
-                    "fast" if self.model_config.fast_mode else "full",
-                ))
+                cur.execute(
+                    sql,
+                    (
+                        region,
+                        scored_at,
+                        "postgres",
+                        "postgres",
+                        result["train_rows"],
+                        result["train_rows"],
+                        json.dumps(list(result["weights"].keys())),
+                        json.dumps(result["weights"]),
+                        len(result["feature_cols"]),
+                        result["feature_hash"],
+                        json.dumps(result.get("metrics", {})),
+                        float(preds.max()) if len(preds) > 0 else 0,
+                        "fast" if self.model_config.fast_mode else "full",
+                    ),
+                )
             self.conn.commit()
         except Exception as e:
             logger.warning("Failed to store audit for %s: %s", region, e)
@@ -1014,5 +1076,6 @@ def run(mode: str = "inference"):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     import sys
+
     m = sys.argv[1] if len(sys.argv) > 1 else "inference"
     run(mode=m)
