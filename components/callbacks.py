@@ -47,6 +47,15 @@ _cache_lock = threading.Lock()
 _MODEL_CACHE: dict = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
 _BACKTEST_CACHE: dict = {}  # {(region, horizon, model): (result_dict, data_hash, time)}
+_GENERATION_CACHE: dict = {}  # {region: (gen_df, fetch_timestamp)}
+
+# EIA fuel type code normalization
+_EIA_FUEL_MAP: dict[str, str] = {
+    "SUN": "solar", "WND": "wind", "NG": "gas", "NUC": "nuclear",
+    "COL": "coal", "WAT": "hydro", "OTH": "other",
+    "Solar": "solar", "Wind": "wind", "Natural Gas": "gas",
+    "Nuclear": "nuclear", "Coal": "coal", "Hydro": "hydro", "Other": "other",
+}
 
 # Plotly dark theme defaults
 PLOT_TEMPLATE = "plotly_dark"
@@ -86,6 +95,7 @@ ALL_TAB_IDS = [
     "tab-forecast",
     "tab-outlook",
     "tab-backtest",
+    "tab-generation",
 ]
 
 
@@ -403,6 +413,58 @@ def _create_future_features(
                 future_df[col] = 0
 
     return future_df
+
+
+def _fetch_generation_cached(region: str) -> pd.DataFrame | None:
+    """Fetch generation data with 3-tier caching: memory -> SQLite/API -> demo.
+
+    Args:
+        region: Balancing authority code.
+
+    Returns:
+        DataFrame with [timestamp, fuel_type, generation_mw, region] or None.
+    """
+    import time as _time
+
+    # Tier 1: In-memory cache (5-minute TTL)
+    if region in _GENERATION_CACHE:
+        cached_df, cached_ts = _GENERATION_CACHE[region]
+        if (_time.time() - cached_ts) < 300:
+            log.info("generation_memory_cache_hit", region=region)
+            return cached_df
+
+    # Tier 2+3: fetch_generation_by_fuel handles SQLite cache + API call
+    try:
+        from config import EIA_API_KEY
+
+        if EIA_API_KEY and EIA_API_KEY != "your_eia_api_key_here":
+            from data.eia_client import fetch_generation_by_fuel
+
+            gen_df = fetch_generation_by_fuel(region)
+            if gen_df is not None and not gen_df.empty:
+                # Normalize fuel type codes
+                gen_df["fuel_type"] = (
+                    gen_df["fuel_type"]
+                    .map(_EIA_FUEL_MAP)
+                    .fillna(gen_df["fuel_type"].str.lower())
+                )
+                _GENERATION_CACHE[region] = (gen_df, _time.time())
+                log.info("generation_eia_fetched", region=region, rows=len(gen_df))
+                return gen_df
+    except Exception as e:
+        log.warning("generation_eia_failed", region=region, error=str(e))
+
+    # Tier 4: Demo data fallback
+    try:
+        from data.demo_data import generate_demo_generation
+
+        gen_df = generate_demo_generation(region, days=30)
+        _GENERATION_CACHE[region] = (gen_df, _time.time())
+        log.info("generation_demo_fallback", region=region, rows=len(gen_df))
+        return gen_df
+    except Exception as e:
+        log.error("generation_demo_failed", region=region, error=str(e))
+        return None
 
 
 def register_callbacks(app):
@@ -1059,184 +1121,218 @@ def register_callbacks(app):
 
         return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
 
-    # ── 7. TAB 4: GENERATION MIX ─────────────────────────────
+    # ── 7. TAB 4: GENERATION & NET LOAD ──────────────────────
 
     @app.callback(
         [
-            Output("tab4-gen-mix", "figure"),
-            Output("tab4-wind-overlay", "figure"),
-            Output("tab4-solar-overlay", "figure"),
-            Output("tab4-duck-curve", "figure"),
-            Output("tab4-renewable-trend", "figure"),
+            Output("tab4-net-load-chart", "figure"),
+            Output("tab4-gen-mix-chart", "figure"),
             Output("tab4-renewable-pct", "children"),
-            Output("tab4-renewable-delta", "children"),
-            Output("tab4-wind-cf", "children"),
-            Output("tab4-solar-cf", "children"),
-            Output("tab4-carbon", "children"),
+            Output("tab4-peak-ramp", "children"),
+            Output("tab4-min-net-load", "children"),
+            Output("tab4-curtailment-hours", "children"),
+            Output("tab4-insight-card", "children"),
         ],
-        [Input("region-selector", "value"), Input("demand-store", "data")],
+        [
+            Input("region-selector", "value"),
+            Input("dashboard-tabs", "active_tab"),
+            Input("persona-selector", "value"),
+            Input("gen-date-range", "value"),
+        ],
+        [State("demand-store", "data")],
         prevent_initial_call=True,
     )
-    def update_generation_tab(region, demand_json):
-        """Update Tab 4 generation charts."""
-        empty = _empty_figure("Loading...")
-        neutral = html.Span("", className="kpi-delta neutral")
-        if not demand_json:
-            return empty, empty, empty, empty, empty, "—%", neutral, "—%", "—%", "—"
+    def update_generation_tab(region, active_tab, persona_id, date_range_hours, demand_json):
+        """Update Generation & Net Load tab with real EIA data."""
+        empty = _empty_figure("Select a region to view generation data")
+        empty_insight = html.Div()
+        defaults = (empty, empty, "\u2014%", "\u2014 MW/hr", "\u2014 MW", "\u2014", empty_insight)
 
-        from data.demo_data import generate_demo_generation, generate_demo_weather
+        # Active tab guard
+        if active_tab != "tab-generation":
+            return [no_update] * 7
 
-        gen_df = generate_demo_generation(region, days=30)
+        if not region:
+            return defaults
+
+        # Parse date range (hours). Default to 168 (7 days).
+        try:
+            range_hours = int(date_range_hours) if date_range_hours else 168
+        except (TypeError, ValueError):
+            range_hours = 168
+
+        log.info("generation_tab_start", region=region, range_hours=range_hours)
+
+        # ── Fetch generation data (memory → SQLite → API → demo) ──
+        gen_df = _fetch_generation_cached(region)
+        if gen_df is None or gen_df.empty:
+            return defaults
+
+        # ── Parse demand data for net load calculation ──
+        demand_df = None
+        if demand_json:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+            demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
+
+        # ── Filter by selected time range ──
         gen_df["timestamp"] = pd.to_datetime(gen_df["timestamp"])
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=range_hours)
+        # Strip timezone for comparison if gen_df timestamps are tz-naive
+        if gen_df["timestamp"].dt.tz is None:
+            cutoff = cutoff.tz_localize(None)
+        gen_df = gen_df[gen_df["timestamp"] >= cutoff]
+        if gen_df.empty:
+            return defaults
 
+        if demand_df is not None and not demand_df.empty:
+            demand_cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=range_hours)
+            if demand_df["timestamp"].dt.tz is None:
+                demand_cutoff = demand_cutoff.tz_localize(None)
+            demand_df = demand_df[demand_df["timestamp"] >= demand_cutoff]
+
+        # ── Pivot generation by fuel type ──
         pivot = gen_df.pivot_table(
-            index="timestamp", columns="fuel_type", values="generation_mw", aggfunc="sum"
+            index="timestamp", columns="fuel_type",
+            values="generation_mw", aggfunc="sum",
         ).fillna(0)
-        fig_mix = go.Figure()
-        for fuel in ["nuclear", "coal", "gas", "hydro", "wind", "solar", "other"]:
-            if fuel in pivot.columns:
-                fig_mix.add_trace(
-                    go.Scatter(
-                        x=pivot.index,
-                        y=pivot[fuel],
-                        mode="lines",
-                        name=fuel.title(),
-                        stackgroup="one",
-                        line=dict(width=0),
-                        fillcolor=COLORS.get(fuel, "#95a5a6"),
-                    )
-                )
-        fig_mix.update_layout(**PLOT_LAYOUT, yaxis_title="Generation (MW)", hovermode="x unified")
 
         total_gen = pivot.sum(axis=1)
+
+        # ── Net Load = Demand - Wind - Solar ──
+        wind_gen = pivot.get("wind", pd.Series(0, index=pivot.index))
+        solar_gen = pivot.get("solar", pd.Series(0, index=pivot.index))
+
+        if demand_df is not None and not demand_df.empty and "demand_mw" in demand_df.columns:
+            demand_aligned = demand_df.set_index("timestamp")["demand_mw"]
+            common_idx = pivot.index.intersection(demand_aligned.index)
+            if len(common_idx) > 24:
+                demand_series = demand_aligned.loc[common_idx]
+                pivot_aligned = pivot.loc[common_idx]
+                wind_aligned = pivot_aligned.get("wind", pd.Series(0, index=common_idx))
+                solar_aligned = pivot_aligned.get("solar", pd.Series(0, index=common_idx))
+                net_load = demand_series - wind_aligned - solar_aligned
+            else:
+                # Insufficient overlap; approximate demand as total gen
+                demand_series = total_gen
+                net_load = total_gen - wind_gen - solar_gen
+                common_idx = pivot.index
+        else:
+            # No demand data: approximate demand as total generation
+            demand_series = total_gen
+            net_load = total_gen - wind_gen - solar_gen
+            common_idx = pivot.index
+
+        # ── KPI 1: Renewable penetration % ──
         ren_cols = [c for c in ["wind", "solar", "hydro"] if c in pivot.columns]
-        renewable_gen = pivot[ren_cols].sum(axis=1) if ren_cols else total_gen * 0
-        renewable_pct = (renewable_gen / total_gen * 100).mean()
+        if ren_cols and total_gen.mean() > 0:
+            renewable_gen = pivot[ren_cols].sum(axis=1)
+            renewable_pct = float((renewable_gen / total_gen * 100).mean())
+        else:
+            renewable_pct = 0.0
 
-        capacity = REGION_CAPACITY_MW.get(region, 50000)
-        wind_cf = f"{(pivot.get('wind', pd.Series([0])).mean() / (capacity * 0.25) * 100):.0f}%"
-        solar_cf_val = pivot.get("solar", pd.Series([0]))
-        solar_cf = (
-            f"{(solar_cf_val[solar_cf_val > 0].mean() / (capacity * 0.12) * 100):.0f}%"
-            if solar_cf_val.sum() > 0
-            else "—%"
+        # ── KPI 2: Peak net load ramp (MW/hr) ──
+        net_load_diff = net_load.diff()
+        peak_ramp = float(net_load_diff.max()) if not net_load_diff.isna().all() else 0.0
+
+        # ── KPI 3: Min net load (duck curve belly) ──
+        min_net_load = float(net_load.min())
+
+        # ── KPI 4: Curtailment risk hours (net load < 20% of peak) ──
+        peak_net_load = float(net_load.max())
+        if peak_net_load > 0:
+            curtailment_hours = int((net_load < peak_net_load * 0.20).sum())
+        else:
+            curtailment_hours = 0
+
+        # ── Hero Chart: Demand vs Net Load ──
+        fig_hero = go.Figure()
+
+        fig_hero.add_trace(go.Scatter(
+            x=common_idx,
+            y=demand_series.values if hasattr(demand_series, "values") else demand_series,
+            mode="lines",
+            name="Total Demand",
+            line=dict(color=COLORS["actual"], width=2),
+        ))
+
+        fig_hero.add_trace(go.Scatter(
+            x=common_idx,
+            y=net_load.values,
+            mode="lines",
+            name="Net Load",
+            line=dict(color=COLORS["ensemble"], width=2.5),
+        ))
+
+        # Shaded area between demand and net load (= renewable contribution)
+        fig_hero.add_trace(go.Scatter(
+            x=common_idx,
+            y=demand_series.values if hasattr(demand_series, "values") else demand_series,
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+        fig_hero.add_trace(go.Scatter(
+            x=common_idx,
+            y=net_load.values,
+            mode="lines",
+            name="Renewable Contribution",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor="rgba(46,204,113,0.20)",
+        ))
+
+        fig_hero.update_layout(
+            **PLOT_LAYOUT,
+            yaxis_title="MW",
+            hovermode="x unified",
+            title=f"Demand vs Net Load \u2014 {region}",
         )
 
-        recent_ren = (renewable_gen / total_gen * 100).tail(24).mean()
-        avg_ren = (renewable_gen / total_gen * 100).mean()
-        ren_delta = recent_ren - avg_ren
-        ren_dir = "positive" if ren_delta > 0 else "negative"
-        ren_delta_span = html.Span(
-            f"{'↑' if ren_delta > 0 else '↓'}{abs(ren_delta):.1f}% vs 30d avg",
-            className=f"kpi-delta {ren_dir}",
-        )
-
-        demand_df = pd.read_json(io.StringIO(demand_json))
-        demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
-        weather_df = generate_demo_weather(region, days=30)
-
-        fig_wind = make_subplots(specs=[[{"secondary_y": True}]])
-        if "wind" in pivot.columns:
-            fig_wind.add_trace(
-                go.Scatter(
+        # ── Supporting Chart: Generation Mix Stacked Area ──
+        fig_mix = go.Figure()
+        fuel_order = ["nuclear", "coal", "gas", "hydro", "wind", "solar", "other"]
+        for fuel in fuel_order:
+            if fuel in pivot.columns:
+                fig_mix.add_trace(go.Scatter(
                     x=pivot.index,
-                    y=pivot["wind"],
-                    name="Wind Gen (MW)",
-                    line=dict(color=COLORS["wind"]),
-                ),
-                secondary_y=False,
-            )
-        fig_wind.add_trace(
-            go.Scatter(
-                x=weather_df["timestamp"],
-                y=weather_df["wind_speed_80m"],
-                name="Wind Speed (mph)",
-                line=dict(color="#ffffff", width=1, dash="dot"),
-            ),
-            secondary_y=True,
+                    y=pivot[fuel],
+                    mode="lines",
+                    name=fuel.title(),
+                    stackgroup="one",
+                    line=dict(width=0),
+                    fillcolor=COLORS.get(fuel, "#95a5a6"),
+                ))
+        fig_mix.update_layout(
+            **PLOT_LAYOUT,
+            yaxis_title="Generation (MW)",
+            hovermode="x unified",
+            title=f"Generation Mix \u2014 {region}",
         )
-        fig_wind.update_layout(**PLOT_LAYOUT)
-        fig_wind.update_yaxes(title_text="MW", secondary_y=False)
-        fig_wind.update_yaxes(title_text="mph", secondary_y=True)
 
-        fig_solar = make_subplots(specs=[[{"secondary_y": True}]])
-        if "solar" in pivot.columns:
-            fig_solar.add_trace(
-                go.Scatter(
-                    x=pivot.index,
-                    y=pivot["solar"],
-                    name="Solar Gen (MW)",
-                    line=dict(color=COLORS["solar"]),
-                ),
-                secondary_y=False,
-            )
-        fig_solar.add_trace(
-            go.Scatter(
-                x=weather_df["timestamp"],
-                y=weather_df["shortwave_radiation"],
-                name="GHI (W/m²)",
-                line=dict(color="#ffffff", width=1, dash="dot"),
-            ),
-            secondary_y=True,
-        )
-        fig_solar.update_layout(**PLOT_LAYOUT)
+        # ── Insight Card ──
+        from components.insights import build_insight_card, generate_tab4_insights
 
-        solar_gen = pivot.get("solar", 0)
-        net_demand = total_gen - solar_gen
-        fig_duck = go.Figure()
-        fig_duck.add_trace(
-            go.Scatter(
-                x=pivot.index, y=total_gen, name="Total Demand", line=dict(color=COLORS["actual"])
-            )
+        persona = persona_id or "grid_ops"
+        insights = generate_tab4_insights(
+            persona_id=persona,
+            region=region,
+            net_load=net_load,
+            demand=demand_series,
+            renewable_pct=renewable_pct,
+            pivot=pivot.loc[common_idx] if len(common_idx) > 0 else pivot,
+            timestamps=pd.DatetimeIndex(common_idx),
         )
-        fig_duck.add_trace(
-            go.Scatter(
-                x=pivot.index,
-                y=net_demand,
-                name="Net Demand (minus Solar)",
-                line=dict(color=COLORS["ensemble"], width=2),
-            )
-        )
-        fig_duck.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
-
-        fig_ren = go.Figure(
-            go.Scatter(
-                x=pivot.index,
-                y=(renewable_gen / total_gen * 100),
-                mode="lines",
-                line=dict(color=COLORS["wind"], width=2),
-                fill="tozeroy",
-                fillcolor="rgba(46,204,113,0.15)",
-            )
-        )
-        fig_ren.update_layout(**PLOT_LAYOUT, yaxis_title="Renewable %", yaxis_range=[0, 100])
-
-        co2_factors = {
-            "gas": 0.41,
-            "coal": 0.95,
-            "nuclear": 0,
-            "wind": 0,
-            "solar": 0,
-            "hydro": 0,
-            "other": 0.5,
-        }
-        carbon = (
-            sum(pivot.get(f, 0).mean() * co2_factors.get(f, 0) for f in co2_factors)
-            / total_gen.mean()
-            * 1000
-        )
+        insight_card = build_insight_card(insights, persona, "tab-generation")
 
         return (
+            fig_hero,
             fig_mix,
-            fig_wind,
-            fig_solar,
-            fig_duck,
-            fig_ren,
-            f"{renewable_pct:.0f}%",
-            ren_delta_span,
-            wind_cf,
-            solar_cf,
-            f"{carbon:.0f} kg/MWh",
+            f"{renewable_pct:.1f}%",
+            f"{peak_ramp:,.0f} MW/hr",
+            f"{min_net_load:,.0f} MW",
+            str(curtailment_hours),
+            insight_card,
         )
 
     # ── 8. TAB 5: ALERTS ─────────────────────────────────────

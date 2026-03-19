@@ -61,9 +61,9 @@ class TestWeatherVariables:
 
 
 class TestTabs:
-    def test_three_tabs(self):
-        assert len(TAB_IDS) == 3
-        assert len(TAB_LABELS) == 3
+    def test_four_tabs(self):
+        assert len(TAB_IDS) == 4
+        assert len(TAB_LABELS) == 4
 
     def test_tab_ids_match_labels(self):
         for tab_id in TAB_IDS:

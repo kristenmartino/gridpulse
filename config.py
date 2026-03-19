@@ -216,12 +216,14 @@ TAB_IDS: list[str] = [
     "tab-forecast",
     "tab-outlook",
     "tab-backtest",
+    "tab-generation",
 ]
 
 TAB_LABELS: dict[str, str] = {
     "tab-forecast": "Historical Demand",
     "tab-outlook": "Demand Forecast",
     "tab-backtest": "Backtest",
+    "tab-generation": "Generation & Net Load",
 }
 
 # ---------------------------------------------------------------------------

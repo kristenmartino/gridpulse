@@ -48,17 +48,18 @@ def precompute_all() -> None:
     )
 
     try:
-        # Phase 1: All regions — fetch data + train models + predictions (fast, ~15s)
         all_regions = list(REGION_COORDINATES.keys())
 
-        # Fetch data for all regions in parallel first
+        # Phase 0: Warm generation data cache (Tab 4: Generation & Net Load)
+        _fetch_generation_all_parallel(all_regions)
+
+        # Phase 1: Fetch demand + weather data for all regions
         _fetch_all_data_parallel(all_regions)
 
-        # Train models + predictions for all regions in parallel
+        # Phase 2: Train models + predictions for all regions
         _train_all_models_parallel(all_regions)
 
-        # Phase 2: Backtests for all regions in parallel
-        # XGBoost backtests for all 3 horizons (24h, 168h, 720h)
+        # Phase 3: Backtests for all regions (24h, 168h, 720h)
         _backtest_all_parallel(all_regions)
 
     except Exception as e:
@@ -247,3 +248,33 @@ def _precompute_backtest(region: str, horizon: int, model: str = "xgboost") -> N
         log.warning(
             "precompute_backtest_error", region=region, horizon=horizon, model=model, error=str(e),
         )
+
+
+def _fetch_generation_all_parallel(regions: list[str]) -> None:
+    """Fetch generation-by-fuel data for all regions, warming SQLite cache.
+
+    Makes Tab 4 (Generation & Net Load) instant on first load.
+    Never raises — failures fall back to demo data at callback time.
+    """
+    with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
+        futures = {pool.submit(_fetch_generation_single, r): r for r in regions}
+        for future in as_completed(futures):
+            region = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                log.warning("precompute_generation_failed", region=region, error=str(e))
+
+
+def _fetch_generation_single(region: str) -> None:
+    """Fetch generation data for one region into SQLite + in-memory cache."""
+    try:
+        from components.callbacks import _fetch_generation_cached
+
+        gen_df = _fetch_generation_cached(region)
+        if gen_df is not None and not gen_df.empty:
+            log.info("precompute_generation_cached", region=region, rows=len(gen_df))
+        else:
+            log.warning("precompute_generation_empty", region=region)
+    except Exception as e:
+        log.warning("precompute_generation_error", region=region, error=str(e))

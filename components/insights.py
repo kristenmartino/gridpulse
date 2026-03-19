@@ -1,7 +1,7 @@
 """
 Persona-aware insight engine for the Energy Forecast Dashboard.
 
-Generates contextual, data-driven insights for each of the 3 active tabs.
+Generates contextual, data-driven insights for each of the 4 active tabs.
 Rule-based: deterministic, zero-latency, testable.
 
 Design principles:
@@ -772,3 +772,127 @@ def build_insight_card(
             "borderLeft": f"4px solid {persona_color}",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Tab 4: Generation & Net Load insights
+# ---------------------------------------------------------------------------
+
+
+def generate_tab4_insights(
+    persona_id: str,
+    region: str,
+    net_load: pd.Series | None,
+    demand: pd.Series | None,
+    renewable_pct: float,
+    pivot: pd.DataFrame | None,
+    timestamps: pd.DatetimeIndex | None,
+) -> list[Insight]:
+    """Generate Generation & Net Load tab insights.
+
+    Args:
+        persona_id: Active persona ID.
+        region: Balancing authority code.
+        net_load: Net load timeseries (demand - wind - solar).
+        demand: Raw demand timeseries.
+        renewable_pct: Period-average renewable penetration %.
+        pivot: Pivoted generation DataFrame (index=timestamp, columns=fuel_type).
+        timestamps: DatetimeIndex for the data.
+
+    Returns:
+        Persona-filtered list of Insight objects.
+    """
+    if net_load is None or len(net_load) == 0:
+        return []
+
+    insights: list[Insight] = []
+    capacity = REGION_CAPACITY_MW.get(region, 50_000)
+
+    # 1. Renewable penetration headline
+    level = "high" if renewable_pct > 30 else "moderate" if renewable_pct > 15 else "low"
+    insights.append(Insight(
+        text=f"Renewables supplied {renewable_pct:.1f}% of generation ({level} penetration for {region}).",
+        category="pattern",
+        severity="notable" if renewable_pct > 40 else "info",
+        metric_name="renewable_pct",
+        metric_value=renewable_pct,
+        persona_relevance=["renewables", "trader", "grid_ops", "data_scientist"],
+    ))
+
+    # 2. Evening ramp (duck curve effect, 4-7 PM)
+    hourly_diff = net_load.diff()
+    if timestamps is not None and len(timestamps) > 0 and not hourly_diff.isna().all():
+        hours = pd.DatetimeIndex(timestamps).hour
+        evening_mask = (hours >= 16) & (hours <= 19)
+        if evening_mask.any():
+            evening_ramps = hourly_diff[evening_mask]
+            if len(evening_ramps) > 0:
+                max_evening_ramp = float(evening_ramps.max())
+                if max_evening_ramp > 0:
+                    severity = "warning" if max_evening_ramp > capacity * 0.03 else "info"
+                    insights.append(Insight(
+                        text=f"Evening net load ramp reaches {max_evening_ramp:,.0f} MW/hr (4\u20137 PM) as solar generation drops off.",
+                        category="driver",
+                        severity=severity,
+                        metric_name="evening_ramp",
+                        metric_value=max_evening_ramp,
+                        persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+                    ))
+
+    # 3. Duck curve belly (min net load)
+    min_net = float(net_load.min())
+    min_pct = min_net / capacity * 100 if capacity > 0 else 0
+    if min_pct < 25:
+        insights.append(Insight(
+            text=f"Net load dips to {min_net:,.0f} MW ({min_pct:.0f}% of capacity) \u2014 midday solar surplus depresses dispatchable requirements.",
+            category="risk",
+            severity="notable" if min_pct < 15 else "info",
+            metric_name="min_net_load",
+            metric_value=min_net,
+            persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
+        ))
+
+    # 4. Curtailment risk hours
+    peak_net = float(net_load.max())
+    if peak_net > 0:
+        curtailment_hours = int((net_load < peak_net * 0.20).sum())
+        if curtailment_hours > 0:
+            insights.append(Insight(
+                text=f"Net load fell below 20% of peak for {curtailment_hours} hours \u2014 elevated curtailment risk.",
+                category="risk",
+                severity="warning" if curtailment_hours > 24 else "notable",
+                metric_name="curtailment_hours",
+                metric_value=float(curtailment_hours),
+                persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
+            ))
+
+    # 5. Net load range (volatility)
+    net_range = peak_net - min_net
+    range_pct = net_range / capacity * 100 if capacity > 0 else 0
+    if range_pct > 30:
+        insights.append(Insight(
+            text=f"Net load swings {net_range:,.0f} MW ({range_pct:.0f}% of capacity) between peak and trough.",
+            category="pattern",
+            severity="info",
+            metric_name="net_load_range",
+            metric_value=net_range,
+            persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+        ))
+
+    # 6. Solar dominance
+    if pivot is not None and "solar" in pivot.columns:
+        total_gen = pivot.sum(axis=1)
+        if total_gen.max() > 0:
+            solar_pct = (pivot["solar"] / total_gen * 100)
+            solar_peak = float(solar_pct.max())
+            if solar_peak > 30:
+                insights.append(Insight(
+                    text=f"Solar peaked at {solar_peak:.0f}% of total generation, driving the midday net load trough.",
+                    category="driver",
+                    severity="info",
+                    metric_name="solar_peak_pct",
+                    metric_value=solar_peak,
+                    persona_relevance=["renewables", "data_scientist", "trader", "grid_ops"],
+                ))
+
+    return _filter_for_persona(insights, persona_id)
