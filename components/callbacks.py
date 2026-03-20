@@ -2986,6 +2986,16 @@ def _build_persona_kpis(
             min_mw = valid["demand_mw"].min()
             pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
 
+    # Fallback: read demand stats from Redis
+    if peak_mw is None:
+        actuals_redis = redis_get(f"wattcast:actuals:{region}")
+        if actuals_redis and actuals_redis.get("demand_mw"):
+            demand_vals = actuals_redis["demand_mw"]
+            peak_mw = max(demand_vals)
+            avg_mw = sum(demand_vals) / len(demand_vals)
+            min_mw = min(demand_vals)
+            pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
+
     # Extract weather stats
     avg_wind = None
     avg_solar = None
@@ -2994,6 +3004,19 @@ def _build_persona_kpis(
             avg_wind = weather_df["wind_speed_80m"].mean()
         if "shortwave_radiation" in weather_df.columns:
             avg_solar = weather_df["shortwave_radiation"].mean()
+
+    # Fallback: read weather stats from Redis
+    if avg_wind is None and avg_solar is None:
+        weather_redis = redis_get(f"wattcast:weather:{region}")
+        if weather_redis:
+            if "wind_speed_80m" in weather_redis:
+                vals = weather_redis["wind_speed_80m"]
+                if vals:
+                    avg_wind = sum(vals) / len(vals)
+            if "shortwave_radiation" in weather_redis:
+                vals = weather_redis["shortwave_radiation"]
+                if vals:
+                    avg_solar = sum(vals) / len(vals)
 
     # Get backtest MAPE from cache if available
     backtest_mape = None
