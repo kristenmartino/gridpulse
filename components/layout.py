@@ -134,46 +134,35 @@ def build_layout() -> dbc.Container:
             html.Div(id="welcome-card"),
             # ── KPI Row ────────────────────────────────────────────
             html.Div(id="kpi-cards"),
-            # ── News Feed (sidebar on right) ──────────────────────
-            dbc.Row(
-                [
-                    dbc.Col(
-                        # Main tabs area
-                        dbc.Tabs(
-                            id="dashboard-tabs",
-                            active_tab="tab-forecast",
-                            children=[
-                                dbc.Tab(
-                                    tab_forecast.layout(),
-                                    label=TAB_LABELS["tab-forecast"],
-                                    tab_id="tab-forecast",
-                                ),
-                                dbc.Tab(
-                                    tab_demand_outlook.layout(),
-                                    label=TAB_LABELS["tab-outlook"],
-                                    tab_id="tab-outlook",
-                                ),
-                                dbc.Tab(
-                                    tab_backtest.layout(),
-                                    label=TAB_LABELS["tab-backtest"],
-                                    tab_id="tab-backtest",
-                                ),
-                                dbc.Tab(
-                                    tab_generation.layout(),
-                                    label=TAB_LABELS["tab-generation"],
-                                    tab_id="tab-generation",
-                                ),
-                            ],
-                        ),
-                        md=9,
+            # ── Tabs (full width) ─────────────────────────────────
+            dbc.Tabs(
+                id="dashboard-tabs",
+                active_tab="tab-forecast",
+                children=[
+                    dbc.Tab(
+                        tab_forecast.layout(),
+                        label=TAB_LABELS["tab-forecast"],
+                        tab_id="tab-forecast",
                     ),
-                    dbc.Col(
-                        html.Div(id="news-feed"),
-                        md=3,
-                        style={"paddingTop": "10px"},
+                    dbc.Tab(
+                        tab_demand_outlook.layout(),
+                        label=TAB_LABELS["tab-outlook"],
+                        tab_id="tab-outlook",
                     ),
-                ]
+                    dbc.Tab(
+                        tab_backtest.layout(),
+                        label=TAB_LABELS["tab-backtest"],
+                        tab_id="tab-backtest",
+                    ),
+                    dbc.Tab(
+                        tab_generation.layout(),
+                        label=TAB_LABELS["tab-generation"],
+                        tab_id="tab-generation",
+                    ),
+                ],
             ),
+            # ── News Ribbon (below tabs, full width) ─────────────
+            html.Div(id="news-feed"),
             # ── Data Stores ────────────────────────────────────────
             dcc.Store(id="news-store"),
             dcc.Store(id="demand-store"),

@@ -176,18 +176,17 @@ def build_news_card(
     description: str | None = None,
 ) -> html.Div:
     """
-    Build a single news article card.
+    Build a compact news card for the horizontal ribbon.
 
     Args:
         title: Article headline.
         source: News source name.
         published_at: Publication timestamp.
         url: Link to full article.
-        description: Optional article snippet.
+        description: Unused (kept for API compatibility).
     """
     from datetime import datetime
 
-    # Format the timestamp
     try:
         dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
         time_str = dt.strftime("%b %d, %H:%M")
@@ -201,47 +200,19 @@ def build_news_card(
                 href=url,
                 target="_blank",
                 className="news-title",
-                style={
-                    "color": "#e94560",
-                    "textDecoration": "none",
-                    "fontWeight": "500",
-                    "fontSize": "0.9rem",
-                    "lineHeight": "1.3",
-                },
             ),
             html.Div(
-                [
-                    html.Span(source, style={"color": "#8a8fa8", "fontSize": "0.75rem"}),
-                    html.Span(" • ", style={"color": "#6c6c7c"}),
-                    html.Span(time_str, style={"color": "#6c6c7c", "fontSize": "0.75rem"}),
-                ],
-                style={"marginTop": "4px"},
+                f"{source} · {time_str}",
+                className="news-meta",
             ),
-            html.P(
-                description[:120] + "..."
-                if description and len(description) > 120
-                else description,
-                style={
-                    "color": "#b0b0c0",
-                    "fontSize": "0.8rem",
-                    "margin": "6px 0 0 0",
-                    "lineHeight": "1.4",
-                },
-            )
-            if description
-            else None,
         ],
-        className="news-card",
-        style={
-            "padding": "12px",
-            "borderBottom": "1px solid #2a2a3e",
-        },
+        className="news-ribbon-card",
     )
 
 
 def build_news_feed(articles: list[dict]) -> html.Div:
     """
-    Build a news feed panel with multiple article cards.
+    Build a horizontal news ribbon with compact article cards.
 
     Args:
         articles: List of article dicts from news_client.
@@ -252,7 +223,7 @@ def build_news_feed(articles: list[dict]) -> html.Div:
                 "No news available",
                 style={"color": "#6c6c7c", "textAlign": "center", "padding": "20px"},
             ),
-            className="news-feed",
+            className="news-ribbon",
         )
 
     cards = [
@@ -263,30 +234,13 @@ def build_news_feed(articles: list[dict]) -> html.Div:
             url=article.get("url", "#"),
             description=article.get("description"),
         )
-        for article in articles[:5]  # Limit to 5 articles
+        for article in articles[:5]
     ]
 
     return html.Div(
         [
-            html.Div(
-                [
-                    html.Span("📰", style={"marginRight": "8px"}),
-                    html.Span("Energy News", style={"fontWeight": "600", "color": "#ffffff"}),
-                ],
-                style={
-                    "padding": "12px",
-                    "borderBottom": "1px solid #2a2a3e",
-                    "backgroundColor": "#1a1a2e",
-                },
-            ),
-            html.Div(cards),
+            html.Div("Energy News", className="news-ribbon-header"),
+            html.Div(cards, className="news-ribbon-cards"),
         ],
-        className="news-feed",
-        style={
-            "backgroundColor": "#16162a",
-            "borderRadius": "8px",
-            "border": "1px solid #2a2a3e",
-            "maxHeight": "400px",
-            "overflowY": "auto",
-        },
+        className="news-ribbon",
     )
