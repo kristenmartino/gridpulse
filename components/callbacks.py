@@ -3007,6 +3007,17 @@ def _build_persona_kpis(
                 backtest_rmse = cached_result["metrics"].get("rmse")
                 break
 
+    # Fallback: read from Redis if in-memory cache is empty
+    if backtest_mape is None:
+        for horizon in [168, 24, 720]:
+            bt_redis = redis_get(f"wattcast:backtest:{region}:{horizon}")
+            if bt_redis and "metrics" in bt_redis:
+                xgb_metrics = bt_redis["metrics"].get("xgboost", {})
+                if xgb_metrics:
+                    backtest_mape = xgb_metrics.get("mape")
+                    backtest_rmse = xgb_metrics.get("rmse")
+                    break
+
     # Format values
     peak_str = f"{int(peak_mw):,} MW" if peak_mw is not None else "— MW"
     avg_str = f"{int(avg_mw):,} MW" if avg_mw is not None else "— MW"
