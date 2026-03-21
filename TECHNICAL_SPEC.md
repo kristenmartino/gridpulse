@@ -99,26 +99,22 @@ Technical documentation for the GridPulse Energy Demand Forecasting Dashboard.
 
 ---
 
-### 1.3 NewsAPI (Energy News)
+### 1.3 Google News RSS (Energy News)
 
-**Source:** NewsAPI.org
-**Base URL:** `https://newsapi.org/v2/everything`
-**Authentication:** API key required (env: `NEWS_API_KEY`)
+**Source:** Google News RSS
+**URL:** `https://news.google.com/rss/search?q=electricity+grid+OR+renewable+energy+OR+solar+power+OR+wind+power+OR+power+demand+OR+energy+prices+OR+ERCOT+OR+CAISO+OR+power+grid&hl=en-US&gl=US&ceid=US:en`
+**Authentication:** None required (free, no API key)
 
-**Search Query:**
-```
-electricity grid OR renewable energy OR solar power OR wind power OR
-natural gas OR power outage OR energy prices OR utility OR ERCOT OR
-power grid OR electricity demand
-```
+**Response Format:** RSS/XML with `<item>` elements containing:
+- `<title>` — headline (source name appended after ` - `)
+- `<link>` — article URL
+- `<pubDate>` — RFC 2822 date
+- `<source>` — publisher name
 
 **Parameters:**
-- `language`: en
-- `sortBy`: publishedAt
-- `from`: 7 days ago
-- `pageSize`: 5 articles
+- `page_size`: 10 articles (displayed in auto-scrolling ticker)
 
-**Caching:** None (always fetched fresh)
+**Caching:** SQLite with 30-minute TTL. Falls back to demo articles with real URLs (EIA, DOE, NextEra) if RSS fetch fails.
 
 ---
 
