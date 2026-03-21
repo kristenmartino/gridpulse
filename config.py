@@ -79,9 +79,6 @@ MAX_INSTANCES = int(os.getenv("MAX_INSTANCES", str(_env["max_inst"])))
 EIA_API_KEY = os.getenv("EIA_API_KEY", "")
 EIA_BASE_URL = "https://api.eia.gov/v2"
 
-NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
-NEWS_API_BASE_URL = "https://newsapi.org/v2"
-
 OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1"
 OPEN_METEO_PARAMS = "&temperature_unit=fahrenheit&wind_speed_unit=mph"
 
