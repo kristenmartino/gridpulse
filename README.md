@@ -1,51 +1,23 @@
 # GridPulse — Energy Demand Forecasting Dashboard
 
+**[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)**
+
 Weather-aware energy demand forecasting for 8 U.S. balancing authorities. Combines real grid data (EIA), 17 meteorological variables (Open-Meteo), and ML models to predict hourly electricity demand.
 
 Built for the NextEra Analytics portfolio on the stack NextEra uses: Python, Dash/Plotly, XGBoost, Prophet, and Cloud Run.
 
 ---
 
-## Prerequisites
-
-- **Python 3.11+** — required by Prophet and type hint syntax used throughout
-- **pip** — comes with Python; used for dependency installation
-
-```bash
-# macOS (if you don't have Python 3.11+)
-brew install python@3.11
-
-# Verify
-python3 --version  # should be 3.11.x or higher
-```
-
-No other system-level dependencies are required — all ML libraries (XGBoost, Prophet, SHAP) install via pip with pre-built wheels.
-
----
-
-## Quick Start
-
-```bash
-cd energy-forecast
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python app.py
-# → http://localhost:8080
-```
-
-No API keys required — the app runs in demo mode with synthetic data for all 8 regions. For live data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia.gov/opendata/)).
-
----
-
 ## What It Does
 
-Three tabs, each answering a distinct operational question:
+Four tabs, each answering a distinct operational question:
 
 | Tab | Question | What It Shows |
 |-----|----------|---------------|
 | **Historical Demand** | What happened? | Actual recorded demand + EIA day-ahead forecast, weather overlay, comparative KPIs (peak, avg, min, EIA MAPE) |
 | **Demand Forecast** | What will happen? | Forward-looking model predictions (Prophet, SARIMAX, XGBoost, Ensemble) with widening 80%/95% confidence bands |
 | **Backtest** | How accurate are the models? | Model vs actuals on holdout periods, per-model MAPE, residual histograms |
+| **Generation & Net Load** | Where does the power come from? | Generation mix breakdown, renewable share, net load trends |
 
 Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) reconfigure the default tab, KPI cards, and welcome briefing. Each persona reflects a different decision-making context for the same underlying data.
 
@@ -67,34 +39,51 @@ See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analy
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────┐
-│  Browser — Dash/Plotly Dark Theme               │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│  │ Persona  │ │ Region   │ │ KPI Bar  │       │
-│  │ Switcher │ │ Selector │ │          │       │
-│  └──────────┘ └──────────┘ └──────────┘       │
-│  ┌─────────────────────────────────────┐       │
-│  │  [History] [Forecast] [Backtest]    │       │
-│  └─────────────────────────────────────┘       │
-└─────────────────┬───────────────────────────────┘
-                  │ 21 Callback Groups
-                  ▼
-┌─────────────────────────────────────────────────┐
-│  Model Service Layer                             │
-│  get_forecasts() → trained model or simulation   │
-│  Audit trail: model version, data vintage, hash  │
-└─────────┬───────────────┬───────────────────────┘
-          │               │
-    ┌─────▼─────┐   ┌─────▼──────┐
-    │ Data Layer│   │ ML Models  │
-    │ EIA v2   │   │ Prophet    │
-    │ Open-Meteo│   │ SARIMAX    │
-    │ NOAA/NWS │   │ XGBoost    │
-    │ SQLite   │   │ Ensemble   │
-    └───────────┘   └────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│  Browser — gridpulse.kristenmartino.ai                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌───────────────────┐ │
+│  │ Persona  │ │ Region   │ │ KPI Bar  │ │ Energy News Ticker│ │
+│  │ Switcher │ │ Selector │ │          │ │ (Google News RSS) │ │
+│  └──────────┘ └──────────┘ └──────────┘ └───────────────────┘ │
+│  ┌──────────────────────────────────────────────┐              │
+│  │ [History] [Forecast] [Backtest] [Generation] │              │
+│  └──────────────────────────────────────────────┘              │
+└────────────────────────┬────────────────────────────────────────┘
+                         │ 21 Callback Groups
+                         ▼
+┌──────────────────────────────────────────────────┐
+│  Redis (Memorystore)  ←  Pre-computed by         │
+│  Read-only serving       Cloud Run Job (12h cron)│
+│                          ↓                       │
+│  Fallback: v1 compute   EIA API + Open-Meteo     │
+│  path (EIA → features   → XGBoost train          │
+│  → train → predict)     → forecasts + backtests  │
+└──────────┬───────────────┬───────────────────────┘
+     ┌─────▼─────┐   ┌─────▼──────┐
+     │ Data Layer│   │ ML Models  │
+     │ EIA v2   │   │ XGBoost    │
+     │ Open-Meteo│   │ Prophet    │
+     │ Google   │   │ SARIMAX    │
+     │ News RSS │   │ Ensemble   │
+     │ SQLite   │   │ SHAP       │
+     └───────────┘   └────────────┘
 ```
 
-**Data flow:** Region selection → API fetch (or demo fallback) → dcc.Store → tab callbacks → model service → Plotly figures. Every external dependency has a fallback chain: live API → stale cache → demo data.
+**Data flow:** Region selection triggers a Redis read. If cached data exists (pre-computed every 12h), charts render instantly. If Redis is unavailable, the v1 compute path activates: API fetch → feature engineering → model training → prediction. Every external dependency has a fallback chain: Redis → live API → stale cache → demo data.
+
+---
+
+## Quick Start
+
+```bash
+cd energy-forecast
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python app.py
+# → http://localhost:8080
+```
+
+No API keys required — the app runs in demo mode with synthetic data for all 8 regions. For live data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia.gov/opendata/)).
 
 ---
 
@@ -105,16 +94,18 @@ energy-forecast/
 ├── app.py                          # Entry point (port 8080)
 ├── config.py                       # All constants, regions, thresholds
 ├── components/
-│   ├── layout.py                   # Main layout (3-tab container)
+│   ├── layout.py                   # Main layout (4-tab container)
 │   ├── callbacks.py                # 21 callback groups
-│   ├── cards.py                    # KPI, welcome, alert cards
+│   ├── cards.py                    # KPI, welcome, news ticker cards
 │   ├── tab_forecast.py             # Historical Demand tab
 │   ├── tab_demand_outlook.py       # Demand Forecast tab
-│   └── tab_backtest.py             # Backtest tab
+│   ├── tab_backtest.py             # Backtest tab
+│   └── tab_generation.py           # Generation & Net Load tab
 ├── data/
 │   ├── eia_client.py               # EIA API v2 (demand, generation)
 │   ├── weather_client.py           # Open-Meteo (17 weather variables)
-│   ├── noaa_client.py              # NOAA/NWS severe weather alerts
+│   ├── news_client.py              # Google News RSS (energy headlines)
+│   ├── redis_client.py             # Redis read layer (Memorystore)
 │   ├── preprocessing.py            # Merge, align, interpolate, validate
 │   ├── feature_engineering.py      # 43 derived features
 │   ├── cache.py                    # SQLite with TTL + stale fallback
@@ -128,18 +119,31 @@ energy-forecast/
 │   ├── ensemble.py                 # 1/MAPE weighted combination
 │   ├── evaluation.py               # MAPE, RMSE, MAE, R²
 │   └── pricing.py                  # Merit-order pricing model
-├── simulation/                     # Scenario engine (dormant — see below)
+├── scaling-analytics/              # v2 pre-computation scaffold (see below)
 ├── personas/                       # 4 role-based persona configs
 ├── tests/                          # 19 test files (unit/integration/e2e)
 ├── Dockerfile                      # Multi-stage, non-root, healthcheck
 └── .github/workflows/              # CI, staging deploy, prod deploy
 ```
 
-**Dormant modules:** `simulation/`, `components/tab_weather.py`, `tab_models.py`, `tab_generation.py`, `tab_alerts.py`, and `tab_simulator.py` contain completed implementations from earlier sprints. They were removed from the active tab set during an architecture review that focused the dashboard on its three core views. Code is preserved for future reactivation.
+### Scaling Analytics (v2 Scaffold)
+
+The `scaling-analytics/` directory contains the full pre-computation pipeline architecture: Airflow DAGs, Kafka consumers/producers, FastAPI server, batch scorer, and Postgres schema. This is designed for production-scale deployment with Cloud Composer and managed Kafka. Currently, the production dashboard uses a simplified version of this pipeline — a Cloud Run Job on a 12-hour Cloud Scheduler cron that populates Redis (Memorystore).
 
 ---
 
 ## Deployment
+
+**Production** is deployed automatically on push to `main` via GitHub Actions.
+
+```
+Cloud Run (gridpulse)  →  gridpulse.kristenmartino.ai
+  ├── Memorystore (Redis)  →  pre-computed forecasts + backtests
+  ├── Cloud Run Job        →  populate-redis (12h cron via Cloud Scheduler)
+  └── VPC Connector        →  wattcast-connector (links Run to Redis)
+```
+
+### Manual deployment
 
 ```bash
 # Docker
@@ -152,16 +156,15 @@ gcloud run deploy gridpulse \
   --image us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse \
   --platform managed --allow-unauthenticated \
   --memory 2Gi --timeout 300 \
-  --set-env-vars EIA_API_KEY=your_key
-
-# Health check
-curl http://localhost:8080/health
+  --set-env-vars EIA_API_KEY=your_key,REDIS_HOST=<memorystore-ip>
 ```
+
+---
 
 ## Testing
 
 ```bash
-pytest tests/ -v                    # Full suite (361 tests)
+pytest tests/ -v                    # Full suite (440+ tests)
 pytest tests/unit/ -v               # Fast feedback
 pytest tests/e2e/ -v                # Dashboard rendering
 ```
