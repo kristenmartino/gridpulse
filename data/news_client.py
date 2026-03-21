@@ -87,14 +87,16 @@ def fetch_energy_news(
                 except (ValueError, TypeError):
                     published_at = pub_date
 
-            articles.append({
-                "title": title,
-                "description": "",
-                "url": link,
-                "source": source,
-                "published_at": published_at,
-                "image_url": None,
-            })
+            articles.append(
+                {
+                    "title": title,
+                    "description": "",
+                    "url": link,
+                    "source": source,
+                    "published_at": published_at,
+                    "image_url": None,
+                }
+            )
 
         if not articles:
             return _get_demo_news()
