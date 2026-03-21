@@ -2300,7 +2300,7 @@ def register_callbacks(app):
         from data.news_client import fetch_energy_news
 
         try:
-            articles = fetch_energy_news(page_size=5)
+            articles = fetch_energy_news(page_size=10)
             if not articles:
                 from data.news_client import _get_demo_news
 

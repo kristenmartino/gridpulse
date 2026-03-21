@@ -193,26 +193,24 @@ def build_news_card(
     except (ValueError, AttributeError):
         time_str = published_at[:16] if published_at else ""
 
-    return html.Div(
-        [
-            html.A(
-                title,
-                href=url,
-                target="_blank",
-                className="news-title",
-            ),
-            html.Div(
-                f"{source} · {time_str}",
-                className="news-meta",
-            ),
-        ],
+    return html.A(
+        html.Div(
+            [
+                html.Div(title, className="news-title"),
+                html.Div(
+                    f"{source} · {time_str}",
+                    className="news-meta",
+                ),
+            ],
+        ),
+        href=url,
         className="news-ribbon-card",
     )
 
 
 def build_news_feed(articles: list[dict]) -> html.Div:
     """
-    Build a horizontal news ribbon with compact article cards.
+    Build an auto-scrolling news ticker with compact article cards.
 
     Args:
         articles: List of article dicts from news_client.
@@ -234,13 +232,17 @@ def build_news_feed(articles: list[dict]) -> html.Div:
             url=article.get("url", "#"),
             description=article.get("description"),
         )
-        for article in articles[:5]
+        for article in articles[:10]
     ]
 
+    # Duplicate cards for seamless looping
     return html.Div(
         [
             html.Div("Energy News", className="news-ribbon-header"),
-            html.Div(cards, className="news-ribbon-cards"),
+            html.Div(
+                html.Div(cards + cards, className="news-ticker-track"),
+                className="news-ticker-viewport",
+            ),
         ],
         className="news-ribbon",
     )
