@@ -1,27 +1,27 @@
 """
-NewsAPI client for energy-related news.
+Energy news client using Google News RSS.
 
-Fetches top headlines and articles related to energy, utilities,
-renewable energy, and grid operations.
-
-API docs: https://newsapi.org/docs
+Fetches headlines related to energy, utilities, renewable energy,
+and grid operations. No API key required.
 """
 
+import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
+from email.utils import parsedate_to_datetime
 
 import requests
 import structlog
 
-from config import NEWS_API_BASE_URL, NEWS_API_KEY
 from data.cache import get_cache
 
 log = structlog.get_logger()
 
-# Energy-related search terms
-ENERGY_KEYWORDS = (
-    "electricity grid OR renewable energy OR solar power OR wind power OR "
-    "natural gas OR power outage OR energy prices OR utility OR ERCOT OR "
-    "power grid OR electricity demand"
+# Google News RSS search query for energy topics
+_GOOGLE_NEWS_RSS = (
+    "https://news.google.com/rss/search?"
+    "q=electricity+grid+OR+renewable+energy+OR+solar+power+OR+wind+power"
+    "+OR+power+demand+OR+energy+prices+OR+ERCOT+OR+CAISO+OR+power+grid"
+    "&hl=en-US&gl=US&ceid=US:en"
 )
 
 
@@ -30,128 +30,125 @@ def fetch_energy_news(
     page_size: int = 10,
 ) -> list[dict]:
     """
-    Fetch energy-related news articles from NewsAPI.
-
-    News is always fetched fresh (no caching) to ensure up-to-date headlines.
+    Fetch energy-related news articles from Google News RSS.
 
     Args:
-        query: Custom search query (default: energy keywords).
-        page_size: Number of articles to fetch (max 100).
+        query: Unused (kept for API compatibility).
+        page_size: Number of articles to return.
 
     Returns:
         List of article dicts with keys: title, description, url, source,
         published_at, image_url.
     """
-    if not NEWS_API_KEY:
-        log.warning("news_api_key_missing")
-        return _get_demo_news()
-
-    # Check cache first (30-minute TTL)
-    cache_key = f"news:{query or 'default'}:{page_size}"
     cache = get_cache()
+    cache_key = f"news:google_rss:{page_size}"
     cached = cache.get(cache_key)
     if cached is not None:
         log.info("news_cache_hit", key=cache_key)
         return cached
 
-    log.info("news_fetching", page_size=page_size)
+    log.info("news_fetching_rss", page_size=page_size)
 
     try:
-        # Use everything endpoint for broader search
-        url = f"{NEWS_API_BASE_URL}/everything"
-        params = {
-            "apiKey": NEWS_API_KEY,
-            "q": query or ENERGY_KEYWORDS,
-            "language": "en",
-            "sortBy": "publishedAt",
-            "pageSize": min(page_size, 100),
-            "from": (datetime.now(UTC) - timedelta(days=7)).strftime("%Y-%m-%d"),
-        }
-
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(_GOOGLE_NEWS_RSS, timeout=10)
         response.raise_for_status()
-        data = response.json()
 
-        if data.get("status") != "ok":
-            log.error("news_api_error", error=data.get("message"))
+        root = ET.fromstring(response.content)
+        channel = root.find("channel")
+        if channel is None:
+            log.error("news_rss_no_channel")
             return _get_demo_news()
 
-        articles = _parse_articles(data.get("articles", []))
+        articles = []
+        for item in channel.findall("item"):
+            if len(articles) >= page_size:
+                break
+
+            raw_title = item.findtext("title", "")
+            # Google News titles end with " - Source Name"
+            parts = raw_title.rsplit(" - ", 1)
+            title = parts[0] if parts else raw_title
+            source = parts[1] if len(parts) > 1 else "Google News"
+
+            # Also check <source> element
+            source_el = item.find("source")
+            if source_el is not None and source_el.text:
+                source = source_el.text
+
+            link = item.findtext("link", "")
+            pub_date = item.findtext("pubDate", "")
+
+            # Parse RFC 2822 date
+            published_at = ""
+            if pub_date:
+                try:
+                    dt = parsedate_to_datetime(pub_date)
+                    published_at = dt.isoformat()
+                except (ValueError, TypeError):
+                    published_at = pub_date
+
+            articles.append({
+                "title": title,
+                "description": "",
+                "url": link,
+                "source": source,
+                "published_at": published_at,
+                "image_url": None,
+            })
+
+        if not articles:
+            return _get_demo_news()
+
         log.info("news_fetched", articles=len(articles))
-
-        # Cache for 30 minutes
         cache.set(cache_key, articles, ttl=1800)
-
         return articles
 
-    except requests.RequestException as e:
+    except (requests.RequestException, ET.ParseError) as e:
         log.error("news_fetch_failed", error=str(e))
         return _get_demo_news()
 
 
-def _parse_articles(raw_articles: list[dict]) -> list[dict]:
-    """Parse raw NewsAPI articles into a cleaner format."""
-    articles = []
-    for article in raw_articles:
-        # Skip removed articles
-        if article.get("title") == "[Removed]":
-            continue
-
-        articles.append(
-            {
-                "title": article.get("title", ""),
-                "description": article.get("description", ""),
-                "url": article.get("url", ""),
-                "source": article.get("source", {}).get("name", "Unknown"),
-                "published_at": article.get("publishedAt", ""),
-                "image_url": article.get("urlToImage"),
-            }
-        )
-
-    return articles
-
-
 def _get_demo_news() -> list[dict]:
-    """Return demo news articles when API is unavailable."""
+    """Return demo news articles when RSS feed is unavailable."""
     now = datetime.now(UTC)
     return [
         {
-            "title": "ERCOT Reports Record Solar Generation Amid Summer Heat",
-            "description": "Texas grid operator sees solar power reach new highs as temperatures soar across the state.",
-            "url": "#",
-            "source": "Energy News Daily",
+            "title": "ERCOT Solar Generation Hits New Records as Texas Grid Evolves",
+            "description": "",
+            "url": "https://www.eia.gov/todayinenergy/detail.php?id=66464",
+            "source": "EIA",
             "published_at": (now - timedelta(hours=2)).isoformat(),
             "image_url": None,
         },
         {
-            "title": "Natural Gas Prices Rise on Increased Power Demand",
-            "description": "Wholesale natural gas prices climb as utilities increase generation to meet cooling demand.",
-            "url": "#",
-            "source": "Market Watch",
+            "title": "Natural Gas Prices Fluctuate on Shifting Power Demand",
+            "description": "",
+            "url": "https://www.eia.gov/outlooks/steo/report/natgas.php",
+            "source": "EIA",
             "published_at": (now - timedelta(hours=5)).isoformat(),
             "image_url": None,
         },
         {
-            "title": "DOE Announces $2B Investment in Grid Modernization",
-            "description": "Federal funding to support transmission upgrades and renewable energy integration projects.",
-            "url": "#",
-            "source": "Reuters Energy",
+            "title": "DOE Announces $1.9B SPARK Investment in Grid Modernization",
+            "description": "",
+            "url": "https://www.energy.gov/articles/energy-department-announces-19b-investment-critical-grid-infrastructure-reduce-electricity",
+            "source": "DOE",
             "published_at": (now - timedelta(hours=8)).isoformat(),
             "image_url": None,
         },
         {
-            "title": "Florida Utilities Prepare for Hurricane Season",
-            "description": "Major utilities announce storm hardening investments and emergency response preparations.",
-            "url": "#",
-            "source": "Utility Dive",
+            "title": "FPL Accelerates Grid Hardening Ahead of Hurricane Season",
+            "description": "",
+            "url": "https://newsroom.nexteraenergy.com/FPL-announces-plan-to-accelerate-strengthening-of-Floridas-electric-grid-during-annual-storm-drill",
+            "source": "NextEra Energy",
             "published_at": (now - timedelta(days=1)).isoformat(),
             "image_url": None,
         },
         {
-            "title": "California Grid Operator Issues Flex Alert",
-            "description": "CAISO asks residents to conserve electricity during evening peak hours.",
-            "url": "#",
-            "source": "LA Times",
+            "title": "Solar Power Drives U.S. Electricity Generation Growth",
+            "description": "",
+            "url": "https://www.eia.gov/todayinenergy/detail.php?id=67005",
+            "source": "EIA",
             "published_at": (now - timedelta(days=1, hours=3)).isoformat(),
             "image_url": None,
         },
