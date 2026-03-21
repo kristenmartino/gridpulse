@@ -47,7 +47,7 @@ def build_layout() -> dbc.Container:
                             dbc.Col(
                                 [
                                     html.Label(
-                                        "Region", style={"color": "#8a8fa8", "fontSize": "0.7rem"}
+                                        "Balancing Authority", style={"color": "#8a8fa8", "fontSize": "0.7rem"}
                                     ),
                                     dbc.Select(
                                         id="region-selector",
