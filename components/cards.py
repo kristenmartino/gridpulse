@@ -204,6 +204,8 @@ def build_news_card(
             ],
         ),
         href=url,
+        target="_blank",
+        rel="noopener noreferrer",
         className="news-ribbon-card",
     )
 
