@@ -304,7 +304,11 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
                 time.sleep(backoff)
                 backoff *= 2
             else:
-                log.error("eia_request_failed", status=resp.status_code, body=resp.text[:200])
+                # Sanitize response body to avoid leaking API keys in logs
+                import re
+
+                sanitized = re.sub(r"api_key=[^&\s\"']+", "api_key=***", resp.text[:200])
+                log.error("eia_request_failed", status=resp.status_code, body=sanitized)
                 return None
 
         except requests.RequestException as e:
