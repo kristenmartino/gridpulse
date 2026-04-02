@@ -142,6 +142,15 @@ def fetch_historical_weather(
     if region not in REGION_COORDINATES:
         raise ValueError(f"Unknown region: {region}")
 
+    # Validate date format to prevent cache key pollution and API abuse
+    from datetime import datetime as _dt
+
+    for label, val in [("start_date", start_date), ("end_date", end_date)]:
+        try:
+            _dt.strptime(val, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid {label} format: expected YYYY-MM-DD, got {val!r}")
+
     cache_key = f"weather_hist_{region}_{start_date}_{end_date}"
     cache = get_cache()
 
