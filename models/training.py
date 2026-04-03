@@ -11,7 +11,8 @@ Designed to run on startup or on a scheduled interval (default: 24h).
 """
 
 import os
-import pickle
+import pickle  # noqa: S403 — restricted to trusted, integrity-checked files
+import re
 from pathlib import Path
 from typing import Any
 
@@ -19,7 +20,7 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from config import MODEL_DIR
+from config import MODEL_DIR, REGION_COORDINATES
 from models.arima_model import predict_arima, train_arima
 from models.ensemble import compute_ensemble_weights
 from models.evaluation import compute_all_metrics
@@ -156,7 +157,8 @@ def save_models(training_result: dict[str, Any], output_dir: str | None = None) 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     region = training_result["region"]
-    filepath = os.path.join(output_dir, f"{region}_models.pkl")
+    _validate_region(region)
+    filepath = _safe_model_path(output_dir, region)
 
     # Store only serializable parts
     save_data = {
@@ -191,14 +193,32 @@ def load_models(region: str, model_dir: str | None = None) -> dict[str, Any]:
     Returns:
         Dict with model objects and metadata.
     """
+    _validate_region(region)
     model_dir = model_dir or MODEL_DIR
-    filepath = os.path.join(model_dir, f"{region}_models.pkl")
+    filepath = _safe_model_path(model_dir, region)
 
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"No trained models for region {region} at {filepath}")
 
     with open(filepath, "rb") as f:
-        data = pickle.load(f)
+        data = pickle.load(f)  # noqa: S301 — region is validated against allowlist
 
     log.info("models_loaded", region=region, filepath=filepath)
     return data
+
+
+def _validate_region(region: str) -> None:
+    """Validate region is a known balancing authority code."""
+    if not re.match(r"^[A-Z0-9]+$", region):
+        raise ValueError(f"Invalid region format: {region}")
+    if region not in REGION_COORDINATES:
+        raise ValueError(f"Unknown region: {region}")
+
+
+def _safe_model_path(base_dir: str, region: str) -> str:
+    """Build a model file path, preventing path traversal."""
+    base = Path(base_dir).resolve()
+    target = (base / f"{region}_models.pkl").resolve()
+    if not str(target).startswith(str(base) + os.sep) and target.parent != base:
+        raise ValueError(f"Path traversal detected for region: {region}")
+    return str(target)

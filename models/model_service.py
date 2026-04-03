@@ -92,7 +92,13 @@ def get_ensemble_weights(region: str) -> dict[str, float]:
 
 def is_trained(region: str) -> bool:
     """Check if trained models exist for a region."""
-    filepath = os.path.join(MODEL_DIR, f"{region}_models.pkl")
+    from models.training import _safe_model_path, _validate_region
+
+    try:
+        _validate_region(region)
+    except ValueError:
+        return False
+    filepath = _safe_model_path(MODEL_DIR, region)
     return os.path.exists(filepath)
 
 

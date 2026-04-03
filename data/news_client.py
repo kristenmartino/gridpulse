@@ -5,12 +5,13 @@ Fetches headlines related to energy, utilities, renewable energy,
 and grid operations. No API key required.
 """
 
-import xml.etree.ElementTree as ET
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
+from xml.etree.ElementTree import ParseError as _XMLParseError
 
 import requests
 import structlog
+from defusedxml.ElementTree import fromstring as _safe_xml_fromstring
 
 from data.cache import get_cache
 
@@ -53,7 +54,7 @@ def fetch_energy_news(
         response = requests.get(_GOOGLE_NEWS_RSS, timeout=10)
         response.raise_for_status()
 
-        root = ET.fromstring(response.content)
+        root = _safe_xml_fromstring(response.content)
         channel = root.find("channel")
         if channel is None:
             log.error("news_rss_no_channel")
@@ -105,7 +106,7 @@ def fetch_energy_news(
         cache.set(cache_key, articles, ttl=1800)
         return articles
 
-    except (requests.RequestException, ET.ParseError) as e:
+    except (requests.RequestException, _XMLParseError) as e:
         log.error("news_fetch_failed", error=str(e))
         return _get_demo_news()
 
