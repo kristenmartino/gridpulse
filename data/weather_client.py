@@ -149,7 +149,7 @@ def fetch_historical_weather(
         try:
             _dt.strptime(val, "%Y-%m-%d")
         except (ValueError, TypeError):
-            raise ValueError(f"Invalid {label} format: expected YYYY-MM-DD, got {val!r}")
+            raise ValueError(f"Invalid {label} format: expected YYYY-MM-DD, got {val!r}") from None
 
     cache_key = f"weather_hist_{region}_{start_date}_{end_date}"
     cache = get_cache()

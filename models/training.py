@@ -20,9 +20,7 @@ import numpy as np
 import pandas as pd
 import structlog
 
-from config import REGION_COORDINATES
-
-from config import MODEL_DIR
+from config import MODEL_DIR, REGION_COORDINATES
 from models.arima_model import predict_arima, train_arima
 from models.ensemble import compute_ensemble_weights
 from models.evaluation import compute_all_metrics
