@@ -182,6 +182,34 @@ def _add_confidence_bands(
     )
 
 
+def _add_trailing_actuals(
+    fig: "go.Figure",
+    demand_json: str | None,
+    tail_hours: int = 48,
+) -> None:
+    """Add trailing actual demand as a lead-in trace on the forecast chart."""
+    if not demand_json:
+        return
+    try:
+        demand_df = pd.read_json(io.StringIO(demand_json))
+        demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
+        demand_df = demand_df.sort_values("timestamp")
+        tail = demand_df.tail(tail_hours)
+        if tail.empty:
+            return
+        fig.add_trace(
+            go.Scatter(
+                x=tail["timestamp"],
+                y=tail["demand_mw"],
+                mode="lines",
+                name="Actual",
+                line=dict(color=COLORS["actual"], width=2, dash="dot"),
+            )
+        )
+    except Exception:
+        pass  # Non-critical — chart still works without actuals
+
+
 def _run_forecast_outlook(
     demand_df: pd.DataFrame,
     weather_df: pd.DataFrame,
@@ -2473,6 +2501,7 @@ def register_callbacks(app):
                     )
                 )
                 _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
+                _add_trailing_actuals(fig, demand_json)
                 horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
                 fig.update_layout(
                     **PLOT_LAYOUT,
@@ -2595,6 +2624,7 @@ def register_callbacks(app):
             )
         )
         _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
+        _add_trailing_actuals(fig, demand_json)
 
         # Layout
         horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
