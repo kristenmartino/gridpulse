@@ -134,6 +134,54 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
     return hash((demand_sig, weather_sig, region))
 
 
+def _confidence_half_width(horizon_hours: int) -> float:
+    """Return the 80% CI half-width as a fraction, scaled by forecast horizon.
+
+    Longer horizons carry more uncertainty. Values are approximate and
+    calibrated against typical energy demand forecast error growth.
+    """
+    if horizon_hours <= 24:
+        return 0.03  # ±3%
+    if horizon_hours <= 168:
+        return 0.06  # ±6%
+    return 0.10  # ±10% for 30-day
+
+
+def _add_confidence_bands(
+    fig: "go.Figure",
+    timestamps: "pd.DatetimeIndex | np.ndarray",
+    predictions: np.ndarray,
+    horizon_hours: int,
+) -> None:
+    """Add upper/lower 80% confidence band traces to a forecast figure."""
+    hw = _confidence_half_width(horizon_hours)
+    upper = predictions * (1 + hw)
+    lower = predictions * (1 - hw)
+
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps,
+            y=upper,
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps,
+            y=lower,
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor=COLORS["confidence"],
+            name="80% CI",
+            hoverinfo="skip",
+        )
+    )
+
+
 def _run_forecast_outlook(
     demand_df: pd.DataFrame,
     weather_df: pd.DataFrame,
@@ -438,7 +486,7 @@ def _create_future_features(
     horizon = len(future_timestamps)
     last_row = train_df.iloc[-1]
 
-    if horizon <= 168:
+    if horizon < 168:
         # Short horizon: last-known values are a reasonable proxy
         for col in feature_cols:
             if col not in future_df.columns:
@@ -2424,6 +2472,7 @@ def register_callbacks(app):
                         showlegend=False,
                     )
                 )
+                _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
                 horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
                 fig.update_layout(
                     **PLOT_LAYOUT,
@@ -2545,6 +2594,7 @@ def register_callbacks(app):
                 showlegend=False,
             )
         )
+        _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
 
         # Layout
         horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
