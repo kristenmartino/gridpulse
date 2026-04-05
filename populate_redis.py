@@ -11,10 +11,16 @@ import pandas as pd
 import redis
 
 from config import REGION_COORDINATES
+from data.demo_data import generate_demo_alerts
 from data.eia_client import fetch_demand
-from data.feature_engineering import engineer_features
+from data.feature_engineering import (
+    compute_solar_capacity_factor,
+    compute_wind_power,
+    engineer_features,
+)
 from data.preprocessing import merge_demand_weather
 from data.weather_client import fetch_weather
+from models.model_service import get_forecasts
 from models.xgboost_model import predict_xgboost, train_xgboost
 
 warnings.filterwarnings("ignore")
@@ -200,6 +206,196 @@ for region in REGIONS:
             ),
             ex=TTL,
         )
+        # ── Weather Correlation ──────────────────────────────
+        wc_merged = demand_df.merge(weather_df, on="timestamp", how="inner")
+        corr_cols = [
+            c
+            for c in [
+                "demand_mw",
+                "temperature_2m",
+                "wind_speed_80m",
+                "shortwave_radiation",
+                "relative_humidity_2m",
+                "cloud_cover",
+                "surface_pressure",
+            ]
+            if c in wc_merged.columns
+        ]
+        if len(corr_cols) >= 2:
+            corr = wc_merged[corr_cols].corr()
+            importance = corr["demand_mw"].drop("demand_mw").abs().sort_values(ascending=True)
+            wp_arr = (
+                compute_wind_power(wc_merged["wind_speed_80m"])
+                if "wind_speed_80m" in wc_merged.columns
+                else []
+            )
+            scf_arr = (
+                compute_solar_capacity_factor(wc_merged["shortwave_radiation"])
+                if "shortwave_radiation" in wc_merged.columns
+                else []
+            )
+            # Seasonal decomposition
+            demand_ts = wc_merged.set_index("timestamp")["demand_mw"].resample("h").mean().dropna()
+            trend = demand_ts.rolling(168, center=True).mean()
+            residual = demand_ts - trend
+            r.set(
+                f"wattcast:weather-correlation:{region}",
+                json.dumps(
+                    {
+                        "region": region,
+                        "timestamps": [t.isoformat() for t in wc_merged["timestamp"]],
+                        "demand_mw": wc_merged["demand_mw"].tolist(),
+                        "temperature_2m": wc_merged["temperature_2m"].tolist()
+                        if "temperature_2m" in wc_merged.columns
+                        else [],
+                        "wind_speed_80m": wc_merged["wind_speed_80m"].tolist()
+                        if "wind_speed_80m" in wc_merged.columns
+                        else [],
+                        "shortwave_radiation": wc_merged["shortwave_radiation"].tolist()
+                        if "shortwave_radiation" in wc_merged.columns
+                        else [],
+                        "relative_humidity_2m": wc_merged["relative_humidity_2m"].tolist()
+                        if "relative_humidity_2m" in wc_merged.columns
+                        else [],
+                        "cloud_cover": wc_merged["cloud_cover"].tolist()
+                        if "cloud_cover" in wc_merged.columns
+                        else [],
+                        "surface_pressure": wc_merged["surface_pressure"].tolist()
+                        if "surface_pressure" in wc_merged.columns
+                        else [],
+                        "wind_power": wp_arr.tolist()
+                        if hasattr(wp_arr, "tolist")
+                        else list(wp_arr),
+                        "solar_cf": scf_arr.tolist()
+                        if hasattr(scf_arr, "tolist")
+                        else list(scf_arr),
+                        "correlation_matrix": {
+                            "cols": corr.columns.tolist(),
+                            "values": corr.values.tolist(),
+                        },
+                        "importance": {
+                            "names": importance.index.tolist(),
+                            "values": importance.values.tolist(),
+                        },
+                        "seasonal": {
+                            "timestamps": [t.isoformat() for t in demand_ts.index],
+                            "original": demand_ts.values.tolist(),
+                            "trend": [float(v) if not np.isnan(v) else None for v in trend.values],
+                            "residual": [
+                                float(v) if not np.isnan(v) else None for v in residual.values
+                            ],
+                        },
+                    }
+                ),
+                ex=TTL,
+            )
+            print(f"  Weather correlation: {len(wc_merged)} merged points")
+
+        # ── Model Diagnostics ──────────────────────────────
+        try:
+            diag_forecasts = get_forecasts(region, demand_df)
+            diag_metrics = diag_forecasts.get("metrics", {})
+            diag_ensemble = diag_forecasts.get("ensemble", demand_df["demand_mw"].values)
+            if not isinstance(diag_ensemble, np.ndarray):
+                diag_ensemble = (
+                    np.array(diag_ensemble)
+                    if diag_ensemble is not None
+                    else demand_df["demand_mw"].values
+                )
+            diag_actual = demand_df["demand_mw"].values[: len(diag_ensemble)]
+            diag_residuals = diag_actual - diag_ensemble
+            diag_ts = demand_df["timestamp"].iloc[: len(diag_ensemble)]
+            hours_of_day = diag_ts.dt.hour
+            error_by_hour = pd.DataFrame(
+                {"hour": hours_of_day, "abs_error": np.abs(diag_residuals)}
+            )
+            hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
+            # Feature importance from trained model
+            fi_names = [
+                "temperature_2m",
+                "demand_lag_24h",
+                "hour_sin",
+                "cooling_degree_days",
+                "wind_speed_80m",
+                "demand_roll_24h_mean",
+                "heating_degree_days",
+                "solar_capacity_factor",
+                "day_of_week",
+                "cloud_cover",
+            ]
+            fi_vals = list(range(10, 0, -1))  # defaults
+            if model_dict and isinstance(model_dict, dict) and "feature_importances" in model_dict:
+                imp = model_dict["feature_importances"]
+                sorted_feats = sorted(imp.items(), key=lambda x: x[1], reverse=True)[:10]
+                fi_names = [f[0] for f in sorted_feats]
+                fi_vals = [f[1] for f in sorted_feats]
+            r.set(
+                f"wattcast:diagnostics:{region}",
+                json.dumps(
+                    {
+                        "region": region,
+                        "timestamps": [t.isoformat() for t in diag_ts],
+                        "actual": diag_actual.tolist(),
+                        "ensemble": diag_ensemble.tolist(),
+                        "residuals": diag_residuals.tolist(),
+                        "metrics": {k: v for k, v in diag_metrics.items()},
+                        "hourly_error": {
+                            "hours": hourly_error.index.tolist(),
+                            "values": hourly_error.values.tolist(),
+                        },
+                        "feature_importance": {
+                            "names": fi_names,
+                            "values": fi_vals,
+                        },
+                    }
+                ),
+                ex=TTL,
+            )
+            print(f"  Diagnostics: {len(diag_metrics)} models, {len(diag_ensemble)} points")
+        except Exception as diag_err:
+            print(f"  Diagnostics SKIP: {diag_err}")
+
+        # ── Alerts ──────────────────────────────
+        alerts = generate_demo_alerts(region)
+        n_crit = sum(1 for a in alerts if a["severity"] == "critical")
+        n_warn = sum(1 for a in alerts if a["severity"] == "warning")
+        n_info = sum(1 for a in alerts if a["severity"] == "info")
+        stress = min(100, n_crit * 30 + n_warn * 15 + 20)
+        stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
+        # Anomaly detection from demand data
+        recent = demand_df.tail(168).copy()
+        rolling_mean = recent["demand_mw"].rolling(24).mean()
+        rolling_std = recent["demand_mw"].rolling(24).std()
+        upper = rolling_mean + 2 * rolling_std
+        lower = rolling_mean - 2 * rolling_std
+        anomalies = recent[recent["demand_mw"] > upper]
+        # Temperature data
+        recent_w = weather_df.tail(168).copy() if not weather_df.empty else pd.DataFrame()
+        alert_payload = {
+            "region": region,
+            "alerts": alerts,
+            "stress_score": stress,
+            "stress_label": stress_label,
+            "alert_counts": {"critical": n_crit, "warning": n_warn, "info": n_info},
+            "anomaly": {
+                "timestamps": [t.isoformat() for t in recent["timestamp"]],
+                "demand": recent["demand_mw"].tolist(),
+                "upper": [float(v) if not np.isnan(v) else None for v in upper.values],
+                "lower": [float(v) if not np.isnan(v) else None for v in lower.values],
+                "anomaly_timestamps": [t.isoformat() for t in anomalies["timestamp"]]
+                if not anomalies.empty
+                else [],
+                "anomaly_values": anomalies["demand_mw"].tolist() if not anomalies.empty else [],
+            },
+        }
+        if not recent_w.empty and "temperature_2m" in recent_w.columns:
+            alert_payload["temperature"] = {
+                "timestamps": [t.isoformat() for t in recent_w["timestamp"]],
+                "values": recent_w["temperature_2m"].tolist(),
+            }
+        r.set(f"wattcast:alerts:{region}", json.dumps(alert_payload), ex=TTL)
+        print(f"  Alerts: {len(alerts)} alerts, stress={stress}")
+
         print(f"  Done {region}")
     except Exception as e:
         print(f"  ERROR: {e}")

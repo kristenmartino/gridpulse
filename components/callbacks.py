@@ -1079,9 +1079,10 @@ def register_callbacks(app):
             Input("weather-store", "data"),
             Input("dashboard-tabs", "active_tab"),
         ],
+        [State("region-selector", "value")],
         prevent_initial_call=True,
     )
-    def update_weather_tab(demand_json, weather_json, active_tab):
+    def update_weather_tab(demand_json, weather_json, active_tab, region):
         """Update all Tab 2 charts."""
         if active_tab != "tab-weather":
             return [no_update] * 6
@@ -1089,6 +1090,129 @@ def register_callbacks(app):
             empty = _empty_figure("Loading...")
             return empty, empty, empty, empty, empty, empty
 
+        # ── v2 Redis fast path ──────────────────────────────
+        if region:
+            cached = redis_get(f"wattcast:weather-correlation:{region}")
+            if cached is not None:
+                log.info("weather_redis_hit", region=region)
+                corr_data = cached.get("correlation_matrix", {})
+                imp_data = cached.get("importance", {})
+                seasonal = cached.get("seasonal", {})
+
+                # Scatter: Temperature vs Demand
+                fig_temp = go.Figure(
+                    go.Scatter(
+                        x=cached.get("temperature_2m", []),
+                        y=cached.get("demand_mw", []),
+                        mode="markers",
+                        marker=dict(size=3, color=COLORS["actual"], opacity=0.4),
+                    )
+                )
+                fig_temp.update_layout(
+                    **PLOT_LAYOUT, xaxis_title="Temperature (°F)", yaxis_title="Demand (MW)"
+                )
+
+                # Scatter: Wind
+                fig_wind = go.Figure(
+                    go.Scatter(
+                        x=cached.get("wind_speed_80m", []),
+                        y=cached.get("wind_power", []),
+                        mode="markers",
+                        marker=dict(size=3, color=COLORS["wind"], opacity=0.5),
+                    )
+                )
+                fig_wind.update_layout(
+                    **PLOT_LAYOUT, xaxis_title="Wind Speed (mph)", yaxis_title="Wind Power Estimate"
+                )
+
+                # Scatter: Solar
+                fig_solar = go.Figure(
+                    go.Scatter(
+                        x=cached.get("shortwave_radiation", []),
+                        y=cached.get("solar_cf", []),
+                        mode="markers",
+                        marker=dict(size=3, color=COLORS["solar"], opacity=0.5),
+                    )
+                )
+                fig_solar.update_layout(
+                    **PLOT_LAYOUT, xaxis_title="GHI (W/m²)", yaxis_title="Solar Capacity Factor"
+                )
+
+                # Heatmap
+                corr_cols = corr_data.get("cols", [])
+                corr_vals = corr_data.get("values", [])
+                fig_heatmap = go.Figure(
+                    go.Heatmap(
+                        z=corr_vals,
+                        x=corr_cols,
+                        y=corr_cols,
+                        colorscale="RdBu",
+                        zmid=0,
+                        text=np.round(np.array(corr_vals), 2) if corr_vals else [],
+                        texttemplate="%{text}",
+                    )
+                )
+                fig_heatmap.update_layout(**PLOT_LAYOUT)
+
+                # Feature importance
+                imp_names = imp_data.get("names", [])
+                imp_vals = imp_data.get("values", [])
+                fig_importance = go.Figure(
+                    go.Bar(
+                        x=imp_vals,
+                        y=imp_names,
+                        orientation="h",
+                        marker_color=COLORS["ensemble"],
+                    )
+                )
+                fig_importance.update_layout(**PLOT_LAYOUT, xaxis_title="Correlation Strength")
+
+                # Seasonal decomposition
+                s_ts = pd.to_datetime(seasonal.get("timestamps", []))
+                s_orig = seasonal.get("original", [])
+                s_trend = seasonal.get("trend", [])
+                s_resid = seasonal.get("residual", [])
+                fig_seasonal = make_subplots(
+                    rows=3,
+                    cols=1,
+                    shared_xaxes=True,
+                    subplot_titles=["Original", "Trend (7-day)", "Residual"],
+                )
+                fig_seasonal.add_trace(
+                    go.Scatter(
+                        x=s_ts,
+                        y=s_orig,
+                        line=dict(color=COLORS["actual"], width=1),
+                        showlegend=False,
+                    ),
+                    row=1,
+                    col=1,
+                )
+                fig_seasonal.add_trace(
+                    go.Scatter(
+                        x=s_ts,
+                        y=s_trend,
+                        line=dict(color=COLORS["ensemble"], width=2),
+                        showlegend=False,
+                    ),
+                    row=2,
+                    col=1,
+                )
+                fig_seasonal.add_trace(
+                    go.Scatter(
+                        x=s_ts,
+                        y=s_resid,
+                        line=dict(color=COLORS["arima"], width=1),
+                        showlegend=False,
+                    ),
+                    row=3,
+                    col=1,
+                )
+                fig_seasonal.update_layout(**PLOT_LAYOUT, height=350)
+
+                return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
+
+        # ── v1 compute fallback ─────────────────────────────
         demand_df = pd.read_json(io.StringIO(demand_json))
         weather_df = pd.read_json(io.StringIO(weather_json))
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
@@ -1239,6 +1363,112 @@ def register_callbacks(app):
             empty = _empty_figure("Loading...")
             return html.P("Loading..."), empty, empty, empty, empty, empty
 
+        # ── v2 Redis fast path ──────────────────────────────
+        if region:
+            cached = redis_get(f"wattcast:diagnostics:{region}")
+            if cached is not None:
+                log.info("diagnostics_redis_hit", region=region)
+                metrics = cached.get("metrics", {})
+                timestamps = pd.to_datetime(cached.get("timestamps", []))
+                actual = np.array(cached.get("actual", []))
+                ensemble = np.array(cached.get("ensemble", []))
+                residuals = np.array(cached.get("residuals", []))
+                hourly_err = cached.get("hourly_error", {})
+                fi = cached.get("feature_importance", {})
+
+                # Metrics table
+                name_map = {
+                    "Prophet": "prophet",
+                    "SARIMAX": "arima",
+                    "XGBoost": "xgboost",
+                    "Ensemble": "ensemble",
+                }
+                rows = []
+                for display_name, key in name_map.items():
+                    m = metrics.get(key, {})
+                    rows.append(
+                        html.Tr(
+                            [
+                                html.Td(display_name, style={"fontWeight": "600"}),
+                                html.Td(f"{m.get('mape', 0):.2f}%"),
+                                html.Td(f"{m.get('rmse', 0):.0f}"),
+                                html.Td(f"{m.get('mae', 0):.0f}"),
+                                html.Td(f"{m.get('r2', 0):.4f}"),
+                            ]
+                        )
+                    )
+                table = html.Table(
+                    [
+                        html.Thead(
+                            html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])
+                        ),
+                        html.Tbody(rows),
+                    ],
+                    className="metrics-table",
+                )
+
+                fig_resid_time = go.Figure(
+                    go.Scatter(
+                        x=timestamps,
+                        y=residuals,
+                        mode="lines",
+                        line=dict(color=COLORS["arima"], width=1),
+                    )
+                )
+                fig_resid_time.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+                fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
+
+                fig_resid_hist = go.Figure(
+                    go.Histogram(x=residuals, nbinsx=50, marker_color=COLORS["ensemble"])
+                )
+                fig_resid_hist.update_layout(
+                    **PLOT_LAYOUT, xaxis_title="Residual (MW)", yaxis_title="Count"
+                )
+
+                fig_resid_pred = go.Figure(
+                    go.Scatter(
+                        x=ensemble,
+                        y=residuals,
+                        mode="markers",
+                        marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
+                    )
+                )
+                fig_resid_pred.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+                fig_resid_pred.update_layout(
+                    **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
+                )
+
+                h_hours = hourly_err.get("hours", list(range(24)))
+                h_vals = hourly_err.get("values", [0] * 24)
+                h_median = float(np.median(h_vals)) if h_vals else 0
+                fig_heatmap = go.Figure(
+                    go.Bar(
+                        x=h_hours,
+                        y=h_vals,
+                        marker_color=[
+                            COLORS["ensemble"] if e > h_median else COLORS["actual"] for e in h_vals
+                        ],
+                    )
+                )
+                fig_heatmap.update_layout(
+                    **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
+                )
+
+                fi_names = fi.get("names", [])
+                fi_vals = fi.get("values", [])
+                fig_shap = go.Figure(
+                    go.Bar(
+                        x=fi_vals[::-1],
+                        y=fi_names[::-1],
+                        orientation="h",
+                        marker_color=COLORS["xgboost"],
+                    )
+                )
+                fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+
+                return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
+
+        # ── v1 compute fallback ─────────────────────────────
         demand_df = pd.read_json(io.StringIO(demand_json))
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
         actual = demand_df["demand_mw"].values
@@ -1763,6 +1993,186 @@ def register_callbacks(app):
             return [no_update] * 7
         empty = _empty_figure("Loading...")
 
+        # ── v2 Redis fast path ──────────────────────────────
+        if region:
+            cached = redis_get(f"wattcast:alerts:{region}")
+            if cached is not None:
+                log.info("alerts_redis_hit", region=region)
+                alerts = cached.get("alerts", [])
+                stress = cached.get("stress_score", 20)
+                stress_label = cached.get("stress_label", "Normal")
+                counts = cached.get("alert_counts", {})
+                anomaly = cached.get("anomaly", {})
+                temp_data = cached.get("temperature", {})
+
+                # Build alert cards
+                alert_cards = []
+                if alerts:
+                    for a in alerts:
+                        alert_cards.append(
+                            build_alert_card(
+                                event=a["event"],
+                                headline=a["headline"],
+                                severity=a["severity"],
+                                expires=a.get("expires", "")[:16] if a.get("expires") else None,
+                            )
+                        )
+                else:
+                    alert_cards = [
+                        html.P(
+                            "No active alerts",
+                            style={"color": "#8a8fa8", "textAlign": "center", "padding": "20px"},
+                        )
+                    ]
+
+                stress_color = (
+                    "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
+                )
+                n_crit = counts.get("critical", 0)
+                n_warn = counts.get("warning", 0)
+                n_info = counts.get("info", 0)
+                breakdown_items = []
+                if n_crit:
+                    breakdown_items.append(
+                        html.Div(
+                            f"\U0001f534 Critical: {n_crit}",
+                            style={"fontSize": "0.75rem", "color": "#e94560"},
+                        )
+                    )
+                if n_warn:
+                    breakdown_items.append(
+                        html.Div(
+                            f"\U0001f7e1 Warning: {n_warn}",
+                            style={"fontSize": "0.75rem", "color": "#f0ad4e"},
+                        )
+                    )
+                if n_info:
+                    breakdown_items.append(
+                        html.Div(
+                            f"\U0001f535 Info: {n_info}",
+                            style={"fontSize": "0.75rem", "color": "#56B4E9"},
+                        )
+                    )
+                if not alerts:
+                    breakdown_items.append(
+                        html.Div(
+                            "No active alerts",
+                            style={"fontSize": "0.75rem", "color": "#8a8fa8"},
+                        )
+                    )
+                breakdown = html.Div(breakdown_items)
+
+                # Anomaly detection chart
+                a_ts = pd.to_datetime(anomaly.get("timestamps", []))
+                a_demand = anomaly.get("demand", [])
+                a_upper = anomaly.get("upper", [])
+                a_lower = anomaly.get("lower", [])
+                a_anom_ts = pd.to_datetime(anomaly.get("anomaly_timestamps", []))
+                a_anom_vals = anomaly.get("anomaly_values", [])
+
+                if len(a_ts) > 0:
+                    fig_anomaly = go.Figure()
+                    fig_anomaly.add_trace(
+                        go.Scatter(
+                            x=a_ts,
+                            y=a_demand,
+                            name="Demand",
+                            line=dict(color=COLORS["actual"]),
+                        )
+                    )
+                    fig_anomaly.add_trace(
+                        go.Scatter(
+                            x=a_ts,
+                            y=a_upper,
+                            name="Upper (2\u03c3)",
+                            line=dict(color="#e94560", dash="dash", width=1),
+                        )
+                    )
+                    fig_anomaly.add_trace(
+                        go.Scatter(
+                            x=a_ts,
+                            y=a_lower,
+                            name="Lower (2\u03c3)",
+                            line=dict(color="#e94560", dash="dash", width=1),
+                        )
+                    )
+                    if len(a_anom_ts) > 0:
+                        fig_anomaly.add_trace(
+                            go.Scatter(
+                                x=a_anom_ts,
+                                y=a_anom_vals,
+                                mode="markers",
+                                name="Anomaly",
+                                marker=dict(color="#e94560", size=8, symbol="diamond"),
+                            )
+                        )
+                    fig_anomaly.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
+                else:
+                    fig_anomaly = empty
+
+                # Temperature chart
+                t_ts = pd.to_datetime(temp_data.get("timestamps", []))
+                t_vals = temp_data.get("values", [])
+                if len(t_ts) > 0:
+                    fig_temp = go.Figure()
+                    fig_temp.add_trace(
+                        go.Scatter(
+                            x=t_ts,
+                            y=t_vals,
+                            name="Temperature",
+                            line=dict(color=COLORS["temperature"]),
+                        )
+                    )
+                    for t in [95, 100, 105]:
+                        fig_temp.add_hline(
+                            y=t,
+                            line=dict(color="#e94560", dash="dot", width=1),
+                            annotation_text=f"{t}\u00b0F",
+                            annotation_position="right",
+                        )
+                    fig_temp.update_layout(**PLOT_LAYOUT, yaxis_title="\u00b0F")
+                else:
+                    fig_temp = empty
+
+                # Historical event timeline (static)
+                events = [
+                    ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
+                    ("2022-09-06", "CA Heat Wave", "CAISO", 80),
+                    ("2023-07-20", "Heat Dome", "CAISO", 85),
+                    ("2024-04-08", "Solar Eclipse", "PJM", 40),
+                ]
+                fig_timeline = go.Figure()
+                for date, name, reg, sev in events:
+                    color = COLORS["ensemble"] if reg == region else "#8a8fa8"
+                    fig_timeline.add_trace(
+                        go.Scatter(
+                            x=[date],
+                            y=[sev],
+                            mode="markers+text",
+                            text=[name],
+                            textposition="top center",
+                            marker=dict(size=12, color=color),
+                            showlegend=False,
+                        )
+                    )
+                fig_timeline.update_layout(
+                    **PLOT_LAYOUT,
+                    xaxis_title="Date",
+                    yaxis_title="Severity Score",
+                    yaxis_range=[0, 100],
+                )
+
+                return (
+                    alert_cards,
+                    str(stress),
+                    html.Span(stress_label, className=f"kpi-delta {stress_color}"),
+                    breakdown,
+                    fig_anomaly,
+                    fig_temp,
+                    fig_timeline,
+                )
+
+        # ── v1 compute fallback ─────────────────────────────
         from data.demo_data import generate_demo_alerts
 
         alerts = generate_demo_alerts(region)
@@ -2450,8 +2860,15 @@ def register_callbacks(app):
             if cached is not None and cached.get("forecasts"):
                 log.info("outlook_redis_hit", region=region, granularity=granularity)
                 forecasts = cached["forecasts"]
+
+                # Model availability check: skip Redis if requested model isn't stored
+                if model_name not in ("xgboost", "ensemble") and model_name not in forecasts[0]:
+                    log.info("outlook_redis_model_miss", model=model_name)
+                    cached = None  # Fall through to v1 compute
+
+            if cached is not None and cached.get("forecasts"):
+                forecasts = cached["forecasts"]
                 timestamps = pd.to_datetime([f["timestamp"] for f in forecasts])
-                # Use model-specific predictions if available, else ensemble
                 pred_key = model_name if model_name in forecasts[0] else "predicted_demand_mw"
                 predictions = np.array(
                     [f.get(pred_key, f.get("predicted_demand_mw", 0)) for f in forecasts]
@@ -2742,6 +3159,14 @@ def register_callbacks(app):
             cached = redis_get(f"wattcast:backtest:{region}:{horizon_hours}")
             if cached is not None:
                 log.info("backtest_redis_hit", region=region, horizon=horizon_hours)
+
+                # Model availability check: skip Redis if requested model isn't stored
+                all_predictions = cached.get("predictions", {})
+                if model_name not in all_predictions and model_name not in ("ensemble",):
+                    log.info("backtest_redis_model_miss", model=model_name)
+                    cached = None  # Fall through to v1 compute
+
+            if cached is not None:
                 timestamps = pd.to_datetime(cached.get("timestamps", []))
                 actual = np.array(cached.get("actual", []))
 
