@@ -220,6 +220,10 @@ TAB_IDS: list[str] = [
     "tab-outlook",
     "tab-backtest",
     "tab-generation",
+    "tab-weather",
+    "tab-models",
+    "tab-alerts",
+    "tab-simulator",
 ]
 
 TAB_LABELS: dict[str, str] = {
@@ -227,6 +231,10 @@ TAB_LABELS: dict[str, str] = {
     "tab-outlook": "Demand Forecast",
     "tab-backtest": "Backtest",
     "tab-generation": "Generation & Net Load",
+    "tab-weather": "Weather Correlation",
+    "tab-models": "Model Diagnostics",
+    "tab-alerts": "Extreme Events",
+    "tab-simulator": "Scenario Simulator",
 }
 
 # ---------------------------------------------------------------------------

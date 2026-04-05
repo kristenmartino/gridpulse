@@ -6,8 +6,7 @@ This is a **Dash/Plotly** dashboard for weather-aware energy demand forecasting.
 It uses 3 ML models (Prophet, SARIMAX, XGBoost) combined via a weighted ensemble
 to forecast hourly electricity demand for 8 US balancing authorities.
 
-**Active tabs:** Historical Demand, Demand Forecast, Backtest (3-tab focused architecture).
-**Dormant tabs:** Weather, Models, Generation, Alerts, Simulator (code preserved for reactivation).
+**Active tabs (8):** Historical Demand, Demand Forecast, Backtest, Generation & Net Load, Weather Correlation, Model Diagnostics, Extreme Events, Scenario Simulator.
 
 ### Key Decisions (ADRs)
 - **ADR-001**: Dash + Plotly (not Streamlit) — callback architecture scales to 21 groups
@@ -15,7 +14,7 @@ to forecast hourly electricity demand for 8 US balancing authorities.
 - **ADR-003**: Open-Meteo (not NOAA NWS) for weather — no API key, 17 variables in one call, &past_days parameter
 - **ADR-004**: 1/MAPE weighted ensemble — simpler than stacking, self-correcting, bounded by individual models
 - **ADR-005**: Scenario engine copies features, never mutates — pure function, safe for concurrent callbacks
-- **ADR-006**: 3-tab focused architecture — reduced from 8 tabs to match core operational loop (history → forecast → validate)
+- **ADR-006**: 8-tab full architecture — all planned tabs active (history → forecast → validate → generation → weather → models → alerts → simulator)
 
 ### Module Map
 ```
@@ -23,7 +22,7 @@ app.py                    → Dash app entry point, registers layout + callbacks
 config.py                 → ALL constants: regions, API URLs, thresholds, pricing tiers
 observability.py          → Pipeline transformation logger
 components/
-  layout.py               → Main layout: header, persona switcher, region selector, 3-tab container
+  layout.py               → Main layout: header, persona switcher, region selector, 8-tab container
   callbacks.py            → ALL Dash callbacks (21 groups: data loading, tab rendering, interactions)
   cards.py                → Reusable: KPI cards, welcome cards, alert cards, news feed
   error_handling.py       → Confidence badges, loading spinners, empty/error states
@@ -32,11 +31,11 @@ components/
   tab_forecast.py         → Historical Demand tab (past actuals + EIA overlay)
   tab_demand_outlook.py   → Demand Forecast tab (forward predictions + confidence bands)
   tab_backtest.py         → Backtest tab (model evaluation on holdout)
-  tab_weather.py          → [DORMANT] Weather-Energy Correlation
-  tab_models.py           → [DORMANT] Model Comparison & Diagnostics
-  tab_generation.py       → [DORMANT] Generation Mix
-  tab_alerts.py           → [DORMANT] Extreme Events
-  tab_simulator.py        → [DORMANT] Scenario Simulator
+  tab_generation.py       → Generation & Net Load tab (fuel mix, renewable share)
+  tab_weather.py          → Weather-Energy Correlation tab (scatter plots, heatmaps, feature importance)
+  tab_models.py           → Model Comparison & Diagnostics tab (metrics, residuals, SHAP)
+  tab_alerts.py           → Extreme Events tab (NOAA alerts, anomaly detection, stress indicator)
+  tab_simulator.py        → Scenario Simulator tab (weather overrides, presets, impact dashboard)
 data/
   cache.py                → SQLite cache with TTL + stale fallback
   eia_client.py           → EIA API v2: demand, generation, interchange
@@ -57,8 +56,8 @@ models/
   training.py             → Orchestrator: train all → validate → compute weights → serialize
   pricing.py              → Merit-order: base/moderate/exponential/emergency tiers
 simulation/
-  scenario_engine.py      → [DORMANT] Copy→Override→Recompute→Reforecast→Delta
-  presets.py              → [DORMANT] 6 historical extremes (Uri, Heat Dome, Irma, etc.)
+  scenario_engine.py      → Copy→Override→Recompute→Reforecast→Delta
+  presets.py              → 6 historical extremes (Uri, Heat Dome, Irma, etc.)
 personas/
   config.py               → 4 personas: Grid Ops, Renewables, Trader, Data Scientist
   welcome.py              → Data-driven welcome messages

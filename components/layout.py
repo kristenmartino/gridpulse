@@ -1,7 +1,7 @@
 """
 Main dashboard layout — header, persona switcher, region selector, KPI bar, tabs.
 
-CRITICAL: All 4 tab layouts are rendered statically inside dbc.Tab(children=...).
+CRITICAL: All 8 tab layouts are rendered statically inside dbc.Tab(children=...).
 This ensures every component ID always exists in the DOM. Dash Bootstrap handles
 showing/hiding tabs — we do NOT dynamically render tab content via callbacks.
 """
@@ -11,17 +11,21 @@ from dash import dcc, html
 
 # Import all tab layouts
 from components import (
+    tab_alerts,
     tab_backtest,
     tab_demand_outlook,
     tab_forecast,
     tab_generation,
+    tab_models,
+    tab_simulator,
+    tab_weather,
 )
 from config import REGION_NAMES, TAB_LABELS
 from personas.config import list_personas
 
 
 def build_layout() -> dbc.Container:
-    """Build the full dashboard layout with all tabs pre-rendered."""
+    """Build the full dashboard layout with all 8 tabs pre-rendered."""
     return dbc.Container(
         [
             # ── URL state for bookmarks (C2) ──────────────────────
@@ -159,6 +163,26 @@ def build_layout() -> dbc.Container:
                         tab_generation.layout(),
                         label=TAB_LABELS["tab-generation"],
                         tab_id="tab-generation",
+                    ),
+                    dbc.Tab(
+                        tab_weather.layout(),
+                        label=TAB_LABELS["tab-weather"],
+                        tab_id="tab-weather",
+                    ),
+                    dbc.Tab(
+                        tab_models.layout(),
+                        label=TAB_LABELS["tab-models"],
+                        tab_id="tab-models",
+                    ),
+                    dbc.Tab(
+                        tab_alerts.layout(),
+                        label=TAB_LABELS["tab-alerts"],
+                        tab_id="tab-alerts",
+                    ),
+                    dbc.Tab(
+                        tab_simulator.layout(),
+                        label=TAB_LABELS["tab-simulator"],
+                        tab_id="tab-simulator",
                     ),
                 ],
             ),
