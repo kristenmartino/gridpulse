@@ -16,6 +16,7 @@ Never raises — failures log warnings and fall back to on-demand computation.
 
 from __future__ import annotations
 
+import fcntl
 import gc
 import threading
 import time
@@ -78,28 +79,32 @@ def precompute_all() -> None:
     log.info("precompute_complete", elapsed_seconds=round(elapsed, 1))
 
 
-_scheduler_lock = threading.Lock()
-_scheduler_started = False
+_LOCK_PATH = "/tmp/precompute.lock"
 
 
 def start_background_scheduler() -> threading.Thread | None:
     """Launch a daemon thread that runs precompute_all() on a recurring interval.
 
     First run is immediate. Subsequent runs every PRECOMPUTE_INTERVAL_HOURS.
-    Uses a process-level lock so only one gunicorn worker runs precompute
-    (avoids double memory pressure when multiple workers call this).
-    Returns the daemon thread, or None if another thread already started.
+    Uses an OS-level file lock so only one gunicorn worker runs precompute
+    across all worker processes (avoids OOM from concurrent training).
+    Returns the daemon thread, or None if another worker already holds the lock.
     """
-    global _scheduler_started
-    with _scheduler_lock:
-        if _scheduler_started:
-            log.info("precompute_scheduler_already_running")
-            return None
-        _scheduler_started = True
+    # Non-blocking file lock — if another worker holds it, skip immediately.
+    try:
+        lock_fd = open(_LOCK_PATH, "w")  # noqa: SIM115
+        fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        log.info("precompute_scheduler_locked_by_another_worker")
+        return None
+
+    log.info("precompute_scheduler_acquired_lock", pid=threading.get_native_id())
 
     interval_seconds = PRECOMPUTE_INTERVAL_HOURS * 3600
 
     def _loop() -> None:
+        # Keep lock_fd alive for the lifetime of this thread (holds the flock)
+        _ = lock_fd
         # First run immediately
         precompute_all()
 
