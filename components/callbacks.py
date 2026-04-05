@@ -612,6 +612,915 @@ def _fetch_generation_cached(region: str) -> pd.DataFrame | None:
         return None
 
 
+def _load_data_from_redis(region):
+    """Redis fast path for load_data callback.
+
+    Returns a 5-tuple (demand_json, weather_json, freshness_json, audit_json,
+    pipeline_json) when Redis has both actuals and weather for the region,
+    or None if either cache miss occurs.
+    """
+    import json
+    from datetime import UTC, datetime
+
+    from data.audit import audit_trail
+    from observability import PipelineLogger
+
+    cached_actuals = redis_get(f"wattcast:actuals:{region}")
+    cached_weather = redis_get(f"wattcast:weather:{region}")
+    if cached_actuals is None or cached_weather is None:
+        return None
+
+    pipe = PipelineLogger("load_data", region=region)
+    freshness = {
+        "demand": "fresh",
+        "weather": "fresh",
+        "alerts": "fresh",
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    log.info("load_data_redis_hit", region=region)
+    pipe.step("fetch_demand", rows=len(cached_actuals.get("demand_mw", [])), source="redis")
+    pipe.step("fetch_weather", rows=len(cached_weather.get("timestamps", [])), source="redis")
+
+    # Convert parallel-arrays to DataFrame JSON
+    demand_df = pd.DataFrame(
+        {
+            "timestamp": cached_actuals["timestamps"],
+            "demand_mw": cached_actuals["demand_mw"],
+        }
+    )
+    weather_cols = {k: v for k, v in cached_weather.items() if k not in ("region",)}
+    weather_df = pd.DataFrame(weather_cols)
+    if "timestamps" in weather_df.columns:
+        weather_df = weather_df.rename(columns={"timestamps": "timestamp"})
+
+    freshness["demand"] = "fresh"
+    freshness["weather"] = "fresh"
+    if len(demand_df) > 0:
+        freshness["latest_data"] = str(demand_df["timestamp"].iloc[-1])
+
+    pipe.step(
+        "serialize",
+        demand_cols=len(demand_df.columns),
+        weather_cols=len(weather_df.columns),
+    )
+    audit_record = audit_trail.record_forecast(
+        region=region,
+        demand_source="redis",
+        weather_source="redis",
+        demand_rows=len(demand_df),
+        weather_rows=len(weather_df),
+        demand_range=(
+            str(demand_df["timestamp"].iloc[0]),
+            str(demand_df["timestamp"].iloc[-1]),
+        )
+        if len(demand_df) > 0
+        else ("", ""),
+        weather_range=(
+            str(weather_df["timestamp"].iloc[0]),
+            str(weather_df["timestamp"].iloc[-1]),
+        )
+        if "timestamp" in weather_df.columns and len(weather_df) > 0
+        else ("", ""),
+        forecast_source="redis",
+    )
+    pipe.step("audit_recorded", record_id=audit_record.record_id)
+    pipeline_summary = pipe.done()
+    return (
+        demand_df.to_json(date_format="iso"),
+        weather_df.to_json(date_format="iso"),
+        json.dumps(freshness),
+        audit_record.to_json(),
+        json.dumps(pipeline_summary, default=str),
+    )
+
+
+def _weather_tab_from_redis(region):
+    """Redis fast path for update_weather_tab callback.
+
+    Returns a 6-tuple of Plotly figures or None if cache miss.
+    """
+    cached = redis_get(f"wattcast:weather-correlation:{region}")
+    if cached is None:
+        return None
+
+    log.info("weather_redis_hit", region=region)
+    corr_data = cached.get("correlation_matrix", {})
+    imp_data = cached.get("importance", {})
+    seasonal = cached.get("seasonal", {})
+
+    # Scatter: Temperature vs Demand
+    fig_temp = go.Figure(
+        go.Scatter(
+            x=cached.get("temperature_2m", []),
+            y=cached.get("demand_mw", []),
+            mode="markers",
+            marker=dict(size=3, color=COLORS["actual"], opacity=0.4),
+        )
+    )
+    fig_temp.update_layout(**PLOT_LAYOUT, xaxis_title="Temperature (°F)", yaxis_title="Demand (MW)")
+
+    # Scatter: Wind
+    fig_wind = go.Figure(
+        go.Scatter(
+            x=cached.get("wind_speed_80m", []),
+            y=cached.get("wind_power", []),
+            mode="markers",
+            marker=dict(size=3, color=COLORS["wind"], opacity=0.5),
+        )
+    )
+    fig_wind.update_layout(
+        **PLOT_LAYOUT, xaxis_title="Wind Speed (mph)", yaxis_title="Wind Power Estimate"
+    )
+
+    # Scatter: Solar
+    fig_solar = go.Figure(
+        go.Scatter(
+            x=cached.get("shortwave_radiation", []),
+            y=cached.get("solar_cf", []),
+            mode="markers",
+            marker=dict(size=3, color=COLORS["solar"], opacity=0.5),
+        )
+    )
+    fig_solar.update_layout(
+        **PLOT_LAYOUT, xaxis_title="GHI (W/m²)", yaxis_title="Solar Capacity Factor"
+    )
+
+    # Heatmap
+    corr_cols = corr_data.get("cols", [])
+    corr_vals = corr_data.get("values", [])
+    fig_heatmap = go.Figure(
+        go.Heatmap(
+            z=corr_vals,
+            x=corr_cols,
+            y=corr_cols,
+            colorscale="RdBu",
+            zmid=0,
+            text=np.round(np.array(corr_vals), 2) if corr_vals else [],
+            texttemplate="%{text}",
+        )
+    )
+    fig_heatmap.update_layout(**PLOT_LAYOUT)
+
+    # Feature importance
+    imp_names = imp_data.get("names", [])
+    imp_vals = imp_data.get("values", [])
+    fig_importance = go.Figure(
+        go.Bar(
+            x=imp_vals,
+            y=imp_names,
+            orientation="h",
+            marker_color=COLORS["ensemble"],
+        )
+    )
+    fig_importance.update_layout(**PLOT_LAYOUT, xaxis_title="Correlation Strength")
+
+    # Seasonal decomposition
+    s_ts = pd.to_datetime(seasonal.get("timestamps", []))
+    s_orig = seasonal.get("original", [])
+    s_trend = seasonal.get("trend", [])
+    s_resid = seasonal.get("residual", [])
+    fig_seasonal = make_subplots(
+        rows=3,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=["Original", "Trend (7-day)", "Residual"],
+    )
+    fig_seasonal.add_trace(
+        go.Scatter(
+            x=s_ts,
+            y=s_orig,
+            line=dict(color=COLORS["actual"], width=1),
+            showlegend=False,
+        ),
+        row=1,
+        col=1,
+    )
+    fig_seasonal.add_trace(
+        go.Scatter(
+            x=s_ts,
+            y=s_trend,
+            line=dict(color=COLORS["ensemble"], width=2),
+            showlegend=False,
+        ),
+        row=2,
+        col=1,
+    )
+    fig_seasonal.add_trace(
+        go.Scatter(
+            x=s_ts,
+            y=s_resid,
+            line=dict(color=COLORS["arima"], width=1),
+            showlegend=False,
+        ),
+        row=3,
+        col=1,
+    )
+    fig_seasonal.update_layout(**PLOT_LAYOUT, height=350)
+
+    return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
+
+
+def _models_tab_from_redis(region):
+    """Redis fast path for update_models_tab callback.
+
+    Returns a 6-tuple (table, fig_resid_time, fig_resid_hist, fig_resid_pred,
+    fig_heatmap, fig_shap) or None if cache miss.
+    """
+    cached = redis_get(f"wattcast:diagnostics:{region}")
+    if cached is None:
+        return None
+
+    log.info("diagnostics_redis_hit", region=region)
+    metrics = cached.get("metrics", {})
+    timestamps = pd.to_datetime(cached.get("timestamps", []))
+    ensemble = np.array(cached.get("ensemble", []))
+    residuals = np.array(cached.get("residuals", []))
+    hourly_err = cached.get("hourly_error", {})
+    fi = cached.get("feature_importance", {})
+
+    # Metrics table
+    name_map = {
+        "Prophet": "prophet",
+        "SARIMAX": "arima",
+        "XGBoost": "xgboost",
+        "Ensemble": "ensemble",
+    }
+    rows = []
+    for display_name, key in name_map.items():
+        m = metrics.get(key, {})
+        rows.append(
+            html.Tr(
+                [
+                    html.Td(display_name, style={"fontWeight": "600"}),
+                    html.Td(f"{m.get('mape', 0):.2f}%"),
+                    html.Td(f"{m.get('rmse', 0):.0f}"),
+                    html.Td(f"{m.get('mae', 0):.0f}"),
+                    html.Td(f"{m.get('r2', 0):.4f}"),
+                ]
+            )
+        )
+    table = html.Table(
+        [
+            html.Thead(html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])),
+            html.Tbody(rows),
+        ],
+        className="metrics-table",
+    )
+
+    fig_resid_time = go.Figure(
+        go.Scatter(
+            x=timestamps,
+            y=residuals,
+            mode="lines",
+            line=dict(color=COLORS["arima"], width=1),
+        )
+    )
+    fig_resid_time.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+    fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
+
+    fig_resid_hist = go.Figure(
+        go.Histogram(x=residuals, nbinsx=50, marker_color=COLORS["ensemble"])
+    )
+    fig_resid_hist.update_layout(**PLOT_LAYOUT, xaxis_title="Residual (MW)", yaxis_title="Count")
+
+    fig_resid_pred = go.Figure(
+        go.Scatter(
+            x=ensemble,
+            y=residuals,
+            mode="markers",
+            marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
+        )
+    )
+    fig_resid_pred.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+    fig_resid_pred.update_layout(
+        **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
+    )
+
+    h_hours = hourly_err.get("hours", list(range(24)))
+    h_vals = hourly_err.get("values", [0] * 24)
+    h_median = float(np.median(h_vals)) if h_vals else 0
+    fig_heatmap = go.Figure(
+        go.Bar(
+            x=h_hours,
+            y=h_vals,
+            marker_color=[COLORS["ensemble"] if e > h_median else COLORS["actual"] for e in h_vals],
+        )
+    )
+    fig_heatmap.update_layout(
+        **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
+    )
+
+    fi_names = fi.get("names", [])
+    fi_vals = fi.get("values", [])
+    fig_shap = go.Figure(
+        go.Bar(
+            x=fi_vals[::-1],
+            y=fi_names[::-1],
+            orientation="h",
+            marker_color=COLORS["xgboost"],
+        )
+    )
+    fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+
+    return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
+
+
+def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
+    """Redis fast path for update_generation_tab callback.
+
+    Returns a 7-tuple (fig_hero, fig_mix, ren_pct, peak_ramp, min_net,
+    curtailment, insight_card) or None if cache miss.
+    """
+    cached_gen = redis_get(f"wattcast:generation:{region}")
+    if cached_gen is None or not cached_gen.get("timestamps"):
+        return None
+
+    log.info("generation_redis_hit", region=region)
+    # Convert parallel-arrays to DataFrame
+    gen_cols = {k: v for k, v in cached_gen.items() if k not in ("region",)}
+    if "timestamps" in gen_cols:
+        gen_cols["timestamp"] = gen_cols.pop("timestamps")
+    gen_redis_df = pd.DataFrame(gen_cols)
+    gen_redis_df["timestamp"] = pd.to_datetime(gen_redis_df["timestamp"])
+
+    # Filter by date range
+    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=range_hours)
+    if gen_redis_df["timestamp"].dt.tz is None:
+        cutoff = cutoff.tz_localize(None)
+    gen_redis_df = gen_redis_df[gen_redis_df["timestamp"] >= cutoff]
+
+    if gen_redis_df.empty:
+        return None
+
+    # Fuel columns (everything except timestamp, region, renewable_pct)
+    fuel_cols = [
+        c for c in gen_redis_df.columns if c not in ("timestamp", "region", "renewable_pct")
+    ]
+    pivot = gen_redis_df.set_index("timestamp")[fuel_cols]
+    total_gen = pivot.sum(axis=1)
+
+    # Demand from demand-store or approximate as total gen
+    demand_series = total_gen
+    if demand_json:
+        try:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+            demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
+            demand_aligned = demand_df.set_index("timestamp")["demand_mw"]
+            common_idx = pivot.index.intersection(demand_aligned.index)
+            if len(common_idx) > 24:
+                demand_series = demand_aligned.loc[common_idx]
+                pivot = pivot.loc[common_idx]
+                total_gen = pivot.sum(axis=1)
+        except Exception:
+            pass
+
+    wind_gen = pivot.get("wind", pd.Series(0, index=pivot.index))
+    solar_gen = pivot.get("solar", pd.Series(0, index=pivot.index))
+    net_load = demand_series - wind_gen - solar_gen
+    common_idx = pivot.index
+
+    # KPIs
+    ren_cols = [c for c in ["wind", "solar", "hydro"] if c in pivot.columns]
+    if ren_cols and total_gen.mean() > 0:
+        renewable_pct = float((pivot[ren_cols].sum(axis=1) / total_gen * 100).mean())
+    else:
+        renewable_pct = 0.0
+    net_load_diff = net_load.diff()
+    peak_ramp = float(net_load_diff.max()) if not net_load_diff.isna().all() else 0.0
+    min_net_load = float(net_load.min())
+    peak_net_load = float(net_load.max())
+    curtailment_hours = int((net_load < peak_net_load * 0.2).sum()) if peak_net_load > 0 else 0
+
+    # Charts
+    fig_hero = go.Figure()
+    fig_hero.add_trace(
+        go.Scatter(
+            x=common_idx,
+            y=demand_series.values if hasattr(demand_series, "values") else demand_series,
+            mode="lines",
+            name="Total Demand",
+            line=dict(color=COLORS["actual"], width=2),
+        )
+    )
+    fig_hero.add_trace(
+        go.Scatter(
+            x=common_idx,
+            y=net_load.values,
+            mode="lines",
+            name="Net Load",
+            line=dict(color=COLORS["ensemble"], width=2.5),
+        )
+    )
+    fig_hero.add_trace(
+        go.Scatter(
+            x=common_idx,
+            y=demand_series.values if hasattr(demand_series, "values") else demand_series,
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+        )
+    )
+    fig_hero.add_trace(
+        go.Scatter(
+            x=common_idx,
+            y=net_load.values,
+            mode="lines",
+            name="Renewable Contribution",
+            line=dict(width=0),
+            fill="tonexty",
+            fillcolor="rgba(46,204,113,0.20)",
+        )
+    )
+    fig_hero.update_layout(
+        **PLOT_LAYOUT,
+        yaxis_title="MW",
+        hovermode="x unified",
+        title=f"Demand vs Net Load \u2014 {region}",
+    )
+
+    fig_mix = go.Figure()
+    fuel_order = [
+        "nuclear",
+        "coal",
+        "gas",
+        "natural_gas",
+        "hydro",
+        "wind",
+        "solar",
+        "oil",
+        "other",
+    ]
+    for fuel in fuel_order:
+        if fuel in pivot.columns:
+            fig_mix.add_trace(
+                go.Scatter(
+                    x=pivot.index,
+                    y=pivot[fuel],
+                    mode="lines",
+                    name=fuel.replace("_", " ").title(),
+                    stackgroup="one",
+                    line=dict(width=0),
+                    fillcolor=COLORS.get(fuel, "#95a5a6"),
+                )
+            )
+    fig_mix.update_layout(
+        **PLOT_LAYOUT,
+        yaxis_title="Generation (MW)",
+        hovermode="x unified",
+        title=f"Generation Mix \u2014 {region}",
+    )
+
+    from components.insights import build_insight_card, generate_tab4_insights
+
+    persona = persona_id or "grid_ops"
+    insights = generate_tab4_insights(
+        persona_id=persona,
+        region=region,
+        net_load=net_load,
+        demand=demand_series,
+        renewable_pct=renewable_pct,
+        pivot=pivot,
+        timestamps=pd.DatetimeIndex(common_idx),
+    )
+    insight_card = build_insight_card(insights, persona, "tab-generation")
+
+    return (
+        fig_hero,
+        fig_mix,
+        f"{renewable_pct:.1f}%",
+        f"{peak_ramp:,.0f} MW/hr",
+        f"{min_net_load:,.0f} MW",
+        str(curtailment_hours),
+        insight_card,
+    )
+
+
+def _alerts_tab_from_redis(region):
+    """Redis fast path for update_alerts_tab callback.
+
+    Returns a 7-tuple (alert_cards, stress_str, stress_label_span, breakdown,
+    fig_anomaly, fig_temp, fig_timeline) or None if cache miss.
+    """
+    cached = redis_get(f"wattcast:alerts:{region}")
+    if cached is None:
+        return None
+
+    empty = _empty_figure("Loading...")
+    log.info("alerts_redis_hit", region=region)
+    alerts = cached.get("alerts", [])
+    stress = cached.get("stress_score", 20)
+    stress_label = cached.get("stress_label", "Normal")
+    counts = cached.get("alert_counts", {})
+    anomaly = cached.get("anomaly", {})
+    temp_data = cached.get("temperature", {})
+
+    # Build alert cards
+    alert_cards = []
+    if alerts:
+        for a in alerts:
+            alert_cards.append(
+                build_alert_card(
+                    event=a["event"],
+                    headline=a["headline"],
+                    severity=a["severity"],
+                    expires=a.get("expires", "")[:16] if a.get("expires") else None,
+                )
+            )
+    else:
+        alert_cards = [
+            html.P(
+                "No active alerts",
+                style={"color": "#8a8fa8", "textAlign": "center", "padding": "20px"},
+            )
+        ]
+
+    stress_color = "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
+    n_crit = counts.get("critical", 0)
+    n_warn = counts.get("warning", 0)
+    n_info = counts.get("info", 0)
+    breakdown_items = []
+    if n_crit:
+        breakdown_items.append(
+            html.Div(
+                f"\U0001f534 Critical: {n_crit}",
+                style={"fontSize": "0.75rem", "color": "#e94560"},
+            )
+        )
+    if n_warn:
+        breakdown_items.append(
+            html.Div(
+                f"\U0001f7e1 Warning: {n_warn}",
+                style={"fontSize": "0.75rem", "color": "#f0ad4e"},
+            )
+        )
+    if n_info:
+        breakdown_items.append(
+            html.Div(
+                f"\U0001f535 Info: {n_info}",
+                style={"fontSize": "0.75rem", "color": "#56B4E9"},
+            )
+        )
+    if not alerts:
+        breakdown_items.append(
+            html.Div(
+                "No active alerts",
+                style={"fontSize": "0.75rem", "color": "#8a8fa8"},
+            )
+        )
+    breakdown = html.Div(breakdown_items)
+
+    # Anomaly detection chart
+    a_ts = pd.to_datetime(anomaly.get("timestamps", []))
+    a_demand = anomaly.get("demand", [])
+    a_upper = anomaly.get("upper", [])
+    a_lower = anomaly.get("lower", [])
+    a_anom_ts = pd.to_datetime(anomaly.get("anomaly_timestamps", []))
+    a_anom_vals = anomaly.get("anomaly_values", [])
+
+    if len(a_ts) > 0:
+        fig_anomaly = go.Figure()
+        fig_anomaly.add_trace(
+            go.Scatter(x=a_ts, y=a_demand, name="Demand", line=dict(color=COLORS["actual"]))
+        )
+        fig_anomaly.add_trace(
+            go.Scatter(
+                x=a_ts,
+                y=a_upper,
+                name="Upper (2\u03c3)",
+                line=dict(color="#e94560", dash="dash", width=1),
+            )
+        )
+        fig_anomaly.add_trace(
+            go.Scatter(
+                x=a_ts,
+                y=a_lower,
+                name="Lower (2\u03c3)",
+                line=dict(color="#e94560", dash="dash", width=1),
+            )
+        )
+        if len(a_anom_ts) > 0:
+            fig_anomaly.add_trace(
+                go.Scatter(
+                    x=a_anom_ts,
+                    y=a_anom_vals,
+                    mode="markers",
+                    name="Anomaly",
+                    marker=dict(color="#e94560", size=8, symbol="diamond"),
+                )
+            )
+        fig_anomaly.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
+    else:
+        fig_anomaly = empty
+
+    # Temperature chart
+    t_ts = pd.to_datetime(temp_data.get("timestamps", []))
+    t_vals = temp_data.get("values", [])
+    if len(t_ts) > 0:
+        fig_temp = go.Figure()
+        fig_temp.add_trace(
+            go.Scatter(x=t_ts, y=t_vals, name="Temperature", line=dict(color=COLORS["temperature"]))
+        )
+        for t in [95, 100, 105]:
+            fig_temp.add_hline(
+                y=t,
+                line=dict(color="#e94560", dash="dot", width=1),
+                annotation_text=f"{t}\u00b0F",
+                annotation_position="right",
+            )
+        fig_temp.update_layout(**PLOT_LAYOUT, yaxis_title="\u00b0F")
+    else:
+        fig_temp = empty
+
+    # Historical event timeline (static)
+    events = [
+        ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
+        ("2022-09-06", "CA Heat Wave", "CAISO", 80),
+        ("2023-07-20", "Heat Dome", "CAISO", 85),
+        ("2024-04-08", "Solar Eclipse", "PJM", 40),
+    ]
+    fig_timeline = go.Figure()
+    for date, name, reg, sev in events:
+        color = COLORS["ensemble"] if reg == region else "#8a8fa8"
+        fig_timeline.add_trace(
+            go.Scatter(
+                x=[date],
+                y=[sev],
+                mode="markers+text",
+                text=[name],
+                textposition="top center",
+                marker=dict(size=12, color=color),
+                showlegend=False,
+            )
+        )
+    fig_timeline.update_layout(
+        **PLOT_LAYOUT,
+        xaxis_title="Date",
+        yaxis_title="Severity Score",
+        yaxis_range=[0, 100],
+    )
+
+    return (
+        alert_cards,
+        str(stress),
+        html.Span(stress_label, className=f"kpi-delta {stress_color}"),
+        breakdown,
+        fig_anomaly,
+        fig_temp,
+        fig_timeline,
+    )
+
+
+def _outlook_tab_from_redis(
+    region, horizon_hours, model_name, demand_json, weather_json, persona_id
+):
+    """Redis fast path for the outlook (demand forecast) tab.
+
+    Returns a 9-tuple (fig, data_through, peak_str, peak_time, avg_str,
+    min_str, min_time, range_str, insight_card) or None if cache miss
+    or insufficient data.
+    """
+    granularity = "1h"
+    cached = redis_get(f"wattcast:forecast:{region}:{granularity}")
+    if cached is None or not cached.get("forecasts"):
+        return None
+
+    log.info("outlook_redis_hit", region=region, granularity=granularity)
+    forecasts = cached["forecasts"]
+
+    # Model availability check: skip Redis if requested model isn't stored
+    if model_name not in ("xgboost", "ensemble") and model_name not in forecasts[0]:
+        log.info("outlook_redis_model_miss", model=model_name)
+        return None
+
+    timestamps = pd.to_datetime([f["timestamp"] for f in forecasts])
+    pred_key = model_name if model_name in forecasts[0] else "predicted_demand_mw"
+    predictions = np.array([f.get(pred_key, f.get("predicted_demand_mw", 0)) for f in forecasts])
+
+    # Sufficiency check: Redis must cover the requested horizon
+    if len(predictions) < horizon_hours:
+        log.warning(
+            "outlook_redis_insufficient",
+            region=region,
+            available=len(predictions),
+            requested=horizon_hours,
+        )
+        return None
+
+    # Limit to requested horizon
+    if len(predictions) > horizon_hours:
+        timestamps = timestamps[:horizon_hours]
+        predictions = predictions[:horizon_hours]
+
+    data_through_str = cached.get("scored_at", "\u2014")
+    if data_through_str != "\u2014":
+        import contextlib
+
+        with contextlib.suppress(Exception):
+            data_through_str = pd.Timestamp(data_through_str).strftime("%Y-%m-%d %H:%M UTC")
+
+    peak_val = float(np.max(predictions))
+    peak_idx = int(np.argmax(predictions))
+    peak_time = timestamps[peak_idx].strftime("%a %H:%M")
+    min_val = float(np.min(predictions))
+    min_idx = int(np.argmin(predictions))
+    min_time = timestamps[min_idx].strftime("%a %H:%M")
+    avg_val = float(np.mean(predictions))
+    range_val = peak_val - min_val
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps,
+            y=predictions,
+            mode="lines",
+            name=f"{model_name.upper()} Forecast",
+            line=dict(color=COLORS.get("ensemble", "#00d4aa"), width=2),
+            fill="tozeroy",
+            fillcolor="rgba(0, 212, 170, 0.1)",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[timestamps[peak_idx]],
+            y=[peak_val],
+            mode="markers+text",
+            name="Peak",
+            marker=dict(color="#ff6b6b", size=12, symbol="triangle-up"),
+            text=[f"Peak: {peak_val:,.0f} MW"],
+            textposition="top center",
+            showlegend=False,
+        )
+    )
+    _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
+    _add_trailing_actuals(fig, demand_json)
+    horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
+    fig.update_layout(
+        **PLOT_LAYOUT,
+        title=f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}",
+        xaxis_title="Date/Time",
+        yaxis_title="Demand (MW)",
+        hovermode="x unified",
+    )
+
+    from components.insights import build_insight_card, generate_tab2_insights
+
+    persona = persona_id or "grid_ops"
+    weather_df = pd.read_json(io.StringIO(weather_json)) if weather_json else pd.DataFrame()
+    tab2_insights = generate_tab2_insights(
+        persona,
+        region or "FPL",
+        predictions,
+        timestamps,
+        model_name=model_name,
+        horizon_hours=horizon_hours,
+        weather_df=weather_df,
+    )
+    insight_card = build_insight_card(tab2_insights, persona, "tab-outlook")
+
+    return (
+        fig,
+        data_through_str,
+        f"{peak_val:,.0f} MW",
+        peak_time,
+        f"{avg_val:,.0f} MW",
+        f"{min_val:,.0f} MW",
+        min_time,
+        f"{range_val:,.0f} MW",
+        insight_card,
+    )
+
+
+def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
+    """Redis fast path for backtest tab.
+
+    Returns a 7-tuple (fig, mape_str, rmse_str, mae_str, r2_str,
+    explanation, insight_card) or None if cache miss.
+    """
+    cached = redis_get(f"wattcast:backtest:{region}:{horizon_hours}")
+    if cached is None:
+        return None
+
+    log.info("backtest_redis_hit", region=region, horizon=horizon_hours)
+
+    # Model availability check: skip Redis if requested model isn't stored
+    all_predictions = cached.get("predictions", {})
+    if model_name not in all_predictions and model_name not in ("ensemble",):
+        log.info("backtest_redis_model_miss", model=model_name)
+        return None
+
+    timestamps = pd.to_datetime(cached.get("timestamps", []))
+    actual = np.array(cached.get("actual", []))
+
+    # Get predictions for the requested model, fall back to ensemble
+    all_predictions = cached.get("predictions", {})
+    if model_name in all_predictions:
+        predictions = np.array(all_predictions[model_name])
+    elif "ensemble" in all_predictions:
+        predictions = np.array(all_predictions["ensemble"])
+    elif all_predictions:
+        predictions = np.array(next(iter(all_predictions.values())))
+    else:
+        predictions = actual  # shouldn't happen
+
+    # Get metrics for the requested model
+    all_metrics = cached.get("metrics", {})
+    if model_name in all_metrics:
+        metrics = all_metrics[model_name]
+    elif "ensemble" in all_metrics:
+        metrics = all_metrics["ensemble"]
+    elif all_metrics:
+        metrics = next(iter(all_metrics.values()))
+    else:
+        metrics = {"mape": 0, "rmse": 0, "mae": 0, "r2": 0}
+
+    # Build the chart
+    fig = go.Figure()
+    model_colors = {
+        "xgboost": COLORS.get("ensemble", "#00d4aa"),
+        "prophet": COLORS.get("prophet", "#ff6b6b"),
+        "arima": COLORS.get("arima", "#4ecdc4"),
+        "ensemble": COLORS.get("ensemble", "#00d4aa"),
+    }
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps,
+            y=actual,
+            mode="lines",
+            name="Actual Demand",
+            line=dict(color=COLORS["actual"], width=2),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps,
+            y=predictions,
+            mode="lines",
+            name=f"{model_name.upper()} Forecast",
+            line=dict(color=model_colors.get(model_name, "#00d4aa"), width=2, dash="dash"),
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=list(timestamps) + list(timestamps[::-1]),
+            y=list(predictions) + list(actual[::-1]),
+            fill="toself",
+            fillcolor="rgba(255, 107, 107, 0.15)",
+            line=dict(width=0),
+            name="Forecast Error",
+            showlegend=True,
+            hoverinfo="skip",
+        )
+    )
+
+    horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
+    explanations = {
+        24: "24-hour ahead: Forecast made 1 day before. Best for day-ahead scheduling.",
+        168: "7-day ahead: Forecast made 1 week before. Tests medium-term accuracy.",
+        720: "30-day ahead: Forecast made 1 month before. Tests long-term planning reliability.",
+    }
+    fig.update_layout(
+        **PLOT_LAYOUT,
+        title=f"{horizon_labels.get(horizon_hours, '')} Pre-computed Backtest: {model_name.upper()} vs Actual — {region}",
+        xaxis_title="Date/Time",
+        yaxis_title="Demand (MW)",
+        hovermode="x unified",
+    )
+
+    mape_str = f"{metrics.get('mape', 0):.2f}%"
+    rmse_str = f"{metrics.get('rmse', 0):,.0f} MW"
+    mae_str = f"{metrics.get('mae', 0):,.0f} MW"
+    r2_str = f"{metrics.get('r2', 0):.3f}"
+
+    from components.insights import build_insight_card, generate_tab3_insights
+
+    persona = persona_id or "grid_ops"
+    tab3_insights = generate_tab3_insights(
+        persona,
+        region or "FPL",
+        {model_name: metrics},
+        model_name=model_name,
+        horizon_hours=horizon_hours,
+        actual=actual,
+        predictions=predictions,
+        timestamps=timestamps,
+        num_folds=0,
+    )
+    insight_card = build_insight_card(tab3_insights, persona, "tab-backtest")
+
+    log.info("backtest_redis_complete", mape=mape_str, region=region)
+    return (
+        fig,
+        mape_str,
+        rmse_str,
+        mae_str,
+        r2_str,
+        explanations.get(horizon_hours, ""),
+        insight_card,
+    )
+
+
 def register_callbacks(app):
     """Register all callbacks with the Dash app."""
 
@@ -652,68 +1561,9 @@ def register_callbacks(app):
 
         # ── v2 Redis fast path ──────────────────────────────
         if region:
-            cached_actuals = redis_get(f"wattcast:actuals:{region}")
-            cached_weather = redis_get(f"wattcast:weather:{region}")
-            if cached_actuals is not None and cached_weather is not None:
-                log.info("load_data_redis_hit", region=region)
-                pipe.step(
-                    "fetch_demand", rows=len(cached_actuals.get("demand_mw", [])), source="redis"
-                )
-                pipe.step(
-                    "fetch_weather", rows=len(cached_weather.get("timestamps", [])), source="redis"
-                )
-
-                # Convert parallel-arrays to DataFrame JSON
-                demand_df = pd.DataFrame(
-                    {
-                        "timestamp": cached_actuals["timestamps"],
-                        "demand_mw": cached_actuals["demand_mw"],
-                    }
-                )
-                weather_cols = {k: v for k, v in cached_weather.items() if k not in ("region",)}
-                weather_df = pd.DataFrame(weather_cols)
-                if "timestamps" in weather_df.columns:
-                    weather_df = weather_df.rename(columns={"timestamps": "timestamp"})
-
-                freshness["demand"] = "fresh"
-                freshness["weather"] = "fresh"
-                if len(demand_df) > 0:
-                    freshness["latest_data"] = str(demand_df["timestamp"].iloc[-1])
-
-                pipe.step(
-                    "serialize",
-                    demand_cols=len(demand_df.columns),
-                    weather_cols=len(weather_df.columns),
-                )
-                audit_record = audit_trail.record_forecast(
-                    region=region,
-                    demand_source="redis",
-                    weather_source="redis",
-                    demand_rows=len(demand_df),
-                    weather_rows=len(weather_df),
-                    demand_range=(
-                        str(demand_df["timestamp"].iloc[0]),
-                        str(demand_df["timestamp"].iloc[-1]),
-                    )
-                    if len(demand_df) > 0
-                    else ("", ""),
-                    weather_range=(
-                        str(weather_df["timestamp"].iloc[0]),
-                        str(weather_df["timestamp"].iloc[-1]),
-                    )
-                    if "timestamp" in weather_df.columns and len(weather_df) > 0
-                    else ("", ""),
-                    forecast_source="redis",
-                )
-                pipe.step("audit_recorded", record_id=audit_record.record_id)
-                pipeline_summary = pipe.done()
-                return (
-                    demand_df.to_json(date_format="iso"),
-                    weather_df.to_json(date_format="iso"),
-                    json.dumps(freshness),
-                    audit_record.to_json(),
-                    json.dumps(pipeline_summary, default=str),
-                )
+            redis_result = _load_data_from_redis(region)
+            if redis_result is not None:
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         try:
@@ -1092,125 +1942,9 @@ def register_callbacks(app):
 
         # ── v2 Redis fast path ──────────────────────────────
         if region:
-            cached = redis_get(f"wattcast:weather-correlation:{region}")
-            if cached is not None:
-                log.info("weather_redis_hit", region=region)
-                corr_data = cached.get("correlation_matrix", {})
-                imp_data = cached.get("importance", {})
-                seasonal = cached.get("seasonal", {})
-
-                # Scatter: Temperature vs Demand
-                fig_temp = go.Figure(
-                    go.Scatter(
-                        x=cached.get("temperature_2m", []),
-                        y=cached.get("demand_mw", []),
-                        mode="markers",
-                        marker=dict(size=3, color=COLORS["actual"], opacity=0.4),
-                    )
-                )
-                fig_temp.update_layout(
-                    **PLOT_LAYOUT, xaxis_title="Temperature (°F)", yaxis_title="Demand (MW)"
-                )
-
-                # Scatter: Wind
-                fig_wind = go.Figure(
-                    go.Scatter(
-                        x=cached.get("wind_speed_80m", []),
-                        y=cached.get("wind_power", []),
-                        mode="markers",
-                        marker=dict(size=3, color=COLORS["wind"], opacity=0.5),
-                    )
-                )
-                fig_wind.update_layout(
-                    **PLOT_LAYOUT, xaxis_title="Wind Speed (mph)", yaxis_title="Wind Power Estimate"
-                )
-
-                # Scatter: Solar
-                fig_solar = go.Figure(
-                    go.Scatter(
-                        x=cached.get("shortwave_radiation", []),
-                        y=cached.get("solar_cf", []),
-                        mode="markers",
-                        marker=dict(size=3, color=COLORS["solar"], opacity=0.5),
-                    )
-                )
-                fig_solar.update_layout(
-                    **PLOT_LAYOUT, xaxis_title="GHI (W/m²)", yaxis_title="Solar Capacity Factor"
-                )
-
-                # Heatmap
-                corr_cols = corr_data.get("cols", [])
-                corr_vals = corr_data.get("values", [])
-                fig_heatmap = go.Figure(
-                    go.Heatmap(
-                        z=corr_vals,
-                        x=corr_cols,
-                        y=corr_cols,
-                        colorscale="RdBu",
-                        zmid=0,
-                        text=np.round(np.array(corr_vals), 2) if corr_vals else [],
-                        texttemplate="%{text}",
-                    )
-                )
-                fig_heatmap.update_layout(**PLOT_LAYOUT)
-
-                # Feature importance
-                imp_names = imp_data.get("names", [])
-                imp_vals = imp_data.get("values", [])
-                fig_importance = go.Figure(
-                    go.Bar(
-                        x=imp_vals,
-                        y=imp_names,
-                        orientation="h",
-                        marker_color=COLORS["ensemble"],
-                    )
-                )
-                fig_importance.update_layout(**PLOT_LAYOUT, xaxis_title="Correlation Strength")
-
-                # Seasonal decomposition
-                s_ts = pd.to_datetime(seasonal.get("timestamps", []))
-                s_orig = seasonal.get("original", [])
-                s_trend = seasonal.get("trend", [])
-                s_resid = seasonal.get("residual", [])
-                fig_seasonal = make_subplots(
-                    rows=3,
-                    cols=1,
-                    shared_xaxes=True,
-                    subplot_titles=["Original", "Trend (7-day)", "Residual"],
-                )
-                fig_seasonal.add_trace(
-                    go.Scatter(
-                        x=s_ts,
-                        y=s_orig,
-                        line=dict(color=COLORS["actual"], width=1),
-                        showlegend=False,
-                    ),
-                    row=1,
-                    col=1,
-                )
-                fig_seasonal.add_trace(
-                    go.Scatter(
-                        x=s_ts,
-                        y=s_trend,
-                        line=dict(color=COLORS["ensemble"], width=2),
-                        showlegend=False,
-                    ),
-                    row=2,
-                    col=1,
-                )
-                fig_seasonal.add_trace(
-                    go.Scatter(
-                        x=s_ts,
-                        y=s_resid,
-                        line=dict(color=COLORS["arima"], width=1),
-                        showlegend=False,
-                    ),
-                    row=3,
-                    col=1,
-                )
-                fig_seasonal.update_layout(**PLOT_LAYOUT, height=350)
-
-                return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
+            redis_result = _weather_tab_from_redis(region)
+            if redis_result is not None:
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         demand_df = pd.read_json(io.StringIO(demand_json))
@@ -1365,108 +2099,9 @@ def register_callbacks(app):
 
         # ── v2 Redis fast path ──────────────────────────────
         if region:
-            cached = redis_get(f"wattcast:diagnostics:{region}")
-            if cached is not None:
-                log.info("diagnostics_redis_hit", region=region)
-                metrics = cached.get("metrics", {})
-                timestamps = pd.to_datetime(cached.get("timestamps", []))
-                actual = np.array(cached.get("actual", []))
-                ensemble = np.array(cached.get("ensemble", []))
-                residuals = np.array(cached.get("residuals", []))
-                hourly_err = cached.get("hourly_error", {})
-                fi = cached.get("feature_importance", {})
-
-                # Metrics table
-                name_map = {
-                    "Prophet": "prophet",
-                    "SARIMAX": "arima",
-                    "XGBoost": "xgboost",
-                    "Ensemble": "ensemble",
-                }
-                rows = []
-                for display_name, key in name_map.items():
-                    m = metrics.get(key, {})
-                    rows.append(
-                        html.Tr(
-                            [
-                                html.Td(display_name, style={"fontWeight": "600"}),
-                                html.Td(f"{m.get('mape', 0):.2f}%"),
-                                html.Td(f"{m.get('rmse', 0):.0f}"),
-                                html.Td(f"{m.get('mae', 0):.0f}"),
-                                html.Td(f"{m.get('r2', 0):.4f}"),
-                            ]
-                        )
-                    )
-                table = html.Table(
-                    [
-                        html.Thead(
-                            html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])
-                        ),
-                        html.Tbody(rows),
-                    ],
-                    className="metrics-table",
-                )
-
-                fig_resid_time = go.Figure(
-                    go.Scatter(
-                        x=timestamps,
-                        y=residuals,
-                        mode="lines",
-                        line=dict(color=COLORS["arima"], width=1),
-                    )
-                )
-                fig_resid_time.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
-                fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
-
-                fig_resid_hist = go.Figure(
-                    go.Histogram(x=residuals, nbinsx=50, marker_color=COLORS["ensemble"])
-                )
-                fig_resid_hist.update_layout(
-                    **PLOT_LAYOUT, xaxis_title="Residual (MW)", yaxis_title="Count"
-                )
-
-                fig_resid_pred = go.Figure(
-                    go.Scatter(
-                        x=ensemble,
-                        y=residuals,
-                        mode="markers",
-                        marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
-                    )
-                )
-                fig_resid_pred.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
-                fig_resid_pred.update_layout(
-                    **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
-                )
-
-                h_hours = hourly_err.get("hours", list(range(24)))
-                h_vals = hourly_err.get("values", [0] * 24)
-                h_median = float(np.median(h_vals)) if h_vals else 0
-                fig_heatmap = go.Figure(
-                    go.Bar(
-                        x=h_hours,
-                        y=h_vals,
-                        marker_color=[
-                            COLORS["ensemble"] if e > h_median else COLORS["actual"] for e in h_vals
-                        ],
-                    )
-                )
-                fig_heatmap.update_layout(
-                    **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
-                )
-
-                fi_names = fi.get("names", [])
-                fi_vals = fi.get("values", [])
-                fig_shap = go.Figure(
-                    go.Bar(
-                        x=fi_vals[::-1],
-                        y=fi_names[::-1],
-                        orientation="h",
-                        marker_color=COLORS["xgboost"],
-                    )
-                )
-                fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
-
-                return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
+            redis_result = _models_tab_from_redis(region)
+            if redis_result is not None:
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         demand_df = pd.read_json(io.StringIO(demand_json))
@@ -1617,173 +2252,9 @@ def register_callbacks(app):
         log.info("generation_tab_start", region=region, range_hours=range_hours)
 
         # ── v2 Redis fast path ──────────────────────────────
-        cached_gen = redis_get(f"wattcast:generation:{region}")
-        if cached_gen is not None and cached_gen.get("timestamps"):
-            log.info("generation_redis_hit", region=region)
-            # Convert parallel-arrays to DataFrame
-            gen_cols = {k: v for k, v in cached_gen.items() if k not in ("region",)}
-            if "timestamps" in gen_cols:
-                gen_cols["timestamp"] = gen_cols.pop("timestamps")
-            gen_redis_df = pd.DataFrame(gen_cols)
-            gen_redis_df["timestamp"] = pd.to_datetime(gen_redis_df["timestamp"])
-
-            # Filter by date range
-            cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=range_hours)
-            if gen_redis_df["timestamp"].dt.tz is None:
-                cutoff = cutoff.tz_localize(None)
-            gen_redis_df = gen_redis_df[gen_redis_df["timestamp"] >= cutoff]
-
-            if not gen_redis_df.empty:
-                # Fuel columns (everything except timestamp, region, renewable_pct)
-                fuel_cols = [
-                    c
-                    for c in gen_redis_df.columns
-                    if c not in ("timestamp", "region", "renewable_pct")
-                ]
-                pivot = gen_redis_df.set_index("timestamp")[fuel_cols]
-                total_gen = pivot.sum(axis=1)
-
-                # Demand from demand-store or approximate as total gen
-                demand_series = total_gen
-                if demand_json:
-                    try:
-                        demand_df = pd.read_json(io.StringIO(demand_json))
-                        demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
-                        demand_aligned = demand_df.set_index("timestamp")["demand_mw"]
-                        common_idx = pivot.index.intersection(demand_aligned.index)
-                        if len(common_idx) > 24:
-                            demand_series = demand_aligned.loc[common_idx]
-                            pivot = pivot.loc[common_idx]
-                            total_gen = pivot.sum(axis=1)
-                    except Exception:
-                        pass
-
-                wind_gen = pivot.get("wind", pd.Series(0, index=pivot.index))
-                solar_gen = pivot.get("solar", pd.Series(0, index=pivot.index))
-                net_load = demand_series - wind_gen - solar_gen
-                common_idx = pivot.index
-
-                # KPIs
-                ren_cols = [c for c in ["wind", "solar", "hydro"] if c in pivot.columns]
-                if ren_cols and total_gen.mean() > 0:
-                    renewable_pct = float((pivot[ren_cols].sum(axis=1) / total_gen * 100).mean())
-                else:
-                    renewable_pct = 0.0
-                net_load_diff = net_load.diff()
-                peak_ramp = float(net_load_diff.max()) if not net_load_diff.isna().all() else 0.0
-                min_net_load = float(net_load.min())
-                peak_net_load = float(net_load.max())
-                curtailment_hours = (
-                    int((net_load < peak_net_load * 0.2).sum()) if peak_net_load > 0 else 0
-                )
-
-                # Charts
-                fig_hero = go.Figure()
-                fig_hero.add_trace(
-                    go.Scatter(
-                        x=common_idx,
-                        y=demand_series.values
-                        if hasattr(demand_series, "values")
-                        else demand_series,
-                        mode="lines",
-                        name="Total Demand",
-                        line=dict(color=COLORS["actual"], width=2),
-                    )
-                )
-                fig_hero.add_trace(
-                    go.Scatter(
-                        x=common_idx,
-                        y=net_load.values,
-                        mode="lines",
-                        name="Net Load",
-                        line=dict(color=COLORS["ensemble"], width=2.5),
-                    )
-                )
-                fig_hero.add_trace(
-                    go.Scatter(
-                        x=common_idx,
-                        y=demand_series.values
-                        if hasattr(demand_series, "values")
-                        else demand_series,
-                        mode="lines",
-                        line=dict(width=0),
-                        showlegend=False,
-                        hoverinfo="skip",
-                    )
-                )
-                fig_hero.add_trace(
-                    go.Scatter(
-                        x=common_idx,
-                        y=net_load.values,
-                        mode="lines",
-                        name="Renewable Contribution",
-                        line=dict(width=0),
-                        fill="tonexty",
-                        fillcolor="rgba(46,204,113,0.20)",
-                    )
-                )
-                fig_hero.update_layout(
-                    **PLOT_LAYOUT,
-                    yaxis_title="MW",
-                    hovermode="x unified",
-                    title=f"Demand vs Net Load \u2014 {region}",
-                )
-
-                fig_mix = go.Figure()
-                fuel_order = [
-                    "nuclear",
-                    "coal",
-                    "gas",
-                    "natural_gas",
-                    "hydro",
-                    "wind",
-                    "solar",
-                    "oil",
-                    "other",
-                ]
-                for fuel in fuel_order:
-                    if fuel in pivot.columns:
-                        fig_mix.add_trace(
-                            go.Scatter(
-                                x=pivot.index,
-                                y=pivot[fuel],
-                                mode="lines",
-                                name=fuel.replace("_", " ").title(),
-                                stackgroup="one",
-                                line=dict(width=0),
-                                fillcolor=COLORS.get(fuel, "#95a5a6"),
-                            )
-                        )
-                fig_mix.update_layout(
-                    **PLOT_LAYOUT,
-                    yaxis_title="Generation (MW)",
-                    hovermode="x unified",
-                    title=f"Generation Mix \u2014 {region}",
-                )
-
-                from components.insights import build_insight_card, generate_tab4_insights
-
-                persona = persona_id or "grid_ops"
-                insights = generate_tab4_insights(
-                    persona_id=persona,
-                    region=region,
-                    net_load=net_load,
-                    demand=demand_series,
-                    renewable_pct=renewable_pct,
-                    pivot=pivot,
-                    timestamps=pd.DatetimeIndex(common_idx),
-                )
-                insight_card = build_insight_card(insights, persona, "tab-generation")
-
-                return (
-                    fig_hero,
-                    fig_mix,
-                    f"{renewable_pct:.1f}%",
-                    f"{peak_ramp:,.0f} MW/hr",
-                    f"{min_net_load:,.0f} MW",
-                    str(curtailment_hours),
-                    insight_card,
-                )
+        redis_result = _generation_tab_from_redis(region, range_hours, demand_json, persona_id)
+        if redis_result is not None:
+            return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         # Fetch generation data (memory → SQLite → API → demo)
@@ -1995,182 +2466,9 @@ def register_callbacks(app):
 
         # ── v2 Redis fast path ──────────────────────────────
         if region:
-            cached = redis_get(f"wattcast:alerts:{region}")
-            if cached is not None:
-                log.info("alerts_redis_hit", region=region)
-                alerts = cached.get("alerts", [])
-                stress = cached.get("stress_score", 20)
-                stress_label = cached.get("stress_label", "Normal")
-                counts = cached.get("alert_counts", {})
-                anomaly = cached.get("anomaly", {})
-                temp_data = cached.get("temperature", {})
-
-                # Build alert cards
-                alert_cards = []
-                if alerts:
-                    for a in alerts:
-                        alert_cards.append(
-                            build_alert_card(
-                                event=a["event"],
-                                headline=a["headline"],
-                                severity=a["severity"],
-                                expires=a.get("expires", "")[:16] if a.get("expires") else None,
-                            )
-                        )
-                else:
-                    alert_cards = [
-                        html.P(
-                            "No active alerts",
-                            style={"color": "#8a8fa8", "textAlign": "center", "padding": "20px"},
-                        )
-                    ]
-
-                stress_color = (
-                    "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
-                )
-                n_crit = counts.get("critical", 0)
-                n_warn = counts.get("warning", 0)
-                n_info = counts.get("info", 0)
-                breakdown_items = []
-                if n_crit:
-                    breakdown_items.append(
-                        html.Div(
-                            f"\U0001f534 Critical: {n_crit}",
-                            style={"fontSize": "0.75rem", "color": "#e94560"},
-                        )
-                    )
-                if n_warn:
-                    breakdown_items.append(
-                        html.Div(
-                            f"\U0001f7e1 Warning: {n_warn}",
-                            style={"fontSize": "0.75rem", "color": "#f0ad4e"},
-                        )
-                    )
-                if n_info:
-                    breakdown_items.append(
-                        html.Div(
-                            f"\U0001f535 Info: {n_info}",
-                            style={"fontSize": "0.75rem", "color": "#56B4E9"},
-                        )
-                    )
-                if not alerts:
-                    breakdown_items.append(
-                        html.Div(
-                            "No active alerts",
-                            style={"fontSize": "0.75rem", "color": "#8a8fa8"},
-                        )
-                    )
-                breakdown = html.Div(breakdown_items)
-
-                # Anomaly detection chart
-                a_ts = pd.to_datetime(anomaly.get("timestamps", []))
-                a_demand = anomaly.get("demand", [])
-                a_upper = anomaly.get("upper", [])
-                a_lower = anomaly.get("lower", [])
-                a_anom_ts = pd.to_datetime(anomaly.get("anomaly_timestamps", []))
-                a_anom_vals = anomaly.get("anomaly_values", [])
-
-                if len(a_ts) > 0:
-                    fig_anomaly = go.Figure()
-                    fig_anomaly.add_trace(
-                        go.Scatter(
-                            x=a_ts,
-                            y=a_demand,
-                            name="Demand",
-                            line=dict(color=COLORS["actual"]),
-                        )
-                    )
-                    fig_anomaly.add_trace(
-                        go.Scatter(
-                            x=a_ts,
-                            y=a_upper,
-                            name="Upper (2\u03c3)",
-                            line=dict(color="#e94560", dash="dash", width=1),
-                        )
-                    )
-                    fig_anomaly.add_trace(
-                        go.Scatter(
-                            x=a_ts,
-                            y=a_lower,
-                            name="Lower (2\u03c3)",
-                            line=dict(color="#e94560", dash="dash", width=1),
-                        )
-                    )
-                    if len(a_anom_ts) > 0:
-                        fig_anomaly.add_trace(
-                            go.Scatter(
-                                x=a_anom_ts,
-                                y=a_anom_vals,
-                                mode="markers",
-                                name="Anomaly",
-                                marker=dict(color="#e94560", size=8, symbol="diamond"),
-                            )
-                        )
-                    fig_anomaly.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
-                else:
-                    fig_anomaly = empty
-
-                # Temperature chart
-                t_ts = pd.to_datetime(temp_data.get("timestamps", []))
-                t_vals = temp_data.get("values", [])
-                if len(t_ts) > 0:
-                    fig_temp = go.Figure()
-                    fig_temp.add_trace(
-                        go.Scatter(
-                            x=t_ts,
-                            y=t_vals,
-                            name="Temperature",
-                            line=dict(color=COLORS["temperature"]),
-                        )
-                    )
-                    for t in [95, 100, 105]:
-                        fig_temp.add_hline(
-                            y=t,
-                            line=dict(color="#e94560", dash="dot", width=1),
-                            annotation_text=f"{t}\u00b0F",
-                            annotation_position="right",
-                        )
-                    fig_temp.update_layout(**PLOT_LAYOUT, yaxis_title="\u00b0F")
-                else:
-                    fig_temp = empty
-
-                # Historical event timeline (static)
-                events = [
-                    ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
-                    ("2022-09-06", "CA Heat Wave", "CAISO", 80),
-                    ("2023-07-20", "Heat Dome", "CAISO", 85),
-                    ("2024-04-08", "Solar Eclipse", "PJM", 40),
-                ]
-                fig_timeline = go.Figure()
-                for date, name, reg, sev in events:
-                    color = COLORS["ensemble"] if reg == region else "#8a8fa8"
-                    fig_timeline.add_trace(
-                        go.Scatter(
-                            x=[date],
-                            y=[sev],
-                            mode="markers+text",
-                            text=[name],
-                            textposition="top center",
-                            marker=dict(size=12, color=color),
-                            showlegend=False,
-                        )
-                    )
-                fig_timeline.update_layout(
-                    **PLOT_LAYOUT,
-                    xaxis_title="Date",
-                    yaxis_title="Severity Score",
-                    yaxis_range=[0, 100],
-                )
-
-                return (
-                    alert_cards,
-                    str(stress),
-                    html.Span(stress_label, className=f"kpi-delta {stress_color}"),
-                    breakdown,
-                    fig_anomaly,
-                    fig_temp,
-                    fig_timeline,
-                )
+            redis_result = _alerts_tab_from_redis(region)
+            if redis_result is not None:
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         from data.demo_data import generate_demo_alerts
@@ -2855,122 +3153,11 @@ def register_callbacks(app):
 
         # ── v2 Redis fast path ──────────────────────────────
         if region:
-            granularity = "1h"
-            cached = redis_get(f"wattcast:forecast:{region}:{granularity}")
-            if cached is not None and cached.get("forecasts"):
-                log.info("outlook_redis_hit", region=region, granularity=granularity)
-                forecasts = cached["forecasts"]
-
-                # Model availability check: skip Redis if requested model isn't stored
-                if model_name not in ("xgboost", "ensemble") and model_name not in forecasts[0]:
-                    log.info("outlook_redis_model_miss", model=model_name)
-                    cached = None  # Fall through to v1 compute
-
-            if cached is not None and cached.get("forecasts"):
-                forecasts = cached["forecasts"]
-                timestamps = pd.to_datetime([f["timestamp"] for f in forecasts])
-                pred_key = model_name if model_name in forecasts[0] else "predicted_demand_mw"
-                predictions = np.array(
-                    [f.get(pred_key, f.get("predicted_demand_mw", 0)) for f in forecasts]
-                )
-
-                # Sufficiency check: Redis must cover the requested horizon
-                if len(predictions) < horizon_hours:
-                    log.warning(
-                        "outlook_redis_insufficient",
-                        region=region,
-                        available=len(predictions),
-                        requested=horizon_hours,
-                    )
-                    cached = None  # Fall through to v1 compute path
-
-            if cached is not None and cached.get("forecasts"):
-                # Limit to requested horizon
-                if len(predictions) > horizon_hours:
-                    timestamps = timestamps[:horizon_hours]
-                    predictions = predictions[:horizon_hours]
-
-                data_through_str = cached.get("scored_at", "—")
-                if data_through_str != "—":
-                    import contextlib
-
-                    with contextlib.suppress(Exception):
-                        data_through_str = pd.Timestamp(data_through_str).strftime(
-                            "%Y-%m-%d %H:%M UTC"
-                        )
-
-                peak_val = float(np.max(predictions))
-                peak_idx = int(np.argmax(predictions))
-                peak_time = timestamps[peak_idx].strftime("%a %H:%M")
-                min_val = float(np.min(predictions))
-                min_idx = int(np.argmin(predictions))
-                min_time = timestamps[min_idx].strftime("%a %H:%M")
-                avg_val = float(np.mean(predictions))
-                range_val = peak_val - min_val
-
-                fig = go.Figure()
-                fig.add_trace(
-                    go.Scatter(
-                        x=timestamps,
-                        y=predictions,
-                        mode="lines",
-                        name=f"{model_name.upper()} Forecast",
-                        line=dict(color=COLORS.get("ensemble", "#00d4aa"), width=2),
-                        fill="tozeroy",
-                        fillcolor="rgba(0, 212, 170, 0.1)",
-                    )
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=[timestamps[peak_idx]],
-                        y=[peak_val],
-                        mode="markers+text",
-                        name="Peak",
-                        marker=dict(color="#ff6b6b", size=12, symbol="triangle-up"),
-                        text=[f"Peak: {peak_val:,.0f} MW"],
-                        textposition="top center",
-                        showlegend=False,
-                    )
-                )
-                _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
-                _add_trailing_actuals(fig, demand_json)
-                horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
-                fig.update_layout(
-                    **PLOT_LAYOUT,
-                    title=f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}",
-                    xaxis_title="Date/Time",
-                    yaxis_title="Demand (MW)",
-                    hovermode="x unified",
-                )
-
-                from components.insights import build_insight_card, generate_tab2_insights
-
-                persona = persona_id or "grid_ops"
-                weather_df = (
-                    pd.read_json(io.StringIO(weather_json)) if weather_json else pd.DataFrame()
-                )
-                tab2_insights = generate_tab2_insights(
-                    persona,
-                    region or "FPL",
-                    predictions,
-                    timestamps,
-                    model_name=model_name,
-                    horizon_hours=horizon_hours,
-                    weather_df=weather_df,
-                )
-                insight_card = build_insight_card(tab2_insights, persona, "tab-outlook")
-
-                return (
-                    fig,
-                    data_through_str,
-                    f"{peak_val:,.0f} MW",
-                    peak_time,
-                    f"{avg_val:,.0f} MW",
-                    f"{min_val:,.0f} MW",
-                    min_time,
-                    f"{range_val:,.0f} MW",
-                    insight_card,
-                )
+            redis_result = _outlook_tab_from_redis(
+                region, horizon_hours, model_name, demand_json, weather_json, persona_id
+            )
+            if redis_result is not None:
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         if not demand_json or not weather_json:
@@ -3156,123 +3343,9 @@ def register_callbacks(app):
 
         # ── v2 Redis fast path (critical — this is the callback that times out) ──
         if region:
-            cached = redis_get(f"wattcast:backtest:{region}:{horizon_hours}")
-            if cached is not None:
-                log.info("backtest_redis_hit", region=region, horizon=horizon_hours)
-
-                # Model availability check: skip Redis if requested model isn't stored
-                all_predictions = cached.get("predictions", {})
-                if model_name not in all_predictions and model_name not in ("ensemble",):
-                    log.info("backtest_redis_model_miss", model=model_name)
-                    cached = None  # Fall through to v1 compute
-
-            if cached is not None:
-                timestamps = pd.to_datetime(cached.get("timestamps", []))
-                actual = np.array(cached.get("actual", []))
-
-                # Get predictions for the requested model, fall back to ensemble
-                all_predictions = cached.get("predictions", {})
-                if model_name in all_predictions:
-                    predictions = np.array(all_predictions[model_name])
-                elif "ensemble" in all_predictions:
-                    predictions = np.array(all_predictions["ensemble"])
-                elif all_predictions:
-                    predictions = np.array(next(iter(all_predictions.values())))
-                else:
-                    predictions = actual  # shouldn't happen
-
-                # Get metrics for the requested model
-                all_metrics = cached.get("metrics", {})
-                if model_name in all_metrics:
-                    metrics = all_metrics[model_name]
-                elif "ensemble" in all_metrics:
-                    metrics = all_metrics["ensemble"]
-                elif all_metrics:
-                    metrics = next(iter(all_metrics.values()))
-                else:
-                    metrics = {"mape": 0, "rmse": 0, "mae": 0, "r2": 0}
-
-                # Build the chart
-                fig = go.Figure()
-                model_colors = {
-                    "xgboost": COLORS.get("ensemble", "#00d4aa"),
-                    "prophet": COLORS.get("prophet", "#ff6b6b"),
-                    "arima": COLORS.get("arima", "#4ecdc4"),
-                    "ensemble": COLORS.get("ensemble", "#00d4aa"),
-                }
-                fig.add_trace(
-                    go.Scatter(
-                        x=timestamps,
-                        y=actual,
-                        mode="lines",
-                        name="Actual Demand",
-                        line=dict(color=COLORS["actual"], width=2),
-                    )
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=timestamps,
-                        y=predictions,
-                        mode="lines",
-                        name=f"{model_name.upper()} Forecast",
-                        line=dict(
-                            color=model_colors.get(model_name, "#00d4aa"), width=2, dash="dash"
-                        ),
-                    )
-                )
-                fig.add_trace(
-                    go.Scatter(
-                        x=list(timestamps) + list(timestamps[::-1]),
-                        y=list(predictions) + list(actual[::-1]),
-                        fill="toself",
-                        fillcolor="rgba(255, 107, 107, 0.15)",
-                        line=dict(width=0),
-                        name="Forecast Error",
-                        showlegend=True,
-                        hoverinfo="skip",
-                    )
-                )
-
-                horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
-                fig.update_layout(
-                    **PLOT_LAYOUT,
-                    title=f"{horizon_labels.get(horizon_hours, '')} Pre-computed Backtest: {model_name.upper()} vs Actual — {region}",
-                    xaxis_title="Date/Time",
-                    yaxis_title="Demand (MW)",
-                    hovermode="x unified",
-                )
-
-                mape_str = f"{metrics.get('mape', 0):.2f}%"
-                rmse_str = f"{metrics.get('rmse', 0):,.0f} MW"
-                mae_str = f"{metrics.get('mae', 0):,.0f} MW"
-                r2_str = f"{metrics.get('r2', 0):.3f}"
-
-                from components.insights import build_insight_card, generate_tab3_insights
-
-                persona = persona_id or "grid_ops"
-                tab3_insights = generate_tab3_insights(
-                    persona,
-                    region or "FPL",
-                    {model_name: metrics},
-                    model_name=model_name,
-                    horizon_hours=horizon_hours,
-                    actual=actual,
-                    predictions=predictions,
-                    timestamps=timestamps,
-                    num_folds=0,
-                )
-                insight_card = build_insight_card(tab3_insights, persona, "tab-backtest")
-
-                log.info("backtest_redis_complete", mape=mape_str, region=region)
-                return (
-                    fig,
-                    mape_str,
-                    rmse_str,
-                    mae_str,
-                    r2_str,
-                    explanations.get(horizon_hours, ""),
-                    insight_card,
-                )
+            redis_result = _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id)
+            if redis_result is not None:
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         if not demand_json:
