@@ -105,6 +105,12 @@ def start_background_scheduler() -> threading.Thread | None:
     def _loop() -> None:
         # Keep lock_fd alive for the lifetime of this thread (holds the flock)
         _ = lock_fd
+        # Wait for app initialization to complete before importing from
+        # components.callbacks. Starting immediately causes an import deadlock:
+        # main thread holds the import lock while loading callbacks.py, and this
+        # thread blocks trying to import the same module in precompute_all().
+        time.sleep(10)
+        log.info("precompute_scheduler_starting_after_init_delay")
         # First run immediately
         precompute_all()
 
