@@ -1,23 +1,22 @@
 """
 Startup precomputation for the Energy Forecast Dashboard.
 
-Runs in a background thread per gunicorn worker (--preload is omitted so
-workers can serve /health immediately). Each worker warms its own in-memory
-caches. SQLite cache provides cross-restart persistence.
+Runs in a background daemon thread. On startup, warms all in-memory caches
+(models, predictions, backtests) for every region/model/horizon combination.
+Then re-runs every PRECOMPUTE_INTERVAL_HOURS (default 8h) to keep caches
+fresh. SQLite cache provides cross-restart persistence.
 
-Only XGBoost forecasts and backtests are precomputed (the default view).
-Ensemble forecasts/backtests train 3 models each (~15-20s) and are deferred
-to on-demand computation + cache after first user request.
-
-Phase 1: Fetch data for all 8 regions in parallel
-Phase 2: Train XGBoost + generate XGBoost predictions for all regions
-Phase 3: Run XGBoost backtests for all regions
+Phase 0: Warm generation data cache
+Phase 1: Fetch demand + weather data for all 8 regions in parallel
+Phase 2: Train XGBoost → Prophet → ARIMA, generate predictions for all horizons
+Phase 3: Run backtests for all regions
 
 Never raises — failures log warnings and fall back to on-demand computation.
 """
 
 from __future__ import annotations
 
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -26,8 +25,10 @@ import structlog
 
 from config import (
     EIA_API_KEY,
+    PRECOMPUTE_ALL_MODELS,
     PRECOMPUTE_ALL_REGIONS,
     PRECOMPUTE_DEFAULT_REGION,
+    PRECOMPUTE_INTERVAL_HOURS,
     PRECOMPUTE_MAX_WORKERS,
     REGION_COORDINATES,
 )
@@ -37,6 +38,12 @@ log = structlog.get_logger()
 # Store fetched data so backtests can reuse without re-fetching
 _region_data: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
 
+# All models to precompute (order: fast → slow)
+_ALL_MODELS = ["xgboost", "prophet", "arima"]
+
+# All horizons to precompute (order: default first for time-to-interactive)
+_ALL_HORIZONS = [168, 24, 720]
+
 
 def precompute_all() -> None:
     """Entry point. Called from app.py at startup. Never raises."""
@@ -45,6 +52,7 @@ def precompute_all() -> None:
         "precompute_start",
         default_region=PRECOMPUTE_DEFAULT_REGION,
         all_regions=PRECOMPUTE_ALL_REGIONS,
+        all_models=PRECOMPUTE_ALL_MODELS,
     )
 
     try:
@@ -69,6 +77,34 @@ def precompute_all() -> None:
     log.info("precompute_complete", elapsed_seconds=round(elapsed, 1))
 
 
+def start_background_scheduler() -> threading.Thread:
+    """Launch a daemon thread that runs precompute_all() on a recurring interval.
+
+    First run is immediate. Subsequent runs every PRECOMPUTE_INTERVAL_HOURS.
+    Returns the daemon thread (caller does not need to join it).
+    """
+    interval_seconds = PRECOMPUTE_INTERVAL_HOURS * 3600
+
+    def _loop() -> None:
+        # First run immediately
+        precompute_all()
+
+        while True:
+            log.info(
+                "precompute_scheduler_sleeping",
+                next_run_hours=PRECOMPUTE_INTERVAL_HOURS,
+            )
+            time.sleep(interval_seconds)
+            log.info("precompute_scheduler_wakeup")
+            # Re-fetch fresh data and retrain
+            _region_data.clear()
+            precompute_all()
+
+    t = threading.Thread(target=_loop, daemon=True, name="precompute-scheduler")
+    t.start()
+    return t
+
+
 def _fetch_all_data_parallel(regions: list[str]) -> None:
     """Fetch data for all regions in parallel, populating SQLite cache."""
     with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
@@ -84,7 +120,12 @@ def _fetch_all_data_parallel(regions: list[str]) -> None:
 
 
 def _train_all_models_parallel(regions: list[str]) -> None:
-    """Train XGBoost + generate predictions for all regions in parallel."""
+    """Train all models + generate predictions for all regions.
+
+    Regions are processed in parallel (up to PRECOMPUTE_MAX_WORKERS).
+    Within each region, models are trained sequentially (XGBoost → Prophet
+    → ARIMA) to avoid memory pressure from concurrent heavy model fits.
+    """
     regions_with_data = [r for r in regions if r in _region_data]
     with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
         futures = {pool.submit(_train_region, r): r for r in regions_with_data}
@@ -97,17 +138,17 @@ def _train_all_models_parallel(regions: list[str]) -> None:
 
 
 def _backtest_all_parallel(regions: list[str]) -> None:
-    """Run XGBoost backtests for all regions in parallel.
+    """Run backtests for all regions in parallel.
 
-    Only XGBoost backtests are precomputed (the default view).
-    Ensemble backtests require training all 3 models (~15-20s each)
-    and are deferred to on-demand computation + cache.
+    Precomputes XGBoost backtests for all horizons (the default view).
+    Prophet/ARIMA backtests are deferred to on-demand + cache since backtest
+    requires multiple train/predict cycles and is very expensive for those models.
     """
     regions_with_data = [r for r in regions if r in _region_data]
     with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
         futures = {}
         for r in regions_with_data:
-            for horizon in [24, 168, 720]:
+            for horizon in _ALL_HORIZONS:
                 futures[pool.submit(_precompute_backtest, r, horizon, "xgboost")] = (
                     r,
                     horizon,
@@ -128,7 +169,7 @@ def _backtest_all_parallel(regions: list[str]) -> None:
 
 
 def _train_region(region: str) -> None:
-    """Train XGBoost model and generate predictions for one region."""
+    """Train all models and generate predictions for one region."""
     if region not in _region_data:
         return
 
@@ -198,44 +239,91 @@ def _precompute_model_and_predictions(
     weather_df: pd.DataFrame,
     featured_df: pd.DataFrame,
 ) -> None:
-    """Train XGBoost model and generate predictions for all horizons."""
+    """Train all models and generate predictions for all horizons.
+
+    Trains XGBoost, Prophet, and ARIMA sequentially (to limit memory), then
+    generates predictions for each model x horizon combination. The trained
+    models are cached in _MODEL_CACHE so on-demand callbacks never retrain.
+    Predictions are cached in _PREDICTION_CACHE + SQLite for instant page loads.
+    """
     from components.callbacks import _MODEL_CACHE, _compute_data_hash, _run_forecast_outlook
 
     data_hash = _compute_data_hash(demand_df, weather_df, region)
+    train_df = featured_df.copy()
 
-    try:
-        from models.xgboost_model import train_xgboost
+    models_to_train = _ALL_MODELS if PRECOMPUTE_ALL_MODELS else ["xgboost"]
 
-        train_df = featured_df.copy()
-        xgb_model = train_xgboost(train_df)
-        _MODEL_CACHE[(region, "xgboost", 0)] = (xgb_model, data_hash, time.time())
-        log.info("precompute_model_trained", region=region)
+    # --- Train each model and cache it in _MODEL_CACHE ---
+    for model_name in models_to_train:
+        try:
+            mck = (region, model_name, 0)
+            if model_name == "xgboost":
+                from models.xgboost_model import train_xgboost
 
-        # Only precompute XGBoost forecasts (fast, single model already trained).
-        # Ensemble forecasts require training Prophet + ARIMA from scratch each time
-        # (~15-20s each) and are deferred to on-demand computation + cache.
-        # Order: default horizon (168h) first for fastest time-to-interactive.
-        for horizon in [168, 24, 720]:
+                model_obj = train_xgboost(train_df)
+            elif model_name == "prophet":
+                from models.prophet_model import train_prophet
+
+                model_obj = train_prophet(train_df)
+            elif model_name == "arima":
+                from models.arima_model import train_arima
+
+                model_obj = train_arima(train_df)
+            else:
+                continue
+
+            _MODEL_CACHE[mck] = (model_obj, data_hash, time.time())
+            log.info("precompute_model_trained", region=region, model=model_name)
+
+        except Exception as e:
+            log.warning(
+                "precompute_model_training_failed",
+                region=region,
+                model=model_name,
+                error=str(e),
+            )
+
+    # --- Generate predictions for every model x horizon ---
+    for model_name in models_to_train:
+        for horizon in _ALL_HORIZONS:
             try:
-                result = _run_forecast_outlook(demand_df, weather_df, horizon, "xgboost", region)
+                result = _run_forecast_outlook(demand_df, weather_df, horizon, model_name, region)
                 if "error" not in result:
                     log.info(
                         "precompute_predictions_cached",
                         region=region,
                         horizon=horizon,
-                        model="xgboost",
+                        model=model_name,
                     )
             except Exception as e:
                 log.warning(
                     "precompute_prediction_error",
                     region=region,
                     horizon=horizon,
-                    model="xgboost",
+                    model=model_name,
                     error=str(e),
                 )
 
-    except Exception as e:
-        log.warning("precompute_model_training_failed", region=region, error=str(e))
+    # --- Ensemble predictions (uses cached individual model predictions) ---
+    if PRECOMPUTE_ALL_MODELS:
+        for horizon in _ALL_HORIZONS:
+            try:
+                result = _run_forecast_outlook(demand_df, weather_df, horizon, "ensemble", region)
+                if "error" not in result:
+                    log.info(
+                        "precompute_predictions_cached",
+                        region=region,
+                        horizon=horizon,
+                        model="ensemble",
+                    )
+            except Exception as e:
+                log.warning(
+                    "precompute_prediction_error",
+                    region=region,
+                    horizon=horizon,
+                    model="ensemble",
+                    error=str(e),
+                )
 
 
 def _precompute_backtest(region: str, horizon: int, model: str = "xgboost") -> None:

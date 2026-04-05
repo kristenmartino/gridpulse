@@ -85,17 +85,16 @@ from components.callbacks import register_callbacks  # noqa: E402
 register_callbacks(app)
 
 # ── Precompute models and predictions at startup ──────────────
-# Runs in a background thread so gunicorn workers can serve /health
-# immediately while caches warm up. Each worker populates its own
-# in-memory caches independently.
-import threading  # noqa: E402
-
+# Launches a daemon scheduler thread that:
+#   1. Runs precompute_all() immediately (trains all models, caches predictions)
+#   2. Re-runs every PRECOMPUTE_INTERVAL_HOURS (default 8h) to keep caches fresh
+# Gunicorn workers can serve /health immediately while caches warm in background.
 from config import PRECOMPUTE_ENABLED  # noqa: E402
 
 if PRECOMPUTE_ENABLED:
-    from precompute import precompute_all  # noqa: E402
+    from precompute import start_background_scheduler  # noqa: E402
 
-    threading.Thread(target=precompute_all, daemon=True).start()
+    start_background_scheduler()
 
 
 # ── Health check for Cloud Run ─────────────────────────────────

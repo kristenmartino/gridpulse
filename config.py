@@ -316,6 +316,8 @@ PRECOMPUTE_ENABLED = os.getenv("PRECOMPUTE_ENABLED", "true").lower() in ("true",
 PRECOMPUTE_DEFAULT_REGION = os.getenv("PRECOMPUTE_DEFAULT_REGION", "FPL")
 PRECOMPUTE_ALL_REGIONS = os.getenv("PRECOMPUTE_ALL_REGIONS", "true").lower() in ("true", "1", "yes")
 PRECOMPUTE_MAX_WORKERS = int(os.getenv("PRECOMPUTE_MAX_WORKERS", "4"))
+PRECOMPUTE_INTERVAL_HOURS = int(os.getenv("PRECOMPUTE_INTERVAL_HOURS", "8"))
+PRECOMPUTE_ALL_MODELS = os.getenv("PRECOMPUTE_ALL_MODELS", "true").lower() in ("true", "1", "yes")
 
 # ---------------------------------------------------------------------------
 # Feature Flags (Backlog J2 — simple in-code toggles)
