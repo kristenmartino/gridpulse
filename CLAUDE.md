@@ -27,7 +27,7 @@ components/
   cards.py                → Reusable: KPI cards, welcome cards, alert cards, news feed
   error_handling.py       → Confidence badges, loading spinners, empty/error states
   accessibility.py        → Colorblind palette, ARIA helpers
-  insights.py             → Persona-aware insight engine: rule-based analysis for all 3 tabs
+  insights.py             → Persona-aware insight engine: rule-based analysis for all 8 tabs
   tab_forecast.py         → Historical Demand tab (past actuals + EIA overlay)
   tab_demand_outlook.py   → Demand Forecast tab (forward predictions + confidence bands)
   tab_backtest.py         → Backtest tab (model evaluation on holdout)
