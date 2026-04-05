@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import fcntl
 import gc
+import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -56,24 +57,32 @@ def precompute_all() -> None:
         all_regions=PRECOMPUTE_ALL_REGIONS,
         all_models=PRECOMPUTE_ALL_MODELS,
     )
+    sys.stdout.flush()
 
     try:
         all_regions = list(REGION_COORDINATES.keys())
 
         # Phase 0: Warm generation data cache (Tab 4: Generation & Net Load)
         _fetch_generation_all_parallel(all_regions)
+        log.info("precompute_phase0_complete")
+        sys.stdout.flush()
 
         # Phase 1: Fetch demand + weather data for all regions
         _fetch_all_data_parallel(all_regions)
+        log.info("precompute_phase1_complete", regions_with_data=len(_region_data))
+        sys.stdout.flush()
 
         # Phase 2: Train models + predictions for all regions
         _train_all_models_parallel(all_regions)
+        log.info("precompute_phase2_complete")
+        sys.stdout.flush()
 
         # Phase 3: Backtests for all regions (24h, 168h, 720h)
         _backtest_all_parallel(all_regions)
 
     except Exception as e:
         log.error("precompute_failed", error=str(e))
+        sys.stdout.flush()
 
     elapsed = time.time() - t0
     log.info("precompute_complete", elapsed_seconds=round(elapsed, 1))
@@ -103,27 +112,35 @@ def start_background_scheduler() -> threading.Thread | None:
     interval_seconds = PRECOMPUTE_INTERVAL_HOURS * 3600
 
     def _loop() -> None:
-        # Keep lock_fd alive for the lifetime of this thread (holds the flock)
-        _ = lock_fd
-        # Wait for app initialization to complete before importing from
-        # components.callbacks. Starting immediately causes an import deadlock:
-        # main thread holds the import lock while loading callbacks.py, and this
-        # thread blocks trying to import the same module in precompute_all().
-        time.sleep(10)
-        log.info("precompute_scheduler_starting_after_init_delay")
-        # First run immediately
-        precompute_all()
+        try:
+            # Keep lock_fd alive for the lifetime of this thread (holds the flock)
+            _ = lock_fd
+            # Wait for app initialization to complete before importing from
+            # components.callbacks. Starting immediately causes an import deadlock:
+            # main thread holds the import lock while loading callbacks.py, and
+            # this thread blocks trying to import the same module.
+            time.sleep(30)
+            log.info("precompute_scheduler_init_delay_complete")
+            # Flush stdout immediately so Cloud Logging captures it
+            sys.stdout.flush()
 
-        while True:
-            log.info(
-                "precompute_scheduler_sleeping",
-                next_run_hours=PRECOMPUTE_INTERVAL_HOURS,
-            )
-            time.sleep(interval_seconds)
-            log.info("precompute_scheduler_wakeup")
-            # Re-fetch fresh data and retrain
-            _region_data.clear()
+            # First run
             precompute_all()
+
+            while True:
+                log.info(
+                    "precompute_scheduler_sleeping",
+                    next_run_hours=PRECOMPUTE_INTERVAL_HOURS,
+                )
+                sys.stdout.flush()
+                time.sleep(interval_seconds)
+                log.info("precompute_scheduler_wakeup")
+                # Re-fetch fresh data and retrain
+                _region_data.clear()
+                precompute_all()
+        except Exception:
+            log.exception("precompute_scheduler_crashed")
+            sys.stdout.flush()
 
     t = threading.Thread(target=_loop, daemon=True, name="precompute-scheduler")
     t.start()
