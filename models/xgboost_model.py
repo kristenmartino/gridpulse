@@ -60,7 +60,7 @@ def train_xgboost(
     if params is None:
         params = DEFAULT_PARAMS.copy()
 
-    # Extract early_stopping_rounds — passed to fit(), not constructor
+    # Extract early_stopping_rounds — passed to constructor only for CV folds
     early_stopping_rounds = params.pop("early_stopping_rounds", None)
 
     feature_cols = _get_feature_cols(df)
@@ -73,6 +73,10 @@ def train_xgboost(
     tscv = TimeSeriesSplit(n_splits=n_splits)
     cv_scores = []
 
+    cv_params = params.copy()
+    if early_stopping_rounds:
+        cv_params["early_stopping_rounds"] = early_stopping_rounds
+
     for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
         # Verify no leakage: all train indices < all val indices
         assert train_idx.max() < val_idx.min(), "TimeSeriesSplit leakage detected"
@@ -80,11 +84,8 @@ def train_xgboost(
         X_train, X_val = X[train_idx], X[val_idx]  # noqa: N806
         y_train, y_val = y[train_idx], y[val_idx]
 
-        fold_model = XGBRegressor(**params)
-        fit_kwargs: dict = {"eval_set": [(X_val, y_val)], "verbose": False}
-        if early_stopping_rounds:
-            fit_kwargs["early_stopping_rounds"] = early_stopping_rounds
-        fold_model.fit(X_train, y_train, **fit_kwargs)
+        fold_model = XGBRegressor(**cv_params)
+        fold_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
 
         y_pred = fold_model.predict(X_val)
         mape = _compute_mape(y_val, y_pred)
