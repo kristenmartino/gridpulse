@@ -2366,6 +2366,17 @@ def register_callbacks(app):
                     [f.get(pred_key, f.get("predicted_demand_mw", 0)) for f in forecasts]
                 )
 
+                # Sufficiency check: Redis must cover the requested horizon
+                if len(predictions) < horizon_hours:
+                    log.warning(
+                        "outlook_redis_insufficient",
+                        region=region,
+                        available=len(predictions),
+                        requested=horizon_hours,
+                    )
+                    cached = None  # Fall through to v1 compute path
+
+            if cached is not None and cached.get("forecasts"):
                 # Limit to requested horizon
                 if len(predictions) > horizon_hours:
                     timestamps = timestamps[:horizon_hours]
