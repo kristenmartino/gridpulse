@@ -301,16 +301,36 @@ def _run_forecast_outlook(
         elif model_name == "prophet":
             from models.prophet_model import predict_prophet, train_prophet
 
-            log.info("model_training_start", region=region, model="prophet")
-            prophet_model = train_prophet(train_df)
+            prophet_model = None
+            mck = (region, "prophet", 0)
+            if mck in _MODEL_CACHE:
+                cached_model, cached_hash, cached_time = _MODEL_CACHE[mck]
+                if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
+                    prophet_model = cached_model
+                    log.info("model_cache_hit", region=region, model="prophet")
+            if prophet_model is None:
+                log.info("model_training_start", region=region, model="prophet")
+                prophet_model = train_prophet(train_df)
+                _MODEL_CACHE[mck] = (prophet_model, data_hash, time.time())
+                log.info("model_cached", region=region, model="prophet")
             prophet_result = predict_prophet(prophet_model, future_df, periods=horizon_hours)
             predictions = prophet_result["forecast"][:horizon_hours]
 
         elif model_name == "arima":
             from models.arima_model import predict_arima, train_arima
 
-            log.info("model_training_start", region=region, model="arima")
-            arima_model = train_arima(train_df)
+            arima_model = None
+            mck = (region, "arima", 0)
+            if mck in _MODEL_CACHE:
+                cached_model, cached_hash, cached_time = _MODEL_CACHE[mck]
+                if cached_hash == data_hash and (time.time() - cached_time) < CACHE_TTL_SECONDS:
+                    arima_model = cached_model
+                    log.info("model_cache_hit", region=region, model="arima")
+            if arima_model is None:
+                log.info("model_training_start", region=region, model="arima")
+                arima_model = train_arima(train_df)
+                _MODEL_CACHE[mck] = (arima_model, data_hash, time.time())
+                log.info("model_cached", region=region, model="arima")
             predictions = predict_arima(arima_model, future_df, periods=horizon_hours)[
                 :horizon_hours
             ]
