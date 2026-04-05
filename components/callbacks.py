@@ -1074,11 +1074,17 @@ def register_callbacks(app):
             Output("tab2-feature-importance", "figure"),
             Output("tab2-seasonal", "figure"),
         ],
-        [Input("demand-store", "data"), Input("weather-store", "data")],
+        [
+            Input("demand-store", "data"),
+            Input("weather-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
         prevent_initial_call=True,
     )
-    def update_weather_tab(demand_json, weather_json):
+    def update_weather_tab(demand_json, weather_json, active_tab):
         """Update all Tab 2 charts."""
+        if active_tab != "tab-weather":
+            return [no_update] * 6
         if not demand_json or not weather_json:
             empty = _empty_figure("Loading...")
             return empty, empty, empty, empty, empty, empty
@@ -1221,12 +1227,14 @@ def register_callbacks(app):
             Output("tab3-error-heatmap", "figure"),
             Output("tab3-shap", "figure"),
         ],
-        [Input("demand-store", "data")],
+        [Input("demand-store", "data"), Input("dashboard-tabs", "active_tab")],
         [State("region-selector", "value")],
         prevent_initial_call=True,
     )
-    def update_models_tab(demand_json, region):
+    def update_models_tab(demand_json, active_tab, region):
         """Update Tab 3 model diagnostics using model service."""
+        if active_tab != "tab-models":
+            return [no_update] * 6
         if not demand_json:
             empty = _empty_figure("Loading...")
             return html.P("Loading..."), empty, empty, empty, empty, empty
@@ -1745,11 +1753,14 @@ def register_callbacks(app):
             Input("region-selector", "value"),
             Input("demand-store", "data"),
             Input("weather-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
         ],
         prevent_initial_call=True,
     )
-    def update_alerts_tab(region, demand_json, weather_json):
+    def update_alerts_tab(region, demand_json, weather_json, active_tab):
         """Update Tab 5 alerts and stress indicators."""
+        if active_tab != "tab-alerts":
+            return [no_update] * 7
         empty = _empty_figure("Loading...")
 
         from data.demo_data import generate_demo_alerts
