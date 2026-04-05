@@ -3144,16 +3144,19 @@ def _build_persona_kpis(
     wind_cf = None
     if avg_wind is not None:
         from config import WIND_CUTOUT_SPEED_MPH
+
         wind_cf = min(avg_wind / WIND_CUTOUT_SPEED_MPH * 100, 100.0)
 
     # Solar capacity factor (approximate: avg_irradiance / rated_irradiance)
     solar_cf = None
     if avg_solar is not None:
         from config import SOLAR_RATED_IRRADIANCE
+
         solar_cf = avg_solar / SOLAR_RATED_IRRADIANCE * 100
 
     # Estimate price from utilization (merit-order approximation)
     from config import PRICING_BASE_USD_MWH
+
     price_estimate = None
     if pct_of_capacity is not None:
         utilization = pct_of_capacity / 100
@@ -3184,7 +3187,11 @@ def _build_persona_kpis(
                 "label": "Reserve Margin",
                 "value": f"{reserve_margin_pct:.0f}%" if reserve_margin_pct is not None else "—%",
                 "delta": "Below 15% is tight",
-                "direction": "negative" if reserve_margin_pct is not None and reserve_margin_pct < 15 else "positive" if reserve_margin_pct is not None else "neutral",
+                "direction": "negative"
+                if reserve_margin_pct is not None and reserve_margin_pct < 15
+                else "positive"
+                if reserve_margin_pct is not None
+                else "neutral",
             },
             {
                 "label": "Forecast Error",
@@ -3230,7 +3237,9 @@ def _build_persona_kpis(
                 "label": "Est. Price",
                 "value": f"${price_estimate:.0f}/MWh" if price_estimate is not None else "—",
                 "delta": "Merit-order estimate",
-                "direction": "negative" if price_estimate is not None and price_estimate > 100 else "neutral",
+                "direction": "negative"
+                if price_estimate is not None and price_estimate > 100
+                else "neutral",
             },
             {
                 "label": "Peak Demand",

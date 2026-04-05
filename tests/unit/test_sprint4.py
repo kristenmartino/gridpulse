@@ -27,8 +27,14 @@ class TestPersonaTabVisibility:
 
     def test_priority_tabs_are_valid_ids(self):
         valid = {
-            "tab-forecast", "tab-outlook", "tab-backtest", "tab-generation",
-            "tab-weather", "tab-models", "tab-alerts", "tab-simulator",
+            "tab-forecast",
+            "tab-outlook",
+            "tab-backtest",
+            "tab-generation",
+            "tab-weather",
+            "tab-models",
+            "tab-alerts",
+            "tab-simulator",
         }
         for pid, persona in PERSONAS.items():
             for tab in persona.priority_tabs:
