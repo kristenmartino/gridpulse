@@ -50,7 +50,8 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 # Gunicorn with:
-# - 2 workers (Cloud Run 2Gi memory budget)
+# - 2 gthread workers (Cloud Run 2Gi memory budget)
+# - 2 threads per worker: one serves requests, one runs precompute
 # - 300s timeout (long-running model training callbacks)
 # - Access log to stdout for Cloud Run
 # NOTE: --preload is intentionally omitted. Workers load the app module
@@ -60,6 +61,8 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
 CMD ["gunicorn", "app:server", \
      "--bind", "0.0.0.0:8080", \
      "--workers", "2", \
+     "--threads", "2", \
+     "--worker-class", "gthread", \
      "--timeout", "300", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]
