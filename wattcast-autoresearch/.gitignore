@@ -1,0 +1,10 @@
+data/
+__pycache__/
+*.pyc
+.venv/
+.env
+
+# Track documentation, ignore raw metrics
+results/history.jsonl
+results/metrics.json
+results/summary.json
