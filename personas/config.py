@@ -34,7 +34,7 @@ PERSONAS: dict[str, Persona] = {
         title="Grid Operations Manager",
         avatar="👩‍💼",
         default_tab="tab-forecast",
-        priority_tabs=["tab-forecast", "tab-outlook", "tab-backtest", "tab-generation"],
+        priority_tabs=["tab-forecast", "tab-outlook", "tab-backtest", "tab-generation", "tab-alerts"],
         kpi_metrics=[
             "peak_demand_mw",
             "reserve_margin_pct",
@@ -56,7 +56,7 @@ PERSONAS: dict[str, Persona] = {
         title="Renewables Portfolio Analyst",
         avatar="🌱",
         default_tab="tab-outlook",
-        priority_tabs=["tab-generation", "tab-outlook", "tab-forecast", "tab-backtest"],
+        priority_tabs=["tab-generation", "tab-outlook", "tab-forecast", "tab-backtest", "tab-weather"],
         kpi_metrics=[
             "wind_capacity_factor",
             "solar_capacity_factor",
@@ -78,7 +78,7 @@ PERSONAS: dict[str, Persona] = {
         title="Energy Trader",
         avatar="📊",
         default_tab="tab-outlook",
-        priority_tabs=["tab-outlook", "tab-forecast", "tab-generation", "tab-backtest"],
+        priority_tabs=["tab-outlook", "tab-forecast", "tab-generation", "tab-backtest", "tab-simulator"],
         kpi_metrics=[
             "price_estimate_usd_mwh",
             "demand_vs_forecast_pct",
@@ -100,7 +100,7 @@ PERSONAS: dict[str, Persona] = {
         title="Data Scientist",
         avatar="🔬",
         default_tab="tab-backtest",
-        priority_tabs=["tab-backtest", "tab-outlook", "tab-forecast", "tab-generation"],
+        priority_tabs=["tab-backtest", "tab-outlook", "tab-forecast", "tab-generation", "tab-models", "tab-weather"],
         kpi_metrics=[
             "ensemble_mape_pct",
             "model_drift_score",

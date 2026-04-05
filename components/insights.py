@@ -351,7 +351,7 @@ def generate_tab1_insights(
                 severity="info",
                 metric_name="ramp_rate",
                 metric_value=stats["morning_ramp_mw_per_hour"],
-                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+                persona_relevance=["grid_ops", "trader"],
             )
         )
 
@@ -367,7 +367,7 @@ def generate_tab1_insights(
                     severity="info",
                     metric_name="weekday_weekend_ratio",
                     metric_value=ratio,
-                    persona_relevance=["data_scientist", "trader", "grid_ops", "renewables"],
+                    persona_relevance=["data_scientist", "trader"],
                 )
             )
 
@@ -380,7 +380,7 @@ def generate_tab1_insights(
                 severity="notable",
                 metric_name="hours_above_p90",
                 metric_value=float(stats["hours_above_p90"]),
-                persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+                persona_relevance=["grid_ops", "trader", "renewables"],
             )
         )
 
@@ -399,7 +399,7 @@ def generate_tab1_insights(
                     severity="info" if abs(r) < 0.7 else "notable",
                     metric_name="temp_correlation",
                     metric_value=r,
-                    persona_relevance=["renewables", "data_scientist", "grid_ops", "trader"],
+                    persona_relevance=["renewables", "data_scientist"],
                 )
             )
 
@@ -415,7 +415,7 @@ def generate_tab1_insights(
                 severity=sev,
                 metric_name="wow_trend",
                 metric_value=stats["week_over_week_pct"],
-                persona_relevance=["trader", "grid_ops", "renewables", "data_scientist"],
+                persona_relevance=["trader", "grid_ops"],
             )
         )
 
@@ -430,7 +430,7 @@ def generate_tab1_insights(
                     severity="info",
                     metric_name="demand_cv",
                     metric_value=cv,
-                    persona_relevance=["data_scientist", "trader", "grid_ops", "renewables"],
+                    persona_relevance=["data_scientist", "grid_ops"],
                 )
             )
 
@@ -475,7 +475,7 @@ def generate_tab2_insights(
             severity="info",
             metric_name="peak_demand",
             metric_value=stats["peak_mw"],
-            persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+            persona_relevance=["grid_ops", "trader"],
         )
     )
 
@@ -493,7 +493,7 @@ def generate_tab2_insights(
                 severity="info",
                 metric_name="ramp_rate",
                 metric_value=stats["max_hourly_ramp"],
-                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+                persona_relevance=["grid_ops", "renewables"],
             )
         )
 
@@ -509,7 +509,7 @@ def generate_tab2_insights(
                     severity=sev,
                     metric_name="capacity_pct",
                     metric_value=utilization_pct,
-                    persona_relevance=["grid_ops", "trader", "renewables", "data_scientist"],
+                    persona_relevance=["grid_ops", "trader", "renewables"],
                 )
             )
 
@@ -525,7 +525,7 @@ def generate_tab2_insights(
                     severity="info",
                     metric_name="weekday_weekend_diff",
                     metric_value=diff_pct,
-                    persona_relevance=["trader", "grid_ops", "data_scientist", "renewables"],
+                    persona_relevance=["trader", "data_scientist"],
                 )
             )
 
@@ -539,7 +539,7 @@ def generate_tab2_insights(
                 severity="info",
                 metric_name="min_demand",
                 metric_value=stats["min_mw"],
-                persona_relevance=["renewables", "trader", "grid_ops", "data_scientist"],
+                persona_relevance=["renewables", "grid_ops"],
             )
         )
 
@@ -552,7 +552,7 @@ def generate_tab2_insights(
             severity="info",
             metric_name="model",
             metric_value=None,
-            persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+            persona_relevance=["data_scientist"],
         )
     )
 
@@ -630,7 +630,7 @@ def generate_tab3_insights(
                 severity="info" if r2 > 0.95 else "notable",
                 metric_name="r2",
                 metric_value=r2,
-                persona_relevance=["data_scientist", "renewables", "grid_ops", "trader"],
+                persona_relevance=["data_scientist"],
             )
         )
 
@@ -663,7 +663,7 @@ def generate_tab3_insights(
                     severity="info",
                     metric_name="model_comparison",
                     metric_value=spread,
-                    persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+                    persona_relevance=["data_scientist", "grid_ops"],
                 )
             )
 
@@ -678,7 +678,7 @@ def generate_tab3_insights(
                 severity=sev,
                 metric_name="bias",
                 metric_value=bt_stats["mean_bias"],
-                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+                persona_relevance=["grid_ops", "trader", "data_scientist"],
             )
         )
 
@@ -697,7 +697,7 @@ def generate_tab3_insights(
                     severity="info",
                     metric_name="error_by_hour",
                     metric_value=ratio,
-                    persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+                    persona_relevance=["data_scientist", "grid_ops"],
                 )
             )
 
@@ -724,7 +724,7 @@ def generate_tab3_insights(
                 severity="info",
                 metric_name="ensemble_weights",
                 metric_value=None,
-                persona_relevance=["data_scientist", "grid_ops", "trader", "renewables"],
+                persona_relevance=["data_scientist"],
             )
         )
 
@@ -740,7 +740,7 @@ def generate_tab3_insights(
                 severity="info",
                 metric_name="rmse",
                 metric_value=rmse,
-                persona_relevance=["data_scientist", "renewables", "grid_ops", "trader"],
+                persona_relevance=["data_scientist", "grid_ops"],
             )
         )
 
@@ -899,7 +899,7 @@ def generate_tab4_insights(
             severity="notable" if renewable_pct > 40 else "info",
             metric_name="renewable_pct",
             metric_value=renewable_pct,
-            persona_relevance=["renewables", "trader", "grid_ops", "data_scientist"],
+            persona_relevance=["renewables", "trader", "grid_ops"],
         )
     )
 
@@ -921,12 +921,7 @@ def generate_tab4_insights(
                             severity=severity,
                             metric_name="evening_ramp",
                             metric_value=max_evening_ramp,
-                            persona_relevance=[
-                                "grid_ops",
-                                "trader",
-                                "renewables",
-                                "data_scientist",
-                            ],
+                            persona_relevance=["grid_ops", "renewables"],
                         )
                     )
 
@@ -941,7 +936,7 @@ def generate_tab4_insights(
                 severity="notable" if min_pct < 15 else "info",
                 metric_name="min_net_load",
                 metric_value=min_net,
-                persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
+                persona_relevance=["renewables", "grid_ops"],
             )
         )
 
@@ -957,7 +952,7 @@ def generate_tab4_insights(
                     severity="warning" if curtailment_hours > 24 else "notable",
                     metric_name="curtailment_hours",
                     metric_value=float(curtailment_hours),
-                    persona_relevance=["renewables", "grid_ops", "trader", "data_scientist"],
+                    persona_relevance=["renewables", "grid_ops", "trader"],
                 )
             )
 
@@ -972,7 +967,7 @@ def generate_tab4_insights(
                 severity="info",
                 metric_name="net_load_range",
                 metric_value=net_range,
-                persona_relevance=["grid_ops", "trader", "data_scientist", "renewables"],
+                persona_relevance=["grid_ops", "trader"],
             )
         )
 
@@ -990,7 +985,7 @@ def generate_tab4_insights(
                         severity="info",
                         metric_name="solar_peak_pct",
                         metric_value=solar_peak,
-                        persona_relevance=["renewables", "data_scientist", "trader", "grid_ops"],
+                        persona_relevance=["renewables", "data_scientist"],
                     )
                 )
 

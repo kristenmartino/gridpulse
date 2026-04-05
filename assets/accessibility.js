@@ -1,16 +1,18 @@
 /* Keyboard shortcuts and accessibility enhancements */
 
-// Alt+1-6: Switch tabs
+// Alt+1-8: Switch tabs
 document.addEventListener('keydown', function(e) {
     if (!e.altKey) return;
 
     const tabMap = {
         '1': 'tab-forecast',
-        '2': 'tab-weather',
-        '3': 'tab-models',
+        '2': 'tab-outlook',
+        '3': 'tab-backtest',
         '4': 'tab-generation',
-        '5': 'tab-alerts',
-        '6': 'tab-simulator',
+        '5': 'tab-weather',
+        '6': 'tab-models',
+        '7': 'tab-alerts',
+        '8': 'tab-simulator',
     };
 
     if (tabMap[e.key]) {

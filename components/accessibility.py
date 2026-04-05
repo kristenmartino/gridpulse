@@ -151,16 +151,18 @@ def scenario_summary(
 
 TAB_KEY_MAP = {
     "tab-forecast": "1",
-    "tab-weather": "2",
-    "tab-models": "3",
+    "tab-outlook": "2",
+    "tab-backtest": "3",
     "tab-generation": "4",
-    "tab-alerts": "5",
-    "tab-simulator": "6",
+    "tab-weather": "5",
+    "tab-models": "6",
+    "tab-alerts": "7",
+    "tab-simulator": "8",
 }
 
 KEYBOARD_SHORTCUTS = """
 Keyboard shortcuts:
-  Alt+1 through Alt+6: Switch to tabs 1-6
+  Alt+1 through Alt+8: Switch to tabs 1-8
   Alt+R: Focus region selector
   Alt+P: Focus persona selector
   Escape: Close any open tooltip or dropdown

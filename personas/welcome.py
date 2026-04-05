@@ -164,7 +164,7 @@ def _welcome_renewables(greeting: str, name: str, region: str, stats: dict) -> s
     if stats["max_temp"] is not None:
         parts.append(f"Peak temperature forecast: {stats['max_temp']:.0f}°F.")
 
-    parts.append("Check the Generation Mix tab for detailed capacity factors.")
+    parts.append("Check the Generation & Net Load tab for detailed capacity factors.")
     return " ".join(parts)
 
 
@@ -190,5 +190,5 @@ def _welcome_data_scientist(greeting: str, name: str, region: str, stats: dict) 
         status = "on target" if stats["mape"] < 5 else "needs attention"
         parts.append(f"Ensemble MAPE: {stats['mape']:.1f}% ({status}).")
 
-    parts.append("Check the Model Comparison tab for residual analysis and SHAP values.")
+    parts.append("Check the Model Diagnostics tab for residual analysis and SHAP values.")
     return " ".join(parts)

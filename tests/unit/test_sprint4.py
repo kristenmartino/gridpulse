@@ -26,7 +26,10 @@ class TestPersonaTabVisibility:
             assert len(persona.priority_tabs) >= 2, f"{pid} has too few priority tabs"
 
     def test_priority_tabs_are_valid_ids(self):
-        valid = {"tab-forecast", "tab-outlook", "tab-backtest", "tab-generation"}
+        valid = {
+            "tab-forecast", "tab-outlook", "tab-backtest", "tab-generation",
+            "tab-weather", "tab-models", "tab-alerts", "tab-simulator",
+        }
         for pid, persona in PERSONAS.items():
             for tab in persona.priority_tabs:
                 assert tab in valid, f"{pid} has invalid tab: {tab}"

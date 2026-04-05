@@ -101,11 +101,15 @@ COLORS = {
     "other": "#b0b0b0",
 }
 
-ALL_TAB_IDS = [
+PERSONA_CONTROLLED_TAB_IDS = [
     "tab-forecast",
     "tab-outlook",
     "tab-backtest",
     "tab-generation",
+    "tab-weather",
+    "tab-models",
+    "tab-alerts",
+    "tab-simulator",
 ]
 
 
@@ -881,7 +885,7 @@ def register_callbacks(app):
 
     # ── 2b. PERSONA TAB VISIBILITY (AC-7.5) ──────────────────
 
-    for _tid in ALL_TAB_IDS:
+    for _tid in PERSONA_CONTROLLED_TAB_IDS:
 
         @app.callback(
             Output(_tid, "disabled"),
@@ -3132,6 +3136,34 @@ def _build_persona_kpis(
                     backtest_rmse = xgb_metrics.get("rmse")
                     break
 
+    # Compute derived metrics
+    reserve_margin_pct = (100.0 - pct_of_capacity) if pct_of_capacity is not None else None
+    demand_range = (peak_mw - min_mw) if peak_mw is not None and min_mw is not None else None
+
+    # Wind capacity factor (approximate: avg_wind / rated_wind)
+    wind_cf = None
+    if avg_wind is not None:
+        from config import WIND_CUTOUT_SPEED_MPH
+        wind_cf = min(avg_wind / WIND_CUTOUT_SPEED_MPH * 100, 100.0)
+
+    # Solar capacity factor (approximate: avg_irradiance / rated_irradiance)
+    solar_cf = None
+    if avg_solar is not None:
+        from config import SOLAR_RATED_IRRADIANCE
+        solar_cf = avg_solar / SOLAR_RATED_IRRADIANCE * 100
+
+    # Estimate price from utilization (merit-order approximation)
+    from config import PRICING_BASE_USD_MWH
+    price_estimate = None
+    if pct_of_capacity is not None:
+        utilization = pct_of_capacity / 100
+        if utilization < 0.70:
+            price_estimate = PRICING_BASE_USD_MWH
+        elif utilization < 0.90:
+            price_estimate = PRICING_BASE_USD_MWH * (1 + (utilization - 0.70) * 5)
+        else:
+            price_estimate = PRICING_BASE_USD_MWH * (2 + (utilization - 0.90) * 20)
+
     # Format values
     peak_str = f"{int(peak_mw):,} MW" if peak_mw is not None else "— MW"
     avg_str = f"{int(avg_mw):,} MW" if avg_mw is not None else "— MW"
@@ -3149,27 +3181,57 @@ def _build_persona_kpis(
                 "direction": "negative" if pct_of_capacity and pct_of_capacity > 80 else "neutral",
             },
             {
+                "label": "Reserve Margin",
+                "value": f"{reserve_margin_pct:.0f}%" if reserve_margin_pct is not None else "—%",
+                "delta": "Below 15% is tight",
+                "direction": "negative" if reserve_margin_pct is not None and reserve_margin_pct < 15 else "positive" if reserve_margin_pct is not None else "neutral",
+            },
+            {
                 "label": "Forecast Error",
                 "value": mape_str,
                 "delta": "Walk-forward MAPE",
                 "direction": mape_dir,
             },
+            {
+                "label": "Demand Range",
+                "value": f"{int(demand_range):,} MW" if demand_range is not None else "— MW",
+                "delta": "Peak - Min",
+                "direction": "neutral",
+            },
         ],
         "renewables": [
             {
+                "label": "Wind CF",
+                "value": f"{wind_cf:.0f}%" if wind_cf is not None else "—%",
+                "delta": "Capacity factor",
+                "direction": "positive" if wind_cf is not None and wind_cf > 25 else "neutral",
+            },
+            {
+                "label": "Solar CF",
+                "value": f"{solar_cf:.0f}%" if solar_cf is not None else "—%",
+                "delta": "Capacity factor",
+                "direction": "positive" if solar_cf is not None and solar_cf > 15 else "neutral",
+            },
+            {
                 "label": "Avg Wind",
-                "value": f"{avg_wind:.1f} m/s" if avg_wind is not None else "— m/s",
+                "value": f"{avg_wind:.1f} mph" if avg_wind is not None else "— mph",
                 "delta": "80m hub height",
                 "direction": "neutral",
             },
             {
                 "label": "Avg Solar",
-                "value": f"{avg_solar:.0f} W/m²" if avg_solar is not None else "— W/m²",
+                "value": f"{avg_solar:.0f} W/m\u00b2" if avg_solar is not None else "— W/m\u00b2",
                 "delta": "Shortwave radiation",
                 "direction": "neutral",
             },
         ],
         "trader": [
+            {
+                "label": "Est. Price",
+                "value": f"${price_estimate:.0f}/MWh" if price_estimate is not None else "—",
+                "delta": "Merit-order estimate",
+                "direction": "negative" if price_estimate is not None and price_estimate > 100 else "neutral",
+            },
             {
                 "label": "Peak Demand",
                 "value": peak_str,
@@ -3179,10 +3241,14 @@ def _build_persona_kpis(
             {
                 "label": "Avg Demand",
                 "value": avg_str,
-                "delta": f"Range: {int(peak_mw - min_mw):,} MW"
-                if peak_mw is not None and min_mw is not None
-                else "",
+                "delta": f"Range: {int(demand_range):,} MW" if demand_range is not None else "",
                 "direction": "neutral",
+            },
+            {
+                "label": "Forecast Error",
+                "value": mape_str,
+                "delta": "Walk-forward MAPE",
+                "direction": mape_dir,
             },
         ],
         "data_scientist": [
@@ -3196,6 +3262,18 @@ def _build_persona_kpis(
                 "label": "RMSE",
                 "value": rmse_str,
                 "delta": "Walk-forward backtest",
+                "direction": "neutral",
+            },
+            {
+                "label": "Peak Demand",
+                "value": peak_str,
+                "delta": cap_str,
+                "direction": "neutral",
+            },
+            {
+                "label": "Demand Range",
+                "value": f"{int(demand_range):,} MW" if demand_range is not None else "— MW",
+                "delta": "Max variability",
                 "direction": "neutral",
             },
         ],
