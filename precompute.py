@@ -16,6 +16,7 @@ Never raises — failures log warnings and fall back to on-demand computation.
 
 from __future__ import annotations
 
+import gc
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -77,12 +78,25 @@ def precompute_all() -> None:
     log.info("precompute_complete", elapsed_seconds=round(elapsed, 1))
 
 
-def start_background_scheduler() -> threading.Thread:
+_scheduler_lock = threading.Lock()
+_scheduler_started = False
+
+
+def start_background_scheduler() -> threading.Thread | None:
     """Launch a daemon thread that runs precompute_all() on a recurring interval.
 
     First run is immediate. Subsequent runs every PRECOMPUTE_INTERVAL_HOURS.
-    Returns the daemon thread (caller does not need to join it).
+    Uses a process-level lock so only one gunicorn worker runs precompute
+    (avoids double memory pressure when multiple workers call this).
+    Returns the daemon thread, or None if another thread already started.
     """
+    global _scheduler_started
+    with _scheduler_lock:
+        if _scheduler_started:
+            log.info("precompute_scheduler_already_running")
+            return None
+        _scheduler_started = True
+
     interval_seconds = PRECOMPUTE_INTERVAL_HOURS * 3600
 
     def _loop() -> None:
@@ -122,19 +136,35 @@ def _fetch_all_data_parallel(regions: list[str]) -> None:
 def _train_all_models_parallel(regions: list[str]) -> None:
     """Train all models + generate predictions for all regions.
 
-    Regions are processed in parallel (up to PRECOMPUTE_MAX_WORKERS).
-    Within each region, models are trained sequentially (XGBoost → Prophet
-    → ARIMA) to avoid memory pressure from concurrent heavy model fits.
+    When PRECOMPUTE_ALL_MODELS is enabled, regions are trained sequentially
+    (one at a time) to stay within the 2Gi Cloud Run memory budget. Prophet
+    and ARIMA each consume ~500MB peak; training multiple regions in parallel
+    causes OOM kills. Data fetching (Phase 1) stays parallel since it's I/O-bound.
+
+    When only XGBoost is precomputed, regions can be trained in parallel since
+    XGBoost is memory-efficient (~50MB per model).
     """
     regions_with_data = [r for r in regions if r in _region_data]
-    with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
-        futures = {pool.submit(_train_region, r): r for r in regions_with_data}
-        for future in as_completed(futures):
-            region = futures[future]
+
+    if PRECOMPUTE_ALL_MODELS:
+        # Sequential: one region at a time to bound memory at ~1.5GB peak
+        for region in regions_with_data:
             try:
-                future.result()
+                _train_region(region)
             except Exception as e:
                 log.warning("precompute_train_failed", region=region, error=str(e))
+            # Reclaim Prophet/ARIMA peak memory before next region
+            gc.collect()
+    else:
+        # XGBoost-only: safe to parallelize
+        with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
+            futures = {pool.submit(_train_region, r): r for r in regions_with_data}
+            for future in as_completed(futures):
+                region = futures[future]
+                try:
+                    future.result()
+                except Exception as e:
+                    log.warning("precompute_train_failed", region=region, error=str(e))
 
 
 def _backtest_all_parallel(regions: list[str]) -> None:
