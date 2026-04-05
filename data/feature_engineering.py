@@ -76,6 +76,8 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- Lag features (demand) ---
     if "demand_mw" in df.columns:
+        df["demand_lag_1h"] = compute_lag(df["demand_mw"], periods=1)
+        df["demand_lag_3h"] = compute_lag(df["demand_mw"], periods=3)
         df["demand_lag_24h"] = compute_lag(df["demand_mw"], periods=24)
         df["demand_lag_168h"] = compute_lag(df["demand_mw"], periods=168)
         df["ramp_rate"] = compute_ramp_rate(df["demand_mw"])
@@ -89,6 +91,23 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
             df[f"{prefix}_std"] = rolling.std()
             df[f"{prefix}_min"] = rolling.min()
             df[f"{prefix}_max"] = rolling.max()
+
+    # --- Demand momentum & ratio features (from autoresearch) ---
+    if "demand_lag_1h" in df.columns:
+        df["demand_momentum_short"] = compute_demand_momentum(
+            df["demand_lag_1h"], df["demand_lag_3h"]
+        )
+        df["demand_momentum_long"] = compute_demand_momentum(
+            df["demand_lag_1h"], df["demand_lag_24h"]
+        )
+    if "demand_lag_24h" in df.columns and "demand_roll_24h_mean" in df.columns:
+        df["demand_ratio_24h"] = compute_demand_ratio(
+            df["demand_lag_24h"], df["demand_roll_24h_mean"]
+        )
+    if "demand_lag_168h" in df.columns and "demand_roll_168h_mean" in df.columns:
+        df["demand_ratio_168h"] = compute_demand_ratio(
+            df["demand_lag_168h"], df["demand_roll_168h_mean"]
+        )
 
     # --- Interaction terms ---
     if "temperature_2m" in df.columns and "hour_sin" in df.columns:
@@ -302,6 +321,40 @@ def compute_ramp_rate(demand: pd.Series) -> pd.Series:
     return demand.diff()
 
 
+def compute_demand_momentum(recent_lag: pd.Series, older_lag: pd.Series) -> pd.Series:
+    """
+    Demand momentum: difference between recent and older lag.
+
+    Captures whether demand is ramping up or down. Positive = increasing,
+    negative = decreasing.
+
+    Args:
+        recent_lag: More recent demand lag (e.g., lag_1h).
+        older_lag: Older demand lag (e.g., lag_3h or lag_24h).
+
+    Returns:
+        Momentum series (recent - older).
+    """
+    return recent_lag - older_lag
+
+
+def compute_demand_ratio(lag: pd.Series, rolling_mean: pd.Series) -> pd.Series:
+    """
+    Demand deviation ratio: lag value normalized by rolling mean.
+
+    Values > 1 indicate demand was above average, < 1 below average.
+    Captures whether a given period was abnormal relative to its window.
+
+    Args:
+        lag: Demand lag value (e.g., lag_24h).
+        rolling_mean: Rolling mean over same or longer window.
+
+    Returns:
+        Ratio series, clipped to avoid division by near-zero.
+    """
+    return lag / rolling_mean.clip(lower=1.0)
+
+
 def compute_temp_hour_interaction(temperature: pd.Series, hour_sin: pd.Series) -> pd.Series:
     """
     Temperature × Hour interaction term.
@@ -359,9 +412,15 @@ def get_feature_names() -> list[str]:
         "dow_sin",
         "dow_cos",
         "is_holiday",
+        "demand_lag_1h",
+        "demand_lag_3h",
         "demand_lag_24h",
         "demand_lag_168h",
         "ramp_rate",
+        "demand_momentum_short",
+        "demand_momentum_long",
+        "demand_ratio_24h",
+        "demand_ratio_168h",
         "demand_roll_24h_mean",
         "demand_roll_24h_std",
         "demand_roll_24h_min",
