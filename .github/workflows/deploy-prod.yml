@@ -56,10 +56,12 @@ jobs:
             --platform managed \
             --allow-unauthenticated \
             --memory 4Gi \
+            --cpu 2 \
             --timeout 300 \
             --min-instances 1 \
             --max-instances 4 \
             --cpu-boost \
+            --no-cpu-throttling \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379"

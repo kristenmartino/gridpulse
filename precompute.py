@@ -226,12 +226,13 @@ def _train_model_all_regions(model_name: str, regions: list[str]) -> None:
             data_hash = _compute_data_hash(demand_df, weather_df, region)
             train_df = featured_df.copy()
 
-            # Train model
+            # Train model (reduced CV folds for faster precompute; accuracy
+            # is validated at backtest time, not here)
             mck = (region, model_name, 0)
             if model_name == "xgboost":
                 from models.xgboost_model import train_xgboost
 
-                model_obj = train_xgboost(train_df)
+                model_obj = train_xgboost(train_df, n_splits=2)
             elif model_name == "prophet":
                 from models.prophet_model import train_prophet
 
