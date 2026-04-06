@@ -101,6 +101,10 @@ def precompute_all() -> None:
             log.info("precompute_phase2c_complete", model="ensemble")
             sys.stdout.flush()
 
+        # Free model objects + features — predictions are cached separately.
+        # This reclaims ~1-2GB before backtests (which retrain per fold).
+        _free_precompute_memory(all_regions)
+
         # Phase 3: XGBoost backtests (default region first, then rest)
         _backtest_all_parallel(all_regions)
         log.info("precompute_phase3_complete")
@@ -275,6 +279,29 @@ def _train_model_all_regions(model_name: str, regions: list[str]) -> None:
 
         # Reclaim peak memory before next region
         gc.collect()
+
+
+def _free_precompute_memory(regions: list[str]) -> None:
+    """Free model objects and feature DataFrames to reclaim memory.
+
+    After Phase 2 (predictions cached), we no longer need the trained model
+    objects or feature DataFrames in memory. This reclaims ~1-2GB before
+    backtests run. Predictions remain cached in _PREDICTION_CACHE + SQLite.
+    Models are re-trained by backtests (per fold) and by on-demand callbacks.
+    """
+    from components.callbacks import _MODEL_CACHE
+
+    model_keys_freed = 0
+    for region in regions:
+        for model_name in ("xgboost", "prophet", "arima"):
+            mck = (region, model_name, 0)
+            if mck in _MODEL_CACHE:
+                del _MODEL_CACHE[mck]
+                model_keys_freed += 1
+
+    _region_featured.clear()
+    gc.collect()
+    log.info("precompute_memory_freed", model_keys_freed=model_keys_freed)
 
 
 def _generate_ensemble_predictions(regions: list[str]) -> None:
