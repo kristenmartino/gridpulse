@@ -91,11 +91,14 @@ register_callbacks(app)
 from config import PRECOMPUTE_ENABLED  # noqa: E402
 
 if PRECOMPUTE_ENABLED:
+    _precompute_triggered = False
 
     @server.before_request
     def _trigger_precompute():
-        # Remove this hook after first call — only need to trigger once
-        server.before_request_funcs[None].remove(_trigger_precompute)
+        global _precompute_triggered  # noqa: PLW0603
+        if _precompute_triggered:
+            return
+        _precompute_triggered = True
         from precompute import start_background_scheduler  # noqa: E402
 
         start_background_scheduler()
