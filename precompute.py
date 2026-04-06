@@ -41,8 +41,10 @@ log = structlog.get_logger()
 # Store fetched data so backtests can reuse without re-fetching
 _region_data: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
 
-# All models to precompute (order: fast → slow)
-_ALL_MODELS = ["xgboost", "prophet", "arima"]
+# All models to precompute (order: fast → slow).
+# ARIMA excluded: auto_arima with m=24 + SARIMAX fitting exceeds 4Gi memory
+# budget when combined with XGBoost/Prophet. ARIMA trains on-demand + cache.
+_ALL_MODELS = ["xgboost", "prophet"]
 
 # All horizons to precompute (order: default first for time-to-interactive)
 _ALL_HORIZONS = [168, 24, 720]
