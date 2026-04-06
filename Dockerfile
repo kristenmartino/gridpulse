@@ -50,7 +50,7 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
 
 # Gunicorn with:
-# - 2 gthread workers (Cloud Run 2Gi memory budget)
+# - 2 gthread workers (Cloud Run 4Gi memory budget)
 # - 2 threads per worker: one serves requests, one runs precompute
 # - 300s timeout (long-running model training callbacks)
 # - Access log to stdout for Cloud Run

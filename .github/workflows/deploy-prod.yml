@@ -55,7 +55,7 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --memory 2Gi \
+            --memory 4Gi \
             --timeout 300 \
             --min-instances 1 \
             --max-instances 4 \
