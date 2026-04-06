@@ -96,14 +96,17 @@ def precompute_all() -> None:
             log.info("precompute_phase2b_complete", model="prophet")
             sys.stdout.flush()
 
+            # Free model objects + features before ensemble — ensemble only
+            # needs cached predictions, not model objects. This reclaims
+            # ~1-2GB to prevent OOM during ensemble generation.
+            _free_precompute_memory(all_regions)
+
             # Phase 2c: Ensemble predictions (uses cached XGBoost + Prophet)
             _generate_ensemble_predictions(all_regions)
             log.info("precompute_phase2c_complete", model="ensemble")
             sys.stdout.flush()
-
-        # Free model objects + features — predictions are cached separately.
-        # This reclaims ~1-2GB before backtests (which retrain per fold).
-        _free_precompute_memory(all_regions)
+        else:
+            _free_precompute_memory(all_regions)
 
         # Phase 3: XGBoost backtests (default region first, then rest)
         _backtest_all_parallel(all_regions)
