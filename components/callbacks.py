@@ -224,7 +224,7 @@ def _run_forecast_outlook(
     """Generate forward-looking forecast using cached model when possible."""
     import time
 
-    from data.feature_engineering import engineer_features
+    from data.feature_engineering import engineer_exogenous_features, engineer_features
     from data.preprocessing import merge_demand_weather
 
     data_hash = _compute_data_hash(demand_df, weather_df, region)
@@ -3833,9 +3833,20 @@ def _predict_single_fold(
 
     if model_name == "xgboost":
         from models.xgboost_model import predict_xgboost, train_xgboost
+        from data.feature_engineering import compute_autoregressive_snapshot
 
         model = train_xgboost(train_df)
-        return predict_xgboost(model, test_df)[:n_test]
+        demand_history = train_df["demand_mw"].tolist()
+        preds: list[float] = []
+        for i in range(n_test):
+            row = test_df.iloc[[i]].copy()
+            for col, val in compute_autoregressive_snapshot(demand_history).items():
+                row[col] = val
+            row = row.fillna(method="ffill").fillna(method="bfill").fillna(0)
+            step_pred = float(predict_xgboost(model, row)[0])
+            preds.append(step_pred)
+            demand_history.append(step_pred)
+        return np.array(preds, dtype=float)
 
     elif model_name == "prophet":
         from models.prophet_model import predict_prophet, train_prophet
@@ -3936,7 +3947,7 @@ def _run_backtest_for_horizon(
     """
     import time
 
-    from data.feature_engineering import engineer_features
+    from data.feature_engineering import engineer_exogenous_features, engineer_features
     from data.preprocessing import merge_demand_weather
     from models.evaluation import compute_all_metrics
 
@@ -3975,13 +3986,12 @@ def _run_backtest_for_horizon(
     except Exception as e:
         log.debug("backtest_sqlite_cache_miss", error=str(e))
 
-    # Merge and engineer features
+    # Merge once; features are built fold-by-fold from train-history-only slices
     merged_df = merge_demand_weather(demand_df, weather_df)
-    featured_df = engineer_features(merged_df)
-    featured_df = featured_df.dropna(subset=["demand_mw"])
+    base_df = merged_df.dropna(subset=["demand_mw"]).reset_index(drop=True)
 
     min_train_size = 720  # 30 days minimum training data
-    n_total = len(featured_df)
+    n_total = len(base_df)
 
     if n_total < min_train_size + horizon_hours:
         return {"error": "Insufficient data"}
@@ -4017,8 +4027,10 @@ def _run_backtest_for_horizon(
                 )
                 continue
 
-            train_df = featured_df.iloc[:test_start].copy()
-            test_df = featured_df.iloc[test_start:test_end].copy()
+            train_slice = base_df.iloc[:test_start].copy()
+            test_slice = base_df.iloc[test_start:test_end].copy()
+            train_df = engineer_features(train_slice).dropna(subset=["demand_mw"]).reset_index(drop=True)
+            test_df = engineer_exogenous_features(test_slice).reset_index(drop=True)
 
             log.info(
                 "backtest_fold_start",
@@ -4039,7 +4051,7 @@ def _run_backtest_for_horizon(
                 continue
 
             # NaN guard per fold
-            fold_actual = test_df["demand_mw"].values
+            fold_actual = test_slice["demand_mw"].values
             if np.any(np.isnan(fold_preds)):
                 nan_pct = np.isnan(fold_preds).sum() / len(fold_preds) * 100
                 log.warning("backtest_fold_nan", fold=fold_idx + 1, nan_pct=round(nan_pct, 1))
@@ -4049,7 +4061,7 @@ def _run_backtest_for_horizon(
             fold_boundaries.append(sum(len(a) for a in all_actual))
             all_actual.append(fold_actual)
             all_predictions.append(fold_preds)
-            all_timestamps.append(test_df["timestamp"].values)
+            all_timestamps.append(test_slice["timestamp"].values)
 
             log.info("backtest_fold_complete", fold=fold_idx + 1, num_folds=num_folds)
 

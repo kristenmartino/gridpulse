@@ -21,6 +21,7 @@ import pandas as pd
 import structlog
 
 from config import MODEL_DIR, REGION_COORDINATES
+from data.feature_engineering import compute_autoregressive_snapshot, engineer_exogenous_features
 from models.arima_model import predict_arima, train_arima
 from models.ensemble import compute_ensemble_weights
 from models.evaluation import compute_all_metrics
@@ -53,7 +54,8 @@ def train_all_models(
     # Train/validation split (temporal — no leakage)
     val_cutoff = len(df) - validation_hours
     train_df = df.iloc[:val_cutoff]
-    val_df = df.iloc[val_cutoff:]
+    val_raw = df.iloc[val_cutoff:].copy()
+    val_df = engineer_exogenous_features(val_raw)
 
     if len(train_df) < 720:  # Need at least 30 days
         log.warning("insufficient_training_data", region=region, rows=len(train_df))
@@ -107,8 +109,17 @@ def train_all_models(
     # --- XGBoost ---
     try:
         xgb_result = train_xgboost(train_df, target_col=target_col)
-        xgb_forecast = predict_xgboost(xgb_result, val_df)
-        xgb_forecast = xgb_forecast[: len(y_val)]
+        demand_history = train_df[target_col].tolist()
+        xgb_steps: list[float] = []
+        for i in range(len(val_df)):
+            row = val_df.iloc[[i]].copy()
+            for col, val in compute_autoregressive_snapshot(demand_history).items():
+                row[col] = val
+            row = row.fillna(method="ffill").fillna(method="bfill").fillna(0)
+            pred = float(predict_xgboost(xgb_result, row)[0])
+            xgb_steps.append(pred)
+            demand_history.append(pred)
+        xgb_forecast = np.array(xgb_steps[: len(y_val)], dtype=float)
         metrics["xgboost"] = compute_all_metrics(y_val, xgb_forecast)
         results["xgboost"] = {"model": xgb_result, "predictions": xgb_forecast}
         log.info(

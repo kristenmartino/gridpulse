@@ -25,6 +25,30 @@ from config import (
 
 log = structlog.get_logger()
 
+AUTOREGRESSIVE_DEMAND_FEATURES = [
+    "demand_lag_1h",
+    "demand_lag_3h",
+    "demand_lag_24h",
+    "demand_lag_168h",
+    "ramp_rate",
+    "demand_momentum_short",
+    "demand_momentum_long",
+    "demand_ratio_24h",
+    "demand_ratio_168h",
+    "demand_roll_24h_mean",
+    "demand_roll_24h_std",
+    "demand_roll_24h_min",
+    "demand_roll_24h_max",
+    "demand_roll_72h_mean",
+    "demand_roll_72h_std",
+    "demand_roll_72h_min",
+    "demand_roll_72h_max",
+    "demand_roll_168h_mean",
+    "demand_roll_168h_std",
+    "demand_roll_168h_min",
+    "demand_roll_168h_max",
+]
+
 # US federal holidays
 try:
     import holidays as holidays_lib
@@ -54,60 +78,8 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     log.info("feature_engineering_start", input_rows=len(df))
 
-    # --- Temperature-based features ---
-    if "temperature_2m" in df.columns:
-        df["cooling_degree_days"] = compute_cdd(df["temperature_2m"])
-        df["heating_degree_days"] = compute_hdd(df["temperature_2m"])
-        df["temperature_deviation"] = compute_temperature_deviation(df["temperature_2m"])
-
-    # --- Wind power estimate ---
-    if "wind_speed_80m" in df.columns:
-        df["wind_power_estimate"] = compute_wind_power(df["wind_speed_80m"])
-
-    # --- Solar capacity factor ---
-    if "shortwave_radiation" in df.columns:
-        df["solar_capacity_factor"] = compute_solar_capacity_factor(df["shortwave_radiation"])
-
-    # --- Cyclical time features ---
-    if "timestamp" in df.columns:
-        df["hour_sin"], df["hour_cos"] = compute_cyclical_hour(df["timestamp"])
-        df["dow_sin"], df["dow_cos"] = compute_cyclical_dow(df["timestamp"])
-        df["is_holiday"] = compute_holiday_flag(df["timestamp"])
-
-    # --- Lag features (demand) ---
-    if "demand_mw" in df.columns:
-        df["demand_lag_1h"] = compute_lag(df["demand_mw"], periods=1)
-        df["demand_lag_3h"] = compute_lag(df["demand_mw"], periods=3)
-        df["demand_lag_24h"] = compute_lag(df["demand_mw"], periods=24)
-        df["demand_lag_168h"] = compute_lag(df["demand_mw"], periods=168)
-        df["ramp_rate"] = compute_ramp_rate(df["demand_mw"])
-
-    # --- Rolling statistics (demand, backward-looking) ---
-    if "demand_mw" in df.columns:
-        for window in [24, 72, 168]:
-            prefix = f"demand_roll_{window}h"
-            rolling = df["demand_mw"].rolling(window=window, min_periods=1)
-            df[f"{prefix}_mean"] = rolling.mean()
-            df[f"{prefix}_std"] = rolling.std()
-            df[f"{prefix}_min"] = rolling.min()
-            df[f"{prefix}_max"] = rolling.max()
-
-    # --- Demand momentum & ratio features (from autoresearch) ---
-    if "demand_lag_1h" in df.columns:
-        df["demand_momentum_short"] = compute_demand_momentum(
-            df["demand_lag_1h"], df["demand_lag_3h"]
-        )
-        df["demand_momentum_long"] = compute_demand_momentum(
-            df["demand_lag_1h"], df["demand_lag_24h"]
-        )
-    if "demand_lag_24h" in df.columns and "demand_roll_24h_mean" in df.columns:
-        df["demand_ratio_24h"] = compute_demand_ratio(
-            df["demand_lag_24h"], df["demand_roll_24h_mean"]
-        )
-    if "demand_lag_168h" in df.columns and "demand_roll_168h_mean" in df.columns:
-        df["demand_ratio_168h"] = compute_demand_ratio(
-            df["demand_lag_168h"], df["demand_roll_168h_mean"]
-        )
+    df = engineer_exogenous_features(df)
+    df = add_autoregressive_demand_features(df)
 
     # --- Interaction terms ---
     if "temperature_2m" in df.columns and "hour_sin" in df.columns:
@@ -126,6 +98,116 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     return df
+
+
+def engineer_exogenous_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Build features available at prediction time without demand target values."""
+    df = df.copy()
+
+    if "temperature_2m" in df.columns:
+        df["cooling_degree_days"] = compute_cdd(df["temperature_2m"])
+        df["heating_degree_days"] = compute_hdd(df["temperature_2m"])
+        df["temperature_deviation"] = compute_temperature_deviation(df["temperature_2m"])
+
+    if "wind_speed_80m" in df.columns:
+        df["wind_power_estimate"] = compute_wind_power(df["wind_speed_80m"])
+
+    if "shortwave_radiation" in df.columns:
+        df["solar_capacity_factor"] = compute_solar_capacity_factor(df["shortwave_radiation"])
+
+    if "timestamp" in df.columns:
+        df["hour_sin"], df["hour_cos"] = compute_cyclical_hour(df["timestamp"])
+        df["dow_sin"], df["dow_cos"] = compute_cyclical_dow(df["timestamp"])
+        df["is_holiday"] = compute_holiday_flag(df["timestamp"])
+
+    if "temperature_2m" in df.columns and "hour_sin" in df.columns:
+        df["temp_x_hour"] = compute_temp_hour_interaction(df["temperature_2m"], df["hour_sin"])
+
+    return df
+
+
+def add_autoregressive_demand_features(df: pd.DataFrame, target_col: str = "demand_mw") -> pd.DataFrame:
+    """Add demand-derived lag/rolling features that require historical demand."""
+    df = df.copy()
+    if target_col not in df.columns:
+        return df
+
+    df["demand_lag_1h"] = compute_lag(df[target_col], periods=1)
+    df["demand_lag_3h"] = compute_lag(df[target_col], periods=3)
+    df["demand_lag_24h"] = compute_lag(df[target_col], periods=24)
+    df["demand_lag_168h"] = compute_lag(df[target_col], periods=168)
+    df["ramp_rate"] = compute_ramp_rate(df[target_col])
+
+    for window in [24, 72, 168]:
+        prefix = f"demand_roll_{window}h"
+        rolling = df[target_col].rolling(window=window, min_periods=1)
+        df[f"{prefix}_mean"] = rolling.mean()
+        df[f"{prefix}_std"] = rolling.std()
+        df[f"{prefix}_min"] = rolling.min()
+        df[f"{prefix}_max"] = rolling.max()
+
+    df["demand_momentum_short"] = compute_demand_momentum(df["demand_lag_1h"], df["demand_lag_3h"])
+    df["demand_momentum_long"] = compute_demand_momentum(df["demand_lag_1h"], df["demand_lag_24h"])
+    df["demand_ratio_24h"] = compute_demand_ratio(df["demand_lag_24h"], df["demand_roll_24h_mean"])
+    df["demand_ratio_168h"] = compute_demand_ratio(df["demand_lag_168h"], df["demand_roll_168h_mean"])
+    return df
+
+
+def compute_autoregressive_snapshot(demand_history: list[float]) -> dict[str, float]:
+    """Compute inference-time autoregressive features using only prior demand history."""
+
+    def _lag(periods: int) -> float:
+        return float(demand_history[-periods]) if len(demand_history) >= periods else np.nan
+
+    def _roll(window: int, op: str) -> float:
+        if not demand_history:
+            return np.nan
+        arr = np.array(demand_history[-window:], dtype=float)
+        if op == "mean":
+            return float(np.mean(arr))
+        if op == "std":
+            return float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        if op == "min":
+            return float(np.min(arr))
+        return float(np.max(arr))
+
+    lag_1 = _lag(1)
+    lag_3 = _lag(3)
+    lag_24 = _lag(24)
+    lag_168 = _lag(168)
+    lag_2 = _lag(2)
+    roll_24_mean = _roll(24, "mean")
+    roll_168_mean = _roll(168, "mean")
+
+    return {
+        "demand_lag_1h": lag_1,
+        "demand_lag_3h": lag_3,
+        "demand_lag_24h": lag_24,
+        "demand_lag_168h": lag_168,
+        "ramp_rate": lag_1 - lag_2 if not np.isnan(lag_1) and not np.isnan(lag_2) else np.nan,
+        "demand_momentum_short": lag_1 - lag_3 if not np.isnan(lag_1) and not np.isnan(lag_3) else np.nan,
+        "demand_momentum_long": lag_1 - lag_24
+        if not np.isnan(lag_1) and not np.isnan(lag_24)
+        else np.nan,
+        "demand_ratio_24h": lag_24 / max(roll_24_mean, 1.0)
+        if not np.isnan(lag_24) and not np.isnan(roll_24_mean)
+        else np.nan,
+        "demand_ratio_168h": lag_168 / max(roll_168_mean, 1.0)
+        if not np.isnan(lag_168) and not np.isnan(roll_168_mean)
+        else np.nan,
+        "demand_roll_24h_mean": roll_24_mean,
+        "demand_roll_24h_std": _roll(24, "std"),
+        "demand_roll_24h_min": _roll(24, "min"),
+        "demand_roll_24h_max": _roll(24, "max"),
+        "demand_roll_72h_mean": _roll(72, "mean"),
+        "demand_roll_72h_std": _roll(72, "std"),
+        "demand_roll_72h_min": _roll(72, "min"),
+        "demand_roll_72h_max": _roll(72, "max"),
+        "demand_roll_168h_mean": roll_168_mean,
+        "demand_roll_168h_std": _roll(168, "std"),
+        "demand_roll_168h_min": _roll(168, "min"),
+        "demand_roll_168h_max": _roll(168, "max"),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -435,3 +517,13 @@ def get_feature_names() -> list[str]:
         "demand_roll_168h_max",
         "temp_x_hour",
     ]
+
+
+def get_autoregressive_feature_names() -> list[str]:
+    """Return demand-derived autoregressive feature names."""
+    return AUTOREGRESSIVE_DEMAND_FEATURES.copy()
+
+
+def get_exogenous_feature_names() -> list[str]:
+    """Return non-demand features available without contemporaneous target values."""
+    return [f for f in get_feature_names() if f not in AUTOREGRESSIVE_DEMAND_FEATURES]
