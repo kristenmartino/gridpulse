@@ -458,14 +458,57 @@ def _fetch_generation_all_parallel(regions: list[str]) -> None:
 
 
 def _fetch_generation_single(region: str) -> None:
-    """Fetch generation data for one region into SQLite + in-memory cache."""
+    """Fetch generation data for one region into SQLite + in-memory cache + Redis."""
     try:
         from components.callbacks import _fetch_generation_cached
 
         gen_df = _fetch_generation_cached(region)
         if gen_df is not None and not gen_df.empty:
             log.info("precompute_generation_cached", region=region, rows=len(gen_df))
+            _write_generation_to_redis(region, gen_df)
         else:
             log.warning("precompute_generation_empty", region=region)
     except Exception as e:
         log.warning("precompute_generation_error", region=region, error=str(e))
+
+
+def _write_generation_to_redis(region: str, gen_df: pd.DataFrame) -> None:
+    """Write generation data to Redis so the fast path serves real EIA data."""
+    from data.redis_client import redis_set
+
+    try:
+        gen_df = gen_df.copy()
+        gen_df["timestamp"] = pd.to_datetime(gen_df["timestamp"])
+        pivot = gen_df.pivot_table(
+            index="timestamp",
+            columns="fuel_type",
+            values="generation_mw",
+            aggfunc="sum",
+        ).fillna(0)
+
+        payload: dict = {
+            "region": region,
+            "timestamps": [t.isoformat() for t in pivot.index],
+        }
+        for col in pivot.columns:
+            payload[col] = pivot[col].tolist()
+
+        # Compute per-row renewable %
+        total = pivot.sum(axis=1)
+        ren_cols = [c for c in ["wind", "solar", "hydro"] if c in pivot.columns]
+        if ren_cols and total.mean() > 0:
+            ren_pct = (pivot[ren_cols].sum(axis=1) / total * 100).tolist()
+        else:
+            ren_pct = [0.0] * len(pivot)
+        payload["renewable_pct"] = ren_pct
+
+        if redis_set(f"wattcast:generation:{region}", payload, ttl=86400):
+            avg_ren = sum(ren_pct) / len(ren_pct) if ren_pct else 0
+            log.info(
+                "precompute_generation_redis_written",
+                region=region,
+                rows=len(pivot),
+                avg_renewable_pct=round(avg_ren, 1),
+            )
+    except Exception as e:
+        log.warning("precompute_generation_redis_error", region=region, error=str(e))

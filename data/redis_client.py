@@ -66,6 +66,19 @@ def redis_get(key: str) -> dict | list | None:
         return None
 
 
+def redis_set(key: str, value: dict | list, ttl: int = 86400) -> bool:
+    """Write a JSON value to Redis with TTL (default 24h). Returns True on success."""
+    client = _get_redis()
+    if client is None:
+        return False
+    try:
+        client.setex(key, ttl, json.dumps(value))
+        return True
+    except Exception as exc:
+        logger.warning("Redis write error for %s: %s", key, exc)
+        return False
+
+
 def redis_available() -> bool:
     """Check if Redis is connected and responsive."""
     return _get_redis() is not None
