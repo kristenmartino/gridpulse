@@ -297,16 +297,15 @@ class TestAddTrailingActuals:
 class TestCreateFutureFeatures:
     """Tests for _create_future_features(train_df, future_timestamps)."""
 
-    def test_short_horizon_uses_last_row(self):
+    def test_short_horizon_uses_group_means(self):
         from components.callbacks import _create_future_features
 
         train = _make_train_df(200)
         future_ts = pd.date_range("2024-05-09 08:00", periods=48, freq="h")
         result = _create_future_features(train, future_ts)
 
-        # Non-time features should use last row value for short horizon
-        last_temp = train["temperature_2m"].iloc[-1]
-        assert np.allclose(result["temperature_2m"].values, last_temp)
+        # All horizons use historical (hour, dow) group means — values vary
+        assert result["temperature_2m"].nunique() > 1
 
     def test_long_horizon_uses_group_means(self):
         from components.callbacks import _create_future_features
@@ -361,16 +360,16 @@ class TestCreateFutureFeatures:
         # All rows should be weekend (Saturday=5, Sunday=6)
         assert (result["is_weekend"] == 1).all()
 
-    def test_existing_feature_filled_from_last_row(self):
+    def test_existing_feature_filled_from_group_means(self):
         from components.callbacks import _create_future_features
 
         train = _make_train_df(200)
-        # Add a feature column that will be in last_row
+        # Add a constant feature column — group means will all equal 42
         train["phantom_feature"] = 42.0
         future_ts = pd.date_range("2024-05-09 08:00", periods=24, freq="h")
         result = _create_future_features(train, future_ts)
 
-        # phantom_feature should be filled from last_row (=42)
+        # phantom_feature should be filled via group means (all 42 since constant)
         assert "phantom_feature" in result.columns
         assert np.allclose(result["phantom_feature"].values, 42.0)
 
@@ -385,16 +384,15 @@ class TestCreateFutureFeatures:
         assert len(result) == 24
 
     def test_short_horizon_boundary(self):
-        """Horizon of exactly 167 (<168) should use last row values."""
+        """Horizon of exactly 167 should use historical group means."""
         from components.callbacks import _create_future_features
 
         train = _make_train_df(500, start="2024-01-01")
         future_ts = pd.date_range("2024-01-21 00:00", periods=167, freq="h")
         result = _create_future_features(train, future_ts)
 
-        # Should use last row value for non-time features
-        last_temp = train["temperature_2m"].iloc[-1]
-        assert np.allclose(result["temperature_2m"].values, last_temp)
+        # All horizons use group means — values should vary
+        assert result["temperature_2m"].nunique() > 1
 
 
 # ===================================================================

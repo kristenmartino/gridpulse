@@ -569,8 +569,8 @@ class TestCreateFutureFeatures:
         expected_months = future_ts.month
         np.testing.assert_array_equal(result["month"].values, expected_months)
 
-    def test_short_horizon_uses_last_row(self, featured_train_df):
-        """For short horizons (<168), non-time features should use last training row values."""
+    def test_short_horizon_uses_group_means(self, featured_train_df):
+        """All horizons use historical (hour, dow) averages for non-time features."""
         from components.callbacks import _create_future_features
 
         last_ts = featured_train_df["timestamp"].max()
@@ -578,9 +578,8 @@ class TestCreateFutureFeatures:
             start=last_ts + pd.Timedelta(hours=1), periods=24, freq="h", tz="UTC"
         )
         result = _create_future_features(featured_train_df, future_ts)
-        last_row = featured_train_df.iloc[-1]
-        # temperature_2m should be constant from last row (for short horizon)
-        assert result["temperature_2m"].iloc[0] == pytest.approx(last_row["temperature_2m"])
+        # temperature_2m should vary across hours (group means, not constant)
+        assert result["temperature_2m"].nunique() > 1
 
     def test_long_horizon_uses_group_means(self, featured_train_df):
         """For long horizons (>=168), non-time features should vary by (hour, dow)."""
@@ -630,10 +629,10 @@ class TestCreateFutureFeatures:
         assert result["dow_sin"].between(-1.0, 1.0).all()
         assert result["dow_cos"].between(-1.0, 1.0).all()
 
-    # --- 168h boundary tests (P2 fix: <= 168 uses short path) ---
+    # --- Horizon size tests: all horizons use group means ---
 
-    def test_boundary_167h_uses_short_path(self, featured_train_df):
-        """167h (< 168) should use the short-horizon last-known-value path."""
+    def test_boundary_167h_uses_group_means(self, featured_train_df):
+        """167h should use historical (hour, dow) averages."""
         from components.callbacks import _create_future_features
 
         last_ts = featured_train_df["timestamp"].max()
@@ -642,11 +641,10 @@ class TestCreateFutureFeatures:
         )
         result = _create_future_features(featured_train_df, future_ts)
         assert len(result) == 167
-        # Short path fills weather columns with one constant (last-known value)
-        assert result["temperature_2m"].nunique() == 1
+        assert result["temperature_2m"].nunique() > 1
 
-    def test_boundary_168h_uses_short_path(self, featured_train_df):
-        """168h (== 168) should use the short-horizon last-known-value path."""
+    def test_boundary_168h_uses_group_means(self, featured_train_df):
+        """168h should use historical (hour, dow) averages."""
         from components.callbacks import _create_future_features
 
         last_ts = featured_train_df["timestamp"].max()
@@ -655,11 +653,10 @@ class TestCreateFutureFeatures:
         )
         result = _create_future_features(featured_train_df, future_ts)
         assert len(result) == 168
-        # Short path fills weather columns with one constant (last-known value)
-        assert result["temperature_2m"].nunique() == 1
+        assert result["temperature_2m"].nunique() > 1
 
-    def test_boundary_169h_uses_long_path(self, featured_train_df):
-        """169h (> 168) should use the long-horizon historical-average path."""
+    def test_boundary_169h_uses_group_means(self, featured_train_df):
+        """169h should use historical (hour, dow) averages."""
         from components.callbacks import _create_future_features
 
         last_ts = featured_train_df["timestamp"].max()
@@ -668,7 +665,6 @@ class TestCreateFutureFeatures:
         )
         result = _create_future_features(featured_train_df, future_ts)
         assert len(result) == 169
-        # Long path fills weather columns with hour/dow group averages (varies)
         assert result["temperature_2m"].nunique() > 1
 
 

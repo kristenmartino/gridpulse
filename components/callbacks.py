@@ -760,11 +760,10 @@ def _create_future_features(
 ) -> pd.DataFrame:
     """Create feature dataframe for future predictions.
 
-    For short horizons (<=168h), uses last-known values for non-time features.
-    For longer horizons, fills weather, demand lag, and rolling features using
-    historical hour-of-day + day-of-week averages from training data so that
-    the model sees realistic daily/weekly patterns instead of a single frozen
-    value repeated for 720 hours.
+    Fills weather, demand lag, and rolling features using historical
+    hour-of-day + day-of-week averages from training data so that the
+    model sees realistic daily/weekly patterns instead of a single frozen
+    value repeated across the forecast horizon.
     """
     feature_cols = [c for c in train_df.columns if c not in ["timestamp", "demand_mw", "region"]]
 
@@ -784,46 +783,37 @@ def _create_future_features(
     horizon = len(future_timestamps)
     last_row = train_df.iloc[-1]
 
-    if horizon <= 168:
-        # Short horizon (up to 7 days): last-known values are a reasonable proxy
-        for col in feature_cols:
-            if col not in future_df.columns:
-                if col in last_row.index:
-                    future_df[col] = last_row[col]
-                else:
-                    future_df[col] = 0
-    else:
-        # Long horizon: use historical (hour, day_of_week) averages so the
-        # model sees realistic daily demand curves and weather patterns
-        # instead of flat constant features.
-        hist = train_df.copy()
-        hist["_hour"] = hist["timestamp"].dt.hour
-        hist["_dow"] = hist["timestamp"].dt.dayofweek
+    # Use historical (hour, day_of_week) averages so models see realistic
+    # daily demand curves and weather patterns instead of a single frozen
+    # value repeated for every future hour.
+    hist = train_df.copy()
+    hist["_hour"] = hist["timestamp"].dt.hour
+    hist["_dow"] = hist["timestamp"].dt.dayofweek
 
-        # Compute (hour, dow) group means for all numeric feature columns
-        non_time_cols = [c for c in feature_cols if c not in future_df.columns]
-        numeric_cols = [c for c in non_time_cols if c in hist.columns]
+    # Compute (hour, dow) group means for all numeric feature columns
+    non_time_cols = [c for c in feature_cols if c not in future_df.columns]
+    numeric_cols = [c for c in non_time_cols if c in hist.columns]
 
-        group_means = hist.groupby(["_hour", "_dow"])[numeric_cols].mean()
+    group_means = hist.groupby(["_hour", "_dow"])[numeric_cols].mean()
 
-        # Map future timestamps to their (hour, dow) historical averages
-        future_hour = future_df["timestamp"].dt.hour
-        future_dow = future_df["timestamp"].dt.dayofweek
+    # Map future timestamps to their (hour, dow) historical averages
+    future_hour = future_df["timestamp"].dt.hour
+    future_dow = future_df["timestamp"].dt.dayofweek
 
-        for col in numeric_cols:
-            values = np.empty(horizon)
-            for i in range(horizon):
-                key = (future_hour.iloc[i], future_dow.iloc[i])
-                if key in group_means.index:
-                    values[i] = group_means.loc[key, col]
-                else:
-                    values[i] = last_row[col] if col in last_row.index else 0
-            future_df[col] = values
+    for col in numeric_cols:
+        values = np.empty(horizon)
+        for i in range(horizon):
+            key = (future_hour.iloc[i], future_dow.iloc[i])
+            if key in group_means.index:
+                values[i] = group_means.loc[key, col]
+            else:
+                values[i] = last_row[col] if col in last_row.index else 0
+        future_df[col] = values
 
-        # Fill any remaining feature columns not in training data
-        for col in feature_cols:
-            if col not in future_df.columns:
-                future_df[col] = 0
+    # Fill any remaining feature columns not in training data
+    for col in feature_cols:
+        if col not in future_df.columns:
+            future_df[col] = 0
 
     return future_df
 
