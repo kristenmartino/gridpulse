@@ -36,6 +36,7 @@ from config import (
     TAB_LABELS,
 )
 from data.redis_client import redis_get
+from hash_utils import stable_int_seed
 from personas.config import PERSONAS, get_persona, get_welcome_card
 
 log = structlog.get_logger()
@@ -135,7 +136,7 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
         demand_sig = f"{_normalize_ts(demand_df['timestamp'].iloc[0])}_{_normalize_ts(demand_df['timestamp'].iloc[-1])}"
     if "timestamp" in weather_df.columns and len(weather_df) > 0:
         weather_sig = f"{_normalize_ts(weather_df['timestamp'].iloc[0])}_{_normalize_ts(weather_df['timestamp'].iloc[-1])}"
-    return hash((demand_sig, weather_sig, region))
+    return stable_int_seed(("callbacks_data_hash", demand_sig, weather_sig, region))
 
 
 def _confidence_half_width(horizon_hours: int) -> float:
@@ -2794,7 +2795,7 @@ def register_callbacks(app):
         hdd_delta = max(0, 65 - temp) - max(0, 65 - baseline_temp)
         temp_factor = 1 + (cdd_delta * 0.02 + hdd_delta * 0.015) / 65
 
-        seed = hash((region, temp, wind)) & 0xFFFFFFFF
+        seed = stable_int_seed(("scenario_simulation", region, temp, wind))
         rng = np.random.RandomState(seed)
         scenario = baseline * temp_factor + rng.normal(0, capacity * 0.005, len(baseline))
         scenario = np.maximum(scenario, 0)
@@ -3908,10 +3909,21 @@ def _predict_single_fold(
     n_test = len(test_df)
 
     if model_name == "xgboost":
+        from data.feature_engineering import compute_autoregressive_snapshot
         from models.xgboost_model import predict_xgboost, train_xgboost
 
         model = train_xgboost(train_df)
-        return predict_xgboost(model, test_df)[:n_test]
+        demand_history = train_df["demand_mw"].tolist()
+        preds: list[float] = []
+        for i in range(n_test):
+            row = test_df.iloc[[i]].copy()
+            for col, val in compute_autoregressive_snapshot(demand_history).items():
+                row[col] = val
+            row = row.ffill().bfill().fillna(0)
+            step_pred = float(predict_xgboost(model, row)[0])
+            preds.append(step_pred)
+            demand_history.append(step_pred)
+        return np.array(preds, dtype=float)
 
     elif model_name == "prophet":
         from models.prophet_model import predict_prophet, train_prophet
@@ -3943,6 +3955,7 @@ def _predict_single_fold(
 def _ensemble_fold(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    actual: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Train all models on train_df, combine via 1/MAPE weighting for one fold.
 
@@ -3950,7 +3963,12 @@ def _ensemble_fold(
     """
     from models.evaluation import compute_mape
 
-    actual = test_df["demand_mw"].values
+    if actual is None:
+        if "demand_mw" not in test_df.columns:
+            log.warning("ensemble_fold_missing_actuals")
+            actual = np.array([])
+        else:
+            actual = test_df["demand_mw"].values
     preds: dict[str, np.ndarray] = {}
 
     for name in ["xgboost", "prophet", "arima"]:
@@ -3964,14 +3982,15 @@ def _ensemble_fold(
     if not preds:
         return None
 
-    # 1/MAPE weighting
+    # 1/MAPE weighting (falls back to uniform if actuals unavailable)
     weights: dict[str, float] = {}
     total_inv_mape = 0.0
-    for name, pred in preds.items():
-        mape = compute_mape(actual, pred)
-        if mape > 0:
-            weights[name] = 1.0 / mape
-            total_inv_mape += weights[name]
+    if len(actual) > 0:
+        for name, pred in preds.items():
+            mape = compute_mape(actual, pred)
+            if mape > 0:
+                weights[name] = 1.0 / mape
+                total_inv_mape += weights[name]
 
     if total_inv_mape > 0:
         ensemble_pred = np.zeros(len(actual))
@@ -4012,7 +4031,7 @@ def _run_backtest_for_horizon(
     """
     import time
 
-    from data.feature_engineering import engineer_features
+    from data.feature_engineering import engineer_exogenous_features, engineer_features
     from data.preprocessing import merge_demand_weather
     from models.evaluation import compute_all_metrics
 
@@ -4051,13 +4070,12 @@ def _run_backtest_for_horizon(
     except Exception as e:
         log.debug("backtest_sqlite_cache_miss", error=str(e))
 
-    # Merge and engineer features
+    # Merge once; features are built fold-by-fold from train-history-only slices
     merged_df = merge_demand_weather(demand_df, weather_df)
-    featured_df = engineer_features(merged_df)
-    featured_df = featured_df.dropna(subset=["demand_mw"])
+    base_df = merged_df.dropna(subset=["demand_mw"]).reset_index(drop=True)
 
     min_train_size = 720  # 30 days minimum training data
-    n_total = len(featured_df)
+    n_total = len(base_df)
 
     if n_total < min_train_size + horizon_hours:
         return {"error": "Insufficient data"}
@@ -4093,8 +4111,12 @@ def _run_backtest_for_horizon(
                 )
                 continue
 
-            train_df = featured_df.iloc[:test_start].copy()
-            test_df = featured_df.iloc[test_start:test_end].copy()
+            train_slice = base_df.iloc[:test_start].copy()
+            test_slice = base_df.iloc[test_start:test_end].copy()
+            train_df = (
+                engineer_features(train_slice).dropna(subset=["demand_mw"]).reset_index(drop=True)
+            )
+            test_df = engineer_exogenous_features(test_slice).reset_index(drop=True)
 
             log.info(
                 "backtest_fold_start",
@@ -4105,8 +4127,9 @@ def _run_backtest_for_horizon(
             )
 
             # Get predictions for this fold
+            fold_actual = test_slice["demand_mw"].values
             if model_name == "ensemble":
-                fold_preds = _ensemble_fold(train_df, test_df)
+                fold_preds = _ensemble_fold(train_df, test_df, actual=fold_actual)
             else:
                 fold_preds = _predict_single_fold(model_name, train_df, test_df)
 
@@ -4115,7 +4138,6 @@ def _run_backtest_for_horizon(
                 continue
 
             # NaN guard per fold
-            fold_actual = test_df["demand_mw"].values
             if np.any(np.isnan(fold_preds)):
                 nan_pct = np.isnan(fold_preds).sum() / len(fold_preds) * 100
                 log.warning("backtest_fold_nan", fold=fold_idx + 1, nan_pct=round(nan_pct, 1))
@@ -4125,7 +4147,7 @@ def _run_backtest_for_horizon(
             fold_boundaries.append(sum(len(a) for a in all_actual))
             all_actual.append(fold_actual)
             all_predictions.append(fold_preds)
-            all_timestamps.append(test_df["timestamp"].values)
+            all_timestamps.append(test_slice["timestamp"].values)
 
             log.info("backtest_fold_complete", fold=fold_idx + 1, num_folds=num_folds)
 
