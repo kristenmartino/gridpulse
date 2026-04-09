@@ -3538,7 +3538,9 @@ def register_callbacks(app):
         actual = result["actual"]
         predictions = result["predictions"]
         metrics = result["metrics"]
-        exog_mode = _normalize_backtest_exog_mode(result.get("exog_mode", DEFAULT_BACKTEST_EXOG_MODE))
+        exog_mode = _normalize_backtest_exog_mode(
+            result.get("exog_mode", DEFAULT_BACKTEST_EXOG_MODE)
+        )
         exog_caption = _describe_exog_mode(exog_mode, result.get("exog_source"))
 
         # Build figure
@@ -3774,7 +3776,9 @@ def _build_persona_kpis(
     # Fallback: read from Redis if in-memory cache is empty
     if backtest_mape is None:
         for horizon in [168, 24, 720]:
-            bt_redis = redis_get(f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}")
+            bt_redis = redis_get(
+                f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}"
+            )
             if bt_redis is None:
                 bt_redis = redis_get(f"wattcast:backtest:{region}:{horizon}")
             if bt_redis and "metrics" in bt_redis:
