@@ -209,20 +209,20 @@ class TestComputeDataHash:
 
         empty = pd.DataFrame(columns=["timestamp", "demand_mw"])
         h = _compute_data_hash(empty, empty, "PJM")
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     def test_no_timestamp_column(self):
         from components.callbacks import _compute_data_hash
 
         df = pd.DataFrame({"value": [1, 2, 3]})
         h = _compute_data_hash(df, df, "MISO")
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     def test_hash_returns_int(self, demand_df, weather_df):
         from components.callbacks import _compute_data_hash
 
         h = _compute_data_hash(demand_df, weather_df, "FPL")
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     @pytest.mark.parametrize(
         "region", ["ERCOT", "CAISO", "PJM", "MISO", "NYISO", "FPL", "SPP", "ISONE"]
@@ -231,7 +231,7 @@ class TestComputeDataHash:
         from components.callbacks import _compute_data_hash
 
         h = _compute_data_hash(demand_df, weather_df, region)
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     def test_tz_naive_vs_tz_aware_same_hash(self):
         """Timestamps with and without tz info should hash identically (by design)."""

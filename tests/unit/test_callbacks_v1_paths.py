@@ -196,12 +196,15 @@ class TestRunForecastOutlook:
 
     def test_sqlite_cache_hit(self):
         """When in-memory cache misses but SQLite has data, return from SQLite."""
-        from components.callbacks import _run_forecast_outlook
+        from components.callbacks import _CACHE_VERSION, _compute_data_hash, _run_forecast_outlook
 
         demand = _demand_df(200)
         weather = _weather_df(200)
+        data_hash = _compute_data_hash(demand, weather, "FPL")
 
         sqlite_result = {
+            "cache_version": _CACHE_VERSION,
+            "data_hash": data_hash,
             "timestamps": ["2024-06-10T00:00:00"] * 24,
             "predictions": [40000.0] * 24,
         }
@@ -578,12 +581,19 @@ class TestRunBacktestForHorizon:
 
     def test_sqlite_cache_hit(self):
         """SQLite cache returns cached result."""
-        from components.callbacks import _run_backtest_for_horizon
+        from components.callbacks import (
+            _CACHE_VERSION,
+            _compute_data_hash,
+            _run_backtest_for_horizon,
+        )
 
         demand = _demand_df(200)
         weather = _weather_df(200)
+        data_hash = _compute_data_hash(demand, weather, "FPL")
 
         sqlite_result = {
+            "cache_version": _CACHE_VERSION,
+            "data_hash": data_hash,
             "timestamps": ["2024-06-10T00:00:00"] * 24,
             "actual": [40000.0] * 24,
             "predictions": [39000.0] * 24,

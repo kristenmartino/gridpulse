@@ -157,7 +157,7 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
         sample = df.loc[:, cols].copy()
         if "timestamp" in sample.columns:
             ts = pd.to_datetime(sample["timestamp"], utc=True, errors="coerce")
-            sample["timestamp"] = ts.view("int64").fillna(-1).astype("int64")
+            sample["timestamp"] = ts.astype("int64").fillna(-1).astype("int64")
             sample = sample.sort_values("timestamp", kind="mergesort")
         for col in cols:
             if col != "timestamp" and pd.api.types.is_numeric_dtype(sample[col]):
