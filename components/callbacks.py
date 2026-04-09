@@ -855,17 +855,10 @@ def _fetch_generation_cached(region: str) -> pd.DataFrame | None:
     except Exception as e:
         log.warning("generation_eia_failed", region=region, error=str(e))
 
-    # Tier 4: Demo data fallback
-    try:
-        from data.demo_data import generate_demo_generation
-
-        gen_df = generate_demo_generation(region, days=30)
-        _GENERATION_CACHE[region] = (gen_df, _time.time())
-        log.info("generation_demo_fallback", region=region, rows=len(gen_df))
-        return gen_df
-    except Exception as e:
-        log.error("generation_demo_failed", region=region, error=str(e))
-        return None
+    # No demo fallback — return None so callers show "No data" or use
+    # whatever is already in Redis rather than overwriting with fake values.
+    log.warning("generation_no_data", region=region)
+    return None
 
 
 def _load_data_from_redis(region):

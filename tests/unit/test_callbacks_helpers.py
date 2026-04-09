@@ -707,10 +707,10 @@ class TestFetchGenerationCached:
         # Set cache timestamp to 10 minutes ago
         cb._GENERATION_CACHE["ERCOT"] = (fake_df, time.time() - 600)
 
-        # With no EIA_API_KEY, it should fall through to demo data
-        with patch("components.callbacks.EIA_API_KEY", ""):
+        # With no EIA_API_KEY, returns None (no demo fallback)
+        with patch("config.EIA_API_KEY", ""):
             result = _fetch_generation_cached("ERCOT")
-            assert result is not None  # should get demo data
+            assert result is None
 
     @patch("config.EIA_API_KEY", "test-key")
     def test_eia_api_path(self):
@@ -730,56 +730,36 @@ class TestFetchGenerationCached:
             assert (result["fuel_type"] == "gas").all()
 
     @patch("config.EIA_API_KEY", "test-key")
-    def test_eia_api_failure_falls_to_demo(self):
+    def test_eia_api_failure_returns_none(self):
         from components.callbacks import _fetch_generation_cached
 
         with patch("data.eia_client.fetch_generation_by_fuel", side_effect=Exception("API down")):
             result = _fetch_generation_cached("PJM")
-            assert result is not None  # demo fallback
-            assert "fuel_type" in result.columns
+            assert result is None  # no demo fallback
 
     @patch("config.EIA_API_KEY", "")
-    def test_no_api_key_uses_demo(self):
+    def test_no_api_key_returns_none(self):
         from components.callbacks import _fetch_generation_cached
 
         result = _fetch_generation_cached("FPL")
-        assert result is not None
-        assert len(result) > 0
-
-    @patch("config.EIA_API_KEY", "")
-    def test_demo_fallback_populates_memory_cache(self):
-        import components.callbacks as cb
-        from components.callbacks import _fetch_generation_cached
-
-        _fetch_generation_cached("SPP")
-        assert "SPP" in cb._GENERATION_CACHE
-
-    def test_demo_failure_returns_none(self):
-        from components.callbacks import _fetch_generation_cached
-
-        with (
-            patch("config.EIA_API_KEY", ""),
-            patch("data.demo_data.generate_demo_generation", side_effect=Exception("demo broken")),
-        ):
-            result = _fetch_generation_cached("ISONE")
-            assert result is None
+        assert result is None  # no demo fallback
 
     @patch("config.EIA_API_KEY", "test-key")
-    def test_eia_returns_empty_df_falls_to_demo(self):
+    def test_eia_returns_empty_df_returns_none(self):
         from components.callbacks import _fetch_generation_cached
 
         empty = pd.DataFrame()
         with patch("data.eia_client.fetch_generation_by_fuel", return_value=empty):
             result = _fetch_generation_cached("MISO")
-            assert result is not None  # falls through to demo
+            assert result is None  # no demo fallback
 
     @patch("config.EIA_API_KEY", "test-key")
-    def test_eia_returns_none_falls_to_demo(self):
+    def test_eia_returns_none_returns_none(self):
         from components.callbacks import _fetch_generation_cached
 
         with patch("data.eia_client.fetch_generation_by_fuel", return_value=None):
             result = _fetch_generation_cached("NYISO")
-            assert result is not None  # demo fallback
+            assert result is None  # no demo fallback
 
 
 # ===========================================================================

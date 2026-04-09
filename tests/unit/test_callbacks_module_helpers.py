@@ -439,14 +439,10 @@ class TestFetchGenerationCached:
         # Set cache with old timestamp
         cb_mod._GENERATION_CACHE["ERCOT"] = (gen_df, time.time() - 600)
 
-        # Mock EIA key to be empty so it skips to demo
-        with (
-            patch("config.EIA_API_KEY", ""),
-            patch("data.demo_data.generate_demo_generation") as mock_demo,
-        ):
-            mock_demo.return_value = gen_df
+        # With no EIA key, returns None (no demo fallback)
+        with patch("config.EIA_API_KEY", ""):
             result = cb_mod._fetch_generation_cached("ERCOT")
-            assert result is not None
+            assert result is None
 
         cb_mod._GENERATION_CACHE.clear()
 
@@ -475,20 +471,11 @@ class TestFetchGenerationCached:
         assert (result["fuel_type"] == "gas").all()
         cb_mod._GENERATION_CACHE.clear()
 
-    def test_eia_fails_falls_to_demo(self):
-        """When EIA raises, falls through to demo data."""
+    def test_eia_fails_returns_none(self):
+        """When EIA raises, returns None (no demo fallback)."""
         import components.callbacks as cb_mod
 
         cb_mod._GENERATION_CACHE.clear()
-
-        demo_df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-06-01", periods=3, freq="h"),
-                "fuel_type": ["solar"] * 3,
-                "generation_mw": [500] * 3,
-                "region": ["SPP"] * 3,
-            }
-        )
 
         with (
             patch("config.EIA_API_KEY", "real_key"),
@@ -496,59 +483,22 @@ class TestFetchGenerationCached:
                 "data.eia_client.fetch_generation_by_fuel",
                 side_effect=Exception("API down"),
             ),
-            patch("data.demo_data.generate_demo_generation", return_value=demo_df),
         ):
             result = cb_mod._fetch_generation_cached("SPP")
-
-        assert result is not None
-        assert len(result) == 3
-        cb_mod._GENERATION_CACHE.clear()
-
-    def test_all_tiers_fail_returns_none(self):
-        """When all tiers fail, returns None."""
-        import components.callbacks as cb_mod
-
-        cb_mod._GENERATION_CACHE.clear()
-
-        with (
-            patch("config.EIA_API_KEY", "real_key"),
-            patch(
-                "data.eia_client.fetch_generation_by_fuel",
-                side_effect=Exception("API down"),
-            ),
-            patch(
-                "data.demo_data.generate_demo_generation",
-                side_effect=Exception("Demo broken"),
-            ),
-        ):
-            result = cb_mod._fetch_generation_cached("NYISO")
 
         assert result is None
         cb_mod._GENERATION_CACHE.clear()
 
-    def test_no_api_key_skips_eia(self):
-        """When EIA_API_KEY is empty, skips EIA and goes to demo."""
+    def test_no_api_key_returns_none(self):
+        """When EIA_API_KEY is empty, returns None (no demo fallback)."""
         import components.callbacks as cb_mod
 
         cb_mod._GENERATION_CACHE.clear()
 
-        demo_df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-06-01", periods=3, freq="h"),
-                "fuel_type": ["wind"] * 3,
-                "generation_mw": [300] * 3,
-                "region": ["MISO"] * 3,
-            }
-        )
-
-        with (
-            patch("config.EIA_API_KEY", ""),
-            patch("data.demo_data.generate_demo_generation", return_value=demo_df),
-        ):
+        with patch("config.EIA_API_KEY", ""):
             result = cb_mod._fetch_generation_cached("MISO")
 
-        assert result is not None
-        assert len(result) == 3
+        assert result is None
         cb_mod._GENERATION_CACHE.clear()
 
 

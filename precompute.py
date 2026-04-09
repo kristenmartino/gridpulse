@@ -376,31 +376,36 @@ def _backtest_all_parallel(regions: list[str]) -> None:
 
 
 def _fetch_data(region: str) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """Fetch demand + weather data, falling back to demo data."""
+    """Fetch demand + weather data from real APIs. Returns None on failure."""
     try:
-        if EIA_API_KEY and EIA_API_KEY != "your_eia_api_key_here":
-            from data.eia_client import fetch_demand
-            from data.weather_client import fetch_weather
+        if not EIA_API_KEY or EIA_API_KEY == "your_eia_api_key_here":
+            log.warning("precompute_skipped_no_api_key", region=region)
+            return None, None
 
-            try:
-                demand_df = fetch_demand(region)
-            except Exception as e:
-                log.warning("precompute_demand_fallback", region=region, error=str(e))
-                from data.demo_data import generate_demo_demand
+        from data.eia_client import fetch_demand
+        from data.weather_client import fetch_weather
 
-                demand_df = generate_demo_demand(region)
-            try:
-                weather_df = fetch_weather(region)
-            except Exception as e:
-                log.warning("precompute_weather_fallback", region=region, error=str(e))
-                from data.demo_data import generate_demo_weather
+        demand_df = None
+        weather_df = None
 
-                weather_df = generate_demo_weather(region)
-        else:
-            from data.demo_data import generate_demo_demand, generate_demo_weather
+        try:
+            demand_df = fetch_demand(region)
+        except Exception as e:
+            log.warning("precompute_demand_failed", region=region, error=str(e))
 
-            demand_df = generate_demo_demand(region)
-            weather_df = generate_demo_weather(region)
+        try:
+            weather_df = fetch_weather(region)
+        except Exception as e:
+            log.warning("precompute_weather_failed", region=region, error=str(e))
+
+        if demand_df is None or weather_df is None:
+            log.warning(
+                "precompute_partial_data",
+                region=region,
+                has_demand=demand_df is not None,
+                has_weather=weather_df is not None,
+            )
+            return None, None
 
         log.info(
             "precompute_data_fetched",
@@ -462,16 +467,38 @@ def _fetch_generation_all_parallel(regions: list[str]) -> None:
 
 
 def _fetch_generation_single(region: str) -> None:
-    """Fetch generation data for one region into SQLite + in-memory cache + Redis."""
-    try:
-        from components.callbacks import _fetch_generation_cached
+    """Fetch real EIA generation data for one region into cache + Redis.
 
-        gen_df = _fetch_generation_cached(region)
-        if gen_df is not None and not gen_df.empty:
-            log.info("precompute_generation_cached", region=region, rows=len(gen_df))
-            _write_generation_to_redis(region, gen_df)
-        else:
+    Only writes to Redis when real EIA data is obtained. If the EIA API
+    is down, leaves existing Redis data as-is (no demo overwrite).
+    """
+    try:
+        import time as _time
+
+        from components.callbacks import _EIA_FUEL_MAP, _GENERATION_CACHE
+        from config import EIA_API_KEY
+        from data.eia_client import fetch_generation_by_fuel
+
+        if not EIA_API_KEY or EIA_API_KEY == "your_eia_api_key_here":
+            log.warning("precompute_generation_skipped_no_key", region=region)
+            return
+
+        gen_df = fetch_generation_by_fuel(region)
+        if gen_df is None or gen_df.empty:
             log.warning("precompute_generation_empty", region=region)
+            return
+
+        # Normalize fuel type codes
+        gen_df["fuel_type"] = (
+            gen_df["fuel_type"].map(_EIA_FUEL_MAP).fillna(gen_df["fuel_type"].str.lower())
+        )
+        # Update in-memory cache
+        _GENERATION_CACHE[region] = (gen_df, _time.time())
+        log.info("precompute_generation_cached", region=region, rows=len(gen_df))
+
+        # Write real data to Redis
+        _write_generation_to_redis(region, gen_df)
+
     except Exception as e:
         log.warning("precompute_generation_error", region=region, error=str(e))
 
