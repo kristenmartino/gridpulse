@@ -19,7 +19,7 @@ def layout() -> html.Div:
             # ── Section A: Greeting + AI Executive Briefing ───────
             dbc.Row(
                 dbc.Col(
-                    html.Div(id="overview-greeting", className="welcome-card"),
+                    html.Div(id="overview-greeting"),
                     md=12,
                 ),
                 className="g-2 mb-2",
