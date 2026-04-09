@@ -135,7 +135,12 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
         return str(t)
 
     def _frame_sig(df: pd.DataFrame, key_cols: list[str]) -> dict:
-        frame_sig: dict[str, str | int] = {"rows": int(len(df)), "start": "", "end": "", "checksum": ""}
+        frame_sig: dict[str, str | int] = {
+            "rows": int(len(df)),
+            "start": "",
+            "end": "",
+            "checksum": "",
+        }
         if df.empty:
             return frame_sig
 
@@ -158,7 +163,9 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
             if col != "timestamp" and pd.api.types.is_numeric_dtype(sample[col]):
                 sample[col] = sample[col].round(6)
 
-        hashed = pd.util.hash_pandas_object(sample.fillna("<NA>"), index=False).to_numpy(dtype=np.uint64)
+        hashed = pd.util.hash_pandas_object(sample.fillna("<NA>"), index=False).to_numpy(
+            dtype=np.uint64
+        )
         frame_sig["checksum"] = f"{int(hashed.sum(dtype=np.uint64)):016x}"
         return frame_sig
 
