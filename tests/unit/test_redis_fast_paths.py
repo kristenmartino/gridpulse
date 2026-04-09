@@ -376,6 +376,15 @@ class TestModelsTabFromRedis:
         assert _models_tab_from_redis("FPL") is None
 
     @patch("components.callbacks.redis_get")
+    def test_non_ensemble_selection_returns_none(self, mock_rg):
+        """Redis fast path is disabled for non-ensemble selections."""
+        mock_rg.return_value = _diagnostics_payload()
+
+        from components.callbacks import _models_tab_from_redis
+
+        assert _models_tab_from_redis("FPL", selected_models=["prophet"]) is None
+
+    @patch("components.callbacks.redis_get")
     def test_table_has_4_rows(self, mock_rg):
         """Metrics table has 4 rows: Prophet, SARIMAX, XGBoost, Ensemble."""
         mock_rg.return_value = _diagnostics_payload()

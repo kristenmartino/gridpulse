@@ -989,12 +989,19 @@ def _weather_tab_from_redis(region):
     return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
 
 
-def _models_tab_from_redis(region):
+def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     """Redis fast path for update_models_tab callback.
 
     Returns a 6-tuple (table, fig_resid_time, fig_resid_hist, fig_resid_pred,
     fig_heatmap, fig_shap) or None if cache miss.
     """
+    default_models = ["prophet", "arima", "xgboost", "ensemble"]
+    selected_models = selected_models or default_models
+    # Current Redis diagnostics payload is ensemble-only for residual charts.
+    # Keep this fast path only when callback explicitly requests ensemble-only.
+    if selected_models is not default_models and set(selected_models) != {"ensemble"}:
+        return None
+
     cached = redis_get(f"wattcast:diagnostics:{region}")
     if cached is None:
         return None
@@ -1016,6 +1023,8 @@ def _models_tab_from_redis(region):
     }
     rows = []
     for display_name, key in name_map.items():
+        if key not in selected_models:
+            continue
         m = metrics.get(key, {})
         rows.append(
             html.Tr(
@@ -1079,17 +1088,20 @@ def _models_tab_from_redis(region):
         **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
     )
 
-    fi_names = fi.get("names", [])
-    fi_vals = fi.get("values", [])
-    fig_shap = go.Figure(
-        go.Bar(
-            x=fi_vals[::-1],
-            y=fi_names[::-1],
-            orientation="h",
-            marker_color=COLORS["xgboost"],
+    if "xgboost" in selected_models:
+        fi_names = fi.get("names", [])
+        fi_vals = fi.get("values", [])
+        fig_shap = go.Figure(
+            go.Bar(
+                x=fi_vals[::-1],
+                y=fi_names[::-1],
+                orientation="h",
+                marker_color=COLORS["xgboost"],
+            )
         )
-    )
-    fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+        fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+    else:
+        fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
 
     return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
 
@@ -2280,6 +2292,12 @@ def register_callbacks(app):
         if not selected_models:
             empty = _empty_figure("Select at least one model to view diagnostics.")
             return html.P("No model selected."), empty, empty, empty, empty, empty
+
+        # Redis fast path is valid only for ensemble-only diagnostics payloads.
+        if region:
+            redis_result = _models_tab_from_redis(region, selected_models)
+            if redis_result is not None:
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         demand_df = pd.read_json(io.StringIO(demand_json))
