@@ -1178,8 +1178,8 @@ class TestEnsembleFold:
             assert result is not None
             assert len(result) == 24
 
-    def test_mape_weighting_correct(self):
-        """Model with lower MAPE should get higher weight."""
+    def test_equal_weighting_correct(self):
+        """Ensemble uses equal weights to avoid holdout leakage."""
         from components.callbacks import _ensemble_fold
 
         train = pd.DataFrame(
@@ -1195,8 +1195,8 @@ class TestEnsembleFold:
             }
         )
 
-        xgb_pred = np.ones(24) * 29000  # closer to actual
-        prophet_pred = np.ones(24) * 35000  # farther from actual
+        xgb_pred = np.ones(24) * 29000
+        prophet_pred = np.ones(24) * 35000
 
         def mock_predict(name, train_df, test_df, **kwargs):
             if name == "xgboost":
@@ -1205,14 +1205,12 @@ class TestEnsembleFold:
                 return prophet_pred
             return None  # arima fails
 
-        # xgboost: MAPE~3.3, prophet: MAPE~16.7
-        # xgboost should have higher weight → ensemble closer to 29000
+        # Equal weights: ensemble = mean(29000, 35000) = 32000
         with patch("components.callbacks._predict_single_fold", side_effect=mock_predict):
             result = _ensemble_fold(train, test)
             assert result is not None
             avg = result.mean()
-            # Ensemble should be closer to xgboost (29000) than prophet (35000)
-            assert avg < 32000
+            assert avg == pytest.approx(32000, abs=1)
 
     def test_nan_predictions_excluded(self):
         from components.callbacks import _ensemble_fold

@@ -4339,18 +4339,16 @@ def _ensemble_fold(
     exog_mode: str = DEFAULT_BACKTEST_EXOG_MODE,
     actual: np.ndarray | None = None,
 ) -> np.ndarray | None:
-    """Train all models on train_df, combine via 1/MAPE weighting for one fold.
+    """Train all models on train_df, combine via equal weighting for one fold.
 
-    Returns weighted ensemble predictions or None if all models fail.
+    Uses uniform averaging to avoid data leakage — computing 1/MAPE weights
+    from the same fold's holdout actuals would optimise on the scoring data,
+    producing optimistic backtest metrics.  Forward forecasts already use
+    equal weights (no actuals available), so this keeps backtest and
+    production behaviour consistent.
+
+    Returns equal-weight ensemble predictions or None if all models fail.
     """
-    from models.evaluation import compute_mape
-
-    if actual is None:
-        if "demand_mw" not in test_df.columns:
-            log.warning("ensemble_fold_missing_actuals")
-            actual = np.array([])
-        else:
-            actual = test_df["demand_mw"].values
     preds: dict[str, np.ndarray] = {}
 
     for name in ["xgboost", "prophet", "arima"]:
@@ -4364,24 +4362,6 @@ def _ensemble_fold(
     if not preds:
         return None
 
-    # 1/MAPE weighting (falls back to uniform if actuals unavailable)
-    weights: dict[str, float] = {}
-    total_inv_mape = 0.0
-    if len(actual) > 0:
-        for name, pred in preds.items():
-            mape = compute_mape(actual, pred)
-            if mape > 0:
-                weights[name] = 1.0 / mape
-                total_inv_mape += weights[name]
-
-    if total_inv_mape > 0:
-        ensemble_pred = np.zeros(len(actual))
-        for name, pred in preds.items():
-            w = weights.get(name, 0) / total_inv_mape
-            ensemble_pred += pred * w
-        return ensemble_pred
-
-    # Fallback: uniform average
     return np.mean(list(preds.values()), axis=0)
 
 

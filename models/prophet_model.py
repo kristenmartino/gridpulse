@@ -145,24 +145,38 @@ def predict_prophet(
     future["cap"] = demand_cap
     future["floor"] = 0
 
-    # Add regressor values to future DataFrame
-    for regressor_name, _ in PROPHET_REGRESSORS:
-        if regressor_name in df.columns:
-            # Use available values, forward-fill for forecast period
-            available = df[regressor_name].values
-            if len(available) >= len(future):
-                future[regressor_name] = available[: len(future)]
-            else:
-                padded = np.concatenate(
-                    [
-                        available,
-                        np.full(
-                            len(future) - len(available), available[-1] if len(available) > 0 else 0
-                        ),
-                    ]
-                )
-                future[regressor_name] = padded
+    # Add regressor values to future DataFrame via timestamp join.
+    # The positional approach (slicing by index) silently misaligns regressors
+    # when df and future have different lengths or time ranges.  Joining on
+    # the canonical 'ds' timestamp column guarantees each hour gets its own
+    # regressor values, with forward-fill covering the forecast horizon.
+    regressor_cols = [name for name, _ in PROPHET_REGRESSORS if name in df.columns]
+    if regressor_cols:
+        # Build a tz-naive timestamp key that matches Prophet's 'ds' column
+        if "timestamp" in df.columns:
+            ts = df["timestamp"].dt.tz_localize(None) if df["timestamp"].dt.tz else df["timestamp"]
+        elif "ds" in df.columns:
+            ts = pd.to_datetime(df["ds"]).dt.tz_localize(None) if pd.to_datetime(df["ds"]).dt.tz else pd.to_datetime(df["ds"])
         else:
+            ts = df.index.tz_localize(None) if hasattr(df.index, "tz") and df.index.tz else df.index
+
+        reg_df = pd.DataFrame({"ds": ts.values})
+        for col in regressor_cols:
+            reg_df[col] = df[col].values
+
+        # Drop duplicates (keep last) so the merge is clean
+        reg_df = reg_df.drop_duplicates(subset="ds", keep="last")
+
+        future = future.merge(reg_df, on="ds", how="left")
+
+        # Forward-fill covers the forecast horizon (beyond training data);
+        # backward-fill handles any leading gaps; zero fills truly missing regressors.
+        for col in regressor_cols:
+            future[col] = future[col].ffill().bfill().fillna(0)
+
+    # Fill any regressors not present in df at all
+    for regressor_name, _ in PROPHET_REGRESSORS:
+        if regressor_name not in future.columns:
             future[regressor_name] = 0.0
 
     forecast = model.predict(future)
