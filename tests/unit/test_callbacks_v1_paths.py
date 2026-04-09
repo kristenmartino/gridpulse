@@ -836,13 +836,21 @@ class TestModelsTabV1:
 
     def test_tab_guard(self, callbacks):
         """When active_tab is not tab-models, return no_update list."""
-        result = callbacks["update_models_tab"](_demand_json(), "tab-forecast", "FPL")
+        result = callbacks["update_models_tab"](_demand_json(), "tab-forecast", ["ensemble"], "FPL")
         assert result == [no_update] * 6
 
     def test_no_demand_returns_loading(self, callbacks):
         """When demand_json is None, return loading placeholders."""
-        result = callbacks["update_models_tab"](None, "tab-models", "FPL")
+        result = callbacks["update_models_tab"](None, "tab-models", ["ensemble"], "FPL")
         assert len(result) == 6
+
+    def test_no_model_selected_returns_empty_state(self, callbacks):
+        """When no models are selected, callback returns empty-state visuals."""
+        result = callbacks["update_models_tab"](_demand_json(), "tab-models", [], "FPL")
+        assert len(result) == 6
+        assert isinstance(result[0], html.P)
+        for fig in result[1:]:
+            assert isinstance(fig, go.Figure)
 
     def test_v1_fallback_with_valid_data(self, callbacks):
         """V1 compute fallback produces table + 5 figures."""
@@ -853,6 +861,9 @@ class TestModelsTabV1:
                 "xgboost": {"mape": 4.0, "rmse": 400, "mae": 350, "r2": 0.96},
                 "ensemble": {"mape": 3.5, "rmse": 350, "mae": 300, "r2": 0.97},
             },
+            "prophet": np.random.uniform(35000, 45000, 168),
+            "arima": np.random.uniform(35000, 45000, 168),
+            "xgboost": np.random.uniform(35000, 45000, 168),
             "ensemble": np.random.uniform(35000, 45000, 168),
         }
 
@@ -860,7 +871,9 @@ class TestModelsTabV1:
             patch("components.callbacks.redis_get", return_value=None),
             patch("models.model_service.get_forecasts", return_value=fake_forecasts),
         ):
-            result = callbacks["update_models_tab"](_demand_json(), "tab-models", "FPL")
+            result = callbacks["update_models_tab"](
+                _demand_json(), "tab-models", ["prophet", "arima", "xgboost", "ensemble"], "FPL"
+            )
 
         assert len(result) == 6
         # First element is a table
@@ -868,6 +881,20 @@ class TestModelsTabV1:
         # Remaining are figures
         for fig in result[1:]:
             assert isinstance(fig, go.Figure)
+
+    def test_shap_empty_state_when_xgboost_not_selected(self, callbacks):
+        """SHAP panel is intentionally blank when XGBoost is not in model selector."""
+        fake_forecasts = {
+            "metrics": {"prophet": {"mape": 5.0, "rmse": 500, "mae": 400, "r2": 0.95}},
+            "prophet": np.random.uniform(35000, 45000, 168),
+        }
+        with patch("models.model_service.get_forecasts", return_value=fake_forecasts):
+            result = callbacks["update_models_tab"](
+                _demand_json(), "tab-models", ["prophet"], "FPL"
+            )
+        shap_fig = result[5]
+        assert isinstance(shap_fig, go.Figure)
+        assert shap_fig.layout.annotations
 
 
 # ===================================================================

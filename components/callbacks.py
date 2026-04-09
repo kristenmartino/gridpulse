@@ -2190,8 +2190,13 @@ def register_callbacks(app):
 
         if not model_residuals:
             empty = _empty_figure("No residual diagnostics available for the selected model(s).")
-            return table, empty, empty, empty, empty, _empty_figure(
-                "Select XGBoost to view SHAP feature importance."
+            return (
+                table,
+                empty,
+                empty,
+                empty,
+                empty,
+                _empty_figure("Select XGBoost to view SHAP feature importance."),
             )
 
         fig_resid_time = go.Figure()
