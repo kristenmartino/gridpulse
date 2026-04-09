@@ -156,7 +156,11 @@ def predict_prophet(
         if "timestamp" in df.columns:
             ts = df["timestamp"].dt.tz_localize(None) if df["timestamp"].dt.tz else df["timestamp"]
         elif "ds" in df.columns:
-            ts = pd.to_datetime(df["ds"]).dt.tz_localize(None) if pd.to_datetime(df["ds"]).dt.tz else pd.to_datetime(df["ds"])
+            ts = (
+                pd.to_datetime(df["ds"]).dt.tz_localize(None)
+                if pd.to_datetime(df["ds"]).dt.tz
+                else pd.to_datetime(df["ds"])
+            )
         else:
             ts = df.index.tz_localize(None) if hasattr(df.index, "tz") and df.index.tz else df.index
 

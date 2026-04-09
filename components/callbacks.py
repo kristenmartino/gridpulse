@@ -593,9 +593,7 @@ def _run_forecast_outlook(
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             ensemble_models = (
-                ["xgboost", "prophet"]
-                if horizon_hours > 168
-                else ["xgboost", "prophet", "arima"]
+                ["xgboost", "prophet"] if horizon_hours > 168 else ["xgboost", "prophet", "arima"]
             )
 
             preds = {}
