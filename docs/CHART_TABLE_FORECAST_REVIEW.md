@@ -1,4 +1,4 @@
-# Senior Data Science Review: Charts, Tables, and Forecasting Logic
+# Unified Review: Charts, Tables, and Forecasting Pipeline (Production Readiness)
 
 Date: 2026-04-09
 
@@ -6,150 +6,143 @@ Scope reviewed:
 - Chart/table rendering logic in `components/callbacks.py`
 - Forecast generation and diagnostics logic in `components/callbacks.py` and `models/model_service.py`
 - Core model wrappers in `models/prophet_model.py`, `models/arima_model.py`, and `models/xgboost_model.py`
+- Scenario, backtest, and Redis/model-service fallback paths
 
 ## Executive summary
 
-The codebase has several strong patterns (walk-forward fold structure, cache layering, explicit model modules), but there are **critical methodological issues** that can materially misstate model quality in charts/tables and create non-production-like behavior.
+The codebase has good structural foundations (modular model wrappers, walk-forward folds, cache layering), but it currently fails key production forecasting quality standards due to leakage risk, timestamp/feature misalignment, and misleading uncertainty/diagnostic presentation.
 
-Top concerns:
-1. **Backtest data leakage in ensemble weighting** (uses test actuals to set weights).
-2. **Misleading uncertainty presentation** (fixed-width band labeled as 80% CI).
-3. **Invalid 95% interval derivation in Prophet wrapper**.
-4. **Diagnostics tab compares actuals to predictions not generated for those timestamps/features**.
-5. **Model selection bug forces XGBoost computation even when not selected**.
+Most urgent issues:
+1. **Backtest data leakage in ensemble weighting** (weights are derived from holdout actuals).
+2. **Prediction input misalignment** (trained-model path and Prophet regressor alignment issues).
+3. **Diagnostics and scenario semantic inconsistencies** (comparisons and labels can be non-comparable or historically framed as forecast).
+4. **Uncertainty representation is not statistically valid as currently labeled**.
 
 ---
 
-## Findings
+## Consolidated findings
 
-### 1) Critical — Ensemble backtest leakage (uses holdout actuals to compute weights)
-
+### P0 — Ensemble backtest leakage (critical)
 **Where:** `components/callbacks.py`, `_ensemble_fold`.
 
-The ensemble weights are computed using `compute_mape(actual, pred)` where `actual` is the current fold's holdout truth, then immediately used to blend that same fold's predictions.
+Ensemble weights are computed from the same fold holdout actuals used for scoring, then applied to that fold’s predictions.
 
-Why this is incorrect:
-- This is target leakage inside evaluation.
-- It makes the ensemble backtest optimistic relative to deploy-time behavior, where holdout actuals are unknown.
+**Impact:** optimistic backtest error; non-production-like evaluation.
 
-Industry-standard fix:
-- Learn weights only from prior folds (or a nested validation split inside training), then apply those fixed weights to the current test fold.
-- Alternatively, use static pre-declared weights for backtest to mimic production.
+**Recommended fix:** learn weights only from prior folds (or nested validation inside train), then apply fixed weights to current fold.
 
-### 2) High — "80% CI" band is deterministic heuristic, not calibrated uncertainty
-
-**Where:** `components/callbacks.py`, `_add_confidence_bands` and `_confidence_half_width`.
-
-The band is defined as `prediction * (1 ± constant)` with hardcoded percentages by horizon, then labeled "80% CI".
-
-Why this is incorrect:
-- This is not a statistical confidence/prediction interval.
-- No calibration step verifies nominal coverage (e.g., 80% of actuals inside band).
-
-Industry-standard fix:
-- Label as "heuristic range" unless calibrated.
-- Build empirical quantile models or conformal intervals with backtest-based coverage validation.
-
-### 3) High — Prophet "95%" bounds are mathematically invalid
-
-**Where:** `models/prophet_model.py`, `predict_prophet`.
-
-The code derives 95% bounds by scaling 80-ish outputs:
-- `lower_95 = yhat_lower * 0.95`
-- `upper_95 = yhat_upper * 1.05`
-
-Why this is incorrect:
-- Multiplying lower/upper bounds by constants does not transform interval coverage.
-- Coverage becomes unknown and misleading.
-
-Industry-standard fix:
-- Request true quantiles from the model/posterior samples, or estimate empirical residual quantiles from rolling backtests.
-
-### 4) Critical — Diagnostics tab residual charts are likely misaligned/non-comparable
-
-**Where:** `components/callbacks.py`, `update_models_tab`; `models/model_service.py`, `_predict_from_trained`.
-
-`update_models_tab` passes raw `demand_df` into `get_forecasts`, then computes residuals as `actual - pred` for the same timestamps. But model wrappers are not consistently producing in-sample aligned predictions for those timestamps:
-- Prophet path uses `make_future_dataframe(periods=n)` and takes the tail (future horizon behavior).
-- XGBoost path expects feature-engineered inputs; raw demand frame can trigger missing-feature zero-filling.
-
-Why this is incorrect:
-- Residual charts/tables can compare actuals against forecasts for a different target period or feature context.
-- This invalidates model diagnostics and can mislead users.
-
-Industry-standard fix:
-- Build a clear diagnostic pipeline: either strict in-sample fitted values or strict out-of-sample backtest predictions with aligned timestamps and engineered features.
-
-### 5) Medium — Model filter logic still computes XGBoost when unselected
-
+### P0 — Trained inference path uses non-guaranteed feature-engineered inputs (critical)
 **Where:** `models/model_service.py`, `_predict_from_trained`.
 
-Condition:
-```python
-if models_shown and name not in models_shown and name != "xgboost":
-    continue
-```
-This means XGBoost bypasses the filter and is always executed.
+The trained-model path can pass raw `demand_df` directly to model predictors. For XGBoost, missing engineered features can be silently zero-filled.
 
-Why this is incorrect:
-- Violates user selection semantics.
-- Adds unnecessary compute and can alter downstream ensemble/diagnostic behavior.
+**Impact:** predictions can be materially wrong while still appearing valid in charts/tables.
 
-Industry-standard fix:
-- Respect `models_shown` for all models consistently.
+**Recommended fix:** enforce preprocessing + feature engineering before inference, validate required schema, and fail closed on missing mandatory features.
 
-### 6) Medium — "Simulated" forecast fallback can be misread as real model quality
+### P0 — Prophet regressor alignment to forecast timestamps is unreliable (critical)
+**Where:** `models/prophet_model.py`, `predict_prophet`.
 
-**Where:** `models/model_service.py`, `_simulate_forecasts` and public return payload.
+Regressors are assigned positionally to a `future` frame containing history + future rows. When provided regressors are horizon-only or differently indexed, forecast-period regressors can be flattened/misaligned.
 
-Simulated predictions are generated as `actual * (1 + noise)` and metrics are computed against the same actual series.
+**Impact:** weather/exogenous effects can be incorrectly applied with no explicit error.
 
-Why this is problematic:
-- These are synthetic perturbations of truth, not model forecasts.
-- If surfaced in charts/tables without unmistakable labeling, users may overtrust reported metrics.
+**Recommended fix:** join regressors by timestamp (`ds`) and explicitly separate history vs future prediction windows.
 
-Industry-standard fix:
-- Gate simulated mode behind explicit "demo/synthetic" banner and separate metric namespace.
-- Avoid displaying synthetic metrics alongside trained-model KPIs without clear segregation.
+### P1 — Diagnostics residual comparisons can be non-comparable (high)
+**Where:** `components/callbacks.py`, `update_models_tab`; `models/model_service.py`, `_predict_from_trained`.
 
-### 7) Medium — Short-horizon future feature generation freezes lag-like signals
+Residual views compute `actual - pred` while prediction generation is not consistently guaranteed to be aligned to those exact timestamps/features.
 
+**Impact:** diagnostics may compare actuals against predictions produced for different contexts.
+
+**Recommended fix:** establish one strict diagnostics mode: either aligned in-sample fitted values or aligned out-of-sample backtest predictions with identical feature lineage.
+
+### P1 — Uncertainty bands are heuristic but labeled as confidence intervals (high)
+**Where:** `components/callbacks.py`, `_confidence_half_width`, `_add_confidence_bands`; `models/prophet_model.py`, `predict_prophet`.
+
+- App-level bands are deterministic percent envelopes by horizon.
+- Prophet “95%” bounds are derived by scaling lower/upper values (multiplicative widening), which does not preserve interval coverage.
+
+**Impact:** statistical confidence can be overstated/misrepresented.
+
+**Recommended fix:** relabel as heuristic uncertainty until calibrated, or produce empirical/conformal quantiles from rolling residuals with measured coverage.
+
+### P1 — Scenario tab semantics and controls are inconsistent with displayed meaning (high)
+**Where:** `components/callbacks.py`, `run_scenario`.
+
+- Several UI controls do not materially influence scenario demand as implied.
+- “Forecast” baseline/scenario timeline can be built from historical tail timestamps rather than a true future horizon.
+
+**Impact:** users can infer causal control/forecast meaning that the implementation does not provide.
+
+**Recommended fix:** map each control to explicit modeled effects, generate future timestamps from latest observed time, and clearly separate “historical replay” from “forward forecast.”
+
+### P1 — Backtest exogenous retrieval may not be vintage-correct (high)
+**Where:** `components/callbacks.py`, `_build_forecast_exog_fold`.
+
+Backtest exogenous inputs may be sourced by coverage match rather than strict as-of issuance time.
+
+**Impact:** potential look-ahead bias and poor reproducibility.
+
+**Recommended fix:** version/store exogenous forecasts by issuance timestamp and enforce as-of retrieval at fold origin.
+
+### P2 — Model selection filter inconsistency (medium)
+**Where:** `models/model_service.py`, `_predict_from_trained`.
+
+Current selection logic can still execute XGBoost when unselected.
+
+**Impact:** unnecessary compute and inconsistent user-selected model behavior.
+
+**Recommended fix:** apply `models_shown` filtering uniformly across all models.
+
+### P2 — Horizon boundary mismatch at 168h (medium)
 **Where:** `components/callbacks.py`, `_create_future_features`.
 
-For horizons `<168`, non-time features are copied from `last_row` across all future rows.
+Docstring intent (`<= 168h`) and implementation branch (`< 168`) diverge.
 
-Why this is problematic:
-- Autoregressive and weather-sensitive models receive unrealistic static feature trajectories.
-- Can flatten intraday dynamics and produce overconfident/illogical charts.
+**Impact:** surprising behavior change exactly at 7-day horizon; QA baseline ambiguity.
 
-Industry-standard fix:
-- For autoregressive features, use recursive rollout.
-- For exogenous weather, use forecast drivers or scenario-based trajectories.
+**Recommended fix:** align code and docs intentionally and add boundary tests at 167/168/169.
 
-### 8) Medium — Backtest chart error polygon can obscure interpretation over discontinuous folds
+### P2 — Simulated fallback metrics can be mistaken for real model quality (medium)
+**Where:** `models/model_service.py`, `_simulate_forecasts`.
 
+Synthetic forecasts are generated from perturbed actuals, then scored against those actuals.
+
+**Impact:** synthetic mode can appear comparable to real trained-model performance if not clearly isolated.
+
+**Recommended fix:** hard-label demo/synthetic mode and separate synthetic metrics from production KPIs.
+
+### P3 — Backtest error-area rendering across concatenated folds can mislead (low/medium)
 **Where:** `components/callbacks.py`, `update_backtest_chart`.
 
-Error shading is drawn as one continuous polygon over concatenated folds; discontinuities between folds can create visual artifacts and imply continuity.
+A single continuous error polygon over discontinuous folds can visually imply continuity.
 
-Why this is problematic:
-- Visual miscommunication in model-review contexts.
+**Impact:** interpretability artifacts in review dashboards.
 
-Industry-standard fix:
-- Shade per fold segment or facet by fold to preserve temporal/test-window boundaries.
+**Recommended fix:** render fold-segmented bands or facet by fold.
+
+### P3 — Missing metrics rendered as zero (low/medium)
+**Where:** `components/callbacks.py`, `_models_tab_from_redis`, `update_models_tab`.
+
+Unavailable metrics may display as `0` instead of null/NA.
+
+**Impact:** users can misread data absence as valid zero values.
+
+**Recommended fix:** render `—`/NA and attach data-quality/source indicators.
 
 ---
 
 ## Quality standard assessment
 
-Against standard forecasting QA expectations (leakage control, valid uncertainty, timestamp alignment, faithful diagnostics):
-- **Fails critical standards** on leakage and diagnostic comparability.
-- **Partially meets** engineering robustness (caching, exception handling), but methodological correctness issues dominate.
+Against common production forecasting QA criteria (no leakage, timestamp/feature alignment, calibrated uncertainty, and trustworthy diagnostics):
+- **Does not yet meet production-readiness bar** due to P0/P1 methodological correctness gaps.
+- **Engineering foundations are solid**, but reliability of decision-support outputs depends on resolving the above issues.
 
-## Recommended remediation order
+## Prioritized remediation sequence
 
-1. Fix ensemble backtest leakage (Finding 1).
-2. Rebuild diagnostics pipeline with strict timestamp/feature alignment (Finding 4).
-3. Remove/rename pseudo-CI and replace with calibrated intervals (Findings 2–3).
-4. Correct model selection semantics and simulated-mode presentation (Findings 5–6).
-5. Improve future feature generation realism and fold-aware plotting (Findings 7–8).
+1. **P0:** eliminate ensemble leakage; enforce feature-engineered inference; fix Prophet regressor alignment.
+2. **P1:** rebuild aligned diagnostics; correct scenario semantics/timeline; enforce vintage-correct exogenous backtests.
+3. **P2:** fix model filtering, 168h boundary behavior, and simulated-mode isolation.
+4. **P3:** improve fold-aware visualization and missing-metric display semantics.
