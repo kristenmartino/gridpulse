@@ -868,8 +868,8 @@ class TestBacktestTabFromRedis:
         assert len(fig.data) >= 2
 
     @patch("components.callbacks.redis_get")
-    def test_backtest_chart_has_3_traces(self, mock_rg):
-        """Backtest chart has actual, forecast, and error-fill traces."""
+    def test_backtest_chart_has_expected_traces(self, mock_rg):
+        """Backtest chart has actual, forecast, prediction interval, and error-fill traces."""
         mock_rg.return_value = _backtest_payload(24)
 
         from components.callbacks import _backtest_tab_from_redis
@@ -877,8 +877,9 @@ class TestBacktestTabFromRedis:
         result = _backtest_tab_from_redis("FPL", 24, "xgboost", "grid_ops")
         assert result is not None
         fig = result[0]
-        assert len(fig.data) == 3
-        trace_names = [t.name for t in fig.data]
+        assert len(fig.data) == 5
+        trace_names = [t.name for t in fig.data if t.name]
         assert "Actual Demand" in trace_names
         assert "XGBOOST Forecast" in trace_names
         assert "Forecast Error" in trace_names
+        assert "80% empirical prediction interval" in trace_names
