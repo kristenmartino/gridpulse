@@ -135,7 +135,9 @@ class TestEmpiricalIntervals:
         actual = np.array([10.0, 11.0, 9.0, 12.0, 13.0])
         lower = np.array([9.0, 10.0, 8.0, 11.0, 12.0])
         upper = np.array([11.0, 12.0, 10.0, 13.0, 14.0])
-        monitor = compute_interval_coverage_drift(actual, lower, upper, target_coverage=0.8, window_size=3)
+        monitor = compute_interval_coverage_drift(
+            actual, lower, upper, target_coverage=0.8, window_size=3
+        )
         assert monitor["overall_coverage"] == pytest.approx(1.0)
         assert monitor["recent_coverage"] == pytest.approx(1.0)
         assert monitor["drift"] == pytest.approx(0.2)

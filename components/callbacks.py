@@ -395,9 +395,7 @@ def _add_confidence_bands(
         lower = predictions * (1 - hw)
 
     band_name = (
-        "80% empirical prediction interval"
-        if interval_meta["method"] == "empirical"
-        else "80% CI"
+        "80% empirical prediction interval" if interval_meta["method"] == "empirical" else "80% CI"
     )
 
     fig.add_trace(
@@ -3872,7 +3870,9 @@ def register_callbacks(app):
             )
         )
         interval_meta = result.get("interval", {})
-        if isinstance(interval_meta, dict) and len(interval_meta.get("lower", [])) == len(predictions):
+        if isinstance(interval_meta, dict) and len(interval_meta.get("lower", [])) == len(
+            predictions
+        ):
             fig.add_trace(
                 go.Scatter(
                     x=timestamps,
@@ -3942,7 +3942,9 @@ def register_callbacks(app):
         rmse_str = f"{metrics['rmse']:,.0f} MW{mode_suffix}"
         mae_str = f"{metrics['mae']:,.0f} MW{mode_suffix}"
         r2_str = f"{metrics['r2']:.3f}{mode_suffix}"
-        monitor = interval_meta.get("coverage_monitor", {}) if isinstance(interval_meta, dict) else {}
+        monitor = (
+            interval_meta.get("coverage_monitor", {}) if isinstance(interval_meta, dict) else {}
+        )
         coverage_str = f"{monitor.get('recent_coverage', 0.0) * 100:.1f}%"
         drift_pp = monitor.get("drift", 0.0) * 100.0
         calibration_window = int(interval_meta.get("calibration_window_hours", 0) or 0)
@@ -4453,9 +4455,13 @@ def _run_backtest_for_horizon(
             cached_sqlite.setdefault("exog_source", "unknown")
             if isinstance(cached_sqlite.get("interval"), dict):
                 if "lower" in cached_sqlite["interval"]:
-                    cached_sqlite["interval"]["lower"] = np.array(cached_sqlite["interval"]["lower"])
+                    cached_sqlite["interval"]["lower"] = np.array(
+                        cached_sqlite["interval"]["lower"]
+                    )
                 if "upper" in cached_sqlite["interval"]:
-                    cached_sqlite["interval"]["upper"] = np.array(cached_sqlite["interval"]["upper"])
+                    cached_sqlite["interval"]["upper"] = np.array(
+                        cached_sqlite["interval"]["upper"]
+                    )
             _BACKTEST_CACHE[cache_key] = (cached_sqlite, data_hash, time.time())
             log.info(
                 "backtest_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name
