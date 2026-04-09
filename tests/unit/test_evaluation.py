@@ -5,13 +5,17 @@ import pandas as pd
 import pytest
 
 from models.evaluation import (
+    apply_empirical_interval,
     compute_all_metrics,
     compute_error_by_hour,
+    compute_interval_coverage,
+    compute_interval_coverage_drift,
     compute_mae,
     compute_mape,
     compute_r2,
     compute_residuals,
     compute_rmse,
+    empirical_error_quantiles,
 )
 
 
@@ -105,3 +109,35 @@ class TestErrorByHour:
         result = compute_error_by_hour(ts, actual, predicted)
         assert len(result) == 24
         assert "mean_abs_error" in result.columns
+
+
+class TestEmpiricalIntervals:
+    def test_empirical_quantiles(self):
+        residuals = np.array([-20, -10, 0, 10, 20])
+        q = empirical_error_quantiles(residuals, lower_q=0.2, upper_q=0.8)
+        assert q["sample_size"] == 5
+        assert q["lower_error"] == pytest.approx(-12.0)
+        assert q["upper_error"] == pytest.approx(12.0)
+
+    def test_apply_empirical_interval(self):
+        pred = np.array([100.0, 200.0])
+        lower, upper = apply_empirical_interval(pred, -10.0, 15.0)
+        np.testing.assert_allclose(lower, np.array([90.0, 190.0]))
+        np.testing.assert_allclose(upper, np.array([115.0, 215.0]))
+
+    def test_interval_coverage(self):
+        actual = np.array([100.0, 105.0, 120.0])
+        lower = np.array([95.0, 100.0, 110.0])
+        upper = np.array([110.0, 106.0, 115.0])
+        assert compute_interval_coverage(actual, lower, upper) == pytest.approx(2 / 3)
+
+    def test_interval_coverage_drift(self):
+        actual = np.array([10.0, 11.0, 9.0, 12.0, 13.0])
+        lower = np.array([9.0, 10.0, 8.0, 11.0, 12.0])
+        upper = np.array([11.0, 12.0, 10.0, 13.0, 14.0])
+        monitor = compute_interval_coverage_drift(
+            actual, lower, upper, target_coverage=0.8, window_size=3
+        )
+        assert monitor["overall_coverage"] == pytest.approx(1.0)
+        assert monitor["recent_coverage"] == pytest.approx(1.0)
+        assert monitor["drift"] == pytest.approx(0.2)
