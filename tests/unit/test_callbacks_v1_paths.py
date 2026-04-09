@@ -180,7 +180,7 @@ class TestRunForecastOutlook:
         from components.callbacks import _compute_data_hash
 
         data_hash = _compute_data_hash(demand, weather, "FPL")
-        cache_key = ("FPL", 24, "xgboost", "forecast_exog")
+        cache_key = ("FPL", 24, "xgboost")
         fake_preds = np.array([40000.0] * 24)
         fake_ts = pd.date_range("2024-06-10", periods=24, freq="h")
 
@@ -519,7 +519,7 @@ class TestEnsembleFold:
         train = _train_df(100)
         test = _train_df(24)
 
-        def mock_predict_single(name, tr, te):
+        def mock_predict_single(name, tr, te, **kwargs):
             base = {"xgboost": 40000.0, "prophet": 39000.0, "arima": 38000.0}
             return np.full(len(te), base.get(name, 39000.0))
 

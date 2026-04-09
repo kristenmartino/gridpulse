@@ -1114,7 +1114,7 @@ class TestEnsembleFold:
         prophet_preds = np.ones(24) * 31000
         arima_preds = np.ones(24) * 30500
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             return {"xgboost": xgb_preds, "prophet": prophet_preds, "arima": arima_preds}[name]
 
         with (
@@ -1163,7 +1163,7 @@ class TestEnsembleFold:
 
         call_count = 0
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             nonlocal call_count
             call_count += 1
             if name == "prophet":
@@ -1198,7 +1198,7 @@ class TestEnsembleFold:
         xgb_pred = np.ones(24) * 29000  # closer to actual
         prophet_pred = np.ones(24) * 35000  # farther from actual
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             if name == "xgboost":
                 return xgb_pred
             if name == "prophet":
@@ -1230,7 +1230,7 @@ class TestEnsembleFold:
             }
         )
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             if name == "xgboost":
                 return np.full(24, np.nan)  # all NaN
             if name == "prophet":
@@ -1264,7 +1264,7 @@ class TestEnsembleFold:
         xgb = np.ones(24) * 30000
         prophet = np.ones(24) * 30000
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             if name == "xgboost":
                 return xgb
             if name == "prophet":
