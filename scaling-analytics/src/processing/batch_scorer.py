@@ -27,6 +27,7 @@ from data.demo_data import (
     generate_demo_alerts,
     generate_demo_generation,
 )
+from data.eia_client import fetch_generation_by_fuel
 from data.feature_engineering import get_feature_names
 from models.ensemble import compute_ensemble_weights, ensemble_combine
 from models.evaluation import (
@@ -854,16 +855,31 @@ class BatchScorer:
         except Exception as e:
             logger.warning("Failed to cache weather for %s: %s", region, e)
 
+    _EIA_FUEL_MAP: dict[str, str] = {
+        "SUN": "solar",
+        "WND": "wind",
+        "NG": "gas",
+        "NUC": "nuclear",
+        "COL": "coal",
+        "WAT": "hydro",
+        "OTH": "other",
+    }
+
     def _cache_generation(self, pipeline, region, ttl, prefix):
-        """Write generation mix to Redis (demo data until real EIA generation endpoint)."""
+        """Write generation mix to Redis using real EIA data (demo fallback)."""
         try:
-            gen_df = generate_demo_generation(region, days=30)
-            pivoted = gen_df.pivot_table(
-                index="timestamp",
-                columns="fuel_type",
-                values="generation_mw",
-                aggfunc="sum",
-            ).reset_index()
+            gen_df = self._fetch_real_generation(region)
+
+            pivoted = (
+                gen_df.pivot_table(
+                    index="timestamp",
+                    columns="fuel_type",
+                    values="generation_mw",
+                    aggfunc="sum",
+                )
+                .fillna(0)
+                .reset_index()
+            )
 
             payload = {"region": region, "timestamps": [str(t) for t in pivoted["timestamp"]]}
             for col in pivoted.columns:
@@ -887,6 +903,24 @@ class BatchScorer:
             pipeline.setex(f"{prefix}:generation:{region}", ttl, json.dumps(payload))
         except Exception as e:
             logger.warning("Failed to cache generation for %s: %s", region, e)
+
+    def _fetch_real_generation(self, region: str) -> pd.DataFrame:
+        """Fetch real EIA generation data, fall back to demo only if EIA fails."""
+        try:
+            gen_df = fetch_generation_by_fuel(region)
+            if gen_df is not None and not gen_df.empty:
+                gen_df["fuel_type"] = (
+                    gen_df["fuel_type"]
+                    .map(self._EIA_FUEL_MAP)
+                    .fillna(gen_df["fuel_type"].str.lower())
+                )
+                logger.info("Real EIA generation fetched for %s: %d rows", region, len(gen_df))
+                return gen_df
+        except Exception as e:
+            logger.warning("EIA generation fetch failed for %s: %s", region, e)
+
+        logger.warning("Falling back to demo generation for %s", region)
+        return generate_demo_generation(region, days=30)
 
     def _cache_alerts(self, pipeline, region, ttl, prefix):
         """Write alerts and stress score to Redis."""
