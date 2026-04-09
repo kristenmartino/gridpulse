@@ -224,7 +224,7 @@ def _run_forecast_outlook(
     """Generate forward-looking forecast using cached model when possible."""
     import time
 
-    from data.feature_engineering import engineer_exogenous_features, engineer_features
+    from data.feature_engineering import engineer_features
     from data.preprocessing import merge_demand_weather
 
     data_hash = _compute_data_hash(demand_df, weather_df, region)
@@ -3832,8 +3832,8 @@ def _predict_single_fold(
     n_test = len(test_df)
 
     if model_name == "xgboost":
-        from models.xgboost_model import predict_xgboost, train_xgboost
         from data.feature_engineering import compute_autoregressive_snapshot
+        from models.xgboost_model import predict_xgboost, train_xgboost
 
         model = train_xgboost(train_df)
         demand_history = train_df["demand_mw"].tolist()
@@ -4029,7 +4029,9 @@ def _run_backtest_for_horizon(
 
             train_slice = base_df.iloc[:test_start].copy()
             test_slice = base_df.iloc[test_start:test_end].copy()
-            train_df = engineer_features(train_slice).dropna(subset=["demand_mw"]).reset_index(drop=True)
+            train_df = (
+                engineer_features(train_slice).dropna(subset=["demand_mw"]).reset_index(drop=True)
+            )
             test_df = engineer_exogenous_features(test_slice).reset_index(drop=True)
 
             log.info(

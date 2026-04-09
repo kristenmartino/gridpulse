@@ -126,7 +126,9 @@ def engineer_exogenous_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def add_autoregressive_demand_features(df: pd.DataFrame, target_col: str = "demand_mw") -> pd.DataFrame:
+def add_autoregressive_demand_features(
+    df: pd.DataFrame, target_col: str = "demand_mw"
+) -> pd.DataFrame:
     """Add demand-derived lag/rolling features that require historical demand."""
     df = df.copy()
     if target_col not in df.columns:
@@ -149,7 +151,9 @@ def add_autoregressive_demand_features(df: pd.DataFrame, target_col: str = "dema
     df["demand_momentum_short"] = compute_demand_momentum(df["demand_lag_1h"], df["demand_lag_3h"])
     df["demand_momentum_long"] = compute_demand_momentum(df["demand_lag_1h"], df["demand_lag_24h"])
     df["demand_ratio_24h"] = compute_demand_ratio(df["demand_lag_24h"], df["demand_roll_24h_mean"])
-    df["demand_ratio_168h"] = compute_demand_ratio(df["demand_lag_168h"], df["demand_roll_168h_mean"])
+    df["demand_ratio_168h"] = compute_demand_ratio(
+        df["demand_lag_168h"], df["demand_roll_168h_mean"]
+    )
     return df
 
 
@@ -185,7 +189,9 @@ def compute_autoregressive_snapshot(demand_history: list[float]) -> dict[str, fl
         "demand_lag_24h": lag_24,
         "demand_lag_168h": lag_168,
         "ramp_rate": lag_1 - lag_2 if not np.isnan(lag_1) and not np.isnan(lag_2) else np.nan,
-        "demand_momentum_short": lag_1 - lag_3 if not np.isnan(lag_1) and not np.isnan(lag_3) else np.nan,
+        "demand_momentum_short": lag_1 - lag_3
+        if not np.isnan(lag_1) and not np.isnan(lag_3)
+        else np.nan,
         "demand_momentum_long": lag_1 - lag_24
         if not np.isnan(lag_1) and not np.isnan(lag_24)
         else np.nan,
