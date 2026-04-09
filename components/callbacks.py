@@ -2157,8 +2157,17 @@ def register_callbacks(app):
                 color=card_data["color"],
             )
 
-            # 2. Data Health
-            data_health = _build_overview_data_health(freshness_data)
+            # 2. Data Health (store holds JSON string, not dict)
+            import json
+
+            freshness = None
+            if freshness_data:
+                freshness = (
+                    json.loads(freshness_data)
+                    if isinstance(freshness_data, str)
+                    else freshness_data
+                )
+            data_health = _build_overview_data_health(freshness)
 
             # 3. Spotlight chart (persona-specific)
             spotlight = _build_overview_spotlight(persona_id, region, demand_df, weather_df)
