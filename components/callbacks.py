@@ -3878,6 +3878,7 @@ def _predict_single_fold(
 def _ensemble_fold(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    actual: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Train all models on train_df, combine via 1/MAPE weighting for one fold.
 
@@ -3885,7 +3886,12 @@ def _ensemble_fold(
     """
     from models.evaluation import compute_mape
 
-    actual = test_df["demand_mw"].values
+    if actual is None:
+        if "demand_mw" not in test_df.columns:
+            log.warning("ensemble_fold_missing_actuals")
+            actual = np.array([])
+        else:
+            actual = test_df["demand_mw"].values
     preds: dict[str, np.ndarray] = {}
 
     for name in ["xgboost", "prophet", "arima"]:
@@ -3899,14 +3905,15 @@ def _ensemble_fold(
     if not preds:
         return None
 
-    # 1/MAPE weighting
+    # 1/MAPE weighting (falls back to uniform if actuals unavailable)
     weights: dict[str, float] = {}
     total_inv_mape = 0.0
-    for name, pred in preds.items():
-        mape = compute_mape(actual, pred)
-        if mape > 0:
-            weights[name] = 1.0 / mape
-            total_inv_mape += weights[name]
+    if len(actual) > 0:
+        for name, pred in preds.items():
+            mape = compute_mape(actual, pred)
+            if mape > 0:
+                weights[name] = 1.0 / mape
+                total_inv_mape += weights[name]
 
     if total_inv_mape > 0:
         ensemble_pred = np.zeros(len(actual))
@@ -4043,8 +4050,9 @@ def _run_backtest_for_horizon(
             )
 
             # Get predictions for this fold
+            fold_actual = test_slice["demand_mw"].values
             if model_name == "ensemble":
-                fold_preds = _ensemble_fold(train_df, test_df)
+                fold_preds = _ensemble_fold(train_df, test_df, actual=fold_actual)
             else:
                 fold_preds = _predict_single_fold(model_name, train_df, test_df)
 
@@ -4053,7 +4061,6 @@ def _run_backtest_for_horizon(
                 continue
 
             # NaN guard per fold
-            fold_actual = test_slice["demand_mw"].values
             if np.any(np.isnan(fold_preds)):
                 nan_pct = np.isnan(fold_preds).sum() / len(fold_preds) * 100
                 log.warning("backtest_fold_nan", fold=fold_idx + 1, nan_pct=round(nan_pct, 1))
