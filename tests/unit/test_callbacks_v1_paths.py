@@ -180,7 +180,7 @@ class TestRunForecastOutlook:
         from components.callbacks import _compute_data_hash
 
         data_hash = _compute_data_hash(demand, weather, "FPL")
-        cache_key = ("FPL", 24, "xgboost", "forecast_exog")
+        cache_key = ("FPL", 24, "xgboost")
         fake_preds = np.array([40000.0] * 24)
         fake_ts = pd.date_range("2024-06-10", periods=24, freq="h")
 
