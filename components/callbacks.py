@@ -18,8 +18,6 @@ Sprint 4 changes:
 """
 
 import io
-import json
-import hashlib
 
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -125,6 +123,8 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
     - normalized start/end timestamps
     - lightweight content checksums over key columns
     """
+    import hashlib
+    import json
 
     def _normalize_ts(ts) -> str:
         """Strip timezone to produce a stable string regardless of tz-aware vs tz-naive."""
