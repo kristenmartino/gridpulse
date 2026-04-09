@@ -376,6 +376,15 @@ class TestModelsTabFromRedis:
         assert _models_tab_from_redis("FPL") is None
 
     @patch("components.callbacks.redis_get")
+    def test_non_ensemble_selection_returns_none(self, mock_rg):
+        """Redis fast path is disabled for non-ensemble selections."""
+        mock_rg.return_value = _diagnostics_payload()
+
+        from components.callbacks import _models_tab_from_redis
+
+        assert _models_tab_from_redis("FPL", selected_models=["prophet"]) is None
+
+    @patch("components.callbacks.redis_get")
     def test_table_has_4_rows(self, mock_rg):
         """Metrics table has 4 rows: Prophet, SARIMAX, XGBoost, Ensemble."""
         mock_rg.return_value = _diagnostics_payload()
@@ -815,11 +824,10 @@ class TestBacktestTabFromRedis:
         result = _backtest_tab_from_redis("FPL", 24, "xgboost", "grid_ops")
         assert result is not None
         _, mape_str, rmse_str, mae_str, r2_str, _, _ = result
-        assert mape_str.startswith("3.20%")
-        assert rmse_str.startswith("320 MW")
-        assert mae_str.startswith("260 MW")
-        assert r2_str.startswith("0.970")
-        assert "(forecast_exog)" in mape_str
+        assert mape_str == "3.20% (forecast_exog)"
+        assert rmse_str == "320 MW (forecast_exog)"
+        assert mae_str == "260 MW (forecast_exog)"
+        assert r2_str == "0.970 (forecast_exog)"
 
     @patch("components.callbacks.redis_get")
     def test_first_available_fallback(self, mock_rg):

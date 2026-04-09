@@ -115,7 +115,7 @@ class TestComputeDataHash:
         w = pd.DataFrame(columns=["timestamp"])
         # Should not raise
         result = _compute_data_hash(d, w, "PJM")
-        assert isinstance(result, int)
+        assert isinstance(result, str)
 
     def test_returns_int(self):
         from components.callbacks import _compute_data_hash
@@ -123,7 +123,7 @@ class TestComputeDataHash:
         d = _make_demand_df(10)
         w = _make_weather_df(10)
         result = _compute_data_hash(d, w, "MISO")
-        assert isinstance(result, int)
+        assert isinstance(result, str)
 
 
 # ===================================================================
@@ -784,7 +784,7 @@ class TestBuildPersonaKpis:
         import components.callbacks as cb_mod
 
         original = cb_mod._BACKTEST_CACHE.copy()
-        cb_mod._BACKTEST_CACHE[("ERCOT", 168, "xgboost")] = (
+        cb_mod._BACKTEST_CACHE[("ERCOT", 168, "xgboost", "forecast_exog")] = (
             {"metrics": {"mape": 3.5, "rmse": 1200}},
             "hash",
             time.time(),

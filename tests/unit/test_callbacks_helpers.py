@@ -209,20 +209,20 @@ class TestComputeDataHash:
 
         empty = pd.DataFrame(columns=["timestamp", "demand_mw"])
         h = _compute_data_hash(empty, empty, "PJM")
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     def test_no_timestamp_column(self):
         from components.callbacks import _compute_data_hash
 
         df = pd.DataFrame({"value": [1, 2, 3]})
         h = _compute_data_hash(df, df, "MISO")
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     def test_hash_returns_int(self, demand_df, weather_df):
         from components.callbacks import _compute_data_hash
 
         h = _compute_data_hash(demand_df, weather_df, "FPL")
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     @pytest.mark.parametrize(
         "region", ["ERCOT", "CAISO", "PJM", "MISO", "NYISO", "FPL", "SPP", "ISONE"]
@@ -231,7 +231,7 @@ class TestComputeDataHash:
         from components.callbacks import _compute_data_hash
 
         h = _compute_data_hash(demand_df, weather_df, region)
-        assert isinstance(h, int)
+        assert isinstance(h, str)
 
     def test_tz_naive_vs_tz_aware_same_hash(self):
         """Timestamps with and without tz info should hash identically (by design)."""
@@ -1387,9 +1387,16 @@ class TestRunBacktestForHorizon:
 
     @patch("data.cache.get_cache")
     def test_sqlite_cache_hit(self, mock_get_cache, demand_df, weather_df):
-        from components.callbacks import _run_backtest_for_horizon
+        from components.callbacks import (
+            _CACHE_VERSION,
+            _compute_data_hash,
+            _run_backtest_for_horizon,
+        )
 
+        data_hash = _compute_data_hash(demand_df, weather_df, "ERCOT")
         sqlite_result = {
+            "cache_version": _CACHE_VERSION,
+            "data_hash": data_hash,
             "actual": [30000, 31000, 29000],
             "predictions": [30100, 30900, 29100],
             "timestamps": ["2024-01-01", "2024-01-02", "2024-01-03"],
