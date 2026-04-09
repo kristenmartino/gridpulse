@@ -37,6 +37,7 @@ from config import (
     WEATHER_VARIABLES,
 )
 from data.redis_client import redis_get
+from hash_utils import stable_int_seed
 from personas.config import PERSONAS, get_persona, get_welcome_card
 
 log = structlog.get_logger()
@@ -138,7 +139,7 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
         demand_sig = f"{_normalize_ts(demand_df['timestamp'].iloc[0])}_{_normalize_ts(demand_df['timestamp'].iloc[-1])}"
     if "timestamp" in weather_df.columns and len(weather_df) > 0:
         weather_sig = f"{_normalize_ts(weather_df['timestamp'].iloc[0])}_{_normalize_ts(weather_df['timestamp'].iloc[-1])}"
-    return hash((demand_sig, weather_sig, region))
+    return stable_int_seed(("callbacks_data_hash", demand_sig, weather_sig, region))
 
 
 def _confidence_half_width(horizon_hours: int) -> float:
@@ -2209,23 +2210,24 @@ def register_callbacks(app):
             Output("tab3-error-heatmap", "figure"),
             Output("tab3-shap", "figure"),
         ],
-        [Input("demand-store", "data"), Input("dashboard-tabs", "active_tab")],
+        [
+            Input("demand-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
+            Input("tab3-model-selector", "value"),
+        ],
         [State("region-selector", "value")],
         prevent_initial_call=True,
     )
-    def update_models_tab(demand_json, active_tab, region):
+    def update_models_tab(demand_json, active_tab, selected_models, region):
         """Update Tab 3 model diagnostics using model service."""
         if active_tab != "tab-models":
             return [no_update] * 6
         if not demand_json:
             empty = _empty_figure("Loading...")
             return html.P("Loading..."), empty, empty, empty, empty, empty
-
-        # ── v2 Redis fast path ──────────────────────────────
-        if region:
-            redis_result = _models_tab_from_redis(region)
-            if redis_result is not None:
-                return redis_result
+        if not selected_models:
+            empty = _empty_figure("Select at least one model to view diagnostics.")
+            return html.P("No model selected."), empty, empty, empty, empty, empty
 
         # ── v1 compute fallback ─────────────────────────────
         demand_df = pd.read_json(io.StringIO(demand_json))
@@ -2234,8 +2236,10 @@ def register_callbacks(app):
 
         from models.model_service import get_forecasts
 
-        forecasts = get_forecasts(region, demand_df)
+        forecasts = get_forecasts(region, demand_df, selected_models)
         metrics = forecasts.get("metrics", {})
+        model_order = ["prophet", "arima", "xgboost", "ensemble"]
+        selected = [m for m in model_order if m in set(selected_models)]
 
         # Metrics table
         name_map = {
@@ -2246,6 +2250,8 @@ def register_callbacks(app):
         }
         rows = []
         for display_name, key in name_map.items():
+            if key not in selected:
+                continue
             m = metrics.get(key, {})
             rows.append(
                 html.Tr(
@@ -2266,70 +2272,123 @@ def register_callbacks(app):
             className="metrics-table",
         )
 
-        ensemble = forecasts.get("ensemble", actual)
-        if not isinstance(ensemble, np.ndarray):
-            ensemble = actual
-        residuals = actual - ensemble
         timestamps = demand_df["timestamp"]
+        model_labels = {
+            "prophet": "Prophet",
+            "arima": "SARIMAX",
+            "xgboost": "XGBoost",
+            "ensemble": "Ensemble",
+        }
+        model_colors = {
+            "prophet": COLORS["prophet"],
+            "arima": COLORS["arima"],
+            "xgboost": COLORS["xgboost"],
+            "ensemble": COLORS["ensemble"],
+        }
+        model_residuals: dict[str, np.ndarray] = {}
+        model_predictions: dict[str, np.ndarray] = {}
+        for model_key in selected:
+            pred = forecasts.get(model_key)
+            if isinstance(pred, np.ndarray) and len(pred) == len(actual):
+                model_predictions[model_key] = pred
+                model_residuals[model_key] = actual - pred
 
-        fig_resid_time = go.Figure(
-            go.Scatter(
-                x=timestamps,
-                y=residuals,
-                mode="lines",
-                line=dict(color=COLORS["arima"], width=1),
+        if not model_residuals:
+            empty = _empty_figure("No residual diagnostics available for the selected model(s).")
+            return (
+                table,
+                empty,
+                empty,
+                empty,
+                empty,
+                _empty_figure("Select XGBoost to view SHAP feature importance."),
             )
-        )
+
+        fig_resid_time = go.Figure()
+        for model_key, residuals in model_residuals.items():
+            fig_resid_time.add_trace(
+                go.Scatter(
+                    x=timestamps,
+                    y=residuals,
+                    mode="lines",
+                    name=model_labels.get(model_key, model_key.title()),
+                    line=dict(color=model_colors.get(model_key, COLORS["actual"]), width=1),
+                )
+            )
         fig_resid_time.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
         fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
 
-        fig_resid_hist = go.Figure(
-            go.Histogram(x=residuals, nbinsx=50, marker_color=COLORS["ensemble"])
-        )
+        fig_resid_hist = go.Figure()
+        for model_key, residuals in model_residuals.items():
+            fig_resid_hist.add_trace(
+                go.Histogram(
+                    x=residuals,
+                    nbinsx=50,
+                    name=model_labels.get(model_key, model_key.title()),
+                    marker_color=model_colors.get(model_key, COLORS["actual"]),
+                    opacity=0.6,
+                )
+            )
         fig_resid_hist.update_layout(
-            **PLOT_LAYOUT, xaxis_title="Residual (MW)", yaxis_title="Count"
+            **PLOT_LAYOUT,
+            barmode="overlay",
+            xaxis_title="Residual (MW)",
+            yaxis_title="Count",
         )
 
-        fig_resid_pred = go.Figure(
-            go.Scatter(
-                x=ensemble,
-                y=residuals,
-                mode="markers",
-                marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
+        fig_resid_pred = go.Figure()
+        for model_key, residuals in model_residuals.items():
+            preds = model_predictions[model_key]
+            fig_resid_pred.add_trace(
+                go.Scatter(
+                    x=preds,
+                    y=residuals,
+                    mode="markers",
+                    name=model_labels.get(model_key, model_key.title()),
+                    marker=dict(
+                        size=3,
+                        color=model_colors.get(model_key, COLORS["actual"]),
+                        opacity=0.35,
+                    ),
+                )
             )
-        )
         fig_resid_pred.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
         fig_resid_pred.update_layout(
             **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
         )
 
         hours_of_day = timestamps.dt.hour
-        error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(residuals)})
-        hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
-        fig_heatmap = go.Figure(
-            go.Bar(
-                x=hourly_error.index,
-                y=hourly_error.values,
-                marker_color=[
-                    COLORS["ensemble"] if e > hourly_error.median() else COLORS["actual"]
-                    for e in hourly_error.values
-                ],
+        fig_heatmap = go.Figure()
+        for model_key, residuals in model_residuals.items():
+            error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(residuals)})
+            hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
+            fig_heatmap.add_trace(
+                go.Bar(
+                    x=hourly_error.index,
+                    y=hourly_error.values,
+                    name=model_labels.get(model_key, model_key.title()),
+                    marker_color=model_colors.get(model_key, COLORS["actual"]),
+                    opacity=0.85,
+                )
             )
-        )
+        fig_heatmap.update_layout(**PLOT_LAYOUT, barmode="group")
         fig_heatmap.update_layout(
             **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
         )
 
-        feature_names, importance_vals = _get_feature_importance(region)
-        fig_shap = go.Figure(
-            go.Bar(
-                x=importance_vals[::-1],
-                y=feature_names[::-1],
-                orientation="h",
-                marker_color=COLORS["xgboost"],
+        if "xgboost" in selected:
+            feature_names, importance_vals = _get_feature_importance(region)
+            fig_shap = go.Figure(
+                go.Bar(
+                    x=importance_vals[::-1],
+                    y=feature_names[::-1],
+                    orientation="h",
+                    marker_color=COLORS["xgboost"],
+                )
             )
-        )
-        fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+            fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+        else:
+            fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
 
         return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
 
@@ -2822,7 +2881,7 @@ def register_callbacks(app):
         hdd_delta = max(0, 65 - temp) - max(0, 65 - baseline_temp)
         temp_factor = 1 + (cdd_delta * 0.02 + hdd_delta * 0.015) / 65
 
-        seed = hash((region, temp, wind)) & 0xFFFFFFFF
+        seed = stable_int_seed(("scenario_simulation", region, temp, wind))
         rng = np.random.RandomState(seed)
         scenario = baseline * temp_factor + rng.normal(0, capacity * 0.005, len(baseline))
         scenario = np.maximum(scenario, 0)
@@ -3953,10 +4012,21 @@ def _predict_single_fold(
     n_test = len(test_df)
 
     if model_name == "xgboost":
+        from data.feature_engineering import compute_autoregressive_snapshot
         from models.xgboost_model import predict_xgboost, train_xgboost
 
         model = train_xgboost(train_df)
-        return predict_xgboost(model, test_df)[:n_test]
+        demand_history = train_df["demand_mw"].tolist()
+        preds: list[float] = []
+        for i in range(n_test):
+            row = test_df.iloc[[i]].copy()
+            for col, val in compute_autoregressive_snapshot(demand_history).items():
+                row[col] = val
+            row = row.ffill().bfill().fillna(0)
+            step_pred = float(predict_xgboost(model, row)[0])
+            preds.append(step_pred)
+            demand_history.append(step_pred)
+        return np.array(preds, dtype=float)
 
     elif model_name == "prophet":
         from models.prophet_model import predict_prophet, train_prophet
@@ -3989,6 +4059,7 @@ def _ensemble_fold(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
     exog_mode: str = DEFAULT_BACKTEST_EXOG_MODE,
+    actual: np.ndarray | None = None,
 ) -> np.ndarray | None:
     """Train all models on train_df, combine via 1/MAPE weighting for one fold.
 
@@ -3996,7 +4067,12 @@ def _ensemble_fold(
     """
     from models.evaluation import compute_mape
 
-    actual = test_df["demand_mw"].values
+    if actual is None:
+        if "demand_mw" not in test_df.columns:
+            log.warning("ensemble_fold_missing_actuals")
+            actual = np.array([])
+        else:
+            actual = test_df["demand_mw"].values
     preds: dict[str, np.ndarray] = {}
 
     for name in ["xgboost", "prophet", "arima"]:
@@ -4010,14 +4086,15 @@ def _ensemble_fold(
     if not preds:
         return None
 
-    # 1/MAPE weighting
+    # 1/MAPE weighting (falls back to uniform if actuals unavailable)
     weights: dict[str, float] = {}
     total_inv_mape = 0.0
-    for name, pred in preds.items():
-        mape = compute_mape(actual, pred)
-        if mape > 0:
-            weights[name] = 1.0 / mape
-            total_inv_mape += weights[name]
+    if len(actual) > 0:
+        for name, pred in preds.items():
+            mape = compute_mape(actual, pred)
+            if mape > 0:
+                weights[name] = 1.0 / mape
+                total_inv_mape += weights[name]
 
     if total_inv_mape > 0:
         ensemble_pred = np.zeros(len(actual))
@@ -4059,7 +4136,7 @@ def _run_backtest_for_horizon(
     """
     import time
 
-    from data.feature_engineering import engineer_features
+    from data.feature_engineering import engineer_exogenous_features, engineer_features
     from data.preprocessing import merge_demand_weather
     from models.evaluation import compute_all_metrics
 
@@ -4101,13 +4178,12 @@ def _run_backtest_for_horizon(
     except Exception as e:
         log.debug("backtest_sqlite_cache_miss", error=str(e))
 
-    # Merge and engineer features
+    # Merge once; features are built fold-by-fold from train-history-only slices
     merged_df = merge_demand_weather(demand_df, weather_df)
-    featured_df = engineer_features(merged_df)
-    featured_df = featured_df.dropna(subset=["demand_mw"])
+    base_df = merged_df.dropna(subset=["demand_mw"]).reset_index(drop=True)
 
     min_train_size = 720  # 30 days minimum training data
-    n_total = len(featured_df)
+    n_total = len(base_df)
 
     if n_total < min_train_size + horizon_hours:
         return {"error": "Insufficient data"}
@@ -4145,8 +4221,12 @@ def _run_backtest_for_horizon(
                 )
                 continue
 
-            train_df = featured_df.iloc[:test_start].copy()
-            test_df = featured_df.iloc[test_start:test_end].copy()
+            train_slice = base_df.iloc[:test_start].copy()
+            test_slice = base_df.iloc[test_start:test_end].copy()
+            train_df = (
+                engineer_features(train_slice).dropna(subset=["demand_mw"]).reset_index(drop=True)
+            )
+            test_df = engineer_exogenous_features(test_slice).reset_index(drop=True)
 
             log.info(
                 "backtest_fold_start",
@@ -4165,8 +4245,9 @@ def _run_backtest_for_horizon(
             exog_sources.add(fold_exog_source)
 
             # Get predictions for this fold
+            fold_actual = test_slice["demand_mw"].values
             if model_name == "ensemble":
-                fold_preds = _ensemble_fold(train_df, fold_test_df, exog_mode=exog_mode)
+                fold_preds = _ensemble_fold(train_df, fold_test_df, exog_mode=exog_mode, actual=fold_actual)
             else:
                 fold_preds = _predict_single_fold(
                     model_name, train_df, fold_test_df, exog_mode=exog_mode
@@ -4177,7 +4258,6 @@ def _run_backtest_for_horizon(
                 continue
 
             # NaN guard per fold
-            fold_actual = test_df["demand_mw"].values
             if np.any(np.isnan(fold_preds)):
                 nan_pct = np.isnan(fold_preds).sum() / len(fold_preds) * 100
                 log.warning("backtest_fold_nan", fold=fold_idx + 1, nan_pct=round(nan_pct, 1))
@@ -4187,7 +4267,7 @@ def _run_backtest_for_horizon(
             fold_boundaries.append(sum(len(a) for a in all_actual))
             all_actual.append(fold_actual)
             all_predictions.append(fold_preds)
-            all_timestamps.append(test_df["timestamp"].values)
+            all_timestamps.append(test_slice["timestamp"].values)
 
             log.info("backtest_fold_complete", fold=fold_idx + 1, num_folds=num_folds)
 

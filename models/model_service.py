@@ -21,6 +21,7 @@ import pandas as pd
 import structlog
 
 from config import MODEL_DIR
+from hash_utils import stable_int_seed
 
 log = structlog.get_logger()
 
@@ -164,7 +165,7 @@ def _predict_from_trained(
         except Exception as e:
             log.warning("model_predict_failed", model=name, error=str(e))
             # Fall back to simulated for this model
-            seed = hash(name) & 0xFFFFFFFF
+            seed = stable_int_seed(("model_fallback", name))
             rng = np.random.RandomState(seed)
             noise_scale = {"prophet": 0.025, "arima": 0.035, "xgboost": 0.018}.get(name, 0.025)
             all_preds[name] = actual * (1 + rng.normal(0, noise_scale, n))
@@ -206,7 +207,7 @@ def _simulate_forecasts(
     "model" outputs. This is consistent across page loads (no random flicker).
     """
     n = len(actual)
-    seed = hash(region) & 0xFFFFFFFF
+    seed = stable_int_seed(("simulate_forecasts", region))
     rng = np.random.RandomState(seed)
 
     # Model-specific noise levels (realistic relative accuracy)
