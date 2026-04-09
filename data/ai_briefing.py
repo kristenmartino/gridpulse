@@ -112,7 +112,7 @@ def _call_claude_api(
 
     user_content = _format_context_for_prompt(context)
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY, timeout=10.0)
     response = client.messages.create(
         model="claude-haiku-4-20250414",
         max_tokens=400,

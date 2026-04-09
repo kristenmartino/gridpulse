@@ -2102,15 +2102,17 @@ def register_callbacks(app):
     # is handled by default_tab selection in the persona switcher above.
 
     # ── 3. OVERVIEW TAB ───────────────────────────────────────
+    # Split into 3 callbacks for fast initial render:
+    #   a) Fast: greeting, data health, spotlight, digest (pure computation)
+    #   b) Briefing: AI/rule-based — separate so it doesn't block render
+    #   c) News: HTTP fetch on interval — never blocks tab switch
 
     @app.callback(
         [
             Output("overview-greeting", "children"),
-            Output("overview-briefing", "children"),
             Output("overview-data-health", "children"),
             Output("overview-spotlight-chart", "figure"),
             Output("overview-insight-digest", "children"),
-            Output("overview-news-feed", "children"),
         ],
         [
             Input("demand-store", "data"),
@@ -2127,9 +2129,9 @@ def register_callbacks(app):
     def update_overview_tab(
         demand_json, weather_json, active_tab, region, persona_id, freshness_data
     ):
-        """Update Overview tab: briefing, data health, spotlight, digest, news."""
+        """Fast overview render: greeting, data health, spotlight, digest."""
         if active_tab != "tab-overview":
-            return [no_update] * 6
+            return [no_update] * 4
 
         # Parse data
         demand_df = None
@@ -2151,22 +2153,55 @@ def register_callbacks(app):
             color=card_data["color"],
         )
 
-        # 2. AI Executive Briefing
-        briefing = _build_overview_briefing(persona_id, region, demand_df, weather_df)
-
-        # 3. Data Health
+        # 2. Data Health
         data_health = _build_overview_data_health(freshness_data)
 
-        # 4. Spotlight chart (persona-specific)
+        # 3. Spotlight chart (persona-specific)
         spotlight = _build_overview_spotlight(persona_id, region, demand_df, weather_df)
 
-        # 5. Insight digest (cross-tab)
+        # 4. Insight digest (cross-tab)
         digest = _build_overview_digest(persona_id, region, demand_df, weather_df)
 
-        # 6. News feed
-        news = _build_overview_news()
+        return (greeting, data_health, spotlight, digest)
 
-        return (greeting, briefing, data_health, spotlight, digest, news)
+    @app.callback(
+        Output("overview-briefing", "children"),
+        [
+            Input("demand-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+        [
+            State("weather-store", "data"),
+            State("region-selector", "value"),
+            State("persona-selector", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def update_overview_briefing(demand_json, active_tab, weather_json, region, persona_id):
+        """AI briefing — separate callback so HTTP call doesn't block render."""
+        if active_tab != "tab-overview":
+            return no_update
+
+        demand_df = None
+        weather_df = None
+        if demand_json:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+        if weather_json:
+            weather_df = pd.read_json(io.StringIO(weather_json))
+
+        return _build_overview_briefing(persona_id, region, demand_df, weather_df)
+
+    @app.callback(
+        Output("overview-news-feed", "children"),
+        Input("refresh-interval", "n_intervals"),
+        State("dashboard-tabs", "active_tab"),
+        prevent_initial_call=False,
+    )
+    def update_overview_news(_n, active_tab):
+        """News feed on interval — never blocks tab switch."""
+        if active_tab != "tab-overview":
+            return no_update
+        return _build_overview_news()
 
     # ── 4. TAB 1: DEMAND FORECAST ─────────────────────────────
 
