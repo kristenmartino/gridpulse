@@ -191,10 +191,13 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
 
 
 def _confidence_half_width(horizon_hours: int) -> float:
-    """Return the 80% CI half-width as a fraction, scaled by forecast horizon.
+    """Return the indicative-range half-width as a fraction, scaled by horizon.
 
-    Longer horizons carry more uncertainty. Values are approximate and
-    calibrated against typical energy demand forecast error growth.
+    These are heuristic percentages, NOT statistically calibrated confidence
+    intervals.  They provide a visual sense of increasing uncertainty at
+    longer horizons but should not be interpreted as probabilistic coverage
+    guarantees.  When empirical backtest residuals are available,
+    ``_add_confidence_bands`` uses those instead (see ``_empirical_interval_from_backtests``).
     """
     if horizon_hours <= 24:
         return 0.03  # ±3%
@@ -375,7 +378,12 @@ def _add_confidence_bands(
     region: str | None = None,
     model_name: str = "ensemble",
 ) -> dict[str, float | int | bool | str]:
-    """Add upper/lower 80% prediction interval traces to a forecast figure."""
+    """Add upper/lower indicative range traces to a forecast figure.
+
+    When empirical backtest residuals are available the range is data-driven.
+    Otherwise a heuristic percentage envelope is used (clearly labelled as
+    such so users do not mistake it for a calibrated confidence interval).
+    """
     from models.evaluation import apply_empirical_interval
 
     interval_meta = {"method": "heuristic", "target_coverage": 0.80}
@@ -395,7 +403,9 @@ def _add_confidence_bands(
         lower = predictions * (1 - hw)
 
     band_name = (
-        "80% empirical prediction interval" if interval_meta["method"] == "empirical" else "80% CI"
+        "80% empirical prediction interval"
+        if interval_meta["method"] == "empirical"
+        else "80% indicative range"
     )
 
     fig.add_trace(
@@ -575,15 +585,23 @@ def _run_forecast_outlook(
             ]
 
         elif model_name == "ensemble":
-            # Equal-weight ensemble of all three models (no actuals for MAPE weighting).
+            # Equal-weight ensemble (no actuals for MAPE weighting).
             # Strategy: reuse cached individual-model predictions when available,
             # then only train/predict for models that aren't cached yet.
+            # ARIMA is excluded beyond 168h — SARIMAX compounds errors at long
+            # horizons and actively degrades ensemble quality.
             from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            ensemble_models = (
+                ["xgboost", "prophet"]
+                if horizon_hours > 168
+                else ["xgboost", "prophet", "arima"]
+            )
 
             preds = {}
 
             # Fast path: check if individual model predictions are already cached
-            for sub_model in ["xgboost", "prophet", "arima"]:
+            for sub_model in ensemble_models:
                 sub_key = (region, horizon_hours, sub_model)
                 if sub_key in _PREDICTION_CACHE:
                     cp, ct, ch, ctm = _PREDICTION_CACHE[sub_key]
@@ -592,7 +610,7 @@ def _run_forecast_outlook(
                         log.info("ensemble_reuse_cached", model=sub_model, horizon=horizon_hours)
 
             # Only train models whose predictions we don't already have
-            missing = [m for m in ["xgboost", "prophet", "arima"] if m not in preds]
+            missing = [m for m in ensemble_models if m not in preds]
 
             if missing:
 

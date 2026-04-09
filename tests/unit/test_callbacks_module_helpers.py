@@ -226,7 +226,7 @@ class TestAddConfidenceBands:
         ts = pd.date_range("2024-06-01", periods=24, freq="h")
         preds = np.full(24, 30000.0)
         _add_confidence_bands(fig, ts, preds, 24)
-        assert fig.data[1].name == "80% CI"
+        assert fig.data[1].name == "80% indicative range"
 
 
 # ===================================================================

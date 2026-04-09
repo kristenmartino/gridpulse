@@ -371,7 +371,7 @@ class TestAddConfidenceBands:
         ts = pd.date_range("2024-01-01", periods=5, freq="h")
         preds = np.ones(5) * 5000
         _add_confidence_bands(fig, ts, preds, 24)
-        assert fig.data[1].name == "80% CI"
+        assert fig.data[1].name == "80% indicative range"
 
     def test_wider_bands_at_longer_horizon(self):
         from components.callbacks import _add_confidence_bands

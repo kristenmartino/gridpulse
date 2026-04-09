@@ -130,12 +130,38 @@ def _predict_from_trained(
     demand_df: pd.DataFrame,
     models_shown: list[str] | None,
 ) -> dict[str, Any]:
-    """Generate predictions from trained model objects."""
+    """Generate predictions from trained model objects.
+
+    Runs feature engineering on ``demand_df`` before passing it to model
+    predictors so that XGBoost receives its expected feature columns and
+    Prophet receives time-based regressors.  Without this gate the raw
+    DataFrame would cause XGBoost to silently zero-fill missing features
+    and Prophet to receive no weather regressors.
+    """
     actual = demand_df["demand_mw"].values
     n = len(actual)
     result: dict[str, Any] = {"source": "trained"}
     result["metrics"] = model_data.get("metrics", {})
     result["weights"] = model_data.get("ensemble_weights", {})
+
+    # Feature-engineer the input so models receive the columns they were
+    # trained on.  Only demand data is available here (no separate weather
+    # DataFrame), so weather-derived features will be zero/NaN — but
+    # time-based and demand-derived features (lags, rolling stats, hour,
+    # dow, CDD/HDD from any inline temperature column) will be correct.
+    try:
+        from data.feature_engineering import engineer_features
+
+        featured_df = engineer_features(demand_df)
+        featured_df = featured_df.dropna(subset=["demand_mw"])
+        if len(featured_df) >= n:
+            predict_df = featured_df
+        else:
+            log.warning("model_service_feature_eng_short", original=n, featured=len(featured_df))
+            predict_df = demand_df
+    except Exception as e:
+        log.warning("model_service_feature_eng_failed", error=str(e))
+        predict_df = demand_df
 
     all_preds = {}
 
@@ -148,12 +174,14 @@ def _predict_from_trained(
                 if name == "prophet":
                     from models.prophet_model import predict_prophet
 
-                    pred_result = predict_prophet(model_data[model_key], demand_df, periods=n)
+                    pred_result = predict_prophet(model_data[model_key], predict_df, periods=n)
                     all_preds[name] = pred_result["forecast"][:n]
                 elif name == "arima":
                     from models.arima_model import predict_arima
 
-                    all_preds[name] = predict_arima(model_data[model_key], demand_df, periods=n)[:n]
+                    all_preds[name] = predict_arima(model_data[model_key], predict_df, periods=n)[
+                        :n
+                    ]
                 elif name == "xgboost":
                     from models.xgboost_model import predict_xgboost
 
@@ -161,7 +189,7 @@ def _predict_from_trained(
                         "model": model_data[model_key],
                         "feature_names": model_data.get("xgboost_feature_names", []),
                     }
-                    all_preds[name] = predict_xgboost(xgb_model, demand_df)[:n]
+                    all_preds[name] = predict_xgboost(xgb_model, predict_df)[:n]
         except Exception as e:
             log.warning("model_predict_failed", model=name, error=str(e))
             # Fall back to simulated for this model
@@ -186,7 +214,7 @@ def _predict_from_trained(
     else:
         all_preds["ensemble"] = actual.copy()
 
-    # Confidence bands (±3% for 80% CI)
+    # Indicative range (±3% heuristic — not a calibrated confidence interval)
     ensemble = all_preds.get("ensemble", actual)
     result.update(all_preds)
     result["upper_80"] = ensemble * 1.03
@@ -226,7 +254,7 @@ def _simulate_forecasts(
     ensemble = sum(preds[m] * w for m, w in weights.items())
     preds["ensemble"] = ensemble
 
-    # Confidence bands
+    # Indicative range (heuristic — not a calibrated confidence interval)
     preds["upper_80"] = ensemble * 1.03
     preds["lower_80"] = ensemble * 0.97
 
