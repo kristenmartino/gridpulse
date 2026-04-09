@@ -112,7 +112,7 @@ def build_layout() -> dbc.Container:
                                                 style={"fontSize": "0.75rem"},
                                             ),
                                             html.Div(
-                                                id="header-freshness", style={"textAlign": "right"}
+                                                id="header-freshness", style={"display": "none"}
                                             ),
                                         ],
                                         className="d-flex flex-column align-items-end justify-content-center h-100",
@@ -134,8 +134,8 @@ def build_layout() -> dbc.Container:
             ),
             # ── Data Freshness Banner (G2) ─────────────────────────
             html.Div(id="fallback-banner"),
-            # ── Per-Widget Confidence Badges (A4 + E3) ────────────
-            html.Div(id="widget-confidence-bar"),
+            # ── Per-Widget Confidence Badges (A4 + E3) — hidden, moved to overview data health
+            html.Div(id="widget-confidence-bar", style={"display": "none"}),
             # ── Welcome Card ───────────────────────────────────────
             html.Div(id="welcome-card"),
             # ── KPI Row ────────────────────────────────────────────
