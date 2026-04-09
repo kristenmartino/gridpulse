@@ -18,6 +18,8 @@ Sprint 4 changes:
 """
 
 import io
+import json
+import hashlib
 
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -43,6 +45,7 @@ log = structlog.get_logger()
 import threading  # noqa: E402
 
 _cache_lock = threading.Lock()
+_CACHE_VERSION = 2
 
 _MODEL_CACHE: dict = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
@@ -113,13 +116,14 @@ PERSONA_CONTROLLED_TAB_IDS = [
 ]
 
 
-def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region: str) -> int:
-    """Content-aware hash: uses date range + region for cache invalidation.
+def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region: str) -> str:
+    """Compute stable input signature for cache correctness.
 
-    Uses only start/end timestamps (not row count) so that minor row-count
-    drift between precompute and user load doesn't bust the cache.
-    Normalizes timestamps to tz-naive UTC strings so precompute (tz-aware)
-    and callbacks (JSON-deserialized, tz-naive) produce the same hash.
+    Signature includes:
+    - region
+    - row counts
+    - normalized start/end timestamps
+    - lightweight content checksums over key columns
     """
 
     def _normalize_ts(ts) -> str:
@@ -129,13 +133,47 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
             t = t.tz_convert("UTC").tz_localize(None)
         return str(t)
 
-    demand_sig = ""
-    weather_sig = ""
-    if "timestamp" in demand_df.columns and len(demand_df) > 0:
-        demand_sig = f"{_normalize_ts(demand_df['timestamp'].iloc[0])}_{_normalize_ts(demand_df['timestamp'].iloc[-1])}"
-    if "timestamp" in weather_df.columns and len(weather_df) > 0:
-        weather_sig = f"{_normalize_ts(weather_df['timestamp'].iloc[0])}_{_normalize_ts(weather_df['timestamp'].iloc[-1])}"
-    return hash((demand_sig, weather_sig, region))
+    def _frame_sig(df: pd.DataFrame, key_cols: list[str]) -> dict:
+        frame_sig: dict[str, str | int] = {"rows": int(len(df)), "start": "", "end": "", "checksum": ""}
+        if df.empty:
+            return frame_sig
+
+        if "timestamp" in df.columns:
+            frame_sig["start"] = _normalize_ts(df["timestamp"].iloc[0])
+            frame_sig["end"] = _normalize_ts(df["timestamp"].iloc[-1])
+
+        cols = [c for c in key_cols if c in df.columns]
+        if not cols:
+            return frame_sig
+
+        sample = df.loc[:, cols].copy()
+        if "timestamp" in sample.columns:
+            ts = pd.to_datetime(sample["timestamp"], utc=True, errors="coerce").dt.tz_localize(None)
+            sample["timestamp"] = ts.astype("int64")
+        for col in cols:
+            if col != "timestamp" and pd.api.types.is_numeric_dtype(sample[col]):
+                sample[col] = sample[col].round(6)
+
+        hashed = pd.util.hash_pandas_object(sample.fillna(""), index=False).to_numpy(dtype=np.uint64)
+        frame_sig["checksum"] = f"{int(hashed.sum(dtype=np.uint64)):016x}"
+        return frame_sig
+
+    signature_payload = {
+        "region": region,
+        "demand": _frame_sig(demand_df, ["timestamp", "demand_mw"]),
+        "weather": _frame_sig(
+            weather_df,
+            [
+                "timestamp",
+                "temperature_2m",
+                "wind_speed_80m",
+                "shortwave_radiation",
+                "relative_humidity_2m",
+            ],
+        ),
+    }
+    signature_json = json.dumps(signature_payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(signature_json.encode("utf-8")).hexdigest()
 
 
 def _confidence_half_width(horizon_hours: int) -> float:
@@ -248,6 +286,8 @@ def _run_forecast_outlook(
             cached_sqlite is not None
             and isinstance(cached_sqlite, dict)
             and "predictions" in cached_sqlite
+            and cached_sqlite.get("cache_version") == _CACHE_VERSION
+            and cached_sqlite.get("data_hash") == data_hash
         ):
             cached_sqlite["timestamps"] = pd.to_datetime(cached_sqlite["timestamps"])
             cached_sqlite["predictions"] = np.array(cached_sqlite["predictions"])
@@ -484,6 +524,8 @@ def _run_forecast_outlook(
             sqlite_cache = get_cache()
             sqlite_key = f"forecast:{region}:{horizon_hours}:{model_name}"
             serializable = {
+                "cache_version": _CACHE_VERSION,
+                "data_hash": data_hash,
                 "timestamps": [str(t) for t in future_timestamps],
                 "predictions": predictions.tolist()
                 if hasattr(predictions, "tolist")
@@ -3961,6 +4003,8 @@ def _run_backtest_for_horizon(
             cached_sqlite is not None
             and isinstance(cached_sqlite, dict)
             and "actual" in cached_sqlite
+            and cached_sqlite.get("cache_version") == _CACHE_VERSION
+            and cached_sqlite.get("data_hash") == data_hash
         ):
             cached_sqlite["timestamps"] = pd.to_datetime(cached_sqlite["timestamps"]).values
             cached_sqlite["actual"] = np.array(cached_sqlite["actual"])
@@ -4094,6 +4138,8 @@ def _run_backtest_for_horizon(
         sqlite_cache = get_cache()
         sqlite_key = f"backtest:{region}:{horizon_hours}:{model_name}"
         serializable = {
+            "cache_version": _CACHE_VERSION,
+            "data_hash": data_hash,
             "timestamps": [str(t) for t in result["timestamps"]],
             "actual": result["actual"].tolist(),
             "predictions": result["predictions"].tolist(),
