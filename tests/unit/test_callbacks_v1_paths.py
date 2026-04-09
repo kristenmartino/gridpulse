@@ -180,7 +180,7 @@ class TestRunForecastOutlook:
         from components.callbacks import _compute_data_hash
 
         data_hash = _compute_data_hash(demand, weather, "FPL")
-        cache_key = ("FPL", 24, "xgboost")
+        cache_key = ("FPL", 24, "xgboost", "forecast_exog")
         fake_preds = np.array([40000.0] * 24)
         fake_ts = pd.date_range("2024-06-10", periods=24, freq="h")
 
@@ -565,7 +565,7 @@ class TestRunBacktestForHorizon:
         demand = _demand_df(200)
         weather = _weather_df(200)
         data_hash = _compute_data_hash(demand, weather, "FPL")
-        cache_key = ("FPL", 24, "xgboost")
+        cache_key = ("FPL", 24, "xgboost", "forecast_exog")
         cached = {"timestamps": [], "actual": [], "predictions": [], "metrics": {"mape": 5.0}}
 
         with patch.dict(
@@ -1120,7 +1120,7 @@ class TestBacktestV1:
         assert len(result) == 7
         fig, mape, rmse, mae, r2, explanation, insight = result
         assert isinstance(fig, go.Figure)
-        assert mape == "4.50%"
+        assert "4.50%" in mape
         assert "MW" in rmse
 
     def test_v1_backtest_error(self, callbacks):

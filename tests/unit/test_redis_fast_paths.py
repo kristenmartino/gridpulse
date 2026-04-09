@@ -815,10 +815,11 @@ class TestBacktestTabFromRedis:
         result = _backtest_tab_from_redis("FPL", 24, "xgboost", "grid_ops")
         assert result is not None
         _, mape_str, rmse_str, mae_str, r2_str, _, _ = result
-        assert mape_str == "3.20%"
-        assert rmse_str == "320 MW"
-        assert mae_str == "260 MW"
-        assert r2_str == "0.970"
+        assert mape_str.startswith("3.20%")
+        assert rmse_str.startswith("320 MW")
+        assert mae_str.startswith("260 MW")
+        assert r2_str.startswith("0.970")
+        assert "(forecast_exog)" in mape_str
 
     @patch("components.callbacks.redis_get")
     def test_first_available_fallback(self, mock_rg):
