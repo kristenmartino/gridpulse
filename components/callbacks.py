@@ -47,7 +47,7 @@ _cache_lock = threading.Lock()
 
 _MODEL_CACHE: dict = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
-_BACKTEST_CACHE: dict = {}  # {(region, horizon, model): (result_dict, data_hash, time)}
+_BACKTEST_CACHE: dict = {}  # {(region, horizon, model, exog_mode): (result_dict, data_hash, time)}
 _GENERATION_CACHE: dict = {}  # {region: (gen_df, fetch_timestamp)}
 BACKTEST_EXOG_MODES = {"oracle_exog", "forecast_exog"}
 DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
