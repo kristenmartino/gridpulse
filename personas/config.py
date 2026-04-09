@@ -33,8 +33,9 @@ PERSONAS: dict[str, Persona] = {
         name="Sarah",
         title="Grid Operations Manager",
         avatar="👩‍💼",
-        default_tab="tab-forecast",
+        default_tab="tab-overview",
         priority_tabs=[
+            "tab-overview",
             "tab-forecast",
             "tab-outlook",
             "tab-backtest",
@@ -61,8 +62,9 @@ PERSONAS: dict[str, Persona] = {
         name="James",
         title="Renewables Portfolio Analyst",
         avatar="🌱",
-        default_tab="tab-outlook",
+        default_tab="tab-overview",
         priority_tabs=[
+            "tab-overview",
             "tab-generation",
             "tab-outlook",
             "tab-forecast",
@@ -89,8 +91,9 @@ PERSONAS: dict[str, Persona] = {
         name="Maria",
         title="Energy Trader",
         avatar="📊",
-        default_tab="tab-outlook",
+        default_tab="tab-overview",
         priority_tabs=[
+            "tab-overview",
             "tab-outlook",
             "tab-forecast",
             "tab-generation",
@@ -117,8 +120,9 @@ PERSONAS: dict[str, Persona] = {
         name="Dev",
         title="Data Scientist",
         avatar="🔬",
-        default_tab="tab-backtest",
+        default_tab="tab-overview",
         priority_tabs=[
+            "tab-overview",
             "tab-backtest",
             "tab-outlook",
             "tab-forecast",

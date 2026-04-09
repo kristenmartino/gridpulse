@@ -216,6 +216,7 @@ EIA_ENDPOINTS = {
 # Dashboard
 # ---------------------------------------------------------------------------
 TAB_IDS: list[str] = [
+    "tab-overview",
     "tab-forecast",
     "tab-outlook",
     "tab-backtest",
@@ -227,6 +228,7 @@ TAB_IDS: list[str] = [
 ]
 
 TAB_LABELS: dict[str, str] = {
+    "tab-overview": "Overview",
     "tab-forecast": "Load History",
     "tab-outlook": "Forecast",
     "tab-backtest": "Backtest",

@@ -761,7 +761,8 @@ class TestSwitchPersona:
             patch("components.callbacks.ctx", mock_ctx),
             patch("precompute._region_data", {}, create=True),
         ):
-            result = callbacks["switch_persona"]("grid_ops", "FPL", None, None)
+            # 5th arg = current_tab (State)
+            result = callbacks["switch_persona"]("grid_ops", "FPL", None, None, "tab-forecast")
 
         assert len(result) == 3
         welcome, kpis, active_tab = result
@@ -779,7 +780,7 @@ class TestSwitchPersona:
             patch("components.callbacks.ctx", mock_ctx),
             patch("precompute._region_data", {}, create=True),
         ):
-            result = callbacks["switch_persona"]("grid_ops", "FPL", None, None)
+            result = callbacks["switch_persona"]("grid_ops", "FPL", None, None, "tab-forecast")
 
         welcome, kpis, active_tab = result
         assert active_tab is no_update
@@ -794,7 +795,7 @@ class TestSwitchPersona:
             patch("precompute._region_data", {}, create=True),
         ):
             result = callbacks["switch_persona"](
-                "renewables", "FPL", _demand_json(), _weather_json()
+                "renewables", "FPL", _demand_json(), _weather_json(), "tab-forecast"
             )
 
         assert len(result) == 3

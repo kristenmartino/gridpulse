@@ -2045,17 +2045,31 @@ def register_callbacks(app):
         [
             State("demand-store", "data"),
             State("weather-store", "data"),
+            State("dashboard-tabs", "active_tab"),
         ],
     )
-    def switch_persona(persona_id, region, demand_json, weather_json):
+    def switch_persona(persona_id, region, demand_json, weather_json, current_tab):
         """Reconfigure dashboard for selected persona with live data.
 
         Fires on persona change AND region change (immediate, no API wait).
         Uses precomputed _region_data cache for instant KPI updates.
         Only switches active tab when the persona selector triggered the callback.
+        Hides standalone welcome/KPI cards when on overview tab (overview has its own).
         """
-        card_data = get_welcome_card(persona_id)
         persona = get_persona(persona_id)
+
+        # Only switch active tab when persona changed (not on region/data change)
+        triggered = ctx.triggered_id
+        active_tab = persona.default_tab if triggered == "persona-selector" else no_update
+
+        # Determine which tab we'll land on
+        landing_tab = active_tab if active_tab is not no_update else current_tab
+
+        # On overview tab, hide standalone welcome/KPI (overview has its own inline versions)
+        if landing_tab == "tab-overview":
+            return html.Div(), html.Div(), active_tab
+
+        card_data = get_welcome_card(persona_id)
 
         from personas.welcome import generate_welcome_message
         from precompute import _region_data
@@ -2080,15 +2094,103 @@ def register_callbacks(app):
         )
         kpis = _build_persona_kpis(persona_id, region, demand_df, weather_df)
 
-        # Only switch active tab when persona changed (not on region/data change)
-        triggered = ctx.triggered_id
-        active_tab = persona.default_tab if triggered == "persona-selector" else no_update
         return welcome, kpis, active_tab
 
     # ── 2b. PERSONA TAB VISIBILITY (AC-7.5) ──────────────────
     # NOTE: dbc.Tab uses tab_id (not id) and does not support dynamic
     # "disabled" toggling via callbacks.  Persona-based tab prioritisation
     # is handled by default_tab selection in the persona switcher above.
+
+    # ── 3. OVERVIEW TAB ───────────────────────────────────────
+
+    @app.callback(
+        [
+            Output("overview-greeting", "children"),
+            Output("overview-kpi-row", "children"),
+            Output("overview-demand-sparkline", "figure"),
+            Output("overview-alerts-count", "children"),
+            Output("overview-alerts-breakdown", "children"),
+            Output("overview-freshness-badges", "children"),
+            Output("overview-last-updated", "children"),
+            Output("overview-nav-cards", "children"),
+        ],
+        [
+            Input("demand-store", "data"),
+            Input("weather-store", "data"),
+            Input("data-freshness-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+        [
+            State("region-selector", "value"),
+            State("persona-selector", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def update_overview_tab(
+        demand_json, weather_json, freshness_json, active_tab, region, persona_id
+    ):
+        """Update Overview landing tab with KPIs, sparkline, alerts, freshness."""
+        if active_tab != "tab-overview":
+            return [no_update] * 8
+
+        import json
+
+        # Parse data
+        demand_df = None
+        weather_df = None
+        if demand_json:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+        if weather_json:
+            weather_df = pd.read_json(io.StringIO(weather_json))
+
+        # 1. Greeting
+        card_data = get_welcome_card(persona_id)
+        from personas.welcome import generate_welcome_message
+
+        message = generate_welcome_message(persona_id, region, demand_df, weather_df)
+        greeting = build_welcome_card(
+            title=card_data["title"],
+            message=message,
+            avatar=card_data["avatar"],
+            color=card_data["color"],
+        )
+
+        # 2. Persona KPIs
+        kpis = _build_persona_kpis(persona_id, region, demand_df, weather_df)
+
+        # 3. Demand sparkline (last 24h)
+        sparkline = _build_overview_sparkline(demand_df, region)
+
+        # 4. Alerts summary
+        alerts_count, alerts_breakdown = _build_overview_alerts(region)
+
+        # 5. Freshness badges
+        freshness_badges, last_updated = _build_overview_freshness(freshness_json)
+
+        # 6. Nav cards
+        nav_cards = _build_overview_nav(persona_id)
+
+        return (
+            greeting,
+            kpis,
+            sparkline,
+            alerts_count,
+            alerts_breakdown,
+            freshness_badges,
+            last_updated,
+            nav_cards,
+        )
+
+    @app.callback(
+        Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        Input({"type": "overview-nav-card", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def overview_nav_click(n_clicks):
+        """Switch to a tab when its overview nav card is clicked."""
+        if not ctx.triggered_id or not any(n_clicks):
+            return no_update
+        return ctx.triggered_id["index"]
 
     # ── 4. TAB 1: DEMAND FORECAST ─────────────────────────────
 
@@ -4019,6 +4121,219 @@ def register_callbacks(app):
 
 
 # ── HELPER FUNCTIONS ──────────────────────────────────────────
+
+
+def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
+    """Build a compact 24h demand sparkline for the overview tab."""
+    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+        return _empty_figure("No demand data")
+
+    df = demand_df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    last_24h = df.tail(24)
+
+    if last_24h.empty:
+        return _empty_figure("No recent demand data")
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=last_24h["timestamp"],
+            y=last_24h["demand_mw"],
+            mode="lines",
+            line=dict(color=CB_PALETTE["blue"], width=2),
+            fill="tozeroy",
+            fillcolor="rgba(0,114,178,0.15)",
+            name="Demand",
+            hovertemplate="%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
+        )
+    )
+    sparkline_layout = {
+        **PLOT_LAYOUT,
+        "showlegend": False,
+        "margin": dict(l=40, r=10, t=10, b=30),
+    }
+    fig.update_layout(
+        **sparkline_layout,
+        xaxis=dict(
+            showgrid=False,
+            tickformat="%H:%M",
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.05)",
+            tickformat=",.0f",
+            title="MW",
+        ),
+    )
+    return fig
+
+
+def _build_overview_alerts(region: str) -> tuple:
+    """Build alert count and breakdown for the overview tab.
+
+    Returns:
+        Tuple of (count_str, breakdown_div).
+    """
+    from data.demo_data import generate_demo_alerts
+
+    # Try Redis first
+    alerts_redis = redis_get(f"wattcast:alerts:{region}")
+    if alerts_redis and isinstance(alerts_redis, list):
+        alerts = alerts_redis
+    else:
+        alerts = generate_demo_alerts(region)
+
+    total = len(alerts)
+    n_crit = sum(1 for a in alerts if a.get("severity") == "critical")
+    n_warn = sum(1 for a in alerts if a.get("severity") == "warning")
+    n_info = sum(1 for a in alerts if a.get("severity") == "info")
+
+    count_str = str(total)
+
+    breakdown_items = []
+    if n_crit:
+        breakdown_items.append(
+            html.Div(
+                f"🔴 Critical: {n_crit}",
+                style={"fontSize": "0.75rem", "color": "#e94560"},
+            )
+        )
+    if n_warn:
+        breakdown_items.append(
+            html.Div(
+                f"🟡 Warning: {n_warn}",
+                style={"fontSize": "0.75rem", "color": "#f0ad4e"},
+            )
+        )
+    if n_info:
+        breakdown_items.append(
+            html.Div(
+                f"🔵 Info: {n_info}",
+                style={"fontSize": "0.75rem", "color": "#56B4E9"},
+            )
+        )
+    if not alerts:
+        breakdown_items.append(
+            html.Div(
+                "No active alerts",
+                style={"fontSize": "0.75rem", "color": "#8a8fa8"},
+            )
+        )
+
+    return count_str, html.Div(breakdown_items)
+
+
+def _build_overview_freshness(freshness_json: str | None) -> tuple:
+    """Build freshness badges and last-updated text for the overview tab.
+
+    Returns:
+        Tuple of (badges_div, last_updated_str).
+    """
+    import json
+
+    if not freshness_json:
+        return (
+            html.Div("Loading...", style={"color": "#8a8fa8", "fontSize": "0.8rem"}),
+            "Last updated: --",
+        )
+
+    freshness = json.loads(freshness_json)
+    source_icons = {
+        "fresh": ("🟢", "#00d4aa"),
+        "stale": ("🟡", "#ffa502"),
+        "demo": ("🧪", "#8a8fa8"),
+        "error": ("🔴", "#ff4757"),
+    }
+
+    badges = []
+    for source in ("demand", "weather", "alerts"):
+        status = freshness.get(source, "fresh")
+        icon, color = source_icons.get(status, ("⚪", "#8a8fa8"))
+        badges.append(
+            html.Span(
+                f"{icon} {source.title()}",
+                style={
+                    "color": color,
+                    "fontSize": "0.75rem",
+                    "marginRight": "12px",
+                    "fontWeight": "500",
+                },
+            )
+        )
+
+    # Last updated timestamp
+    latest_data = freshness.get("latest_data", "")
+    if latest_data:
+        try:
+            from datetime import datetime
+
+            latest_dt = datetime.fromisoformat(latest_data.replace("Z", "+00:00"))
+            updated_text = f"Last updated: {latest_dt.strftime('%b %d %H:%M UTC')}"
+        except (ValueError, TypeError):
+            updated_text = "Last updated: --"
+    else:
+        updated_text = "Last updated: --"
+
+    return html.Div(badges), updated_text
+
+
+def _build_overview_nav(persona_id: str) -> html.Div:
+    """Build quick-navigation cards for the overview tab based on persona priority tabs."""
+    persona = get_persona(persona_id)
+    # Skip tab-overview itself from nav cards
+    tabs = [t for t in persona.priority_tabs if t != "tab-overview"]
+
+    tab_icons = {
+        "tab-forecast": "📈",
+        "tab-outlook": "🔮",
+        "tab-backtest": "🧪",
+        "tab-generation": "⚡",
+        "tab-weather": "🌤️",
+        "tab-models": "🔬",
+        "tab-alerts": "🚨",
+        "tab-simulator": "🎛️",
+    }
+
+    cards = []
+    for tab_id in tabs:
+        label = TAB_LABELS.get(tab_id, tab_id)
+        icon = tab_icons.get(tab_id, "📊")
+        cards.append(
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.Span(icon, style={"fontSize": "1.5rem"}),
+                            html.P(
+                                label,
+                                style={
+                                    "fontSize": "0.8rem",
+                                    "marginTop": "4px",
+                                    "marginBottom": "0",
+                                    "color": "#e0e0e0",
+                                },
+                            ),
+                        ],
+                        style={"textAlign": "center", "padding": "12px 8px"},
+                    ),
+                    id={"type": "overview-nav-card", "index": tab_id},
+                    style={
+                        "cursor": "pointer",
+                        "backgroundColor": "rgba(22,33,62,0.6)",
+                        "border": "1px solid rgba(255,255,255,0.1)",
+                        "borderRadius": "8px",
+                    },
+                    className="hover-card",
+                ),
+                md=2,
+                sm=4,
+                xs=6,
+                className="mb-2",
+            )
+        )
+
+    return html.Div(dbc.Row(cards, className="g-2"))
 
 
 def _empty_figure(message: str = "") -> go.Figure:

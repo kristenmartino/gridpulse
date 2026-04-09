@@ -23,13 +23,13 @@ class TestGetPersona:
     def test_grid_ops_defaults(self):
         p = get_persona("grid_ops")
         assert p.name == "Sarah"
-        assert p.default_tab == "tab-forecast"
+        assert p.default_tab == "tab-overview"
         assert "peak_demand_mw" in p.kpi_metrics
 
     def test_trader_defaults(self):
         p = get_persona("trader")
         assert p.name == "Maria"
-        assert p.default_tab == "tab-outlook"
+        assert p.default_tab == "tab-overview"
 
 
 class TestListPersonas:
@@ -57,7 +57,7 @@ class TestWelcomeCard:
     def test_persona_specific_content(self):
         card = get_welcome_card("renewables")
         assert "James" in card["message"]
-        assert card["default_tab"] == "tab-outlook"
+        assert card["default_tab"] == "tab-overview"
 
     def test_unknown_raises(self):
         with pytest.raises(KeyError):

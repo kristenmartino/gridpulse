@@ -27,6 +27,7 @@ class TestPersonaTabVisibility:
 
     def test_priority_tabs_are_valid_ids(self):
         valid = {
+            "tab-overview",
             "tab-forecast",
             "tab-outlook",
             "tab-backtest",

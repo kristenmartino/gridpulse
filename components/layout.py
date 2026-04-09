@@ -1,7 +1,7 @@
 """
 Main dashboard layout — header, persona switcher, region selector, KPI bar, tabs.
 
-CRITICAL: All 8 tab layouts are rendered statically inside dbc.Tab(children=...).
+CRITICAL: All 9 tab layouts are rendered statically inside dbc.Tab(children=...).
 This ensures every component ID always exists in the DOM. Dash Bootstrap handles
 showing/hiding tabs — we do NOT dynamically render tab content via callbacks.
 """
@@ -17,6 +17,7 @@ from components import (
     tab_forecast,
     tab_generation,
     tab_models,
+    tab_overview,
     tab_simulator,
     tab_weather,
 )
@@ -142,8 +143,13 @@ def build_layout() -> dbc.Container:
             # ── Tabs (full width) ─────────────────────────────────
             dbc.Tabs(
                 id="dashboard-tabs",
-                active_tab="tab-forecast",
+                active_tab="tab-overview",
                 children=[
+                    dbc.Tab(
+                        tab_overview.layout(),
+                        label=TAB_LABELS["tab-overview"],
+                        tab_id="tab-overview",
+                    ),
                     dbc.Tab(
                         tab_forecast.layout(),
                         label=TAB_LABELS["tab-forecast"],
