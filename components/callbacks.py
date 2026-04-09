@@ -2116,68 +2116,76 @@ def register_callbacks(app):
         ],
         [
             Input("demand-store", "data"),
-            Input("weather-store", "data"),
             Input("dashboard-tabs", "active_tab"),
+            Input("persona-selector", "value"),
         ],
         [
+            State("weather-store", "data"),
             State("region-selector", "value"),
-            State("persona-selector", "value"),
             State("data-freshness-store", "data"),
         ],
-        prevent_initial_call=True,
     )
     def update_overview_tab(
-        demand_json, weather_json, active_tab, region, persona_id, freshness_data
+        demand_json, active_tab, persona_id, weather_json, region, freshness_data
     ):
         """Fast overview render: greeting, data health, spotlight, digest."""
         if active_tab != "tab-overview":
             return [no_update] * 4
 
-        # Parse data
-        demand_df = None
-        weather_df = None
-        if demand_json:
-            demand_df = pd.read_json(io.StringIO(demand_json))
-        if weather_json:
-            weather_df = pd.read_json(io.StringIO(weather_json))
+        try:
+            # Parse data
+            demand_df = None
+            weather_df = None
+            if demand_json:
+                demand_df = pd.read_json(io.StringIO(demand_json))
+            if weather_json:
+                weather_df = pd.read_json(io.StringIO(weather_json))
 
-        # 1. Greeting
-        card_data = get_welcome_card(persona_id)
-        from personas.welcome import generate_welcome_message
+            # 1. Greeting
+            card_data = get_welcome_card(persona_id)
+            from personas.welcome import generate_welcome_message
 
-        message = generate_welcome_message(persona_id, region, demand_df, weather_df)
-        greeting = build_welcome_card(
-            title=card_data["title"],
-            message=message,
-            avatar=card_data["avatar"],
-            color=card_data["color"],
-        )
+            message = generate_welcome_message(persona_id, region, demand_df, weather_df)
+            greeting = build_welcome_card(
+                title=card_data["title"],
+                message=message,
+                avatar=card_data["avatar"],
+                color=card_data["color"],
+            )
 
-        # 2. Data Health
-        data_health = _build_overview_data_health(freshness_data)
+            # 2. Data Health
+            data_health = _build_overview_data_health(freshness_data)
 
-        # 3. Spotlight chart (persona-specific)
-        spotlight = _build_overview_spotlight(persona_id, region, demand_df, weather_df)
+            # 3. Spotlight chart (persona-specific)
+            spotlight = _build_overview_spotlight(persona_id, region, demand_df, weather_df)
 
-        # 4. Insight digest (cross-tab)
-        digest = _build_overview_digest(persona_id, region, demand_df, weather_df)
+            # 4. Insight digest (cross-tab)
+            digest = _build_overview_digest(persona_id, region, demand_df, weather_df)
 
-        return (greeting, data_health, spotlight, digest)
+            return (greeting, data_health, spotlight, digest)
+        except Exception:
+            log.exception("update_overview_tab_failed")
+            return (
+                html.Div("Error loading greeting"),
+                html.Div(),
+                _empty_figure("Error loading chart"),
+                html.Div("Error loading insights"),
+            )
 
     @app.callback(
         Output("overview-briefing", "children"),
         [
             Input("demand-store", "data"),
             Input("dashboard-tabs", "active_tab"),
+            Input("persona-selector", "value"),
         ],
         [
             State("weather-store", "data"),
             State("region-selector", "value"),
-            State("persona-selector", "value"),
         ],
         prevent_initial_call=True,
     )
-    def update_overview_briefing(demand_json, active_tab, weather_json, region, persona_id):
+    def update_overview_briefing(demand_json, active_tab, persona_id, weather_json, region):
         """AI briefing — separate callback so HTTP call doesn't block render."""
         if active_tab != "tab-overview":
             return no_update
