@@ -1098,6 +1098,18 @@ def _weather_tab_from_redis(region):
     return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
 
 
+def _format_metric(m: dict, key: str, fmt: str) -> str:
+    """Format a metric value, returning 'N/A' when the key is missing or None.
+
+    Prevents unavailable metrics from displaying as ``0`` which users can
+    misread as a real (and suspiciously perfect) model score.
+    """
+    val = m.get(key)
+    if val is None:
+        return "N/A"
+    return fmt.format(val)
+
+
 def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     """Redis fast path for update_models_tab callback.
 
@@ -1139,10 +1151,10 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             html.Tr(
                 [
                     html.Td(display_name, style={"fontWeight": "600"}),
-                    html.Td(f"{m.get('mape', 0):.2f}%"),
-                    html.Td(f"{m.get('rmse', 0):.0f}"),
-                    html.Td(f"{m.get('mae', 0):.0f}"),
-                    html.Td(f"{m.get('r2', 0):.4f}"),
+                    html.Td(_format_metric(m, "mape", "{:.2f}%")),
+                    html.Td(_format_metric(m, "rmse", "{:.0f}")),
+                    html.Td(_format_metric(m, "mae", "{:.0f}")),
+                    html.Td(_format_metric(m, "r2", "{:.4f}")),
                 ]
             )
         )
@@ -2499,10 +2511,10 @@ def register_callbacks(app):
                 html.Tr(
                     [
                         html.Td(display_name, style={"fontWeight": "600"}),
-                        html.Td(f"{m.get('mape', 0):.2f}%"),
-                        html.Td(f"{m.get('rmse', 0):.0f}"),
-                        html.Td(f"{m.get('mae', 0):.0f}"),
-                        html.Td(f"{m.get('r2', 0):.4f}"),
+                        html.Td(_format_metric(m, "mape", "{:.2f}%")),
+                        html.Td(_format_metric(m, "rmse", "{:.0f}")),
+                        html.Td(_format_metric(m, "mae", "{:.0f}")),
+                        html.Td(_format_metric(m, "r2", "{:.4f}")),
                     ]
                 )
             )
@@ -3914,23 +3926,34 @@ def register_callbacks(app):
                 )
             )
 
-        # Error shading (where forecast differs from actual)
-        fig.add_trace(
-            go.Scatter(
-                x=list(timestamps) + list(timestamps[::-1]),
-                y=list(predictions) + list(actual[::-1]),
-                fill="toself",
-                fillcolor="rgba(255, 107, 107, 0.15)",
-                line=dict(width=0),
-                name="Forecast Error",
-                showlegend=True,
-                hoverinfo="skip",
-            )
-        )
-
-        # Fold boundary lines
+        # Error shading (where forecast differs from actual), segmented by fold
+        # to avoid implying visual continuity across retrained fold boundaries.
         num_folds = result.get("num_folds", 1)
         fold_boundaries = result.get("fold_boundaries", [0])
+        # Build (start, end) pairs for each fold segment
+        fold_ranges = []
+        for i, start_idx in enumerate(fold_boundaries):
+            end_idx = fold_boundaries[i + 1] if i + 1 < len(fold_boundaries) else len(timestamps)
+            fold_ranges.append((start_idx, end_idx))
+
+        for fold_i, (f_start, f_end) in enumerate(fold_ranges):
+            fold_ts = timestamps[f_start:f_end]
+            fold_pred = predictions[f_start:f_end]
+            fold_act = actual[f_start:f_end]
+            fig.add_trace(
+                go.Scatter(
+                    x=list(fold_ts) + list(fold_ts[::-1]),
+                    y=list(fold_pred) + list(fold_act[::-1]),
+                    fill="toself",
+                    fillcolor="rgba(255, 107, 107, 0.15)",
+                    line=dict(width=0),
+                    name="Forecast Error" if fold_i == 0 else None,
+                    showlegend=(fold_i == 0),
+                    hoverinfo="skip",
+                )
+            )
+
+        # Fold boundary lines
         for boundary_idx in fold_boundaries[1:]:
             fig.add_vline(
                 x=timestamps[boundary_idx],
