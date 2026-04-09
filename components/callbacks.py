@@ -2132,6 +2132,10 @@ def register_callbacks(app):
         if active_tab != "tab-overview":
             return [no_update] * 4
 
+        # Guard against None values during initial load
+        persona_id = persona_id or "grid_ops"
+        region = region or "FPL"
+
         try:
             # Parse data
             demand_df = None
@@ -2163,13 +2167,20 @@ def register_callbacks(app):
             digest = _build_overview_digest(persona_id, region, demand_df, weather_df)
 
             return (greeting, data_health, spotlight, digest)
-        except Exception:
+        except Exception as exc:
             log.exception("update_overview_tab_failed")
+            err_msg = f"{type(exc).__name__}: {exc}"
             return (
-                html.Div("Error loading greeting"),
+                html.Div(
+                    err_msg,
+                    style={"color": "#e94560", "fontSize": "0.8rem", "padding": "8px"},
+                ),
                 html.Div(),
-                _empty_figure("Error loading chart"),
-                html.Div("Error loading insights"),
+                _empty_figure(err_msg),
+                html.Div(
+                    err_msg,
+                    style={"color": "#e94560", "fontSize": "0.8rem", "padding": "8px"},
+                ),
             )
 
     @app.callback(
@@ -2189,6 +2200,9 @@ def register_callbacks(app):
         """AI briefing — separate callback so HTTP call doesn't block render."""
         if active_tab != "tab-overview":
             return no_update
+
+        persona_id = persona_id or "grid_ops"
+        region = region or "FPL"
 
         demand_df = None
         weather_df = None
