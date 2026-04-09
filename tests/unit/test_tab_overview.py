@@ -4,14 +4,11 @@ Unit tests for the Overview landing tab (#7).
 Covers:
 - Layout returns html.Div with all required component IDs
 - Sparkline handles None and valid data
-- Alerts returns valid count and breakdown
-- Freshness handles None and valid JSON
+- Alerts returns valid count and breakdown (no emoji)
 - Config has tab-overview first in TAB_IDS
 - All personas default to tab-overview
-- Nav cards built correctly per persona
+- Nav shortcuts built correctly per persona (buttons, not cards)
 """
-
-import json
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -31,12 +28,9 @@ class TestOverviewLayout:
         from components.tab_overview import layout
 
         result = layout()
-        # Flatten all IDs from the layout tree
         ids = _collect_ids(result)
         required = [
             "overview-greeting",
-            "overview-freshness-badges",
-            "overview-last-updated",
             "overview-kpi-row",
             "overview-demand-sparkline",
             "overview-alerts-count",
@@ -45,6 +39,15 @@ class TestOverviewLayout:
         ]
         for rid in required:
             assert rid in ids, f"Missing component ID: {rid}"
+
+    def test_layout_no_freshness_ids(self):
+        """Freshness is handled by the header — not duplicated in overview."""
+        from components.tab_overview import layout
+
+        result = layout()
+        ids = _collect_ids(result)
+        assert "overview-freshness-badges" not in ids
+        assert "overview-last-updated" not in ids
 
 
 class TestOverviewConfig:
@@ -106,7 +109,6 @@ class TestOverviewSparkline:
         fig = _build_overview_sparkline(df, "FPL")
         assert isinstance(fig, go.Figure)
         assert len(fig.data) > 0
-        # Should show last 24 hours
         assert len(fig.data[0].y) == 24
 
 
@@ -126,49 +128,32 @@ class TestOverviewAlerts:
         count, _ = _build_overview_alerts("FPL")
         assert count.isdigit()
 
+    def test_alerts_no_emoji_in_breakdown(self):
+        """Alert breakdown should use colored dots, not emoji."""
+        from components.callbacks import _build_overview_alerts
 
-class TestOverviewFreshness:
-    """Test _build_overview_freshness helper."""
-
-    def test_freshness_with_none(self):
-        from components.callbacks import _build_overview_freshness
-
-        badges, updated = _build_overview_freshness(None)
-        assert isinstance(badges, html.Div)
-        assert "Last updated" in updated
-
-    def test_freshness_with_valid_json(self):
-        from components.callbacks import _build_overview_freshness
-
-        data = json.dumps(
-            {
-                "demand": "fresh",
-                "weather": "fresh",
-                "alerts": "demo",
-                "latest_data": "2024-06-01T12:00:00Z",
-            }
-        )
-        badges, updated = _build_overview_freshness(data)
-        assert isinstance(badges, html.Div)
-        assert "Jun 01" in updated
-
-    def test_freshness_with_degraded_status(self):
-        from components.callbacks import _build_overview_freshness
-
-        data = json.dumps({"demand": "stale", "weather": "error", "alerts": "fresh"})
-        badges, updated = _build_overview_freshness(data)
-        assert isinstance(badges, html.Div)
-        assert "Last updated: --" in updated
+        _, breakdown = _build_overview_alerts("FPL")
+        # Serialize to string and check no emoji circles
+        text = str(breakdown)
+        for emoji in ["\U0001f534", "\U0001f7e1", "\U0001f535"]:
+            assert emoji not in text, f"Found emoji {emoji!r} in alert breakdown"
 
 
 class TestOverviewNav:
     """Test _build_overview_nav helper."""
 
-    def test_nav_cards_for_grid_ops(self):
+    def test_nav_returns_div(self):
         from components.callbacks import _build_overview_nav
 
         result = _build_overview_nav("grid_ops")
         assert isinstance(result, html.Div)
+
+    def test_nav_has_quick_access_label(self):
+        from components.callbacks import _build_overview_nav
+
+        result = _build_overview_nav("grid_ops")
+        text = str(result)
+        assert "Quick access" in text
 
     def test_nav_excludes_overview_tab(self):
         from components.callbacks import _build_overview_nav
@@ -176,19 +161,28 @@ class TestOverviewNav:
 
         persona = get_persona("grid_ops")
         result = _build_overview_nav("grid_ops")
-        # The nav should have cards for priority tabs minus overview
         expected_count = len([t for t in persona.priority_tabs if t != "tab-overview"])
-        # Count the Col children in the Row inside the Div
-        row = result.children
-        assert len(row.children) == expected_count
+        # Children = [Span("Quick access"), Button, Button, ...]
+        buttons = [c for c in result.children if hasattr(c, "id") and isinstance(c.id, dict)]
+        assert len(buttons) == expected_count
 
-    def test_nav_cards_for_all_personas(self):
+    def test_nav_for_all_personas(self):
         from components.callbacks import _build_overview_nav
         from personas.config import PERSONAS
 
         for pid in PERSONAS:
             result = _build_overview_nav(pid)
             assert isinstance(result, html.Div)
+
+    def test_nav_no_emoji(self):
+        """Nav buttons should be text-only, no emoji."""
+        from components.callbacks import _build_overview_nav
+
+        result = _build_overview_nav("grid_ops")
+        for child in result.children:
+            if hasattr(child, "children") and isinstance(child.children, str):
+                # Should be plain text labels
+                assert all(ord(c) < 0x1F600 for c in child.children if isinstance(c, str))
 
 
 # ── Helpers ──────────────────────────────────────────────────

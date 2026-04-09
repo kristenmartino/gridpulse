@@ -2110,14 +2110,11 @@ def register_callbacks(app):
             Output("overview-demand-sparkline", "figure"),
             Output("overview-alerts-count", "children"),
             Output("overview-alerts-breakdown", "children"),
-            Output("overview-freshness-badges", "children"),
-            Output("overview-last-updated", "children"),
             Output("overview-nav-cards", "children"),
         ],
         [
             Input("demand-store", "data"),
             Input("weather-store", "data"),
-            Input("data-freshness-store", "data"),
             Input("dashboard-tabs", "active_tab"),
         ],
         [
@@ -2126,12 +2123,10 @@ def register_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def update_overview_tab(
-        demand_json, weather_json, freshness_json, active_tab, region, persona_id
-    ):
-        """Update Overview landing tab with KPIs, sparkline, alerts, freshness."""
+    def update_overview_tab(demand_json, weather_json, active_tab, region, persona_id):
+        """Update Overview landing tab with KPIs, sparkline, alerts."""
         if active_tab != "tab-overview":
-            return [no_update] * 8
+            return [no_update] * 6
 
         # Parse data
         demand_df = None
@@ -2162,22 +2157,10 @@ def register_callbacks(app):
         # 4. Alerts summary
         alerts_count, alerts_breakdown = _build_overview_alerts(region)
 
-        # 5. Freshness badges
-        freshness_badges, last_updated = _build_overview_freshness(freshness_json)
-
-        # 6. Nav cards
+        # 5. Nav shortcuts
         nav_cards = _build_overview_nav(persona_id)
 
-        return (
-            greeting,
-            kpis,
-            sparkline,
-            alerts_count,
-            alerts_breakdown,
-            freshness_badges,
-            last_updated,
-            nav_cards,
-        )
+        return (greeting, kpis, sparkline, alerts_count, alerts_breakdown, nav_cards)
 
     @app.callback(
         Output("dashboard-tabs", "active_tab", allow_duplicate=True),
@@ -4190,27 +4173,30 @@ def _build_overview_alerts(region: str) -> tuple:
     count_str = str(total)
 
     breakdown_items = []
-    if n_crit:
-        breakdown_items.append(
-            html.Div(
-                f"🔴 Critical: {n_crit}",
-                style={"fontSize": "0.75rem", "color": "#e94560"},
+    severity_styles = {
+        "critical": {"color": "#e94560"},
+        "warning": {"color": "#f0ad4e"},
+        "info": {"color": "#56B4E9"},
+    }
+    for label, count, sev in [
+        ("Critical", n_crit, "critical"),
+        ("Warning", n_warn, "warning"),
+        ("Info", n_info, "info"),
+    ]:
+        if count:
+            c = severity_styles[sev]["color"]
+            breakdown_items.append(
+                html.Div(
+                    [
+                        html.Span(
+                            "\u25cf ",
+                            style={"color": c, "fontSize": "0.65rem"},
+                        ),
+                        html.Span(f"{label}: {count}"),
+                    ],
+                    style={"fontSize": "0.75rem", "color": c},
+                )
             )
-        )
-    if n_warn:
-        breakdown_items.append(
-            html.Div(
-                f"🟡 Warning: {n_warn}",
-                style={"fontSize": "0.75rem", "color": "#f0ad4e"},
-            )
-        )
-    if n_info:
-        breakdown_items.append(
-            html.Div(
-                f"🔵 Info: {n_info}",
-                style={"fontSize": "0.75rem", "color": "#56B4E9"},
-            )
-        )
     if not alerts:
         breakdown_items.append(
             html.Div(
@@ -4222,116 +4208,46 @@ def _build_overview_alerts(region: str) -> tuple:
     return count_str, html.Div(breakdown_items)
 
 
-def _build_overview_freshness(freshness_json: str | None) -> tuple:
-    """Build freshness badges and last-updated text for the overview tab.
+def _build_overview_nav(persona_id: str) -> html.Div:
+    """Build quick-navigation shortcuts for the overview tab."""
+    persona = get_persona(persona_id)
+    tabs = [t for t in persona.priority_tabs if t != "tab-overview"]
 
-    Returns:
-        Tuple of (badges_div, last_updated_str).
-    """
-    import json
-
-    if not freshness_json:
-        return (
-            html.Div("Loading...", style={"color": "#8a8fa8", "fontSize": "0.8rem"}),
-            "Last updated: --",
-        )
-
-    freshness = json.loads(freshness_json)
-    source_icons = {
-        "fresh": ("🟢", "#00d4aa"),
-        "stale": ("🟡", "#ffa502"),
-        "demo": ("🧪", "#8a8fa8"),
-        "error": ("🔴", "#ff4757"),
-    }
-
-    badges = []
-    for source in ("demand", "weather", "alerts"):
-        status = freshness.get(source, "fresh")
-        icon, color = source_icons.get(status, ("⚪", "#8a8fa8"))
-        badges.append(
-            html.Span(
-                f"{icon} {source.title()}",
+    buttons = []
+    for tab_id in tabs:
+        label = TAB_LABELS.get(tab_id, tab_id)
+        buttons.append(
+            dbc.Button(
+                label,
+                id={"type": "overview-nav-card", "index": tab_id},
+                size="sm",
+                outline=True,
+                color="secondary",
+                className="me-2 mb-1",
                 style={
-                    "color": color,
-                    "fontSize": "0.75rem",
-                    "marginRight": "12px",
-                    "fontWeight": "500",
+                    "fontSize": "0.8rem",
+                    "borderColor": "#0f3460",
+                    "color": "#e0e0e0",
                 },
             )
         )
 
-    # Last updated timestamp
-    latest_data = freshness.get("latest_data", "")
-    if latest_data:
-        try:
-            from datetime import datetime
-
-            latest_dt = datetime.fromisoformat(latest_data.replace("Z", "+00:00"))
-            updated_text = f"Last updated: {latest_dt.strftime('%b %d %H:%M UTC')}"
-        except (ValueError, TypeError):
-            updated_text = "Last updated: --"
-    else:
-        updated_text = "Last updated: --"
-
-    return html.Div(badges), updated_text
-
-
-def _build_overview_nav(persona_id: str) -> html.Div:
-    """Build quick-navigation cards for the overview tab based on persona priority tabs."""
-    persona = get_persona(persona_id)
-    # Skip tab-overview itself from nav cards
-    tabs = [t for t in persona.priority_tabs if t != "tab-overview"]
-
-    tab_icons = {
-        "tab-forecast": "📈",
-        "tab-outlook": "🔮",
-        "tab-backtest": "🧪",
-        "tab-generation": "⚡",
-        "tab-weather": "🌤️",
-        "tab-models": "🔬",
-        "tab-alerts": "🚨",
-        "tab-simulator": "🎛️",
-    }
-
-    cards = []
-    for tab_id in tabs:
-        label = TAB_LABELS.get(tab_id, tab_id)
-        icon = tab_icons.get(tab_id, "📊")
-        cards.append(
-            dbc.Col(
-                dbc.Card(
-                    dbc.CardBody(
-                        [
-                            html.Span(icon, style={"fontSize": "1.5rem"}),
-                            html.P(
-                                label,
-                                style={
-                                    "fontSize": "0.8rem",
-                                    "marginTop": "4px",
-                                    "marginBottom": "0",
-                                    "color": "#e0e0e0",
-                                },
-                            ),
-                        ],
-                        style={"textAlign": "center", "padding": "12px 8px"},
-                    ),
-                    id={"type": "overview-nav-card", "index": tab_id},
-                    style={
-                        "cursor": "pointer",
-                        "backgroundColor": "rgba(22,33,62,0.6)",
-                        "border": "1px solid rgba(255,255,255,0.1)",
-                        "borderRadius": "8px",
-                    },
-                    className="hover-card",
-                ),
-                md=2,
-                sm=4,
-                xs=6,
-                className="mb-2",
-            )
-        )
-
-    return html.Div(dbc.Row(cards, className="g-2"))
+    return html.Div(
+        [
+            html.Span(
+                "Quick access",
+                style={
+                    "fontSize": "0.7rem",
+                    "color": "#8a8fa8",
+                    "textTransform": "uppercase",
+                    "letterSpacing": "1px",
+                    "marginRight": "12px",
+                },
+            ),
+            *buttons,
+        ],
+        style={"display": "flex", "flexWrap": "wrap", "alignItems": "center"},
+    )
 
 
 def _empty_figure(message: str = "") -> go.Figure:

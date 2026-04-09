@@ -2,7 +2,7 @@
 Tab 0: Overview — Landing page with system-at-a-glance.
 
 Shows persona greeting, top KPIs, demand sparkline, alert summary,
-data freshness status, and quick-nav cards to priority tabs.
+and quick-nav shortcuts to priority tabs.
 """
 
 import dash_bootstrap_components as dbc
@@ -13,39 +13,17 @@ def layout() -> html.Div:
     """Build Tab 0 (Overview) layout."""
     return html.Div(
         [
-            # Row 1: Persona greeting + data status
+            # Row 1: Persona greeting (full width)
             dbc.Row(
-                [
-                    dbc.Col(
-                        html.Div(id="overview-greeting", className="welcome-card"),
-                        md=8,
-                    ),
-                    dbc.Col(
-                        html.Div(
-                            [
-                                html.P("DATA STATUS", className="kpi-label"),
-                                html.Div(id="overview-freshness-badges"),
-                                html.P(
-                                    id="overview-last-updated",
-                                    children="Last updated: --",
-                                    style={
-                                        "fontSize": "0.75rem",
-                                        "color": "#8a8fa8",
-                                        "marginTop": "8px",
-                                    },
-                                ),
-                            ],
-                            className="kpi-card",
-                            style={"minHeight": "120px"},
-                        ),
-                        md=4,
-                    ),
-                ],
+                dbc.Col(
+                    html.Div(id="overview-greeting", className="welcome-card"),
+                    md=12,
+                ),
                 className="g-2 mb-2",
             ),
             # Row 2: Persona KPIs
             html.Div(id="overview-kpi-row"),
-            # Row 3: Demand sparkline + alerts summary
+            # Row 3: Demand sparkline + alert summary
             dbc.Row(
                 [
                     dbc.Col(
@@ -74,7 +52,7 @@ def layout() -> html.Div:
                             ],
                             className="chart-container",
                         ),
-                        md=7,
+                        md=8,
                     ),
                     dbc.Col(
                         html.Div(
@@ -90,20 +68,12 @@ def layout() -> html.Div:
                             className="kpi-card",
                             style={"minHeight": "200px"},
                         ),
-                        md=5,
+                        md=4,
                     ),
                 ],
                 className="g-2 mt-1",
             ),
-            # Row 4: Quick navigation cards
-            dbc.Row(
-                [
-                    dbc.Col(
-                        html.Div(id="overview-nav-cards"),
-                        md=12,
-                    ),
-                ],
-                className="g-2 mt-1",
-            ),
+            # Row 4: Tab shortcuts
+            html.Div(id="overview-nav-cards", className="mt-2"),
         ]
     )
