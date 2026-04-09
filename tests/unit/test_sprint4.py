@@ -95,10 +95,10 @@ class TestCallbackOutputCompleteness:
         src = inspect.getsource(sys.modules["components.callbacks"])
         assert "tab5-stress-breakdown" in src
 
-    def test_persona_tab_disabled_loop(self):
-        """Verify the tab visibility callback loop exists."""
+    def test_persona_tab_disabled_loop_removed(self):
+        """Tab visibility loop was removed: dbc.Tab tab_id != id, disabled not dynamic."""
         src = inspect.getsource(sys.modules["components.callbacks"])
-        assert "bound_tid" in src, "Tab visibility closure variable not found"
+        assert "bound_tid" not in src, "Broken tab visibility loop should be removed"
 
     def test_model_service_used_not_raw_noise(self):
         """Callbacks use model_service, not inline random noise."""

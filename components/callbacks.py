@@ -106,17 +106,6 @@ COLORS = {
     "other": "#b0b0b0",
 }
 
-PERSONA_CONTROLLED_TAB_IDS = [
-    "tab-forecast",
-    "tab-outlook",
-    "tab-backtest",
-    "tab-generation",
-    "tab-weather",
-    "tab-models",
-    "tab-alerts",
-    "tab-simulator",
-]
-
 
 def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region: str) -> str:
     """Compute stable input signature for cache correctness.
@@ -2107,17 +2096,9 @@ def register_callbacks(app):
         return welcome, kpis, active_tab
 
     # ── 2b. PERSONA TAB VISIBILITY (AC-7.5) ──────────────────
-
-    for _tid in PERSONA_CONTROLLED_TAB_IDS:
-
-        @app.callback(
-            Output(_tid, "disabled"),
-            Input("persona-selector", "value"),
-            prevent_initial_call=True,
-        )
-        def _update_tab_disabled(persona_id, bound_tid=_tid):
-            persona = get_persona(persona_id)
-            return bound_tid not in persona.priority_tabs
+    # NOTE: dbc.Tab uses tab_id (not id) and does not support dynamic
+    # "disabled" toggling via callbacks.  Persona-based tab prioritisation
+    # is handled by default_tab selection in the persona switcher above.
 
     # ── 4. TAB 1: DEMAND FORECAST ─────────────────────────────
 
