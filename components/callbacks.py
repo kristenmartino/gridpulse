@@ -36,6 +36,7 @@ from config import (
     TAB_LABELS,
 )
 from data.redis_client import redis_get
+from hash_utils import stable_int_seed
 from personas.config import PERSONAS, get_persona, get_welcome_card
 
 log = structlog.get_logger()
@@ -135,7 +136,7 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
         demand_sig = f"{_normalize_ts(demand_df['timestamp'].iloc[0])}_{_normalize_ts(demand_df['timestamp'].iloc[-1])}"
     if "timestamp" in weather_df.columns and len(weather_df) > 0:
         weather_sig = f"{_normalize_ts(weather_df['timestamp'].iloc[0])}_{_normalize_ts(weather_df['timestamp'].iloc[-1])}"
-    return hash((demand_sig, weather_sig, region))
+    return stable_int_seed(("callbacks_data_hash", demand_sig, weather_sig, region))
 
 
 def _confidence_half_width(horizon_hours: int) -> float:
@@ -2718,7 +2719,7 @@ def register_callbacks(app):
         hdd_delta = max(0, 65 - temp) - max(0, 65 - baseline_temp)
         temp_factor = 1 + (cdd_delta * 0.02 + hdd_delta * 0.015) / 65
 
-        seed = hash((region, temp, wind)) & 0xFFFFFFFF
+        seed = stable_int_seed(("scenario_simulation", region, temp, wind))
         rng = np.random.RandomState(seed)
         scenario = baseline * temp_factor + rng.normal(0, capacity * 0.005, len(baseline))
         scenario = np.maximum(scenario, 0)
