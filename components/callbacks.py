@@ -43,7 +43,7 @@ log = structlog.get_logger()
 import threading  # noqa: E402
 
 _cache_lock = threading.Lock()
-_CACHE_VERSION = 2
+_CACHE_VERSION = 3
 
 _MODEL_CACHE: dict = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
@@ -139,8 +139,10 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
             return frame_sig
 
         if "timestamp" in df.columns:
-            frame_sig["start"] = _normalize_ts(df["timestamp"].iloc[0])
-            frame_sig["end"] = _normalize_ts(df["timestamp"].iloc[-1])
+            ts_bounds = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+            if ts_bounds.notna().any():
+                frame_sig["start"] = _normalize_ts(ts_bounds.min())
+                frame_sig["end"] = _normalize_ts(ts_bounds.max())
 
         cols = [c for c in key_cols if c in df.columns]
         if not cols:
@@ -148,13 +150,14 @@ def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region
 
         sample = df.loc[:, cols].copy()
         if "timestamp" in sample.columns:
-            ts = pd.to_datetime(sample["timestamp"], utc=True, errors="coerce").dt.tz_localize(None)
-            sample["timestamp"] = ts.astype("int64")
+            ts = pd.to_datetime(sample["timestamp"], utc=True, errors="coerce")
+            sample["timestamp"] = ts.view("int64").fillna(-1).astype("int64")
+            sample = sample.sort_values("timestamp", kind="mergesort")
         for col in cols:
             if col != "timestamp" and pd.api.types.is_numeric_dtype(sample[col]):
                 sample[col] = sample[col].round(6)
 
-        hashed = pd.util.hash_pandas_object(sample.fillna(""), index=False).to_numpy(dtype=np.uint64)
+        hashed = pd.util.hash_pandas_object(sample.fillna("<NA>"), index=False).to_numpy(dtype=np.uint64)
         frame_sig["checksum"] = f"{int(hashed.sum(dtype=np.uint64)):016x}"
         return frame_sig
 
