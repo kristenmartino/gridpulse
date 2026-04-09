@@ -201,7 +201,7 @@ class TestCacheBacktests:
         )
         pipeline.execute()
 
-        assert mock_redis.exists("wattcast:backtest:ERCOT:24")
+        assert mock_redis.exists("wattcast:backtest:forecast_exog:ERCOT:24")
 
 
 class TestBatchScorerStructure:

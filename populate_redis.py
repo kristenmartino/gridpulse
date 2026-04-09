@@ -35,6 +35,7 @@ r = redis.Redis(
 )
 print(f"Connected: {r.ping()}")
 TTL = 86400
+DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 
 for region in REGIONS:
     print(f"\n=== {region} ===")
@@ -160,10 +161,12 @@ for region in REGIONS:
             bp = bt["predictions"]
             tss = [pd.Timestamp(t).isoformat() for t in bt["timestamps"]]
             r.set(
-                f"wattcast:backtest:{region}:{horizon}",
+                f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}",
                 json.dumps(
                     {
                         "horizon": horizon,
+                        "exog_mode": DEFAULT_BACKTEST_EXOG_MODE,
+                        "exog_source": "climatology/naive baseline",
                         "metrics": {
                             "xgboost": {
                                 "mape": round(float(m["mape"]), 2),

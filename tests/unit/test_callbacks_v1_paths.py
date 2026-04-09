@@ -519,7 +519,7 @@ class TestEnsembleFold:
         train = _train_df(100)
         test = _train_df(24)
 
-        def mock_predict_single(name, tr, te):
+        def mock_predict_single(name, tr, te, **kwargs):
             base = {"xgboost": 40000.0, "prophet": 39000.0, "arima": 38000.0}
             return np.full(len(te), base.get(name, 39000.0))
 
@@ -565,7 +565,7 @@ class TestRunBacktestForHorizon:
         demand = _demand_df(200)
         weather = _weather_df(200)
         data_hash = _compute_data_hash(demand, weather, "FPL")
-        cache_key = ("FPL", 24, "xgboost")
+        cache_key = ("FPL", 24, "xgboost", "forecast_exog")
         cached = {"timestamps": [], "actual": [], "predictions": [], "metrics": {"mape": 5.0}}
 
         with patch.dict(
@@ -1147,7 +1147,7 @@ class TestBacktestV1:
         assert len(result) == 7
         fig, mape, rmse, mae, r2, explanation, insight = result
         assert isinstance(fig, go.Figure)
-        assert mape == "4.50%"
+        assert mape == "4.50% (forecast_exog)"
         assert "MW" in rmse
 
     def test_v1_backtest_error(self, callbacks):

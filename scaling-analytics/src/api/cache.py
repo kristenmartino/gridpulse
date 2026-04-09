@@ -82,7 +82,9 @@ class ForecastCache:
 
         If model is specified, filters metrics/predictions to that model.
         """
-        data = self._get_json(f"{self._prefix}:backtest:{region}:{horizon}")
+        data = self._get_json(f"{self._prefix}:backtest:forecast_exog:{region}:{horizon}")
+        if data is None:
+            data = self._get_json(f"{self._prefix}:backtest:{region}:{horizon}")
         if data is None or model is None:
             return data
         # Filter to a specific model
@@ -99,7 +101,9 @@ class ForecastCache:
 
     def get_backtest_residuals(self, region: str, horizon: int) -> dict | None:
         """Return just the residual array from a backtest."""
-        data = self._get_json(f"{self._prefix}:backtest:{region}:{horizon}")
+        data = self._get_json(f"{self._prefix}:backtest:forecast_exog:{region}:{horizon}")
+        if data is None:
+            data = self._get_json(f"{self._prefix}:backtest:{region}:{horizon}")
         if data is None:
             return None
         return {
@@ -111,7 +115,9 @@ class ForecastCache:
 
     def get_backtest_error_by_hour(self, region: str, horizon: int) -> dict | None:
         """Return error-by-hour breakdown from a backtest."""
-        data = self._get_json(f"{self._prefix}:backtest:{region}:{horizon}")
+        data = self._get_json(f"{self._prefix}:backtest:forecast_exog:{region}:{horizon}")
+        if data is None:
+            data = self._get_json(f"{self._prefix}:backtest:{region}:{horizon}")
         if data is None:
             return None
         return {

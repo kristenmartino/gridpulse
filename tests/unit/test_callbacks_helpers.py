@@ -924,7 +924,11 @@ class TestBuildPersonaKpis:
         from components.callbacks import _build_persona_kpis
 
         bt_result = {"metrics": {"mape": 3.5, "rmse": 800}}
-        cb._BACKTEST_CACHE[("ERCOT", 168, "xgboost")] = (bt_result, 0, time.time())
+        cb._BACKTEST_CACHE[("ERCOT", 168, "xgboost", "forecast_exog")] = (
+            bt_result,
+            0,
+            time.time(),
+        )
         result = _build_persona_kpis("grid_ops", "ERCOT", demand_df, None)
         assert result is not None
 
@@ -1110,7 +1114,7 @@ class TestEnsembleFold:
         prophet_preds = np.ones(24) * 31000
         arima_preds = np.ones(24) * 30500
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             return {"xgboost": xgb_preds, "prophet": prophet_preds, "arima": arima_preds}[name]
 
         with (
@@ -1159,7 +1163,7 @@ class TestEnsembleFold:
 
         call_count = 0
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             nonlocal call_count
             call_count += 1
             if name == "prophet":
@@ -1194,7 +1198,7 @@ class TestEnsembleFold:
         xgb_pred = np.ones(24) * 29000  # closer to actual
         prophet_pred = np.ones(24) * 35000  # farther from actual
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             if name == "xgboost":
                 return xgb_pred
             if name == "prophet":
@@ -1226,7 +1230,7 @@ class TestEnsembleFold:
             }
         )
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             if name == "xgboost":
                 return np.full(24, np.nan)  # all NaN
             if name == "prophet":
@@ -1260,7 +1264,7 @@ class TestEnsembleFold:
         xgb = np.ones(24) * 30000
         prophet = np.ones(24) * 30000
 
-        def mock_predict(name, train_df, test_df):
+        def mock_predict(name, train_df, test_df, **kwargs):
             if name == "xgboost":
                 return xgb
             if name == "prophet":
@@ -1372,7 +1376,11 @@ class TestRunBacktestForHorizon:
             "num_folds": 1,
             "fold_boundaries": [0],
         }
-        cb._BACKTEST_CACHE[("ERCOT", 24, "xgboost")] = (cached_result, data_hash, time.time())
+        cb._BACKTEST_CACHE[("ERCOT", 24, "xgboost", "forecast_exog")] = (
+            cached_result,
+            data_hash,
+            time.time(),
+        )
 
         result = _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
         assert result["metrics"]["mape"] == 3.0
@@ -1470,7 +1478,7 @@ class TestRunBacktestForHorizon:
         with patch("components.callbacks._predict_single_fold", return_value=np.ones(24) * 30000):
             _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
 
-        assert ("ERCOT", 24, "xgboost") in cb._BACKTEST_CACHE
+        assert ("ERCOT", 24, "xgboost", "forecast_exog") in cb._BACKTEST_CACHE
 
     @patch("data.cache.get_cache")
     @patch("data.preprocessing.merge_demand_weather")
