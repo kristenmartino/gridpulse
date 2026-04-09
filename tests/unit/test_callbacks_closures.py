@@ -19,12 +19,10 @@ Covers ~10 callback closures across lines 1765-3112:
 - create_bookmark (lines 3001-3017)
 - update_widget_confidence (lines 3030-3049)
 - toggle_meeting_mode (lines 3072-3088)
-- update_news_feed (lines 3099-3112)
 """
 
 import json
 from datetime import UTC, datetime
-from unittest.mock import patch
 
 import dash
 import numpy as np
@@ -605,40 +603,4 @@ class TestUpdateTab1Insights:
         assert isinstance(result, html.Div)
 
 
-# ===========================================================================
-# 10. update_news_feed
-# ===========================================================================
-
-
-class TestUpdateNewsFeed:
-    """News feed callback (lines 3099-3112)."""
-
-    @patch("data.news_client.fetch_energy_news")
-    def test_with_articles(self, mock_fetch, callbacks):
-        fn = callbacks["update_news_feed"]
-        mock_fetch.return_value = [
-            {
-                "title": "Test Article",
-                "description": "Test description",
-                "url": "https://example.com",
-                "source": "Test",
-                "published_at": datetime.now(UTC).isoformat(),
-                "image_url": None,
-            }
-        ]
-        result = fn(0)
-        assert isinstance(result, html.Div)
-
-    @patch("data.news_client.fetch_energy_news")
-    def test_empty_articles_falls_back_to_demo(self, mock_fetch, callbacks):
-        fn = callbacks["update_news_feed"]
-        mock_fetch.return_value = []
-        result = fn(0)
-        assert isinstance(result, html.Div)
-
-    @patch("data.news_client.fetch_energy_news")
-    def test_exception_falls_back_to_demo(self, mock_fetch, callbacks):
-        fn = callbacks["update_news_feed"]
-        mock_fetch.side_effect = RuntimeError("API down")
-        result = fn(0)
-        assert isinstance(result, html.Div)
+# Note: update_news_feed callback was removed — news moved into overview tab.

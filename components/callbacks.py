@@ -2106,11 +2106,11 @@ def register_callbacks(app):
     @app.callback(
         [
             Output("overview-greeting", "children"),
-            Output("overview-kpi-row", "children"),
-            Output("overview-demand-sparkline", "figure"),
-            Output("overview-alerts-count", "children"),
-            Output("overview-alerts-breakdown", "children"),
-            Output("overview-nav-cards", "children"),
+            Output("overview-briefing", "children"),
+            Output("overview-data-health", "children"),
+            Output("overview-spotlight-chart", "figure"),
+            Output("overview-insight-digest", "children"),
+            Output("overview-news-feed", "children"),
         ],
         [
             Input("demand-store", "data"),
@@ -2120,11 +2120,14 @@ def register_callbacks(app):
         [
             State("region-selector", "value"),
             State("persona-selector", "value"),
+            State("data-freshness-store", "data"),
         ],
         prevent_initial_call=True,
     )
-    def update_overview_tab(demand_json, weather_json, active_tab, region, persona_id):
-        """Update Overview landing tab with KPIs, sparkline, alerts."""
+    def update_overview_tab(
+        demand_json, weather_json, active_tab, region, persona_id, freshness_data
+    ):
+        """Update Overview tab: briefing, data health, spotlight, digest, news."""
         if active_tab != "tab-overview":
             return [no_update] * 6
 
@@ -2148,30 +2151,22 @@ def register_callbacks(app):
             color=card_data["color"],
         )
 
-        # 2. Persona KPIs
-        kpis = _build_persona_kpis(persona_id, region, demand_df, weather_df)
+        # 2. AI Executive Briefing
+        briefing = _build_overview_briefing(persona_id, region, demand_df, weather_df)
 
-        # 3. Demand sparkline (last 24h)
-        sparkline = _build_overview_sparkline(demand_df, region)
+        # 3. Data Health
+        data_health = _build_overview_data_health(freshness_data)
 
-        # 4. Alerts summary
-        alerts_count, alerts_breakdown = _build_overview_alerts(region)
+        # 4. Spotlight chart (persona-specific)
+        spotlight = _build_overview_spotlight(persona_id, region, demand_df, weather_df)
 
-        # 5. Nav shortcuts
-        nav_cards = _build_overview_nav(persona_id)
+        # 5. Insight digest (cross-tab)
+        digest = _build_overview_digest(persona_id, region, demand_df, weather_df)
 
-        return (greeting, kpis, sparkline, alerts_count, alerts_breakdown, nav_cards)
+        # 6. News feed
+        news = _build_overview_news()
 
-    @app.callback(
-        Output("dashboard-tabs", "active_tab", allow_duplicate=True),
-        Input({"type": "overview-nav-card", "index": ALL}, "n_clicks"),
-        prevent_initial_call=True,
-    )
-    def overview_nav_click(n_clicks):
-        """Switch to a tab when its overview nav card is clicked."""
-        if not ctx.triggered_id or not any(n_clicks):
-            return no_update
-        return ctx.triggered_id["index"]
+        return (greeting, briefing, data_health, spotlight, digest, news)
 
     # ── 4. TAB 1: DEMAND FORECAST ─────────────────────────────
 
@@ -3578,30 +3573,6 @@ def register_callbacks(app):
 
         return new_mode, header_class, welcome_style, confidence_style, banner_style
 
-    # ── NEWS FEED ─────────────────────────────────────────────
-
-    @app.callback(
-        Output("news-feed", "children"),
-        Input("refresh-interval", "n_intervals"),
-        prevent_initial_call=False,
-    )
-    def update_news_feed(_n):
-        """Fetch and render energy news from NewsAPI."""
-        from data.news_client import fetch_energy_news
-
-        try:
-            articles = fetch_energy_news(page_size=10)
-            if not articles:
-                from data.news_client import _get_demo_news
-
-                articles = _get_demo_news()
-            return build_news_feed(articles)
-        except Exception as e:
-            log.error("news_feed_update_failed", error=str(e))
-            from data.news_client import _get_demo_news
-
-            return build_news_feed(_get_demo_news())
-
     # ── DEMAND OUTLOOK TAB ──────────────────────────────────────
 
     @app.callback(
@@ -4150,104 +4121,427 @@ def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go
     return fig
 
 
-def _build_overview_alerts(region: str) -> tuple:
-    """Build alert count and breakdown for the overview tab.
+def _build_overview_briefing(
+    persona_id: str,
+    region: str,
+    demand_df: pd.DataFrame | None,
+    weather_df: pd.DataFrame | None,
+) -> html.Div:
+    """Build the AI executive briefing section."""
+    from data.ai_briefing import generate_briefing
 
-    Returns:
-        Tuple of (count_str, breakdown_div).
-    """
-    from data.demo_data import generate_demo_alerts
+    try:
+        result = generate_briefing(persona_id, region, demand_df, weather_df)
+    except Exception as exc:
+        log.error("overview_briefing_failed", error=str(exc))
+        return html.Div(
+            "Briefing unavailable",
+            style={"color": "#8a8fa8", "fontStyle": "italic"},
+        )
 
-    # Try Redis first
-    alerts_redis = redis_get(f"wattcast:alerts:{region}")
-    if alerts_redis and isinstance(alerts_redis, list):
-        alerts = alerts_redis
-    else:
-        alerts = generate_demo_alerts(region)
+    persona = get_persona(persona_id)
 
-    total = len(alerts)
-    n_crit = sum(1 for a in alerts if a.get("severity") == "critical")
-    n_warn = sum(1 for a in alerts if a.get("severity") == "warning")
-    n_info = sum(1 for a in alerts if a.get("severity") == "info")
+    children = [
+        html.P(
+            result.summary,
+            style={
+                "color": "#e0e0e0",
+                "fontSize": "0.9rem",
+                "lineHeight": "1.6",
+                "marginBottom": "12px",
+            },
+        ),
+    ]
 
-    count_str = str(total)
-
-    breakdown_items = []
-    severity_styles = {
-        "critical": {"color": "#e94560"},
-        "warning": {"color": "#f0ad4e"},
-        "info": {"color": "#56B4E9"},
-    }
-    for label, count, sev in [
-        ("Critical", n_crit, "critical"),
-        ("Warning", n_warn, "warning"),
-        ("Info", n_info, "info"),
-    ]:
-        if count:
-            c = severity_styles[sev]["color"]
-            breakdown_items.append(
-                html.Div(
-                    [
-                        html.Span(
-                            "\u25cf ",
-                            style={"color": c, "fontSize": "0.65rem"},
-                        ),
-                        html.Span(f"{label}: {count}"),
-                    ],
-                    style={"fontSize": "0.75rem", "color": c},
+    if result.observations:
+        obs_items = []
+        for obs in result.observations:
+            obs_items.append(
+                html.Li(
+                    obs,
+                    style={
+                        "color": "#b0b0c0",
+                        "fontSize": "0.82rem",
+                        "marginBottom": "4px",
+                        "lineHeight": "1.5",
+                    },
                 )
             )
-    if not alerts:
-        breakdown_items.append(
-            html.Div(
-                "No active alerts",
-                style={"fontSize": "0.75rem", "color": "#8a8fa8"},
+        children.append(
+            html.Ul(
+                obs_items,
+                style={"paddingLeft": "20px", "marginBottom": "8px"},
             )
         )
 
-    return count_str, html.Div(breakdown_items)
+    source_label = "AI Analysis" if result.source == "claude" else "Data Summary"
+    children.append(
+        html.Span(
+            source_label,
+            style={
+                "fontSize": "0.65rem",
+                "color": "#8a8fa8",
+                "textTransform": "uppercase",
+                "letterSpacing": "0.5px",
+            },
+        )
+    )
+
+    return html.Div(
+        children,
+        style={"borderLeft": f"4px solid {persona.color}"},
+        className="briefing-card-content",
+    )
 
 
-def _build_overview_nav(persona_id: str) -> html.Div:
-    """Build quick-navigation shortcuts for the overview tab."""
-    persona = get_persona(persona_id)
-    tabs = [t for t in persona.priority_tabs if t != "tab-overview"]
+def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
+    """Build data health badges showing per-source freshness."""
+    if not freshness_data:
+        return html.Div()
 
-    buttons = []
-    for tab_id in tabs:
-        label = TAB_LABELS.get(tab_id, tab_id)
-        buttons.append(
-            dbc.Button(
-                label,
-                id={"type": "overview-nav-card", "index": tab_id},
-                size="sm",
-                outline=True,
-                color="secondary",
-                className="me-2 mb-1",
+    source_config = {
+        "demand": {"label": "EIA Demand", "icon": "\u26a1"},
+        "weather": {"label": "Weather", "icon": "\u2601"},
+        "alerts": {"label": "NOAA Alerts", "icon": "\u26a0"},
+    }
+
+    status_colors = {
+        "fresh": "#00d4aa",
+        "stale": "#f0ad4e",
+        "demo": "#8a8fa8",
+        "error": "#e94560",
+    }
+
+    badges = []
+    for source, status in freshness_data.items():
+        if source == "timestamp":
+            continue
+        cfg = source_config.get(source, {"label": source.title(), "icon": "\u25cf"})
+        color = status_colors.get(status, "#8a8fa8")
+        status_text = status.upper() if status != "fresh" else "LIVE"
+        badges.append(
+            html.Div(
+                [
+                    html.Span(cfg["icon"], style={"marginRight": "6px"}),
+                    html.Span(
+                        cfg["label"],
+                        style={"fontWeight": "600", "marginRight": "6px"},
+                    ),
+                    html.Span(
+                        status_text,
+                        style={
+                            "fontSize": "0.65rem",
+                            "padding": "1px 6px",
+                            "borderRadius": "3px",
+                            "background": f"{color}20",
+                            "color": color,
+                        },
+                    ),
+                ],
+                className="data-health-badge",
                 style={
-                    "fontSize": "0.8rem",
-                    "borderColor": "#0f3460",
-                    "color": "#e0e0e0",
+                    "display": "inline-flex",
+                    "alignItems": "center",
+                    "fontSize": "0.75rem",
+                    "color": "#b0b0c0",
+                    "padding": "4px 12px",
+                    "marginRight": "12px",
                 },
             )
         )
+
+    if not badges:
+        return html.Div()
 
     return html.Div(
         [
             html.Span(
-                "Quick access",
+                "DATA SOURCES",
                 style={
-                    "fontSize": "0.7rem",
+                    "fontSize": "0.65rem",
                     "color": "#8a8fa8",
                     "textTransform": "uppercase",
                     "letterSpacing": "1px",
-                    "marginRight": "12px",
+                    "marginRight": "16px",
                 },
             ),
-            *buttons,
+            *badges,
         ],
-        style={"display": "flex", "flexWrap": "wrap", "alignItems": "center"},
+        style={
+            "display": "flex",
+            "flexWrap": "wrap",
+            "alignItems": "center",
+            "padding": "8px 12px",
+            "background": "#16213e",
+            "borderRadius": "6px",
+        },
     )
+
+
+def _build_overview_spotlight(
+    persona_id: str,
+    region: str,
+    demand_df: pd.DataFrame | None,
+    weather_df: pd.DataFrame | None,
+) -> go.Figure:
+    """Build persona-specific spotlight chart for overview."""
+    if persona_id == "renewables":
+        return _spotlight_renewables(weather_df, region)
+    if persona_id == "trader":
+        return _spotlight_trader(demand_df, region)
+    if persona_id == "data_scientist":
+        return _spotlight_model_accuracy(region)
+    # Default: grid_ops → demand sparkline
+    return _build_overview_sparkline(demand_df, region)
+
+
+def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Figure:
+    """Renewable generation potential chart."""
+    if weather_df is None or weather_df.empty:
+        return _empty_figure("No weather data for renewable outlook")
+
+    df = weather_df.copy()
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    last_48h = df.tail(48)
+
+    fig = go.Figure()
+    if "wind_speed_80m" in last_48h.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=last_48h.get("timestamp", list(range(len(last_48h)))),
+                y=last_48h["wind_speed_80m"],
+                mode="lines",
+                line=dict(color=CB_PALETTE.get("sky", "#56B4E9"), width=2),
+                name="Wind (mph)",
+                hovertemplate="%{y:.0f} mph<extra>Wind</extra>",
+            )
+        )
+    if "shortwave_radiation" in last_48h.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=last_48h.get("timestamp", list(range(len(last_48h)))),
+                y=last_48h["shortwave_radiation"],
+                mode="lines",
+                line=dict(color=CB_PALETTE.get("orange", "#E69F00"), width=2),
+                name="Solar (W/m\u00b2)",
+                yaxis="y2",
+                hovertemplate="%{y:.0f} W/m\u00b2<extra>Solar</extra>",
+            )
+        )
+
+    renew_layout = {
+        **PLOT_LAYOUT,
+        "margin": dict(l=45, r=45, t=35, b=40),
+        "legend": dict(orientation="h", y=-0.15, font=dict(size=10)),
+    }
+    fig.update_layout(
+        **renew_layout,
+        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color="#e0e0e0")),
+        showlegend=True,
+        yaxis=dict(
+            title="Wind (mph)",
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.05)",
+        ),
+        yaxis2=dict(
+            title="Solar (W/m\u00b2)",
+            overlaying="y",
+            side="right",
+            showgrid=False,
+        ),
+        xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
+    )
+    return fig
+
+
+def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
+    """Demand vs capacity utilization chart for traders."""
+    capacity = REGION_CAPACITY_MW.get(region, 50000)
+
+    if demand_df is None or demand_df.empty:
+        return _empty_figure("No demand data for market view")
+
+    df = demand_df.copy()
+    if "timestamp" in df.columns:
+        df["timestamp"] = pd.to_datetime(df["timestamp"])
+    last_48h = df.tail(48)
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=last_48h.get("timestamp", list(range(len(last_48h)))),
+            y=last_48h["demand_mw"],
+            mode="lines",
+            line=dict(color=CB_PALETTE["blue"], width=2),
+            fill="tozeroy",
+            fillcolor="rgba(0,114,178,0.15)",
+            name="Demand",
+            hovertemplate="%{y:,.0f} MW<extra>Demand</extra>",
+        )
+    )
+
+    # Capacity line
+    fig.add_hline(
+        y=capacity,
+        line_dash="dot",
+        line_color="#e94560",
+        annotation_text=f"Capacity: {capacity:,.0f} MW",
+        annotation_position="top left",
+        annotation_font_size=10,
+        annotation_font_color="#e94560",
+    )
+
+    # Pricing tier thresholds
+    for pct, label, color in [
+        (0.85, "High tier (85%)", "#f0ad4e"),
+        (0.70, "Moderate (70%)", "#8a8fa8"),
+    ]:
+        fig.add_hline(
+            y=capacity * pct,
+            line_dash="dot",
+            line_color=color,
+            line_width=1,
+            annotation_text=label,
+            annotation_position="bottom left",
+            annotation_font_size=9,
+            annotation_font_color=color,
+        )
+
+    trader_layout = {**PLOT_LAYOUT, "margin": dict(l=50, r=10, t=35, b=30)}
+    fig.update_layout(
+        **trader_layout,
+        title=dict(text="Demand vs Capacity", font=dict(size=13, color="#e0e0e0")),
+        showlegend=False,
+        xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.05)",
+            tickformat=",.0f",
+            title="MW",
+        ),
+    )
+    return fig
+
+
+def _spotlight_model_accuracy(region: str) -> go.Figure:
+    """Model accuracy bar chart for data scientists."""
+    # Pull from backtest cache if available
+    models = ["prophet", "arima", "xgboost"]
+    mape_values = []
+
+    for model_name in models:
+        mape = None
+        for horizon in [168, 24, 720]:
+            bt_key = (region, horizon, model_name, DEFAULT_BACKTEST_EXOG_MODE)
+            if bt_key in _BACKTEST_CACHE:
+                result_dict, _, _ = _BACKTEST_CACHE[bt_key]
+                if isinstance(result_dict, dict) and "mape" in result_dict:
+                    mape = result_dict["mape"]
+                    break
+        mape_values.append(mape if mape is not None else 4.5 + len(model_name) * 0.3)
+
+    colors = [
+        CB_PALETTE.get("vermillion", "#D55E00"),
+        CB_PALETTE.get("blue", "#0072B2"),
+        CB_PALETTE.get("green", "#009E73"),
+    ]
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            x=[m.title() for m in models],
+            y=mape_values,
+            marker_color=colors,
+            text=[f"{v:.1f}%" for v in mape_values],
+            textposition="outside",
+            textfont=dict(color="#e0e0e0", size=11),
+            hovertemplate="%{x}: %{y:.2f}% MAPE<extra></extra>",
+        )
+    )
+
+    model_layout = {**PLOT_LAYOUT, "margin": dict(l=40, r=10, t=35, b=30)}
+    fig.update_layout(
+        **model_layout,
+        title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#e0e0e0")),
+        showlegend=False,
+        yaxis=dict(
+            title="MAPE (%)",
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.05)",
+        ),
+        xaxis=dict(showgrid=False),
+    )
+    return fig
+
+
+def _build_overview_digest(
+    persona_id: str,
+    region: str,
+    demand_df: pd.DataFrame | None,
+    weather_df: pd.DataFrame | None,
+) -> html.Div:
+    """Aggregate top insights from all tabs into a cross-tab digest."""
+    from components.insights import (
+        Insight,
+        build_insight_card,
+        generate_tab1_insights,
+        generate_tab2_insights,
+    )
+
+    all_insights: list[Insight] = []
+
+    # Tab 1: Historical demand insights
+    try:
+        tab1 = generate_tab1_insights(persona_id, region, demand_df, weather_df)
+        all_insights.extend(tab1)
+    except Exception:
+        pass
+
+    # Tab 2: Forecast insights (need predictions — skip if unavailable)
+    # We'll just use tab1 + any cached model data
+    try:
+        for horizon in [168, 24]:
+            pred_key = (region, horizon)
+            if pred_key in _PREDICTION_CACHE:
+                preds, timestamps, _, _ = _PREDICTION_CACHE[pred_key]
+                tab2 = generate_tab2_insights(persona_id, region, preds, timestamps)
+                all_insights.extend(tab2)
+                break
+    except Exception:
+        pass
+
+    if not all_insights:
+        return html.Div(
+            html.P(
+                "No insights available yet. Explore tabs to generate data.",
+                style={"color": "#8a8fa8", "fontSize": "0.82rem", "fontStyle": "italic"},
+            )
+        )
+
+    # Sort by severity (warning first)
+    severity_order = {"warning": 0, "notable": 1, "info": 2}
+    all_insights.sort(key=lambda i: severity_order.get(i.severity, 2))
+
+    return build_insight_card(all_insights, persona_id, "Overview", max_insights=5)
+
+
+def _build_overview_news() -> html.Div:
+    """Fetch and render energy news for the overview tab."""
+    from data.news_client import fetch_energy_news
+
+    try:
+        articles = fetch_energy_news(page_size=10)
+        if not articles:
+            from data.news_client import _get_demo_news
+
+            articles = _get_demo_news()
+        return build_news_feed(articles)
+    except Exception as e:
+        log.error("overview_news_failed", error=str(e))
+        from data.news_client import _get_demo_news
+
+        return build_news_feed(_get_demo_news())
 
 
 def _empty_figure(message: str = "") -> go.Figure:

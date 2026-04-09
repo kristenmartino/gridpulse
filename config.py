@@ -84,6 +84,9 @@ OPEN_METEO_PARAMS = "&temperature_unit=fahrenheit&wind_speed_unit=mph"
 
 NOAA_BASE_URL = "https://api.weather.gov"
 
+# AI Briefing (Overview tab executive briefing via Claude)
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
 # ---------------------------------------------------------------------------
 # Redis (v2 pre-computation pipeline)
 # ---------------------------------------------------------------------------
@@ -336,6 +339,7 @@ FEATURE_FLAGS: dict[str, bool] = {
     "scenario_bookmarks": True,  # Sprint 4 (C2)
     "api_fallback_badges": True,  # Sprint 4 (G2)
     "ai_insights": True,  # Persona-aware insight cards on all tabs
+    "ai_briefing": True,  # Claude-powered executive briefing on Overview tab
 }
 
 

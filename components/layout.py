@@ -192,8 +192,6 @@ def build_layout() -> dbc.Container:
                     ),
                 ],
             ),
-            # ── News Ribbon (below tabs, full width) ─────────────
-            html.Div(id="news-feed"),
             # ── Data Stores ────────────────────────────────────────
             dcc.Store(id="news-store"),
             dcc.Store(id="demand-store"),
@@ -209,6 +207,8 @@ def build_layout() -> dbc.Container:
             dcc.Store(id="audit-store"),
             # I1: Latest pipeline log for diagnostics
             dcc.Store(id="pipeline-log-store"),
+            # AI briefing cache for Overview tab
+            dcc.Store(id="briefing-store"),
         ],
         fluid=True,
         style={"padding": 0},

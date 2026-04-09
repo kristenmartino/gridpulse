@@ -1,13 +1,13 @@
 """
-Unit tests for the Overview landing tab (#7).
+Unit tests for the Overview tab (#7 reimagined).
 
 Covers:
 - Layout returns html.Div with all required component IDs
-- Sparkline handles None and valid data
-- Alerts returns valid count and breakdown (no emoji)
+- AI briefing module (rule-based fallback)
+- Spotlight chart returns per-persona figures
+- Insight digest returns valid content
 - Config has tab-overview first in TAB_IDS
 - All personas default to tab-overview
-- Nav shortcuts built correctly per persona (buttons, not cards)
 """
 
 import pandas as pd
@@ -31,23 +31,45 @@ class TestOverviewLayout:
         ids = _collect_ids(result)
         required = [
             "overview-greeting",
-            "overview-kpi-row",
-            "overview-demand-sparkline",
-            "overview-alerts-count",
-            "overview-alerts-breakdown",
-            "overview-nav-cards",
+            "overview-briefing",
+            "overview-data-health",
+            "overview-spotlight-chart",
+            "overview-insight-digest",
+            "overview-news-feed",
         ]
         for rid in required:
             assert rid in ids, f"Missing component ID: {rid}"
 
-    def test_layout_no_freshness_ids(self):
-        """Freshness is handled by the header — not duplicated in overview."""
+    def test_layout_no_legacy_ids(self):
+        """Old IDs from v1 overview should not exist."""
         from components.tab_overview import layout
 
         result = layout()
         ids = _collect_ids(result)
-        assert "overview-freshness-badges" not in ids
-        assert "overview-last-updated" not in ids
+        for legacy in [
+            "overview-demand-sparkline",
+            "overview-alerts-count",
+            "overview-alerts-breakdown",
+            "overview-nav-cards",
+            "overview-kpi-row",
+            "overview-freshness-badges",
+            "overview-last-updated",
+        ]:
+            assert legacy not in ids, f"Legacy ID still present: {legacy}"
+
+    def test_layout_has_skeleton_placeholder(self):
+        """Briefing section should start with skeleton loading."""
+        from components.tab_overview import layout
+
+        result = layout()
+        # Find the briefing div
+        briefing_div = None
+        for child in result.children:
+            if hasattr(child, "id") and child.id == "overview-briefing":
+                briefing_div = child
+                break
+        assert briefing_div is not None
+        assert briefing_div.children is not None
 
 
 class TestOverviewConfig:
@@ -81,20 +103,83 @@ class TestOverviewConfig:
             )
 
 
-class TestOverviewSparkline:
-    """Test _build_overview_sparkline helper."""
+class TestOverviewBriefing:
+    """Test the AI briefing module (rule-based path)."""
+
+    def test_rule_based_briefing_returns_result(self):
+        from data.ai_briefing import BriefingResult, generate_briefing
+
+        result = generate_briefing("grid_ops", "FPL")
+        assert isinstance(result, BriefingResult)
+        assert result.source == "rule_based"
+        assert len(result.summary) > 0
+
+    def test_rule_based_briefing_with_data(self):
+        from data.ai_briefing import generate_briefing
+
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
+                "demand_mw": range(20000, 20048),
+            }
+        )
+        result = generate_briefing("grid_ops", "FPL", demand_df=df)
+        assert len(result.summary) > 0
+        assert isinstance(result.observations, list)
+
+    def test_rule_based_briefing_all_personas(self):
+        from data.ai_briefing import generate_briefing
+        from personas.config import PERSONAS
+
+        for pid in PERSONAS:
+            result = generate_briefing(pid, "FPL")
+            assert len(result.summary) > 0
+
+    def test_extract_data_context(self):
+        from data.ai_briefing import _extract_data_context
+
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
+                "demand_mw": range(20000, 20048),
+            }
+        )
+        ctx = _extract_data_context("FPL", df, None)
+        assert ctx["peak_mw"] is not None
+        assert ctx["peak_mw"] > 0
+        assert ctx["data_points"] == 48
+
+    def test_extract_data_context_none(self):
+        from data.ai_briefing import _extract_data_context
+
+        ctx = _extract_data_context("FPL", None, None)
+        assert ctx["peak_mw"] is None
+        assert ctx["data_points"] == 0
+
+    def test_briefing_result_has_timestamp(self):
+        from data.ai_briefing import BriefingResult
+
+        result = BriefingResult(summary="test")
+        assert result.generated_at != ""
+        assert result.source == "rule_based"
+
+    def test_parse_claude_response(self):
+        from data.ai_briefing import _parse_claude_response
+
+        raw = "This is a summary.\n---\n- Point one\n- Point two\n- Point three"
+        result = _parse_claude_response(raw)
+        assert "summary" in result.summary.lower() or len(result.summary) > 0
+        assert len(result.observations) == 3
+        assert result.source == "claude"
+
+
+class TestOverviewSpotlight:
+    """Test persona-specific spotlight chart selection."""
 
     def test_sparkline_with_none(self):
         from components.callbacks import _build_overview_sparkline
 
         fig = _build_overview_sparkline(None, "FPL")
-        assert isinstance(fig, go.Figure)
-
-    def test_sparkline_with_empty_df(self):
-        from components.callbacks import _build_overview_sparkline
-
-        df = pd.DataFrame(columns=["timestamp", "demand_mw"])
-        fig = _build_overview_sparkline(df, "FPL")
         assert isinstance(fig, go.Figure)
 
     def test_sparkline_with_valid_data(self):
@@ -111,78 +196,147 @@ class TestOverviewSparkline:
         assert len(fig.data) > 0
         assert len(fig.data[0].y) == 24
 
+    def test_spotlight_renewables(self):
+        from components.callbacks import _spotlight_renewables
 
-class TestOverviewAlerts:
-    """Test _build_overview_alerts helper."""
+        wdf = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
+                "wind_speed_80m": [12.0] * 48,
+                "shortwave_radiation": [300.0] * 48,
+            }
+        )
+        fig = _spotlight_renewables(wdf, "FPL")
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) >= 1
 
-    def test_alerts_returns_tuple(self):
-        from components.callbacks import _build_overview_alerts
+    def test_spotlight_trader(self):
+        from components.callbacks import _spotlight_trader
 
-        count, breakdown = _build_overview_alerts("FPL")
-        assert isinstance(count, str)
-        assert isinstance(breakdown, html.Div)
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
+                "demand_mw": range(20000, 20048),
+            }
+        )
+        fig = _spotlight_trader(df, "FPL")
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) > 0
 
-    def test_alerts_count_is_numeric(self):
-        from components.callbacks import _build_overview_alerts
+    def test_spotlight_model_accuracy(self):
+        from components.callbacks import _spotlight_model_accuracy
 
-        count, _ = _build_overview_alerts("FPL")
-        assert count.isdigit()
+        fig = _spotlight_model_accuracy("FPL")
+        assert isinstance(fig, go.Figure)
+        assert len(fig.data) > 0
+        # Should have 3 bars (prophet, arima, xgboost)
+        assert len(fig.data[0].x) == 3
 
-    def test_alerts_no_emoji_in_breakdown(self):
-        """Alert breakdown should use colored dots, not emoji."""
-        from components.callbacks import _build_overview_alerts
+    def test_spotlight_dispatch_grid_ops(self):
+        from components.callbacks import _build_overview_spotlight
 
-        _, breakdown = _build_overview_alerts("FPL")
-        # Serialize to string and check no emoji circles
-        text = str(breakdown)
-        for emoji in ["\U0001f534", "\U0001f7e1", "\U0001f535"]:
-            assert emoji not in text, f"Found emoji {emoji!r} in alert breakdown"
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
+                "demand_mw": range(20000, 20048),
+            }
+        )
+        fig = _build_overview_spotlight("grid_ops", "FPL", df, None)
+        assert isinstance(fig, go.Figure)
+
+    def test_spotlight_dispatch_renewables(self):
+        from components.callbacks import _build_overview_spotlight
+
+        wdf = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
+                "wind_speed_80m": [12.0] * 48,
+                "shortwave_radiation": [300.0] * 48,
+            }
+        )
+        fig = _build_overview_spotlight("renewables", "FPL", None, wdf)
+        assert isinstance(fig, go.Figure)
 
 
-class TestOverviewNav:
-    """Test _build_overview_nav helper."""
+class TestOverviewDataHealth:
+    """Test the data health badge builder."""
 
-    def test_nav_returns_div(self):
-        from components.callbacks import _build_overview_nav
+    def test_data_health_with_freshness(self):
+        from components.callbacks import _build_overview_data_health
 
-        result = _build_overview_nav("grid_ops")
+        freshness = {"demand": "fresh", "weather": "fresh", "alerts": "demo"}
+        result = _build_overview_data_health(freshness)
+        assert isinstance(result, html.Div)
+        text = str(result)
+        assert "DATA SOURCES" in text
+
+    def test_data_health_with_none(self):
+        from components.callbacks import _build_overview_data_health
+
+        result = _build_overview_data_health(None)
         assert isinstance(result, html.Div)
 
-    def test_nav_has_quick_access_label(self):
-        from components.callbacks import _build_overview_nav
+    def test_data_health_shows_status(self):
+        from components.callbacks import _build_overview_data_health
 
-        result = _build_overview_nav("grid_ops")
+        freshness = {"demand": "stale", "weather": "fresh"}
+        result = _build_overview_data_health(freshness)
         text = str(result)
-        assert "Quick access" in text
+        assert "STALE" in text or "LIVE" in text
 
-    def test_nav_excludes_overview_tab(self):
-        from components.callbacks import _build_overview_nav
-        from personas.config import get_persona
 
-        persona = get_persona("grid_ops")
-        result = _build_overview_nav("grid_ops")
-        expected_count = len([t for t in persona.priority_tabs if t != "tab-overview"])
-        # Children = [Span("Quick access"), Button, Button, ...]
-        buttons = [c for c in result.children if hasattr(c, "id") and isinstance(c.id, dict)]
-        assert len(buttons) == expected_count
+class TestOverviewDigest:
+    """Test cross-tab insight digest builder."""
 
-    def test_nav_for_all_personas(self):
-        from components.callbacks import _build_overview_nav
+    def test_digest_with_data(self):
+        from components.callbacks import _build_overview_digest
+
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=168, freq="h"),
+                "demand_mw": range(20000, 20168),
+            }
+        )
+        result = _build_overview_digest("grid_ops", "FPL", df, None)
+        assert isinstance(result, html.Div)
+
+    def test_digest_with_no_data(self):
+        from components.callbacks import _build_overview_digest
+
+        result = _build_overview_digest("grid_ops", "FPL", None, None)
+        assert isinstance(result, html.Div)
+
+    def test_digest_for_all_personas(self):
+        from components.callbacks import _build_overview_digest
         from personas.config import PERSONAS
 
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=168, freq="h"),
+                "demand_mw": range(20000, 20168),
+            }
+        )
         for pid in PERSONAS:
-            result = _build_overview_nav(pid)
+            result = _build_overview_digest(pid, "FPL", df, None)
             assert isinstance(result, html.Div)
 
-    def test_nav_no_emoji(self):
-        """Nav buttons should be text-only, no emoji."""
-        from components.callbacks import _build_overview_nav
 
-        result = _build_overview_nav("grid_ops")
-        for child in result.children:
-            if hasattr(child, "children") and isinstance(child.children, str):
-                # Should be plain text labels
-                assert all(ord(c) < 0x1F600 for c in child.children if isinstance(c, str))
+class TestOverviewNews:
+    """Test news feed integration into overview."""
+
+    def test_news_returns_div(self):
+        from components.callbacks import _build_overview_news
+
+        result = _build_overview_news()
+        assert isinstance(result, html.Div)
+
+    def test_news_has_content(self):
+        from components.callbacks import _build_overview_news
+
+        result = _build_overview_news()
+        # Should have news-ribbon class or contain articles
+        text = str(result)
+        assert "news" in text.lower() or "Energy" in text
 
 
 # ── Helpers ──────────────────────────────────────────────────

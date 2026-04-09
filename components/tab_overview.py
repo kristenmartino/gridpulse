@@ -1,8 +1,11 @@
 """
-Tab 0: Overview — Landing page with system-at-a-glance.
+Tab 0: Overview — AI-powered executive briefing and dashboard digest.
 
-Shows persona greeting, top KPIs, demand sparkline, alert summary,
-and quick-nav shortcuts to priority tabs.
+Sections:
+A. AI Executive Briefing (Claude-generated, persona-specific)
+B. Data Health (per-source freshness badges)
+C. Spotlight Chart (persona-relevant metric) + Insight Digest (cross-tab)
+D. Energy News Feed (moved from global footer)
 """
 
 import dash_bootstrap_components as dbc
@@ -13,7 +16,7 @@ def layout() -> html.Div:
     """Build Tab 0 (Overview) layout."""
     return html.Div(
         [
-            # Row 1: Persona greeting (full width)
+            # ── Section A: Greeting + AI Executive Briefing ───────
             dbc.Row(
                 dbc.Col(
                     html.Div(id="overview-greeting", className="welcome-card"),
@@ -21,59 +24,57 @@ def layout() -> html.Div:
                 ),
                 className="g-2 mb-2",
             ),
-            # Row 2: Persona KPIs
-            html.Div(id="overview-kpi-row"),
-            # Row 3: Demand sparkline + alert summary
+            html.Div(
+                id="overview-briefing",
+                children=_skeleton_briefing(),
+                className="briefing-card",
+            ),
+            # ── Section B: Data Health ────────────────────────────
+            html.Div(id="overview-data-health", className="mt-2"),
+            # ── Section C: Spotlight Chart + Insight Digest ───────
             dbc.Row(
                 [
                     dbc.Col(
                         html.Div(
-                            [
-                                html.Span(
-                                    "Demand (Last 24h)",
-                                    style={
-                                        "fontSize": "0.85rem",
-                                        "fontWeight": "bold",
-                                        "color": "#e0e0e0",
+                            dcc.Loading(
+                                dcc.Graph(
+                                    id="overview-spotlight-chart",
+                                    style={"height": "260px"},
+                                    config={
+                                        "displayModeBar": False,
+                                        "responsive": True,
                                     },
                                 ),
-                                dcc.Loading(
-                                    dcc.Graph(
-                                        id="overview-demand-sparkline",
-                                        style={"height": "200px"},
-                                        config={
-                                            "displayModeBar": False,
-                                            "responsive": True,
-                                        },
-                                    ),
-                                    type="circle",
-                                    color="#00d4aa",
-                                ),
-                            ],
+                                type="circle",
+                                color="#00d4aa",
+                            ),
                             className="chart-container",
                         ),
                         md=8,
                     ),
                     dbc.Col(
                         html.Div(
-                            [
-                                html.P("ACTIVE ALERTS", className="kpi-label"),
-                                html.H2(
-                                    id="overview-alerts-count",
-                                    children="Loading...",
-                                    className="kpi-value",
-                                ),
-                                html.Div(id="overview-alerts-breakdown"),
-                            ],
-                            className="kpi-card",
-                            style={"minHeight": "200px"},
+                            id="overview-insight-digest",
+                            className="insight-digest",
                         ),
                         md=4,
                     ),
                 ],
-                className="g-2 mt-1",
+                className="g-2 mt-2",
             ),
-            # Row 4: Tab shortcuts
-            html.Div(id="overview-nav-cards", className="mt-2"),
+            # ── Section D: Energy News ────────────────────────────
+            html.Div(id="overview-news-feed", className="mt-2"),
         ]
+    )
+
+
+def _skeleton_briefing() -> html.Div:
+    """Pulsing skeleton placeholder while briefing loads."""
+    return html.Div(
+        [
+            html.Div(className="skeleton-line skeleton-line-long"),
+            html.Div(className="skeleton-line skeleton-line-long"),
+            html.Div(className="skeleton-line skeleton-line-medium"),
+        ],
+        className="skeleton-pulse",
     )

@@ -334,6 +334,63 @@ body {
     margin-top: 6px;
 }
 
+/* ── AI Briefing Card ─────────────────────────────────── */
+.briefing-card {
+    background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 8px 0;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.briefing-card-content {
+    padding-left: 12px;
+}
+
+/* ── Skeleton Loading ─────────────────────────────────── */
+.skeleton-pulse {
+    padding: 4px 0;
+}
+
+.skeleton-line {
+    height: 12px;
+    background: linear-gradient(90deg, #1a1a2e 25%, #0f3460 50%, #1a1a2e 75%);
+    background-size: 200% 100%;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+.skeleton-line-long {
+    width: 90%;
+}
+
+.skeleton-line-medium {
+    width: 60%;
+}
+
+@keyframes skeleton-shimmer {
+    0%   { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ── Insight Digest ──────────────────────────────────── */
+.insight-digest {
+    background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
+    border: 1px solid #0f3460;
+    border-radius: 8px;
+    padding: 14px 16px;
+    min-height: 260px;
+}
+
+.insight-digest:empty::after {
+    content: "Loading insights...";
+    color: #8a8fa8;
+    font-size: 0.82rem;
+    font-style: italic;
+}
+
 /* ── Animations ────────────────────────────────────────── */
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(-8px); }
