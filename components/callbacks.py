@@ -2133,8 +2133,6 @@ def register_callbacks(app):
         if active_tab != "tab-overview":
             return [no_update] * 8
 
-        import json
-
         # Parse data
         demand_df = None
         weather_df = None
