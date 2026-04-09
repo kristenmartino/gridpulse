@@ -126,7 +126,7 @@ def layout() -> html.Div:
                                                     html.P("DEMAND DELTA", className="kpi-label"),
                                                     html.H4(
                                                         id="sim-demand-delta",
-                                                        children="— MW",
+                                                        children="Loading...",
                                                         className="kpi-value",
                                                     ),
                                                     html.P(
@@ -146,7 +146,7 @@ def layout() -> html.Div:
                                                     html.P("PRICE IMPACT", className="kpi-label"),
                                                     html.H4(
                                                         id="sim-price-impact",
-                                                        children="— $/MWh",
+                                                        children="Loading...",
                                                         className="kpi-value",
                                                     ),
                                                     html.P(
@@ -166,7 +166,7 @@ def layout() -> html.Div:
                                                     html.P("RESERVE MARGIN", className="kpi-label"),
                                                     html.H4(
                                                         id="sim-reserve-margin",
-                                                        children="— %",
+                                                        children="Loading...",
                                                         className="kpi-value",
                                                     ),
                                                     html.P(
@@ -188,7 +188,7 @@ def layout() -> html.Div:
                                                     ),
                                                     html.H4(
                                                         id="sim-renewable-impact",
-                                                        children="—",
+                                                        children="Loading...",
                                                         className="kpi-value",
                                                     ),
                                                     html.P(

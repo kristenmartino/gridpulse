@@ -29,7 +29,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("GRID STRESS INDICATOR", className="kpi-label"),
                                     html.H2(
-                                        id="tab5-stress-score", children="—", className="kpi-value"
+                                        id="tab5-stress-score",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P(
                                         id="tab5-stress-label",

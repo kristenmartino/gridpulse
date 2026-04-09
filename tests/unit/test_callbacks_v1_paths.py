@@ -958,8 +958,8 @@ class TestGenerationTabV1:
         # First two should be figures
         assert isinstance(result[0], go.Figure)
         assert isinstance(result[1], go.Figure)
-        # Renewable pct should be a string with %
-        assert "%" in result[2]
+        # Renewable pct should be a formatted string or "No data"
+        assert "%" in result[2] or result[2] == "No data"
 
 
 # ===================================================================
@@ -1104,8 +1104,8 @@ class TestDemandOutlookV1:
             )
 
         assert len(result) == 9
-        # KPIs should show dash placeholders
-        assert result[2] == "— MW"
+        # KPIs should show explicit error placeholders
+        assert result[2] == "No data"
 
 
 # ===================================================================
@@ -1132,7 +1132,7 @@ class TestBacktestV1:
 
         assert len(result) == 7
         assert isinstance(result[0], go.Figure)
-        assert result[1] == "—%"
+        assert result[1] == "No data"
 
     def test_v1_with_valid_backtest(self, callbacks):
         """V1 compute with successful backtest returns figure and metrics."""
@@ -1174,7 +1174,7 @@ class TestBacktestV1:
             )
 
         assert len(result) == 7
-        assert result[1] == "—%"
+        assert result[1] == "No data"
 
 
 # ===================================================================
@@ -1194,7 +1194,7 @@ class TestRunScenario:
             result = callbacks["run_scenario"](1, [], 95, 15, 50, 60, 500, 24, "FPL", None)
 
         assert len(result) == 11
-        assert result[1] == "— MW"
+        assert result[1] == "No data"
 
     def test_run_button_click(self, callbacks):
         """Run button produces forecast, price, renewable figures."""

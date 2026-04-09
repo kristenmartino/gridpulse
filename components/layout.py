@@ -93,7 +93,7 @@ def build_layout() -> dbc.Container:
                                     html.Div(
                                         [
                                             dbc.Button(
-                                                "\U0001f4f7 Present",
+                                                "Presentation Mode",
                                                 id="meeting-mode-btn",
                                                 size="sm",
                                                 color="info",

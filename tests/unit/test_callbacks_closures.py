@@ -511,12 +511,12 @@ class TestUpdateTab1Kpis:
         fn = callbacks["update_tab1_kpis"]
         result = fn(None, None, "FPL")
         assert len(result) == 7
-        assert result[0] == "\u2014 MW"
+        assert result[0] == "No data"
 
     def test_empty_demand_returns_placeholders(self, callbacks):
         fn = callbacks["update_tab1_kpis"]
         result = fn("", None, "FPL")
-        assert result[0] == "\u2014 MW"
+        assert result[0] == "No data"
 
     def test_valid_demand_returns_kpis(self, callbacks):
         fn = callbacks["update_tab1_kpis"]
@@ -551,7 +551,7 @@ class TestUpdateTab1Kpis:
         )
         result = fn(df.to_json(), None, "FPL")
         # All NaN => empty valid_data => placeholders
-        assert result[0] == "\u2014 MW"
+        assert result[0] == "No data"
 
 
 # ===========================================================================

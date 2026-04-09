@@ -53,7 +53,7 @@ def build_kpi_row(kpis: list[dict]) -> dbc.Row:
         cards.append(
             build_kpi_card(
                 label=kpi.get("label", ""),
-                value=kpi.get("value", "—"),
+                value=kpi.get("value", "No data"),
                 delta=kpi.get("delta"),
                 delta_direction=kpi.get("direction", "neutral"),
             )

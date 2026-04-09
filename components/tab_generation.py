@@ -84,7 +84,7 @@ def layout() -> html.Div:
                                     html.P("RENEWABLE SHARE", className="kpi-label"),
                                     html.H4(
                                         id="tab4-renewable-pct",
-                                        children="\u2014%",
+                                        children="Loading...",
                                         className="kpi-value",
                                     ),
                                     html.P(
@@ -104,7 +104,7 @@ def layout() -> html.Div:
                                     html.P("PEAK RAMP", className="kpi-label"),
                                     html.H4(
                                         id="tab4-peak-ramp",
-                                        children="\u2014 MW/hr",
+                                        children="Loading...",
                                         className="kpi-value",
                                     ),
                                     html.P(
@@ -124,7 +124,7 @@ def layout() -> html.Div:
                                     html.P("MIN NET LOAD", className="kpi-label"),
                                     html.H4(
                                         id="tab4-min-net-load",
-                                        children="\u2014 MW",
+                                        children="Loading...",
                                         className="kpi-value",
                                     ),
                                     html.P(
@@ -144,7 +144,7 @@ def layout() -> html.Div:
                                     html.P("LOW NET LOAD HRS", className="kpi-label"),
                                     html.H4(
                                         id="tab4-curtailment-hours",
-                                        children="\u2014",
+                                        children="Loading...",
                                         className="kpi-value",
                                     ),
                                     html.P(

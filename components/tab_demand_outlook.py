@@ -28,7 +28,7 @@ def layout() -> html.Div:
                                     ),
                                     html.Span(
                                         id="outlook-data-through",
-                                        children="—",
+                                        children="Loading...",
                                         style={"fontSize": "0.9rem", "fontWeight": "bold"},
                                     ),
                                 ],
@@ -106,7 +106,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("PEAK DEMAND", className="kpi-label"),
                                     html.H4(
-                                        id="outlook-peak", children="— MW", className="kpi-value"
+                                        id="outlook-peak",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P(
                                         id="outlook-peak-time",
@@ -125,7 +127,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("AVERAGE DEMAND", className="kpi-label"),
                                     html.H4(
-                                        id="outlook-avg", children="— MW", className="kpi-value"
+                                        id="outlook-avg",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P("Over forecast period", className="kpi-delta neutral"),
                                 ],
@@ -140,7 +144,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("MIN DEMAND", className="kpi-label"),
                                     html.H4(
-                                        id="outlook-min", children="— MW", className="kpi-value"
+                                        id="outlook-min",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P(
                                         id="outlook-min-time",
@@ -159,7 +165,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("DEMAND RANGE", className="kpi-label"),
                                     html.H4(
-                                        id="outlook-range", children="— MW", className="kpi-value"
+                                        id="outlook-range",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P("Peak - Min", className="kpi-delta neutral"),
                                 ],

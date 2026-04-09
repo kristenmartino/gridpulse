@@ -82,7 +82,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("MAPE", className="kpi-label"),
                                     html.H4(
-                                        id="backtest-mape", children="—%", className="kpi-value"
+                                        id="backtest-mape",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P("Mean Absolute % Error", className="kpi-delta neutral"),
                                 ],
@@ -97,7 +99,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("RMSE", className="kpi-label"),
                                     html.H4(
-                                        id="backtest-rmse", children="— MW", className="kpi-value"
+                                        id="backtest-rmse",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P(
                                         "Root Mean Squared Error", className="kpi-delta neutral"
@@ -114,7 +118,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("MAE", className="kpi-label"),
                                     html.H4(
-                                        id="backtest-mae", children="— MW", className="kpi-value"
+                                        id="backtest-mae",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P("Mean Absolute Error", className="kpi-delta neutral"),
                                 ],
@@ -128,7 +134,11 @@ def layout() -> html.Div:
                             html.Div(
                                 [
                                     html.P("R²", className="kpi-label"),
-                                    html.H4(id="backtest-r2", children="—", className="kpi-value"),
+                                    html.H4(
+                                        id="backtest-r2",
+                                        children="Loading...",
+                                        className="kpi-value",
+                                    ),
                                     html.P(
                                         "Coefficient of Determination",
                                         className="kpi-delta neutral",

@@ -80,7 +80,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("PEAK DEMAND", className="kpi-label"),
                                     html.H4(
-                                        id="tab1-peak-value", children="— MW", className="kpi-value"
+                                        id="tab1-peak-value",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P(
                                         id="tab1-peak-time",
@@ -99,7 +101,9 @@ def layout() -> html.Div:
                                 [
                                     html.P("AVERAGE DEMAND", className="kpi-label"),
                                     html.H4(
-                                        id="tab1-mape-value", children="— MW", className="kpi-value"
+                                        id="tab1-mape-value",
+                                        children="Loading...",
+                                        className="kpi-value",
                                     ),
                                     html.P("Over selected period", className="kpi-delta neutral"),
                                 ],

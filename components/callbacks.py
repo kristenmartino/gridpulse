@@ -1595,8 +1595,8 @@ def _outlook_tab_from_redis(
         timestamps = timestamps[:horizon_hours]
         predictions = predictions[:horizon_hours]
 
-    data_through_str = cached.get("scored_at", "\u2014")
-    if data_through_str != "\u2014":
+    data_through_str = cached.get("scored_at", "Unknown")
+    if data_through_str != "Unknown":
         import contextlib
 
         with contextlib.suppress(Exception):
@@ -2185,7 +2185,7 @@ def register_callbacks(app):
     def update_tab1_kpis(demand_json, weather_json, region):
         """Update Tab 1 KPI cards with historical demand stats."""
         if not demand_json:
-            return "— MW", "", "— MW", "— MW", "", "0", ""
+            return "No data", "", "No data", "No data", "", "0", ""
 
         demand_df = pd.read_json(io.StringIO(demand_json))
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
@@ -2193,7 +2193,7 @@ def register_callbacks(app):
         # Filter to valid demand data
         valid_data = demand_df.dropna(subset=["demand_mw"])
         if valid_data.empty:
-            return "— MW", "", "— MW", "— MW", "", "0", ""
+            return "No data", "", "No data", "No data", "", "0", ""
 
         # Peak demand
         peak_mw = valid_data["demand_mw"].max()
@@ -2642,7 +2642,7 @@ def register_callbacks(app):
         """Update Generation & Net Load tab with real EIA data."""
         empty = _empty_figure("Select a region to view generation data")
         empty_insight = html.Div()
-        defaults = (empty, empty, "\u2014%", "\u2014 MW/hr", "\u2014 MW", "\u2014", empty_insight)
+        defaults = (empty, empty, "No data", "No data", "No data", "No data", empty_insight)
 
         # Active tab guard
         if active_tab != "tab-generation":
@@ -3081,7 +3081,7 @@ def register_callbacks(app):
         """Run scenario simulation and update impact dashboard."""
         empty = _empty_figure("Click 'Run Scenario' or select a preset")
         if not demand_json:
-            return (empty, "— MW", "", "— $/MWh", "", "— %", "", "—", "", empty, empty)
+            return (empty, "No data", "", "No data", "", "No data", "", "No data", "", empty, empty)
 
         triggered = ctx.triggered_id
         if isinstance(triggered, dict) and triggered.get("type") == "preset-btn":
@@ -3574,7 +3574,17 @@ def register_callbacks(app):
             fig.add_annotation(
                 text="Loading data...", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
             )
-            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", empty_insight
+            return (
+                fig,
+                "Loading...",
+                "Loading...",
+                "",
+                "Loading...",
+                "Loading...",
+                "",
+                "Loading...",
+                empty_insight,
+            )
 
         try:
             demand_df = pd.read_json(io.StringIO(demand_json))
@@ -3583,7 +3593,7 @@ def register_callbacks(app):
             log.error("outlook_parse_error", error=str(e))
             fig = go.Figure()
             fig.update_layout(**PLOT_LAYOUT)
-            return fig, "—", "— MW", "", "— MW", "— MW", "", "— MW", empty_insight
+            return fig, "Error", "No data", "", "No data", "No data", "", "No data", empty_insight
 
         # Get the data through date (last timestamp in demand data)
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
@@ -3604,7 +3614,17 @@ def register_callbacks(app):
                 y=0.5,
                 showarrow=False,
             )
-            return fig, data_through_str, "— MW", "", "— MW", "— MW", "", "— MW", empty_insight
+            return (
+                fig,
+                data_through_str,
+                "No data",
+                "",
+                "No data",
+                "No data",
+                "",
+                "No data",
+                empty_insight,
+            )
 
         timestamps = pd.to_datetime(result["timestamps"])
         predictions = result["predictions"]
@@ -3782,10 +3802,10 @@ def register_callbacks(app):
             )
             return (
                 fig,
-                "—%",
-                "— MW",
-                "— MW",
-                "—",
+                "No data",
+                "No data",
+                "No data",
+                "No data",
                 explanations.get(horizon_hours, ""),
                 empty_insight,
             )
@@ -3822,10 +3842,10 @@ def register_callbacks(app):
             )
             return (
                 fig,
-                "—%",
-                "— MW",
-                "— MW",
-                "—",
+                "No data",
+                "No data",
+                "No data",
+                "No data",
                 explanations.get(horizon_hours, ""),
                 empty_insight,
             )
@@ -4163,12 +4183,12 @@ def _build_persona_kpis(
             price_estimate = PRICING_BASE_USD_MWH * (2 + (utilization - 0.90) * 20)
 
     # Format values
-    peak_str = f"{int(peak_mw):,} MW" if peak_mw is not None else "— MW"
-    avg_str = f"{int(avg_mw):,} MW" if avg_mw is not None else "— MW"
+    peak_str = f"{int(peak_mw):,} MW" if peak_mw is not None else "No data"
+    avg_str = f"{int(avg_mw):,} MW" if avg_mw is not None else "No data"
     cap_str = f"{pct_of_capacity:.0f}% of capacity" if pct_of_capacity is not None else ""
-    mape_str = f"{backtest_mape:.1f}%" if backtest_mape is not None else "—%"
+    mape_str = f"{backtest_mape:.1f}%" if backtest_mape is not None else "No data"
     mape_dir = "positive" if backtest_mape is not None and backtest_mape < 5 else "negative"
-    rmse_str = f"{int(backtest_rmse):,} MW" if backtest_rmse is not None else "— MW"
+    rmse_str = f"{int(backtest_rmse):,} MW" if backtest_rmse is not None else "No data"
 
     persona_kpis = {
         "grid_ops": [
@@ -4180,7 +4200,9 @@ def _build_persona_kpis(
             },
             {
                 "label": "Reserve Margin",
-                "value": f"{reserve_margin_pct:.0f}%" if reserve_margin_pct is not None else "—%",
+                "value": f"{reserve_margin_pct:.0f}%"
+                if reserve_margin_pct is not None
+                else "No data",
                 "delta": "Below 15% is tight",
                 "direction": "negative"
                 if reserve_margin_pct is not None and reserve_margin_pct < 15
@@ -4196,7 +4218,7 @@ def _build_persona_kpis(
             },
             {
                 "label": "Demand Range",
-                "value": f"{int(demand_range):,} MW" if demand_range is not None else "— MW",
+                "value": f"{int(demand_range):,} MW" if demand_range is not None else "No data",
                 "delta": "Peak - Min",
                 "direction": "neutral",
             },
@@ -4204,25 +4226,25 @@ def _build_persona_kpis(
         "renewables": [
             {
                 "label": "Wind CF",
-                "value": f"{wind_cf:.0f}%" if wind_cf is not None else "—%",
+                "value": f"{wind_cf:.0f}%" if wind_cf is not None else "No data",
                 "delta": "Capacity factor",
                 "direction": "positive" if wind_cf is not None and wind_cf > 25 else "neutral",
             },
             {
                 "label": "Solar CF",
-                "value": f"{solar_cf:.0f}%" if solar_cf is not None else "—%",
+                "value": f"{solar_cf:.0f}%" if solar_cf is not None else "No data",
                 "delta": "Capacity factor",
                 "direction": "positive" if solar_cf is not None and solar_cf > 15 else "neutral",
             },
             {
                 "label": "Avg Wind",
-                "value": f"{avg_wind:.1f} mph" if avg_wind is not None else "— mph",
+                "value": f"{avg_wind:.1f} mph" if avg_wind is not None else "No data",
                 "delta": "80m hub height",
                 "direction": "neutral",
             },
             {
                 "label": "Avg Solar",
-                "value": f"{avg_solar:.0f} W/m\u00b2" if avg_solar is not None else "— W/m\u00b2",
+                "value": f"{avg_solar:.0f} W/m\u00b2" if avg_solar is not None else "No data",
                 "delta": "Shortwave radiation",
                 "direction": "neutral",
             },
@@ -4230,7 +4252,7 @@ def _build_persona_kpis(
         "trader": [
             {
                 "label": "Est. Price",
-                "value": f"${price_estimate:.0f}/MWh" if price_estimate is not None else "—",
+                "value": f"${price_estimate:.0f}/MWh" if price_estimate is not None else "No data",
                 "delta": "Merit-order estimate",
                 "direction": "negative"
                 if price_estimate is not None and price_estimate > 100
@@ -4276,7 +4298,7 @@ def _build_persona_kpis(
             },
             {
                 "label": "Demand Range",
-                "value": f"{int(demand_range):,} MW" if demand_range is not None else "— MW",
+                "value": f"{int(demand_range):,} MW" if demand_range is not None else "No data",
                 "delta": "Max variability",
                 "direction": "neutral",
             },
