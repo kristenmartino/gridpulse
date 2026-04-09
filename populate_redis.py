@@ -12,7 +12,7 @@ import redis
 
 from config import REGION_COORDINATES
 from data.demo_data import generate_demo_alerts
-from data.eia_client import fetch_demand
+from data.eia_client import fetch_demand, fetch_generation_by_fuel
 from data.feature_engineering import (
     compute_solar_capacity_factor,
     compute_wind_power,
@@ -184,27 +184,51 @@ for region in REGIONS:
                 ex=TTL,
             )
             print(f"  BT h={horizon}: MAPE={m['mape']:.2f}%")
-        ng = min(len(demand_df), 2160)
-        gt = [t.isoformat() for t in demand_df["timestamp"].iloc[-ng:]]
-        dv = demand_df["demand_mw"].iloc[-ng:].values
-        r.set(
-            f"wattcast:generation:{region}",
-            json.dumps(
-                {
-                    "region": region,
-                    "timestamps": gt,
-                    "coal": (dv * 0.18).tolist(),
-                    "gas": (dv * 0.38).tolist(),
-                    "hydro": (dv * 0.06).tolist(),
-                    "nuclear": (dv * 0.19).tolist(),
-                    "other": (dv * 0.02).tolist(),
-                    "solar": (dv * 0.08).tolist(),
-                    "wind": (dv * 0.09).tolist(),
-                    "renewable_pct": [17.0] * ng,
-                }
-            ),
-            ex=TTL,
-        )
+        # ── Generation by fuel (real EIA data) ─────────────
+        _FUEL_MAP = {
+            "SUN": "solar",
+            "WND": "wind",
+            "NG": "gas",
+            "NUC": "nuclear",
+            "COL": "coal",
+            "WAT": "hydro",
+            "OTH": "other",
+        }
+        try:
+            gen_df = fetch_generation_by_fuel(region)
+            if gen_df is not None and not gen_df.empty:
+                gen_df["fuel_type"] = (
+                    gen_df["fuel_type"].map(_FUEL_MAP).fillna(gen_df["fuel_type"].str.lower())
+                )
+                gen_df["timestamp"] = pd.to_datetime(gen_df["timestamp"])
+                ng = min(len(demand_df), 2160)
+                cutoff_ts = demand_df["timestamp"].iloc[-ng]
+                gen_df = gen_df[gen_df["timestamp"] >= cutoff_ts]
+                pivot = gen_df.pivot_table(
+                    index="timestamp",
+                    columns="fuel_type",
+                    values="generation_mw",
+                    aggfunc="sum",
+                ).fillna(0)
+                gen_payload = {"region": region, "timestamps": [t.isoformat() for t in pivot.index]}
+                for col in pivot.columns:
+                    gen_payload[col] = pivot[col].tolist()
+                # Compute per-row renewable %
+                total = pivot.sum(axis=1)
+                ren_cols = [c for c in ["wind", "solar", "hydro"] if c in pivot.columns]
+                if ren_cols and total.mean() > 0:
+                    ren_pct = (pivot[ren_cols].sum(axis=1) / total * 100).tolist()
+                else:
+                    ren_pct = [0.0] * len(pivot)
+                gen_payload["renewable_pct"] = ren_pct
+                r.set(f"wattcast:generation:{region}", json.dumps(gen_payload), ex=TTL)
+                avg_ren = sum(ren_pct) / len(ren_pct) if ren_pct else 0
+                print(f"  Generation: {len(pivot)} rows, renewable avg {avg_ren:.1f}%")
+            else:
+                print("  Generation: no EIA data, skipping")
+        except Exception:
+            traceback.print_exc()
+            print("  Generation: EIA fetch failed, skipping")
         # ── Weather Correlation ──────────────────────────────
         wc_merged = demand_df.merge(weather_df, on="timestamp", how="inner")
         corr_cols = [
