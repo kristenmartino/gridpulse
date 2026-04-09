@@ -56,6 +56,7 @@ logger = logging.getLogger(__name__)
 
 # Horizons for which backtests are pre-computed
 BACKTEST_HORIZONS = [24, 168, 720]
+DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 
 
 class BatchScorer:
@@ -596,7 +597,7 @@ class BatchScorer:
                 bt = self._compute_backtest(train_df, feature_cols, target_col, horizon, region)
                 if bt is not None:
                     pipeline.setex(
-                        f"{prefix}:backtest:{region}:{horizon}",
+                        f"{prefix}:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}",
                         ttl,
                         json.dumps(bt),
                     )
@@ -681,6 +682,8 @@ class BatchScorer:
 
         return {
             "horizon": horizon,
+            "exog_mode": DEFAULT_BACKTEST_EXOG_MODE,
+            "exog_source": "climatology/naive baseline",
             "metrics": bt_metrics,
             "actual": actual_trimmed.tolist(),
             "predictions": bt_predictions,
@@ -764,7 +767,7 @@ class BatchScorer:
         """Write pre-computed backtest results to Redis."""
         for horizon, bt in result.get("backtests", {}).items():
             pipeline.setex(
-                f"{prefix}:backtest:{region}:{horizon}",
+                f"{prefix}:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}",
                 ttl,
                 json.dumps(bt),
             )
