@@ -979,7 +979,11 @@ class TestPredictSingleFold:
         ):
             result = _predict_single_fold("xgboost", train, test)
             m_train.assert_called_once_with(train)
-            m_pred.assert_called_once_with(mock_model, test)
+            # Stepwise autoregressive inference calls predict once per forecast step.
+            assert m_pred.call_count == len(test)
+            for call_args in m_pred.call_args_list:
+                assert call_args.args[0] == mock_model
+                assert len(call_args.args[1]) == 1
             assert len(result) == 24  # clipped to n_test
 
     def test_prophet_fold(self):
