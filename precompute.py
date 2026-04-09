@@ -9,12 +9,12 @@ fresh. SQLite cache provides cross-restart persistence.
 Optimized for Cloud Run container lifecycle — completes the most impactful
 work first so partial runs still yield usable caches:
 
-Phase 1: Fetch demand + weather data for all 8 regions in parallel
+Phase 1a: Fetch demand + weather data for all 8 regions in parallel
+Phase 1b: Fetch generation data + write to Redis (fast, must run early)
 Phase 2a: XGBoost pass — train + predict for ALL regions (fast, ~3s each)
 Phase 2b: Prophet pass — train + predict for ALL regions (~10s each)
 Phase 2c: Ensemble predictions (requires 2a + 2b cached)
 Phase 3: XGBoost backtests for default region, then remaining regions
-Phase 4: Generation data cache (dormant tab — lowest priority)
 
 Default region (FPL) is always processed first in each phase.
 Never raises — failures log warnings and fall back to on-demand computation.
@@ -78,9 +78,15 @@ def precompute_all() -> None:
     try:
         all_regions = _ordered_regions()
 
-        # Phase 1: Fetch demand + weather data for all regions in parallel
+        # Phase 1a: Fetch demand + weather data for all regions in parallel
         _fetch_all_data_parallel(all_regions)
         log.info("precompute_phase1_complete", regions_with_data=len(_region_data))
+        sys.stdout.flush()
+
+        # Phase 1b: Fetch generation data + write to Redis (fast API call, not compute)
+        # Must run early — workers may get recycled before later phases finish.
+        _fetch_generation_all_parallel(all_regions)
+        log.info("precompute_phase1b_generation_complete")
         sys.stdout.flush()
 
         # Prepare featured DataFrames for all regions (shared across model passes)
@@ -114,9 +120,7 @@ def precompute_all() -> None:
         log.info("precompute_phase3_complete")
         sys.stdout.flush()
 
-        # Phase 4: Generation data (dormant tab — lowest priority)
-        _fetch_generation_all_parallel(all_regions)
-        log.info("precompute_phase4_complete")
+        log.info("precompute_all_phases_complete")
         sys.stdout.flush()
 
     except Exception as e:
