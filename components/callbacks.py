@@ -4251,7 +4251,9 @@ def _run_backtest_for_horizon(
             # Get predictions for this fold
             fold_actual = test_slice["demand_mw"].values
             if model_name == "ensemble":
-                fold_preds = _ensemble_fold(train_df, fold_test_df, exog_mode=exog_mode, actual=fold_actual)
+                fold_preds = _ensemble_fold(
+                    train_df, fold_test_df, exog_mode=exog_mode, actual=fold_actual
+                )
             else:
                 fold_preds = _predict_single_fold(
                     model_name, train_df, fold_test_df, exog_mode=exog_mode
