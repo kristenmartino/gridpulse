@@ -166,7 +166,7 @@ def _predict_from_trained(
     all_preds = {}
 
     for name in ["prophet", "arima", "xgboost"]:
-        if models_shown and name not in models_shown and name != "xgboost":
+        if models_shown and name not in models_shown:
             continue
         try:
             model_key = f"{name}_model"

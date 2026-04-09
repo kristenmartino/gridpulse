@@ -630,6 +630,47 @@ class TestCreateFutureFeatures:
         assert result["dow_sin"].between(-1.0, 1.0).all()
         assert result["dow_cos"].between(-1.0, 1.0).all()
 
+    # --- 168h boundary tests (P2 fix: <= 168 uses short path) ---
+
+    def test_boundary_167h_uses_short_path(self, featured_train_df):
+        """167h (< 168) should use the short-horizon last-known-value path."""
+        from components.callbacks import _create_future_features
+
+        last_ts = featured_train_df["timestamp"].max()
+        future_ts = pd.date_range(
+            start=last_ts + pd.Timedelta(hours=1), periods=167, freq="h", tz="UTC"
+        )
+        result = _create_future_features(featured_train_df, future_ts)
+        assert len(result) == 167
+        # Short path fills weather columns with one constant (last-known value)
+        assert result["temperature_2m"].nunique() == 1
+
+    def test_boundary_168h_uses_short_path(self, featured_train_df):
+        """168h (== 168) should use the short-horizon last-known-value path."""
+        from components.callbacks import _create_future_features
+
+        last_ts = featured_train_df["timestamp"].max()
+        future_ts = pd.date_range(
+            start=last_ts + pd.Timedelta(hours=1), periods=168, freq="h", tz="UTC"
+        )
+        result = _create_future_features(featured_train_df, future_ts)
+        assert len(result) == 168
+        # Short path fills weather columns with one constant (last-known value)
+        assert result["temperature_2m"].nunique() == 1
+
+    def test_boundary_169h_uses_long_path(self, featured_train_df):
+        """169h (> 168) should use the long-horizon historical-average path."""
+        from components.callbacks import _create_future_features
+
+        last_ts = featured_train_df["timestamp"].max()
+        future_ts = pd.date_range(
+            start=last_ts + pd.Timedelta(hours=1), periods=169, freq="h", tz="UTC"
+        )
+        result = _create_future_features(featured_train_df, future_ts)
+        assert len(result) == 169
+        # Long path fills weather columns with hour/dow group averages (varies)
+        assert result["temperature_2m"].nunique() > 1
+
 
 # ===========================================================================
 # _fetch_generation_cached

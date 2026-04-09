@@ -795,8 +795,8 @@ def _create_future_features(
     horizon = len(future_timestamps)
     last_row = train_df.iloc[-1]
 
-    if horizon < 168:
-        # Short horizon: last-known values are a reasonable proxy
+    if horizon <= 168:
+        # Short horizon (up to 7 days): last-known values are a reasonable proxy
         for col in feature_cols:
             if col not in future_df.columns:
                 if col in last_row.index:
