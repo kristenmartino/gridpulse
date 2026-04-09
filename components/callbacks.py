@@ -3842,7 +3842,7 @@ def _predict_single_fold(
             row = test_df.iloc[[i]].copy()
             for col, val in compute_autoregressive_snapshot(demand_history).items():
                 row[col] = val
-            row = row.fillna(method="ffill").fillna(method="bfill").fillna(0)
+            row = row.ffill().bfill().fillna(0)
             step_pred = float(predict_xgboost(model, row)[0])
             preds.append(step_pred)
             demand_history.append(step_pred)

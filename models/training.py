@@ -115,7 +115,7 @@ def train_all_models(
             row = val_df.iloc[[i]].copy()
             for col, val in compute_autoregressive_snapshot(demand_history).items():
                 row[col] = val
-            row = row.fillna(method="ffill").fillna(method="bfill").fillna(0)
+            row = row.ffill().bfill().fillna(0)
             pred = float(predict_xgboost(xgb_result, row)[0])
             xgb_steps.append(pred)
             demand_history.append(pred)
