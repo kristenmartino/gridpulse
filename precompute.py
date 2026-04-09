@@ -50,8 +50,9 @@ _region_data: dict[str, tuple[pd.DataFrame, pd.DataFrame]] = {}
 # Store featured DataFrames so we don't re-engineer features per model pass
 _region_featured: dict[str, pd.DataFrame] = {}
 
-# All horizons to precompute (order: default first for time-to-interactive)
-_ALL_HORIZONS = [168, 24, 720]
+# All horizons to precompute (order: longest first — 720h predictions serve
+# all shorter horizons by slicing, maximizing cache utility per training pass)
+_ALL_HORIZONS = [720, 168, 24]
 
 
 def _ordered_regions() -> list[str]:
@@ -311,11 +312,13 @@ def _generate_ensemble_predictions(regions: list[str]) -> None:
     """Generate ensemble predictions for all regions (requires individual models cached)."""
     from components.callbacks import _run_forecast_outlook
 
-    regions_with_features = [r for r in regions if r in _region_featured]
+    # NOTE: _region_featured is cleared by _free_precompute_memory() before
+    # this phase runs.  Ensemble only needs cached sub-model predictions
+    # (stored in _PREDICTION_CACHE), not the feature DataFrames, so we gate
+    # on _region_data instead.
+    regions_with_data = [r for r in regions if r in _region_data]
 
-    for region in regions_with_features:
-        if region not in _region_data:
-            continue
+    for region in regions_with_data:
         demand_df, weather_df = _region_data[region]
         for horizon in _ALL_HORIZONS:
             try:

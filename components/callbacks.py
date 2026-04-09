@@ -1562,8 +1562,10 @@ def _outlook_tab_from_redis(
     log.info("outlook_redis_hit", region=region, granularity=granularity)
     forecasts = cached["forecasts"]
 
-    # Model availability check: skip Redis if requested model isn't stored
-    if model_name not in ("xgboost", "ensemble") and model_name not in forecasts[0]:
+    # Model availability check: skip Redis if requested model isn't stored.
+    # Redis only contains XGBoost predictions — never serve them as "ensemble"
+    # (which should be a weighted combination of multiple models).
+    if model_name != "xgboost" and model_name not in forecasts[0]:
         log.info("outlook_redis_model_miss", model=model_name)
         return None
 
