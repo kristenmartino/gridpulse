@@ -1120,7 +1120,7 @@ class TestBacktestV1:
         assert len(result) == 7
         fig, mape, rmse, mae, r2, explanation, insight = result
         assert isinstance(fig, go.Figure)
-        assert mape == "4.50%"
+        assert mape == "4.50% (forecast_exog)"
         assert "MW" in rmse
 
     def test_v1_backtest_error(self, callbacks):

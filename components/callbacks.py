@@ -34,6 +34,7 @@ from config import (
     REGION_CAPACITY_MW,
     REGION_NAMES,
     TAB_LABELS,
+    WEATHER_VARIABLES,
 )
 from data.redis_client import redis_get
 from personas.config import PERSONAS, get_persona, get_welcome_card
@@ -48,6 +49,8 @@ _MODEL_CACHE: dict = {}  # {(region, model_name, horizon): (model, data_hash, ti
 _PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
 _BACKTEST_CACHE: dict = {}  # {(region, horizon, model): (result_dict, data_hash, time)}
 _GENERATION_CACHE: dict = {}  # {region: (gen_df, fetch_timestamp)}
+BACKTEST_EXOG_MODES = {"oracle_exog", "forecast_exog"}
+DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 
 # EIA fuel type code normalization
 _EIA_FUEL_MAP: dict[str, str] = {
@@ -149,6 +152,98 @@ def _confidence_half_width(horizon_hours: int) -> float:
     if horizon_hours <= 168:
         return 0.06  # ±6%
     return 0.10  # ±10% for 30-day
+
+
+def _normalize_backtest_exog_mode(exog_mode: str | None) -> str:
+    """Normalize requested backtest exogenous mode."""
+    mode = (exog_mode or DEFAULT_BACKTEST_EXOG_MODE).strip().lower()
+    if mode not in BACKTEST_EXOG_MODES:
+        return DEFAULT_BACKTEST_EXOG_MODE
+    return mode
+
+
+def _describe_exog_mode(exog_mode: str | None, exog_source: str | None = None) -> str:
+    """Human-readable exogenous mode/source label for UI copy."""
+    mode = _normalize_backtest_exog_mode(exog_mode)
+    if mode == "oracle_exog":
+        return "Oracle exogenous weather (actual future weather)"
+    if exog_source:
+        return f"Forecast exogenous weather ({exog_source})"
+    return "Forecast exogenous weather (production-like baseline)"
+
+
+def _build_forecast_exog_fold(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    region: str,
+    horizon_hours: int,
+) -> tuple[pd.DataFrame, str]:
+    """Build production-like exogenous weather for a fold.
+
+    Priority:
+    1) Archived forecast snapshots from Redis (if available and aligned)
+    2) Hour-of-week climatology baseline from training data
+    """
+    weather_cols = [c for c in WEATHER_VARIABLES if c in test_df.columns and c in train_df.columns]
+    if not weather_cols:
+        return test_df.copy(), "no-weather-columns"
+
+    out = test_df.copy()
+    test_ts = pd.to_datetime(out["timestamp"])
+    out["timestamp"] = test_ts
+
+    snapshot_keys = [
+        f"wattcast:weather-forecast-snapshot:{region}:{horizon_hours}",
+        f"wattcast:weather-forecast:{region}:{horizon_hours}",
+        f"wattcast:weather-forecast-snapshot:{region}",
+    ]
+
+    for key in snapshot_keys:
+        cached = redis_get(key)
+        if not isinstance(cached, dict):
+            continue
+        rows = cached.get("forecasts")
+        if not isinstance(rows, list) or not rows:
+            continue
+        snap_df = pd.DataFrame(rows)
+        if "timestamp" not in snap_df.columns:
+            continue
+        keep_cols = ["timestamp"] + [c for c in weather_cols if c in snap_df.columns]
+        if len(keep_cols) <= 1:
+            continue
+        snap_df = snap_df[keep_cols].copy()
+        snap_df["timestamp"] = pd.to_datetime(snap_df["timestamp"], errors="coerce")
+        snap_df = snap_df.dropna(subset=["timestamp"]).drop_duplicates(subset=["timestamp"])
+        merged = out[["timestamp"]].merge(snap_df, on="timestamp", how="left")
+        coverage = float(merged[keep_cols[1:]].notna().all(axis=1).mean()) if len(merged) else 0.0
+        if coverage >= 0.8:
+            for col in keep_cols[1:]:
+                out[col] = merged[col].ffill().bfill()
+            return out, "archived forecast snapshot"
+
+    # Fallback: climatology / naive hour-of-week baseline from train period
+    train = train_df.copy()
+    train["timestamp"] = pd.to_datetime(train["timestamp"])
+    train["dow"] = train["timestamp"].dt.dayofweek
+    train["hour"] = train["timestamp"].dt.hour
+    out["dow"] = out["timestamp"].dt.dayofweek
+    out["hour"] = out["timestamp"].dt.hour
+
+    for col in weather_cols:
+        by_dow_hour = train.groupby(["dow", "hour"])[col].mean()
+        by_hour = train.groupby("hour")[col].mean()
+        global_mean = float(train[col].mean()) if train[col].notna().any() else 0.0
+        values = []
+        for d, h in zip(out["dow"], out["hour"], strict=False):
+            if (d, h) in by_dow_hour.index and pd.notna(by_dow_hour.loc[(d, h)]):
+                values.append(float(by_dow_hour.loc[(d, h)]))
+            elif h in by_hour.index and pd.notna(by_hour.loc[h]):
+                values.append(float(by_hour.loc[h]))
+            else:
+                values.append(global_mean)
+        out[col] = values
+
+    return out.drop(columns=["dow", "hour"], errors="ignore"), "climatology/naive baseline"
 
 
 def _add_confidence_bands(
@@ -1418,7 +1513,10 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     Returns a 7-tuple (fig, mape_str, rmse_str, mae_str, r2_str,
     explanation, insight_card) or None if cache miss.
     """
-    cached = redis_get(f"wattcast:backtest:{region}:{horizon_hours}")
+    exog_mode = DEFAULT_BACKTEST_EXOG_MODE
+    cached = redis_get(f"wattcast:backtest:{exog_mode}:{region}:{horizon_hours}")
+    if cached is None:
+        cached = redis_get(f"wattcast:backtest:{region}:{horizon_hours}")
     if cached is None:
         return None
 
@@ -1495,6 +1593,8 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     )
 
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
+    payload_mode = _normalize_backtest_exog_mode(cached.get("exog_mode", exog_mode))
+    exog_caption = _describe_exog_mode(payload_mode, cached.get("exog_source"))
     explanations = {
         24: "24-hour ahead: Forecast made 1 day before. Best for day-ahead scheduling.",
         168: "7-day ahead: Forecast made 1 week before. Tests medium-term accuracy.",
@@ -1502,16 +1602,20 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     }
     fig.update_layout(
         **PLOT_LAYOUT,
-        title=f"{horizon_labels.get(horizon_hours, '')} Pre-computed Backtest: {model_name.upper()} vs Actual — {region}",
+        title=(
+            f"{horizon_labels.get(horizon_hours, '')} Pre-computed Backtest: "
+            f"{model_name.upper()} vs Actual — {region}<br><sup>{exog_caption}</sup>"
+        ),
         xaxis_title="Date/Time",
         yaxis_title="Demand (MW)",
         hovermode="x unified",
     )
 
-    mape_str = f"{metrics.get('mape', 0):.2f}%"
-    rmse_str = f"{metrics.get('rmse', 0):,.0f} MW"
-    mae_str = f"{metrics.get('mae', 0):,.0f} MW"
-    r2_str = f"{metrics.get('r2', 0):.3f}"
+    mode_suffix = f" ({payload_mode})"
+    mape_str = f"{metrics.get('mape', 0):.2f}%{mode_suffix}"
+    rmse_str = f"{metrics.get('rmse', 0):,.0f} MW{mode_suffix}"
+    mae_str = f"{metrics.get('mae', 0):,.0f} MW{mode_suffix}"
+    r2_str = f"{metrics.get('r2', 0):.3f}{mode_suffix}"
 
     from components.insights import build_insight_card, generate_tab3_insights
 
@@ -1536,7 +1640,7 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
         rmse_str,
         mae_str,
         r2_str,
-        explanations.get(horizon_hours, ""),
+        f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}.",
         insight_card,
     )
 
@@ -3400,7 +3504,14 @@ def register_callbacks(app):
             weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
 
         # Run backtest
-        result = _run_backtest_for_horizon(demand_df, weather_df, horizon_hours, model_name, region)
+        result = _run_backtest_for_horizon(
+            demand_df,
+            weather_df,
+            horizon_hours,
+            model_name,
+            region,
+            exog_mode=DEFAULT_BACKTEST_EXOG_MODE,
+        )
 
         if "error" in result:
             fig = go.Figure()
@@ -3427,6 +3538,8 @@ def register_callbacks(app):
         actual = result["actual"]
         predictions = result["predictions"]
         metrics = result["metrics"]
+        exog_mode = _normalize_backtest_exog_mode(result.get("exog_mode", DEFAULT_BACKTEST_EXOG_MODE))
+        exog_caption = _describe_exog_mode(exog_mode, result.get("exog_source"))
 
         # Build figure
         fig = go.Figure()
@@ -3491,17 +3604,21 @@ def register_callbacks(app):
         fold_label = f" ({num_folds} folds)" if num_folds > 1 else ""
         fig.update_layout(
             **PLOT_LAYOUT,
-            title=f"{horizon_label} Walk-Forward Backtest{fold_label}: {model_name.upper()} vs Actual — {region}",
+            title=(
+                f"{horizon_label} Walk-Forward Backtest{fold_label}: "
+                f"{model_name.upper()} vs Actual — {region}<br><sup>{exog_caption}</sup>"
+            ),
             xaxis_title="Date/Time",
             yaxis_title="Demand (MW)",
             hovermode="x unified",
         )
 
         # Format metrics
-        mape_str = f"{metrics['mape']:.2f}%"
-        rmse_str = f"{metrics['rmse']:,.0f} MW"
-        mae_str = f"{metrics['mae']:,.0f} MW"
-        r2_str = f"{metrics['r2']:.3f}"
+        mode_suffix = f" ({exog_mode})"
+        mape_str = f"{metrics['mape']:.2f}%{mode_suffix}"
+        rmse_str = f"{metrics['rmse']:,.0f} MW{mode_suffix}"
+        mae_str = f"{metrics['mae']:,.0f} MW{mode_suffix}"
+        r2_str = f"{metrics['r2']:.3f}{mode_suffix}"
 
         # Generate insights
         from components.insights import build_insight_card, generate_tab3_insights
@@ -3531,7 +3648,7 @@ def register_callbacks(app):
             rmse_str,
             mae_str,
             r2_str,
-            explanations.get(horizon_hours, ""),
+            f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}.",
             insight_card,
         )
 
@@ -3646,7 +3763,7 @@ def _build_persona_kpis(
     backtest_mape = None
     backtest_rmse = None
     for horizon in [168, 24, 720]:  # prefer 7-day, then 24h, then 30d
-        bt_key = (region, horizon, "xgboost")
+        bt_key = (region, horizon, "xgboost", DEFAULT_BACKTEST_EXOG_MODE)
         if bt_key in _BACKTEST_CACHE:
             cached_result, _, _ = _BACKTEST_CACHE[bt_key]
             if "metrics" in cached_result:
@@ -3657,7 +3774,9 @@ def _build_persona_kpis(
     # Fallback: read from Redis if in-memory cache is empty
     if backtest_mape is None:
         for horizon in [168, 24, 720]:
-            bt_redis = redis_get(f"wattcast:backtest:{region}:{horizon}")
+            bt_redis = redis_get(f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}")
+            if bt_redis is None:
+                bt_redis = redis_get(f"wattcast:backtest:{region}:{horizon}")
             if bt_redis and "metrics" in bt_redis:
                 xgb_metrics = bt_redis["metrics"].get("xgboost", {})
                 if xgb_metrics:
@@ -3725,7 +3844,7 @@ def _build_persona_kpis(
             {
                 "label": "Forecast Error",
                 "value": mape_str,
-                "delta": "Walk-forward MAPE",
+                "delta": f"Walk-forward MAPE ({DEFAULT_BACKTEST_EXOG_MODE})",
                 "direction": mape_dir,
             },
             {
@@ -3785,7 +3904,7 @@ def _build_persona_kpis(
             {
                 "label": "Forecast Error",
                 "value": mape_str,
-                "delta": "Walk-forward MAPE",
+                "delta": f"Walk-forward MAPE ({DEFAULT_BACKTEST_EXOG_MODE})",
                 "direction": mape_dir,
             },
         ],
@@ -3793,7 +3912,7 @@ def _build_persona_kpis(
             {
                 "label": "XGBoost MAPE",
                 "value": mape_str,
-                "delta": "Target: <5%",
+                "delta": f"Target: <5% ({DEFAULT_BACKTEST_EXOG_MODE})",
                 "direction": mape_dir,
             },
             {
@@ -3824,11 +3943,13 @@ def _predict_single_fold(
     model_name: str,
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    exog_mode: str = DEFAULT_BACKTEST_EXOG_MODE,
 ) -> np.ndarray | None:
     """Train a model on train_df and predict on test_df for one backtest fold.
 
     Returns predictions array or None on failure.
     """
+    _ = _normalize_backtest_exog_mode(exog_mode)
     n_test = len(test_df)
 
     if model_name == "xgboost":
@@ -3867,6 +3988,7 @@ def _predict_single_fold(
 def _ensemble_fold(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    exog_mode: str = DEFAULT_BACKTEST_EXOG_MODE,
 ) -> np.ndarray | None:
     """Train all models on train_df, combine via 1/MAPE weighting for one fold.
 
@@ -3879,7 +4001,7 @@ def _ensemble_fold(
 
     for name in ["xgboost", "prophet", "arima"]:
         try:
-            pred = _predict_single_fold(name, train_df, test_df)
+            pred = _predict_single_fold(name, train_df, test_df, exog_mode=exog_mode)
             if pred is not None and not np.all(np.isnan(pred)):
                 preds[name] = pred
         except Exception as e:
@@ -3914,6 +4036,7 @@ def _run_backtest_for_horizon(
     horizon_hours: int,
     model_name: str,
     region: str,
+    exog_mode: str = DEFAULT_BACKTEST_EXOG_MODE,
 ) -> dict:
     """
     Walk-forward backtest for a specific forecast horizon.
@@ -3940,8 +4063,9 @@ def _run_backtest_for_horizon(
     from data.preprocessing import merge_demand_weather
     from models.evaluation import compute_all_metrics
 
+    exog_mode = _normalize_backtest_exog_mode(exog_mode)
     data_hash = _compute_data_hash(demand_df, weather_df, region)
-    cache_key = (region, horizon_hours, model_name)
+    cache_key = (region, horizon_hours, model_name, exog_mode)
 
     # Layer 1: In-memory cache
     if cache_key in _BACKTEST_CACHE:
@@ -3955,7 +4079,7 @@ def _run_backtest_for_horizon(
         from data.cache import get_cache
 
         sqlite_cache = get_cache()
-        sqlite_key = f"backtest:{region}:{horizon_hours}:{model_name}"
+        sqlite_key = f"backtest:{exog_mode}:{region}:{horizon_hours}:{model_name}"
         cached_sqlite = sqlite_cache.get(sqlite_key)
         if (
             cached_sqlite is not None
@@ -3967,6 +4091,8 @@ def _run_backtest_for_horizon(
             cached_sqlite["predictions"] = np.array(cached_sqlite["predictions"])
             cached_sqlite.setdefault("num_folds", 1)
             cached_sqlite.setdefault("fold_boundaries", [0])
+            cached_sqlite.setdefault("exog_mode", exog_mode)
+            cached_sqlite.setdefault("exog_source", "unknown")
             _BACKTEST_CACHE[cache_key] = (cached_sqlite, data_hash, time.time())
             log.info(
                 "backtest_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name
@@ -3995,6 +4121,7 @@ def _run_backtest_for_horizon(
         region=region,
         horizon=horizon_hours,
         model=model_name,
+        exog_mode=exog_mode,
         num_folds=num_folds,
         data_points=n_total,
     )
@@ -4003,6 +4130,7 @@ def _run_backtest_for_horizon(
     all_predictions: list[np.ndarray] = []
     all_timestamps: list[np.ndarray] = []
     fold_boundaries: list[int] = []
+    exog_sources: set[str] = set()
 
     try:
         for fold_idx in range(num_folds):
@@ -4028,11 +4156,21 @@ def _run_backtest_for_horizon(
                 test_rows=len(test_df),
             )
 
+            fold_test_df = test_df
+            fold_exog_source = "actual future weather"
+            if exog_mode == "forecast_exog":
+                fold_test_df, fold_exog_source = _build_forecast_exog_fold(
+                    train_df, test_df, region, horizon_hours
+                )
+            exog_sources.add(fold_exog_source)
+
             # Get predictions for this fold
             if model_name == "ensemble":
-                fold_preds = _ensemble_fold(train_df, test_df)
+                fold_preds = _ensemble_fold(train_df, fold_test_df, exog_mode=exog_mode)
             else:
-                fold_preds = _predict_single_fold(model_name, train_df, test_df)
+                fold_preds = _predict_single_fold(
+                    model_name, train_df, fold_test_df, exog_mode=exog_mode
+                )
 
             if fold_preds is None:
                 log.warning("backtest_fold_failed", fold=fold_idx + 1, model=model_name)
@@ -4073,6 +4211,8 @@ def _run_backtest_for_horizon(
         "metrics": metrics,
         "num_folds": len(fold_boundaries),
         "fold_boundaries": fold_boundaries,
+        "exog_mode": exog_mode,
+        "exog_source": ", ".join(sorted(exog_sources)) if exog_sources else "unknown",
     }
 
     log.info(
@@ -4080,6 +4220,7 @@ def _run_backtest_for_horizon(
         region=region,
         horizon=horizon_hours,
         model=model_name,
+        exog_mode=exog_mode,
         folds=len(fold_boundaries),
         mape=round(metrics["mape"], 2),
     )
@@ -4092,7 +4233,7 @@ def _run_backtest_for_horizon(
         from data.cache import get_cache
 
         sqlite_cache = get_cache()
-        sqlite_key = f"backtest:{region}:{horizon_hours}:{model_name}"
+        sqlite_key = f"backtest:{exog_mode}:{region}:{horizon_hours}:{model_name}"
         serializable = {
             "timestamps": [str(t) for t in result["timestamps"]],
             "actual": result["actual"].tolist(),
@@ -4100,6 +4241,8 @@ def _run_backtest_for_horizon(
             "metrics": result["metrics"],
             "num_folds": result["num_folds"],
             "fold_boundaries": result["fold_boundaries"],
+            "exog_mode": result["exog_mode"],
+            "exog_source": result["exog_source"],
         }
         sqlite_cache.set(sqlite_key, serializable, ttl=CACHE_TTL_SECONDS)
     except Exception as e:

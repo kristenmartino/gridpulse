@@ -784,7 +784,7 @@ class TestBuildPersonaKpis:
         import components.callbacks as cb_mod
 
         original = cb_mod._BACKTEST_CACHE.copy()
-        cb_mod._BACKTEST_CACHE[("ERCOT", 168, "xgboost")] = (
+        cb_mod._BACKTEST_CACHE[("ERCOT", 168, "xgboost", "forecast_exog")] = (
             {"metrics": {"mape": 3.5, "rmse": 1200}},
             "hash",
             time.time(),

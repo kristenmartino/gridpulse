@@ -61,8 +61,8 @@ class TestPrecomputeRegion:
         precompute_region("ERCOT")
         _precompute_backtest("ERCOT", 24)
         _precompute_backtest("ERCOT", 168)
-        assert ("ERCOT", 24, "xgboost") in _BACKTEST_CACHE
-        assert ("ERCOT", 168, "xgboost") in _BACKTEST_CACHE
+        assert ("ERCOT", 24, "xgboost", "forecast_exog") in _BACKTEST_CACHE
+        assert ("ERCOT", 168, "xgboost", "forecast_exog") in _BACKTEST_CACHE
 
     def test_precompute_without_backtest(self, precompute_region):
         """Backtest cache stays empty when backtests not run."""

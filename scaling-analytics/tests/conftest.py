@@ -90,6 +90,8 @@ def sample_backtest():
     """Sample backtest payload as stored in Redis."""
     return {
         "horizon": 24,
+        "exog_mode": "forecast_exog",
+        "exog_source": "climatology/naive baseline",
         "actual": [45000.0, 46000.0, 47000.0],
         "timestamps": ["2025-01-14T00:00:00", "2025-01-14T01:00:00", "2025-01-14T02:00:00"],
         "metrics": {
@@ -248,7 +250,7 @@ def populated_redis(
 
     # Backtests
     mock_redis.setex(
-        f"{prefix}:backtest:ERCOT:24",
+        f"{prefix}:backtest:forecast_exog:ERCOT:24",
         ttl,
         json.dumps(sample_backtest),
     )

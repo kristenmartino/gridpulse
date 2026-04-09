@@ -924,7 +924,11 @@ class TestBuildPersonaKpis:
         from components.callbacks import _build_persona_kpis
 
         bt_result = {"metrics": {"mape": 3.5, "rmse": 800}}
-        cb._BACKTEST_CACHE[("ERCOT", 168, "xgboost")] = (bt_result, 0, time.time())
+        cb._BACKTEST_CACHE[("ERCOT", 168, "xgboost", "forecast_exog")] = (
+            bt_result,
+            0,
+            time.time(),
+        )
         result = _build_persona_kpis("grid_ops", "ERCOT", demand_df, None)
         assert result is not None
 
@@ -1368,7 +1372,11 @@ class TestRunBacktestForHorizon:
             "num_folds": 1,
             "fold_boundaries": [0],
         }
-        cb._BACKTEST_CACHE[("ERCOT", 24, "xgboost")] = (cached_result, data_hash, time.time())
+        cb._BACKTEST_CACHE[("ERCOT", 24, "xgboost", "forecast_exog")] = (
+            cached_result,
+            data_hash,
+            time.time(),
+        )
 
         result = _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
         assert result["metrics"]["mape"] == 3.0
@@ -1466,7 +1474,7 @@ class TestRunBacktestForHorizon:
         with patch("components.callbacks._predict_single_fold", return_value=np.ones(24) * 30000):
             _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
 
-        assert ("ERCOT", 24, "xgboost") in cb._BACKTEST_CACHE
+        assert ("ERCOT", 24, "xgboost", "forecast_exog") in cb._BACKTEST_CACHE
 
     @patch("data.cache.get_cache")
     @patch("data.preprocessing.merge_demand_weather")
