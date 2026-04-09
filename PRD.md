@@ -1,122 +1,238 @@
 # GridPulse — Product Requirements Document
 
-## Problem
+_Last updated: 2026-04-09_
 
-Energy grid operators make generation scheduling decisions worth millions of dollars per day based on demand forecasts. When forecasts miss, the consequences are immediate: blackouts during under-prediction, wasted capacity during over-prediction, and FERC/NERC penalties for inadequate reserve margins.
+## 1. Product Summary
 
-The operational reality at utilities like NextEra Energy is that forecasting workflows are fragmented across systems. Grid operators check one tool for demand data, another for weather, a third for model outputs. Renewable analysts and energy traders need the same underlying data viewed through different lenses. No single tool serves all four roles with the context each needs.
+GridPulse is an **energy intelligence platform** for forecast confidence, grid visibility, and operational decision support.
 
-Three gaps define the problem:
+It combines:
+- weather-aware demand forecasting
+- role-based operational views
+- model validation and backtesting
+- generation and net load context
+- severe-condition and anomaly signals
+- scenario-based analysis
+- briefing-ready outputs for stakeholders
 
-1. **No weather-aware forecasting.** Existing tools treat demand as a purely time-series problem. Temperature alone explains 40–60% of demand variance in southern regions.
-2. **No model validation in the workflow.** Operators consume forecasts without visibility into which model produced them, how accurate that model has been historically, or how confidence degrades over longer horizons.
-3. **No role-based views.** A grid ops manager needs peak demand and reserve margins. A data scientist needs residual analysis and SHAP values. Forcing both through the same interface means neither gets what they need.
+### Product framing
+- **Category:** Energy Intelligence Platform
+- **Tagline:** See demand sooner. Decide with confidence.
+- **Primary outcome:** help energy teams interpret changing conditions faster and act with more confidence
 
-## Product Vision
+---
 
-An interactive dashboard that combines real grid data (EIA) with meteorological features (Open-Meteo) to forecast electricity demand across 8 U.S. balancing authorities. Three focused views — historical demand, forward forecast, and backtest validation — serve four distinct operational personas through a single interface.
+## 2. Problem
 
-## Target Users
+Energy grid operators, analysts, and trading/planning teams make decisions worth millions of dollars per day based on incomplete, fragmented signals. When demand forecasts miss, the consequences can include:
+- under-preparation and reserve pressure
+- wasted capacity and inefficient dispatch
+- poor market positioning
+- reduced trust in analytical outputs
+- slower response to severe weather or abnormal conditions
 
-| Persona | Role | Primary Decision | Default View |
-|---------|------|-----------------|--------------|
-| **Sarah** — Grid Ops Manager | Generation scheduling at a regional BA | "Do I need to dispatch peaker units in the next 72 hours?" | Historical Demand |
-| **James** — Renewables Analyst | Wind/solar portfolio management | "How will tomorrow's weather affect my generation assets?" | Demand Forecast |
-| **Maria** — Energy Trader | Electricity spot/futures trading | "Where are the demand-supply imbalances I can position against?" | Demand Forecast |
-| **Dev** — Data Scientist | Model improvement and feature engineering | "Which model is degrading and why?" | Backtest |
+The operational reality is that relevant signals are often scattered across tools:
+- demand data in one system
+- weather in another
+- model outputs somewhere else
+- validation and confidence often missing entirely
+- generation and supply-side context disconnected from forecast interpretation
 
-Each persona gets a different default tab, KPI card set, and contextual welcome briefing. Switching personas reconfigures the interface without reloading data.
+Three persistent gaps define the opportunity:
 
-## Requirements
+1. **Forecasts lack enough context.** Teams need weather, system conditions, and generation context alongside the number.
+2. **Confidence is often hidden.** Users need validation, uncertainty, and model accountability in the workflow.
+3. **Different roles need different decision views.** Operators, traders, renewables analysts, and data scientists use the same underlying signals differently.
 
-### Data Ingestion
+---
+
+## 3. Product Vision
+
+GridPulse provides a unified operating layer for energy teams by combining demand forecasting, confidence-aware analytics, grid visibility, and scenario-ready decision support in one interface.
+
+It should feel less like a static dashboard and more like a role-aware platform for understanding:
+- what changed
+- what matters now
+- where risk is rising
+- how confident the forecast is
+- what to inspect next
+
+---
+
+## 4. Target Users
+
+| Persona | Role | Primary Decision | Default Product Area |
+|---|---|---|---|
+| **Sarah** — Grid Ops Manager | Generation scheduling at a regional BA | "Do I need to dispatch additional capacity or prepare for abnormal demand?" | Overview / Historical Demand |
+| **James** — Renewables Analyst | Wind/solar portfolio management | "How will weather and net load conditions affect generation expectations?" | Demand Forecast / Grid |
+| **Maria** — Energy Trader | Electricity spot/futures trading | "Where are demand-supply imbalances or forecast shifts I can position against?" | Demand Forecast / Risk |
+| **Dev** — Data Scientist | Model improvement and validation | "Which model is degrading, and how reliable is the forecast right now?" | Models / Backtest |
+
+Each persona gets a different default view, KPI emphasis, and contextual welcome/briefing layer. Switching personas reconfigures the interface without reloading core data.
+
+---
+
+## 5. Product Areas
+
+The current product is implemented as a multi-tab application. Conceptually, GridPulse should map to the following product areas:
+
+| Product Area | Purpose |
+|---|---|
+| **Overview** | Mission-control summary of what changed, what matters, and where confidence/risk stand |
+| **Historical Demand** | Past demand, EIA overlays, weather context, operational comparison |
+| **Demand Forecast** | Forward-looking predictions, confidence bands, horizon views, model comparisons |
+| **Models / Backtest** | Validation, trust, accuracy, residuals, model accountability |
+| **Grid** | Generation mix, net load, renewable share, supply-side context |
+| **Risk / Extreme Events** | Severe conditions, anomalies, stress signals, degraded states |
+| **Scenarios** | What-if analysis, presets, sensitivity testing |
+| **Briefings** | Narrative summaries, meeting/presentation mode, stakeholder-ready views |
+
+This structure is both a product framing model and a guide for future IA cleanup.
+
+---
+
+## 6. Requirements
+
+### 6.1 Data Ingestion
 
 | ID | Requirement | Priority |
-|----|-------------|----------|
+|---|---|---|
 | R1.1 | Hourly demand from EIA API v2 for 8 balancing authorities (ERCOT, CAISO, PJM, MISO, NYISO, FPL, SPP, ISONE) | Must Have |
-| R1.2 | 17 weather variables from Open-Meteo (temperature, wind at 3 heights, solar radiation, humidity, precipitation, etc.) | Must Have |
-| R1.3 | Severe weather alerts from NOAA/NWS mapped to regions | Must Have |
-| R1.4 | SQLite cache with configurable TTL; serve stale data when APIs are down | Must Have |
-| R1.5 | Demo data generators for all regions when no API keys are configured | Must Have |
+| R1.2 | Hourly weather variables from Open-Meteo including temperature, wind, radiation, humidity, precipitation, and related signals | Must Have |
+| R1.3 | Severe weather / alert context from NOAA/NWS mapped to regions | Must Have |
+| R1.4 | Cache-backed data access with stale-data fallback for degraded conditions | Must Have |
+| R1.5 | Explicit offline/demo data support when live APIs or credentials are unavailable in demo contexts | Must Have |
+| R1.6 | Data freshness tracking surfaced to the UI where relevant | Must Have |
 
-### Feature Engineering
+### 6.2 Feature Engineering
 
 | ID | Requirement | Priority |
-|----|-------------|----------|
+|---|---|---|
 | R2.1 | CDD/HDD from temperature (65°F baseline) | Must Have |
-| R2.2 | Wind power estimate using cubic relationship at hub height (80m) | Must Have |
-| R2.3 | Solar capacity factor from GHI | Must Have |
-| R2.4 | Cyclical encoding (sin/cos) for hour-of-day and day-of-week | Must Have |
-| R2.5 | Lag features (t-24h, t-168h) with no future data leakage | Must Have |
-| R2.6 | Rolling statistics (24h/72h/168h) backward-looking only | Must Have |
-| R2.7 | Total feature matrix: 17 raw weather + 25+ derived = ~43 features | Must Have |
+| R2.2 | Wind power estimate using wind-speed relationships at hub height | Must Have |
+| R2.3 | Solar capacity factor estimate from radiation inputs | Must Have |
+| R2.4 | Cyclical encoding for hour-of-day and day-of-week | Must Have |
+| R2.5 | Lag features with no future data leakage | Must Have |
+| R2.6 | Backward-looking rolling statistics | Must Have |
+| R2.7 | Feature matrix with ~43 total features across raw + engineered inputs | Must Have |
 
-### Forecasting Models
+### 6.3 Forecasting and Model Layer
 
 | ID | Requirement | Priority |
-|----|-------------|----------|
+|---|---|---|
 | R3.1 | Prophet with weather regressors and multiplicative seasonality | Must Have |
-| R3.2 | SARIMAX with auto-order via pmdarima | Must Have |
+| R3.2 | SARIMAX with auto-order selection via pmdarima | Must Have |
 | R3.3 | XGBoost with TimeSeriesSplit CV and SHAP explanations | Must Have |
 | R3.4 | Inverse-MAPE weighted ensemble | Must Have |
-| R3.5 | Model service abstraction: trained → simulated fallback transparent to UI | Must Have |
-| R3.6 | Forecast audit trail: model version, data vintage, feature hash per prediction | Must Have |
+| R3.5 | Model service abstraction so the UI is insulated from training/runtime details | Must Have |
+| R3.6 | Forecast audit trail with model version, data vintage, and feature lineage | Must Have |
+| R3.7 | Confidence / evaluation context available alongside forecast views | Must Have |
 
-### Dashboard
-
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| R4.1 | **Historical Demand tab**: actual demand + EIA forecast overlay, time range selector, weather overlay, comparative KPIs | Must Have |
-| R4.2 | **Demand Forecast tab**: forward model predictions, confidence bands (80%/95%), horizon selector, model toggles | Must Have |
-| R4.3 | **Backtest tab**: model vs actuals on holdout, per-model MAPE cards, residual histogram | Must Have |
-| R4.4 | Persona switcher: 4 roles with per-role default tab, KPI cards, welcome briefing | Must Have |
-| R4.5 | Region selector: all 8 BAs including FPL (NextEra subsidiary) | Must Have |
-| R4.6 | Per-widget data confidence badges (green/amber/red based on data freshness) | Must Have |
-| R4.7 | Meeting-ready mode: one-click strips chrome for projection | Should Have |
-
-### Infrastructure
+### 6.4 Product Experience
 
 | ID | Requirement | Priority |
-|----|-------------|----------|
-| R5.1 | Multi-stage Dockerfile, non-root user, healthcheck endpoint | Must Have |
+|---|---|---|
+| R4.1 | **Overview** with key signals, KPI hierarchy, narrative context, and a rapid understanding of what changed | Must Have |
+| R4.2 | **Historical Demand** view with actual demand, comparison overlays, weather context, and comparative KPIs | Must Have |
+| R4.3 | **Demand Forecast** view with forward predictions, confidence bands, horizon selector, and model toggles | Must Have |
+| R4.4 | **Models / Backtest** view with holdout evaluation, per-model metrics, and validation context | Must Have |
+| R4.5 | **Grid** view with generation mix, renewable share, and net load context | Must Have |
+| R4.6 | **Risk / Extreme Events** view with alerting, stress signals, anomalies, and degraded-condition visibility | Should Have |
+| R4.7 | **Scenarios** with what-if controls, presets, and impact comparisons | Should Have |
+| R4.8 | Persona / view switcher with role-specific defaults, KPI emphasis, and welcome briefing | Must Have |
+| R4.9 | Region selector covering all 8 supported balancing authorities | Must Have |
+| R4.10 | Per-widget data confidence or freshness signaling | Must Have |
+| R4.11 | Briefing / meeting-ready mode for presentation and stakeholder review | Should Have |
+
+### 6.5 Infrastructure and Platform Readiness
+
+| ID | Requirement | Priority |
+|---|---|---|
+| R5.1 | Multi-stage Dockerfile, non-root user, and healthcheck endpoint | Must Have |
 | R5.2 | CI pipeline (lint, test, build) via GitHub Actions | Must Have |
 | R5.3 | Structured JSON logging via structlog | Must Have |
-| R5.4 | WCAG 2.1 AA colorblind-safe palette, ARIA labels | Should Have |
+| R5.4 | WCAG-aware palette and ARIA support | Should Have |
 | R5.5 | Environment config matrix (dev/staging/production) | Must Have |
+| R5.6 | Scaled precompute path for higher-volume deployment scenarios | Should Have |
 
-## Non-Functional Requirements
+---
+
+## 7. Non-Functional Requirements
 
 | Requirement | Target |
-|-------------|--------|
-| Tab load time | p95 < 2 seconds |
-| Forecast accuracy (XGBoost, ERCOT) | MAPE < 5% on 21-day holdout |
-| Test coverage | 80%+ unit, 70%+ integration, all tabs render |
-| Graceful degradation | Dashboard always renders; stale/demo data with visible indicator |
-| API resilience | 5 retries with exponential backoff; stale cache fallback |
+|---|---|
+| Tab / screen load time | p95 < 2 seconds where cached/precomputed data is available |
+| Forecast accuracy (XGBoost, ERCOT reference) | MAPE < 5% on 21-day holdout |
+| Test coverage | 80%+ unit, 70%+ integration, all major screens render |
+| Graceful degradation | App continues rendering with visible freshness/degraded-state indicators |
+| API resilience | retries + stale-cache fallback where applicable |
+| Accessibility | keyboard navigation, focus visibility, color-safe semantics |
 
-## Descoped Items
+---
 
-Considered and deliberately excluded. Documented so they aren't re-proposed without context.
+## 8. Product Principles
+
+These principles should guide future work:
+
+1. **Signal over noise** — highlight what matters first.
+2. **Confidence must be visible** — do not show forecasts without trust context.
+3. **Role-aware, not role-fragmented** — one platform, multiple decision lenses.
+4. **Human-in-the-loop** — support judgment; do not over-automate critical decisions.
+5. **Operational calm** — risk should be visible without the interface feeling frantic.
+6. **Technical credibility first** — product polish should not come at the expense of rigor.
+
+---
+
+## 9. Descoped or Deliberately Limited Items
+
+These items are intentionally not first-class priorities right now:
 
 | Item | Why Not |
-|------|---------|
-| Real-time streaming (sub-second) | Energy forecasting operates on hourly cadences. Unnecessary infra cost. |
-| AI chatbot overlay | Narrative mode + command palette achieve 80% of the value at 5% of the cost. |
-| Multi-tenant architecture | Don't build isolation until there's a second customer. |
-| Mobile-native app | Responsive meeting-ready mode on tablet covers the real use case. |
-| AI-generated recommended actions | Too much liability in energy operations. Surface data, let humans decide. |
-| Real-time collaboration | Meeting-ready mode solves the actual problem (presenting together). |
-| Full RBAC with permission matrices | Overkill until 50+ users. Row-level security by region covers the real requirement. |
-| Blockchain audit trails | A SQLite audit table does the same job. |
-| Natural language query interface | High cost, low marginal value over structured persona views. |
+|---|---|
+| Real-time streaming / sub-second updates | Current operating cadence is hourly; not worth the infra complexity yet |
+| Fully autonomous recommended actions | Too much operational liability; surface data and confidence instead |
+| Multi-tenant architecture | Premature before broader adoption or multiple customers |
+| Full mobile-native parity | Tablet / briefing-mode support covers the higher-value use cases for now |
+| Broad NL chatbot overlay | Lower value than improving structured product views and briefings |
+| Complex collaboration layer | Presentation/briefing workflows solve the immediate need more directly |
+| Heavy RBAC matrices | Too much complexity for current scale |
 
-## Architecture Decisions
+---
+
+## 10. Architecture Decisions (ADRs)
 
 | # | Decision | Rationale |
-|---|----------|-----------|
-| ADR-001 | Dash + Plotly (not Streamlit) | Callback architecture scales to 21 callback groups across 3 tabs + persona logic. Streamlit's re-run model can't support this. |
-| ADR-002 | SQLite cache (not Redis) | Survives across Cloud Run requests, acceptable to lose on container recycle. Zero infrastructure dependency. |
-| ADR-003 | Open-Meteo (not NOAA for weather) | No API key, 17 variables in one call, historical + forecast in same API. |
-| ADR-004 | 1/MAPE ensemble weighting | Self-correcting: poor models get downweighted automatically. Simpler than stacking, bounded by individual models. |
-| ADR-005 | XGBoost as primary model | Backtesting on real EIA data: 3.13% MAPE vs Prophet (50%) and ARIMA (40%) on 43-day training window. Feature engineering matters more than model complexity. |
-| ADR-006 | 3-tab focused architecture | Reduced from 8 tabs. Three views (history, forecast, backtest) cover the core operational loop. Dormant tabs preserved for reactivation. |
+|---|---|---|
+| ADR-001 | Dash + Plotly (not Streamlit) | Callback architecture and component control scale better for the current multi-view interaction model |
+| ADR-002 | Cache-first + fallback strategy | Operational apps need resilience, visible freshness, and predictable degraded behavior |
+| ADR-003 | Open-Meteo for weather inputs | No API key, broad variable coverage, historical + forecast support in one family of endpoints |
+| ADR-004 | 1/MAPE ensemble weighting | Simple, bounded, self-correcting weighting strategy |
+| ADR-005 | XGBoost as primary model | Strong empirical performance on the current feature-engineered demand problem |
+| ADR-006 | Multi-view shell instead of one flat dashboard | Supports different operational questions without forking the product into separate tools |
+| ADR-007 | Scenario engine must avoid input mutation | Safer callback behavior and more predictable state handling |
+
+---
+
+## 11. Roadmap Direction
+
+GridPulse should be able to support a modular suite architecture over time. The current product can be understood as the foundation for future product modules such as:
+- GridPulse Forecast
+- GridPulse Risk
+- GridPulse Grid
+- GridPulse Scenarios
+- GridPulse Models
+- GridPulse Briefings
+- GridPulse API
+
+This is a positioning and IA direction, not a requirement to split the codebase immediately.
+
+---
+
+## 12. Success Criteria
+
+The product is succeeding when:
+- energy stakeholders can quickly understand what changed and why it matters
+- forecast users can see trust and validation context without leaving the workflow
+- the UI supports different personas without fragmenting the platform
+- GridPulse reads as a coherent energy intelligence product, not just a technical demo
+- the system remains technically credible under inspection by data and engineering stakeholders

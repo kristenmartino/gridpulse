@@ -1,449 +1,479 @@
 # GridPulse Technical Specification
 
-Technical documentation for the GridPulse Energy Demand Forecasting Dashboard.
+_Last updated: 2026-04-09_
+
+Technical documentation for the GridPulse **Energy Intelligence Platform**.
+
+This document covers the implementation details behind GridPulse’s forecasting, grid visibility, validation, and supporting platform behaviors.
 
 ---
 
 ## Table of Contents
 
-1. [Data Sources](#1-data-sources)
-2. [Region Definitions](#2-region-definitions)
-3. [Feature Engineering](#3-feature-engineering)
-4. [Forecasting Model](#4-forecasting-model)
-5. [Evaluation Metrics](#5-evaluation-metrics)
-6. [Caching Strategy](#6-caching-strategy)
-7. [Data Processing Pipeline](#7-data-processing-pipeline)
-8. [Assumptions & Limitations](#8-assumptions--limitations)
+1. [System Overview](#1-system-overview)
+2. [Data Sources](#2-data-sources)
+3. [Region Definitions](#3-region-definitions)
+4. [Feature Engineering](#4-feature-engineering)
+5. [Forecasting and Model Layer](#5-forecasting-and-model-layer)
+6. [Evaluation Metrics](#6-evaluation-metrics)
+7. [Caching and Fallback Strategy](#7-caching-and-fallback-strategy)
+8. [Data Processing Pipeline](#8-data-processing-pipeline)
+9. [Product-Shell Mapping](#9-product-shell-mapping)
+10. [Assumptions and Limitations](#10-assumptions-and-limitations)
+11. [Environment Variables](#11-environment-variables)
+12. [Repository Structure](#12-repository-structure)
 
 ---
 
-## 1. Data Sources
+## 1. System Overview
 
-### 1.1 EIA API v2 (Energy Demand)
+GridPulse is a Dash/Plotly-based application that combines:
+- real energy demand data
+- weather inputs
+- multiple forecasting models
+- model validation and confidence context
+- generation and net load context
+- alert/risk-oriented views
+- scenario simulation
+- role-aware presentation and briefing patterns
 
-**Source:** U.S. Energy Information Administration
-**Base URL:** `https://api.eia.gov/v2`
-**Authentication:** API key required (env: `EIA_API_KEY`)
-**Endpoint:** `electricity/rto/region-data`
+### Primary technical capabilities
+- hourly demand forecasting across 8 balancing authorities
+- feature-engineered model inputs built from weather and time-series signals
+- validation and backtest workflows for trust and accountability
+- cache-backed serving with resilience patterns
+- role-specific product surfaces across a shared data/model core
 
-**Data Fields Retrieved:**
+### Current runtime architecture
+- Dash app served via Flask/Gunicorn-compatible entrypoint
+- Cloud Run deployment target
+- Redis/Memorystore used for precomputed serving in production flows
+- SQLite used for local or app-layer caching patterns
+- precompute/scaled analytics scaffolding available in `scaling-analytics/`
+
+---
+
+## 2. Data Sources
+
+## 2.1 EIA API v2 (Demand / Generation)
+
+**Source:** U.S. Energy Information Administration  
+**Base URL:** `https://api.eia.gov/v2`  
+**Authentication:** API key required (`EIA_API_KEY`)  
+
+### Primary demand source
+**Endpoint family:** `electricity/rto/region-data`
+
+**Representative demand fields:**
 
 | Field | Type | Description |
-|-------|------|-------------|
+|---|---|---|
 | `timestamp` | datetime (UTC) | Hour of observation |
 | `demand_mw` | float | Actual demand in megawatts |
 | `region` | string | Balancing authority code |
 
-**API Parameters:**
-- `facets[type][]`: "D" (actual demand)
-- `frequency`: hourly
-- `length`: 5000 (page size)
-- `sort`: period ascending
+**Representative request parameters:**
+- demand type facets
+- hourly frequency
+- ascending time sort
+- bounded historical fetch window
 
-**Default Date Range:** 90 days historical
+**Default historical range:** approximately 90 days
 
-**EIA Region Code Mapping:**
+### Generation source
+Generation-by-fuel data is also fetched for supply-side context, fuel mix views, and net-load-style analysis where available.
 
-| Dashboard Code | EIA API Code |
-|----------------|--------------|
-| ERCOT | ERCO |
-| CAISO | CISO |
-| PJM | PJM |
-| MISO | MISO |
-| NYISO | NYIS |
-| FPL | FPL |
-| SPP | SWPP |
-| ISONE | ISNE |
-
-**Error Handling:**
-- 5 retries with exponential backoff (starting 2 seconds)
-- Stale cache fallback on API failure
-- Demo data fallback if no cache available
+### Error handling intent
+- retries with exponential backoff
+- cache-backed fallback when possible
+- avoid overwriting real cached data with fake data in degraded production paths
 
 ---
 
-### 1.2 Open-Meteo API (Weather)
+## 2.2 Open-Meteo API (Weather)
 
-**Source:** Open-Meteo (free, no API key)
-**Forecast URL:** `https://api.open-meteo.com/v1/forecast`
-**Archive URL:** `https://archive-api.open-meteo.com/v1/archive`
+**Source:** Open-Meteo  
+**Forecast URL:** `https://api.open-meteo.com/v1/forecast`  
+**Archive URL:** `https://archive-api.open-meteo.com/v1/archive`  
+**Authentication:** None required  
 
-**17 Weather Variables (Hourly):**
+### Representative hourly variables
 
 | Variable | Unit | Description |
-|----------|------|-------------|
+|---|---|---|
 | `temperature_2m` | °F | Air temperature at 2m |
 | `apparent_temperature` | °F | Feels-like temperature |
 | `relative_humidity_2m` | % | Relative humidity |
-| `dew_point_2m` | °F | Dew point temperature |
-| `wind_speed_10m` | mph | Wind at 10m height |
-| `wind_speed_80m` | mph | Wind at 80m (turbine hub height) |
-| `wind_speed_120m` | mph | Wind at 120m height |
-| `wind_direction_10m` | ° | Wind direction (0-360) |
-| `shortwave_radiation` | W/m² | Global horizontal irradiance (GHI) |
+| `dew_point_2m` | °F | Dew point |
+| `wind_speed_10m` | mph | Wind at 10m |
+| `wind_speed_80m` | mph | Wind at hub height |
+| `wind_speed_120m` | mph | Wind at 120m |
+| `wind_direction_10m` | ° | Wind direction |
+| `shortwave_radiation` | W/m² | Global horizontal irradiance |
 | `direct_normal_irradiance` | W/m² | Direct beam radiation |
 | `diffuse_radiation` | W/m² | Diffuse sky radiation |
-| `cloud_cover` | % | Total cloud cover |
+| `cloud_cover` | % | Cloud cover |
 | `precipitation` | mm | Total precipitation |
-| `snowfall` | cm | Snowfall amount |
+| `snowfall` | cm | Snowfall |
 | `surface_pressure` | hPa | Atmospheric pressure |
 | `soil_temperature_0cm` | °F | Surface soil temperature |
-| `weather_code` | WMO code | Weather condition code |
+| `weather_code` | WMO code | Encoded condition |
 
-**Request Parameters:**
-- `past_days`: 92 (historical data)
-- `forecast_days`: 7 (future forecast)
-- `temperature_unit`: fahrenheit
-- `wind_speed_unit`: mph
-- `timezone`: UTC
-
----
-
-### 1.3 Google News RSS (Energy News)
-
-**Source:** Google News RSS
-**URL:** `https://news.google.com/rss/search?q=electricity+grid+OR+renewable+energy+OR+solar+power+OR+wind+power+OR+power+demand+OR+energy+prices+OR+ERCOT+OR+CAISO+OR+power+grid&hl=en-US&gl=US&ceid=US:en`
-**Authentication:** None required (free, no API key)
-
-**Response Format:** RSS/XML with `<item>` elements containing:
-- `<title>` — headline (source name appended after ` - `)
-- `<link>` — article URL
-- `<pubDate>` — RFC 2822 date
-- `<source>` — publisher name
-
-**Parameters:**
-- `page_size`: 10 articles (displayed in auto-scrolling ticker)
-
-**Caching:** SQLite with 30-minute TTL. Falls back to demo articles with real URLs (EIA, DOE, NextEra) if RSS fetch fails.
+### Representative request parameters
+- `past_days`
+- `forecast_days`
+- Fahrenheit temperature units
+- mph wind-speed units
+- UTC timezone handling
 
 ---
 
-## 2. Region Definitions
+## 2.3 NOAA / NWS Alerts
 
-### 2.1 Balancing Authorities
+**Source:** NOAA / National Weather Service  
+**Purpose:** severe weather and alert context for regions  
 
-| Code | Full Name | Centroid (lat, lon) | Capacity (MW) |
-|------|-----------|---------------------|---------------|
+This source supports alert- and extreme-event-oriented views. It is not the primary weather forecasting source but provides risk context layered over energy and forecast views.
+
+---
+
+## 2.4 External News / Signals Feed
+
+GridPulse includes an external news/signals integration for contextual headlines. This is auxiliary to the forecasting core and should be treated as a supporting signal rather than a primary system dependency.
+
+### Behavior notes
+- feed responses may be cached depending on implementation path
+- demo/static fallback behavior may exist for news-like surfaces
+- this layer should not be treated as a critical forecasting dependency
+
+---
+
+## 3. Region Definitions
+
+## 3.1 Balancing Authorities
+
+| Code | Full Name | Centroid (lat, lon) | Approx. Capacity (MW) |
+|---|---|---|---|
 | ERCOT | Texas (ERCOT) | 31.0, -97.0 | 130,000 |
 | CAISO | California (CAISO) | 37.0, -120.0 | 80,000 |
 | PJM | Mid-Atlantic (PJM) | 39.5, -77.0 | 185,000 |
 | MISO | Midwest (MISO) | 41.0, -89.0 | 175,000 |
 | NYISO | New York (NYISO) | 42.5, -74.0 | 38,000 |
-| FPL | Florida (FPL/NextEra)* | 26.9, -80.1 | 32,000 |
+| FPL | Florida (FPL/NextEra) | 26.9, -80.1 | 32,000 |
 | SPP | Southwest (SPP) | 35.5, -97.5 | 90,000 |
 | ISONE | New England (ISO-NE) | 42.3, -71.8 | 30,000 |
 
-**Capacity Source:** EIA-860 (annual generator data)
+### Note on FPL
+FPL represents Florida Power & Light’s service territory, not all statewide Florida demand.
 
-*\*FPL represents Florida Power & Light's service territory (~50% of Florida), not statewide demand. Florida has 9 separate balancing authorities.*
-
-### 2.2 Weather Location
-
-Weather data is fetched for the **centroid coordinates** of each balancing authority (single point per region).
+## 3.2 Weather Location Assumption
+Weather data is fetched for centroid coordinates representing each balancing authority. This is a pragmatic simplification and can reduce fidelity for geographically large regions.
 
 ---
 
-## 3. Feature Engineering
+## 4. Feature Engineering
 
-All features below are computed and used as **inputs to the XGBoost model**. They are not displayed in the UI but influence forecast accuracy.
+All features below are used as model inputs. Most are not directly displayed in the UI but influence forecast quality.
 
-### 3.1 Input Requirements
-
+## 4.1 Input Requirements
 - `timestamp`: UTC timezone-aware datetime
-- `demand_mw`: Actual demand (MW)
-- 17 weather variables from Open-Meteo (all used as model features)
+- `demand_mw`: actual demand in MW
+- weather variables from Open-Meteo
 
-### 3.2 Derived Features (all used as model inputs)
+## 4.2 Derived Feature Categories
 
-#### Temperature-Based (3 features)
+### Temperature-based features
+| Feature | Formula / Logic | Purpose |
+|---|---|---|
+| `cooling_degree_days` | `max(0, temp_F - 65)` | Cooling load proxy |
+| `heating_degree_days` | `max(0, 65 - temp_F)` | Heating load proxy |
+| `temperature_deviation` | temp vs rolling historical mean | Anomaly signal |
 
-| Feature | Formula | Purpose |
-|---------|---------|---------|
-| `cooling_degree_days` | max(0, temp_F - 65) | AC load proxy |
-| `heating_degree_days` | max(0, 65 - temp_F) | Heating load proxy |
-| `temperature_deviation` | temp_F - rolling_mean(720h) | Anomaly detection |
+### Time-based features
+| Feature | Logic |
+|---|---|
+| `hour_sin` / `hour_cos` | cyclic encoding of hour-of-day |
+| `dow_sin` / `dow_cos` | cyclic encoding of day-of-week |
+| `is_weekend` | binary weekend flag |
 
-**Baseline temperature:** 65°F (standard HVAC reference)
-
-#### Time-Based (5 features)
-
-| Feature | Formula | Range |
-|---------|---------|-------|
-| `hour_sin` | sin(2π × hour / 24) | [-1, 1] |
-| `hour_cos` | cos(2π × hour / 24) | [-1, 1] |
-| `dow_sin` | sin(2π × dayofweek / 7) | [-1, 1] |
-| `dow_cos` | cos(2π × dayofweek / 7) | [-1, 1] |
-| `is_weekend` | 1 if Saturday/Sunday | {0, 1} |
-
-*Cyclical encoding preserves proximity (hour 23 is near hour 0).*
-
-#### Lag Features (3 features)
-
+### Lag features
 | Feature | Offset | Purpose |
-|---------|--------|---------|
-| `demand_lag_24h` | t - 24 hours | Same time yesterday |
-| `demand_lag_168h` | t - 168 hours | Same time last week |
-| `ramp_rate` | demand_t - demand_{t-1} | Hour-over-hour change |
+|---|---|---|
+| `demand_lag_24h` | t - 24h | same time yesterday |
+| `demand_lag_168h` | t - 168h | same time last week |
+| `ramp_rate` | demand_t - demand_t-1 | hour-over-hour change |
 
-#### Rolling Statistics (12 features)
+### Rolling statistics
+Multiple windows are used (for example 24h / 72h / 168h) with statistics such as:
+- mean
+- std
+- min
+- max
 
-Three window sizes × four statistics:
+### Interaction and domain-specific features
+Examples include:
+- wind power estimate
+- solar capacity factor estimate
+- temperature × hour interactions
+- anomaly-style deviations from rolling temperature context
 
-| Window | Features |
-|--------|----------|
-| 24h (1 day) | mean, std, min, max |
-| 72h (3 days) | mean, std, min, max |
-| 168h (1 week) | mean, std, min, max |
-
-Format: `demand_roll_{window}_{statistic}`
-
-#### Interaction Features (1 feature)
-
-| Feature | Formula | Purpose |
-|---------|---------|---------|
-| `temp_x_hour` | temperature × hour_sin | Peak temp × peak demand interaction |
-
-### 3.3 Processing Rules
-
-1. **No future leakage:** All features use backward-looking windows only
-2. **NaN handling:** Rows with NaN from lag features dropped
-3. **Total features:** 17 raw weather + 24 derived = ~41 features for model training
-
-**Additional model input features** (computed but not listed above):
-- `wind_power_estimate` - normalized wind power [0,1]
-- `solar_capacity_factor` - solar output ratio [0,1]
-- `temperature_deviation` - temp vs 30-day rolling average
-- `temp_x_hour` - temperature × hour interaction
+## 4.3 Processing Rules
+1. No future leakage — all engineered features are backward-looking only.
+2. Lag-induced NaNs are handled explicitly.
+3. Timestamps are aligned to hourly cadence.
+4. Resulting model matrix is roughly 43 features depending on path.
 
 ---
 
-## 4. Forecasting Model
+## 5. Forecasting and Model Layer
 
-### 4.1 XGBoost (Primary Model)
+## 5.1 XGBoost (Primary Model)
 
-**Type:** Gradient Boosted Decision Trees
 **Library:** `xgboost.XGBRegressor`
 
-**Hyperparameters:**
+### Typical hyperparameter profile
+| Parameter | Representative Value |
+|---|---|
+| `n_estimators` | 500 |
+| `max_depth` | 6 |
+| `learning_rate` | 0.05 |
+| `subsample` | 0.8 |
+| `colsample_bytree` | 0.8 |
+| `reg_alpha` | 0.1 |
+| `reg_lambda` | 1.0 |
+| `random_state` | 42 |
 
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| `n_estimators` | 500 | Number of trees |
-| `max_depth` | 6 | Tree depth limit |
-| `learning_rate` | 0.05 | Shrinkage rate |
-| `subsample` | 0.8 | Row sampling per tree |
-| `colsample_bytree` | 0.8 | Feature sampling per tree |
-| `reg_alpha` | 0.1 | L1 regularization |
-| `reg_lambda` | 1.0 | L2 regularization |
-| `random_state` | 42 | Reproducibility seed |
+### Validation approach
+- time-series-aware cross-validation
+- no future leakage across train/validation splits
+- MAPE emphasized as a core business metric
 
-**Cross-Validation:**
-- Method: TimeSeriesSplit (5 folds)
-- Constraint: `max(train_idx) < min(val_idx)` (no data leakage)
-- Metric: MAPE on each validation fold
+### Model output behavior
+- predictions are clamped or constrained to avoid nonsensical negative demand values
 
-**Model Inputs:** All 41 features from Section 3 (17 raw weather + 24 derived)
+---
 
-**Features Excluded:**
-- timestamp, region, data_quality (metadata)
-- demand_mw (target variable)
+## 5.2 Prophet
 
-**Output:** Predictions clamped to ≥ 0 MW
+Prophet is used as a comparative model with weather regressors and seasonality structure.
 
-### 4.2 Backtest Ensemble (Optional)
+---
 
-When "Ensemble" model is selected in Backtest tab, combines:
-- XGBoost
-- Prophet
-- ARIMA
+## 5.3 SARIMAX / ARIMA
 
-**Weight Calculation:** Inverse-MAPE weighted average
-```
+SARIMAX provides a statistical benchmark path with auto-order support via pmdarima.
+
+---
+
+## 5.4 Ensemble
+
+The ensemble combines multiple models using inverse-MAPE weighting.
+
+### Weight logic
+```text
 weight_i = (1 / MAPE_i) / Σ(1 / MAPE_j)
 ```
 
-Lower error models get higher weights.
+This keeps better-performing models more influential while bounding behavior to the constituent models.
 
 ---
 
-## 5. Evaluation Metrics
+## 5.5 Model Service and Auditability
 
-### 5.1 Metrics Used
+The model layer is abstracted behind service logic so the UI is insulated from direct model-training concerns.
 
-| Metric | Formula | Units |
-|--------|---------|-------|
-| **MAPE** | mean(\|actual - pred\| / \|actual\|) × 100 | % |
-| **RMSE** | sqrt(mean((actual - pred)²)) | MW |
-| **MAE** | mean(\|actual - pred\|) | MW |
-| **R²** | 1 - SS_res / SS_tot | unitless |
+Supporting technical concerns include:
+- trained vs simulated fallback behavior where applicable
+- forecast audit trail metadata
+- evaluation artifacts
+- confidence and validation context for UI surfaces
 
-### 5.2 Interpretation
+---
 
-| MAPE | Quality |
-|------|---------|
+## 6. Evaluation Metrics
+
+| Metric | Formula / Meaning | Units |
+|---|---|---|
+| **MAPE** | mean absolute percentage error | % |
+| **RMSE** | root mean squared error | MW |
+| **MAE** | mean absolute error | MW |
+| **R²** | coefficient of determination | unitless |
+
+### Typical MAPE interpretation
+| MAPE | Interpretation |
+|---|---|
 | < 3% | Excellent |
-| 3-5% | Good |
-| 5-10% | Acceptable |
+| 3–5% | Good |
+| 5–10% | Acceptable |
 | > 10% | Poor |
 
----
-
-## 6. Caching Strategy
-
-### 6.1 Cache Configuration
-
-| Data Type | Cache Location | TTL | Notes |
-|-----------|----------------|-----|-------|
-| News | None | - | Always fetched fresh |
-| Demand (EIA) | SQLite | 24 hours | `cache.db` file |
-| Weather | SQLite | 24 hours | `cache.db` file |
-| Trained Models | In-memory | 24 hours | Per-region |
-| Forecast Predictions | In-memory | 24 hours | Per region+horizon |
-| Backtest Results | In-memory | 24 hours | Per region+horizon+model |
-
-### 6.2 Cache Invalidation
-
-In-memory caches use data hash for invalidation:
-```python
-data_hash = hash((len(demand_df), len(weather_df), region))
-```
-
-Cache is invalidated when:
-1. Data hash changes (new data fetched)
-2. TTL expires (24 hours)
-
-### 6.3 Fallback Behavior
-
-On API failure:
-1. Serve stale cache if available
-2. If no cache, generate demo data
-3. Log warning about degraded data
+GridPulse also uses horizon-aware governance and grade concepts in parts of the system rather than relying only on a single raw threshold.
 
 ---
 
-## 7. Data Processing Pipeline
+## 7. Caching and Fallback Strategy
 
-### 7.1 Pipeline Steps
+## 7.1 Cache Locations
+Representative cache layers include:
 
+| Data Type | Cache Location | Typical Behavior |
+|---|---|---|
+| Demand / weather data | SQLite and/or Redis-backed paths | TTL-based reuse and degraded fallback |
+| News/signals | feed-specific path | may be refreshed more frequently |
+| Trained models | in-memory / job-generated path | region-scoped |
+| Predictions / backtests | in-memory or precomputed serving | region/horizon scoped |
+
+## 7.2 Invalidation Principles
+- TTL expiry
+- input/data-hash change
+- explicit refresh or precompute update
+
+## 7.3 Fallback Behavior
+### Intended production behavior
+1. Serve fresh real data when available.
+2. Serve stale real cached data when fresh data is unavailable.
+3. Surface degraded or no-data states when needed.
+4. Use demo/synthetic data explicitly in demo/offline contexts, not as a silent overwrite of real operational state.
+
+This behavior matters because operational credibility is reduced when fake data overwrites previously valid real data during upstream outages.
+
+---
+
+## 8. Data Processing Pipeline
+
+## 8.1 Representative Pipeline
+
+```text
+1. fetch_demand(region)
+2. fetch_weather(region)
+3. merge_demand_weather()
+4. engineer_features()
+5. train_or_load_models()
+6. produce forecasts / backtests / supporting artifacts
+7. render via callback-driven UI surfaces
 ```
-1. fetch_demand(region)      → demand_df [timestamp, demand_mw, region]
-2. fetch_weather(region)     → weather_df [timestamp, 17 weather vars]
-3. merge_demand_weather()    → merged_df (left join on timestamp)
-4. engineer_features()       → featured_df (~45 columns)
-5. train_xgboost()           → model (if not cached)
-6. predict_xgboost()         → forecast array
-```
 
-### 7.2 Data Merging
+## 8.2 Data Merging
+- left-join style alignment on hourly timestamps
+- timestamp normalization to consistent hourly cadence
+- duplicate handling by stable preference rules
 
-- **Join type:** Left join on timestamp
-- **Alignment:** Timestamps rounded to nearest hour
-- **Duplicates:** Keep last occurrence
-
-### 7.3 Missing Value Handling
-
+## 8.3 Missing Value Handling
 | Gap Size | Treatment |
-|----------|-----------|
-| < 6 hours | Linear interpolation |
-| ≥ 6 hours | Flagged as "gap", not interpolated |
+|---|---|
+| small gaps | interpolation or controlled fill strategy |
+| large gaps | explicit degraded handling / no-fill behavior |
 
-### 7.4 Timezone Handling
-
-- All timestamps converted to UTC
-- Naive timestamps assumed UTC
-- Display may convert to local time
+## 8.4 Timezone Handling
+- timestamps normalized to UTC for internal processing
+- local/display conversion handled separately where needed
 
 ---
 
-## 8. Assumptions & Limitations
+## 9. Product-Shell Mapping
 
-### 8.1 Data Assumptions
+The current codebase implements multiple tabs. Conceptually, these map to the product shell as follows:
 
+| Current/Implementation Surface | Product Meaning |
+|---|---|
+| `tab_overview.py` | Overview / mission-control |
+| `tab_forecast.py` | Historical Demand |
+| `tab_demand_outlook.py` | Demand Forecast |
+| `tab_backtest.py` + `tab_models.py` | Models / validation / trust |
+| `tab_generation.py` | Grid |
+| `tab_alerts.py` + parts of `tab_weather.py` | Risk / conditions |
+| `tab_simulator.py` | Scenarios |
+| cards + meeting mode + summaries | Briefings / stakeholder layer |
+
+This mapping is important for product-shell redesign work and should guide naming updates before deep refactors.
+
+---
+
+## 10. Assumptions and Limitations
+
+## 10.1 Data Assumptions
 | Assumption | Implication |
-|------------|-------------|
-| EIA data is accurate | No independent validation performed |
-| Single weather point per region | May not represent large regions well |
-| Historical patterns persist | Structural changes may reduce accuracy |
-| Hourly granularity | Sub-hourly peaks not captured |
+|---|---|
+| EIA data is sufficiently reliable for operational analytics | independent validation is limited |
+| Single weather point per region is acceptable | large regions may be underrepresented |
+| Historical patterns remain informative | structural changes can degrade performance |
+| Hourly cadence is sufficient | sub-hourly peaks are not captured |
 
-### 8.2 Model Assumptions
-
-| Assumption | Value Used |
-|------------|------------|
-| Temperature baseline | 65°F for CDD/HDD |
-
-### 8.3 Known Limitations
-
+## 10.2 Known Limitations
 | Limitation | Impact |
-|------------|--------|
-| Single weather point per region | Less accurate for large regions (PJM, MISO) |
-| FPL ≠ all of Florida | Only ~50% of Florida demand |
-| No demand response modeling | DR events not predicted |
-| No outage data | Plant outages not factored in |
-| Minimum 1-hour data latency | Not real-time |
-
-### 8.4 Capacity Data
-
-- **Source:** EIA-860 (published annually)
-- **Update frequency:** Manual
-- **Risk:** New plants or retirements not reflected until updated
+|---|---|
+| Single weather point per region | lower fidelity for PJM, MISO, and other broad regions |
+| FPL is not all of Florida | geographic interpretation must stay precise |
+| No explicit demand-response modeling | DR events may not be reflected |
+| No outage-aware generation modeling | major unit outages may not be captured |
+| Non-real-time architecture | not designed for sub-hour operational dispatch |
 
 ---
 
-## Appendix A: Environment Variables
+## 11. Environment Variables
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `EIA_API_KEY` | Yes | - | EIA API authentication |
-| `NEWS_API_KEY` | No | - | NewsAPI authentication (falls back to demo) |
-| `ENVIRONMENT` | No | development | dev/staging/production |
-| `PORT` | No | 8080 | Server port |
-| `CACHE_DB_PATH` | No | cache.db | SQLite cache file path |
-| `CACHE_TTL_SECONDS` | No | 86400 | Cache time-to-live (24h) |
+| Variable | Required | Default / Notes | Description |
+|---|---|---|---|
+| `EIA_API_KEY` | Yes for live EIA data | none | EIA API authentication |
+| `ENVIRONMENT` | No | development | deployment tier |
+| `PORT` | No | 8080 | server port |
+| `CACHE_DB_PATH` | No | app default | SQLite cache path |
+| `CACHE_TTL_SECONDS` | No | app default | cache TTL |
+| other service-specific vars | context-dependent | varies | Redis, metrics, secrets, etc. |
 
-## Appendix B: File Structure
+Some older documentation may reference news-specific keys or older fallback assumptions. Prefer the code path and current config when those differ.
 
-```
-energy-forecast/
+---
+
+## 12. Repository Structure
+
+```text
+.
 ├── app.py                     # Dash app entry point
-├── config.py                  # All constants and configuration
+├── config.py                  # Constants, labels, env config, feature flags
 ├── components/
-│   ├── layout.py              # Dashboard layout (3 tabs)
-│   ├── callbacks.py           # All Dash callbacks (21 groups)
-│   ├── cards.py               # KPI, welcome, alert card components
-│   ├── error_handling.py      # Loading spinners, confidence badges
-│   ├── accessibility.py       # Colorblind palette, ARIA helpers
-│   ├── tab_forecast.py        # Historical Demand tab
-│   ├── tab_demand_outlook.py  # Demand Forecast tab
-│   └── tab_backtest.py        # Backtest tab
+│   ├── layout.py              # Product shell / header / tab structure
+│   ├── callbacks.py           # Callback orchestration and data-loading flows
+│   ├── cards.py               # KPI, alert, briefing, and supporting cards
+│   ├── error_handling.py      # Confidence badges, loading states, degraded-state UI
+│   ├── accessibility.py       # Accessibility helpers and color-safe support
+│   ├── tab_overview.py        # Overview surface
+│   ├── tab_forecast.py        # Historical demand
+│   ├── tab_demand_outlook.py  # Demand forecast
+│   ├── tab_backtest.py        # Backtest
+│   ├── tab_generation.py      # Generation and net load
+│   ├── tab_weather.py         # Weather/correlation
+│   ├── tab_models.py          # Models / diagnostics
+│   ├── tab_alerts.py          # Extreme events / alerts
+│   └── tab_simulator.py       # Scenario simulation
 ├── data/
-│   ├── cache.py               # SQLite caching with TTL + stale fallback
-│   ├── eia_client.py          # EIA API v2 client
-│   ├── weather_client.py      # Open-Meteo client (17 variables)
-│   ├── noaa_client.py         # NOAA/NWS severe weather alerts
-│   ├── news_client.py         # NewsAPI client (energy news feed)
-│   ├── preprocessing.py       # Merge, align, interpolate, validate
-│   ├── feature_engineering.py # 43 derived features
-│   ├── audit.py               # Forecast audit trail (model version, data hash)
-│   └── demo_data.py           # Synthetic data generators (offline mode)
+│   ├── cache.py               # Cache layer
+│   ├── eia_client.py          # EIA client
+│   ├── weather_client.py      # Open-Meteo client
+│   ├── noaa_client.py         # NOAA/NWS client
+│   ├── news_client.py         # External news/signals client
+│   ├── preprocessing.py       # Data merge / align / validate
+│   ├── feature_engineering.py # Derived features
+│   ├── audit.py               # Forecast audit trail
+│   └── demo_data.py           # Demo/offline data generation
 ├── models/
-│   ├── model_service.py       # Forecast service (trained ↔ simulated fallback)
-│   ├── xgboost_model.py       # XGBoost training/prediction + SHAP
-│   ├── prophet_model.py       # Prophet with weather regressors
-│   ├── arima_model.py         # SARIMAX with auto-order selection
-│   ├── ensemble.py            # 1/MAPE weighted combination
-│   ├── evaluation.py          # MAPE, RMSE, MAE, R²
-│   ├── training.py            # Training orchestrator
-│   └── pricing.py             # Merit-order pricing model
-├── simulation/                # Scenario engine + 6 presets (dormant)
-├── personas/                  # 4 role-based persona configurations
-├── observability.py           # Pipeline transformation logger
-├── tests/                     # 19 test files (unit/integration/e2e)
-├── Dockerfile                 # Multi-stage, non-root, healthcheck
-└── .github/workflows/         # CI, staging deploy, prod deploy
+│   ├── model_service.py       # Forecast service abstraction
+│   ├── xgboost_model.py       # XGBoost path + SHAP
+│   ├── prophet_model.py       # Prophet path
+│   ├── arima_model.py         # SARIMAX path
+│   ├── ensemble.py            # Ensemble logic
+│   ├── evaluation.py          # Metrics
+│   ├── training.py            # Training orchestration
+│   └── pricing.py             # Pricing/support logic
+├── simulation/                # Scenario engine and presets
+├── personas/                  # Role/view configuration
+├── observability.py           # Logging / pipeline observability
+├── scaling-analytics/         # Scaled/precompute scaffolding
+├── tests/                     # Unit / integration / e2e
+├── Dockerfile                 # Container spec
+└── .github/workflows/         # CI / deploy automation
 ```
 
 ---
 
-*Document Version: Sprint 5*
-*Last Updated: 2026-02-22*
+*Document Version: Updated for platform framing and current implementation guidance*
