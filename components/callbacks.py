@@ -203,6 +203,78 @@ def _confidence_half_width(horizon_hours: int) -> float:
     return 0.10  # ±10% for 30-day
 
 
+def _collect_backtest_residuals(region: str, model_name: str, horizon_hours: int) -> np.ndarray:
+    """Collect recent backtest residuals by model/region/horizon from cache layers."""
+    residual_chunks: list[np.ndarray] = []
+
+    # In-memory cache (most recent in-process compute path)
+    for (r, h, m, _mode), (cached_result, _hash, _time) in _BACKTEST_CACHE.items():
+        if r != region or h != horizon_hours:
+            continue
+        if m != model_name and not (model_name == "ensemble" and m in ("ensemble",)):
+            continue
+        actual = np.asarray(cached_result.get("actual", []), dtype=float)
+        pred = np.asarray(cached_result.get("predictions", []), dtype=float)
+        n = min(len(actual), len(pred))
+        if n > 0:
+            residual_chunks.append(actual[:n] - pred[:n])
+
+    # Redis pre-computed backtests (common production path)
+    for key in (
+        f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon_hours}",
+        f"wattcast:backtest:{region}:{horizon_hours}",
+    ):
+        cached = redis_get(key)
+        if not isinstance(cached, dict):
+            continue
+        actual = np.asarray(cached.get("actual", []), dtype=float)
+        preds_map = cached.get("predictions", {})
+        if isinstance(preds_map, dict):
+            if model_name in preds_map:
+                pred = np.asarray(preds_map.get(model_name, []), dtype=float)
+            elif "ensemble" in preds_map:
+                pred = np.asarray(preds_map.get("ensemble", []), dtype=float)
+            elif preds_map:
+                pred = np.asarray(next(iter(preds_map.values())), dtype=float)
+            else:
+                pred = np.array([], dtype=float)
+            n = min(len(actual), len(pred))
+            if n > 0:
+                residual_chunks.append(actual[:n] - pred[:n])
+
+    if not residual_chunks:
+        return np.array([], dtype=float)
+    residuals = np.concatenate(residual_chunks)
+    return residuals[np.isfinite(residuals)]
+
+
+def _empirical_interval_from_backtests(
+    region: str,
+    model_name: str,
+    horizon_hours: int,
+    target_coverage: float = 0.80,
+) -> dict[str, float | int | bool]:
+    """Estimate empirical prediction interval from recent backtest residuals."""
+    from models.evaluation import empirical_error_quantiles
+
+    residuals = _collect_backtest_residuals(region, model_name, horizon_hours)
+    if residuals.size < max(24, horizon_hours // 2):
+        return {"available": False}
+
+    tail_size = int(min(residuals.size, max(horizon_hours * 5, 120)))
+    recent = residuals[-tail_size:]
+    alpha = (1.0 - target_coverage) / 2.0
+    q = empirical_error_quantiles(recent, lower_q=alpha, upper_q=1.0 - alpha)
+    return {
+        "available": True,
+        "lower_error": float(q["lower_error"]),
+        "upper_error": float(q["upper_error"]),
+        "sample_size": int(q["sample_size"]),
+        "target_coverage": float(target_coverage),
+        "calibration_window_hours": tail_size,
+    }
+
+
 def _normalize_backtest_exog_mode(exog_mode: str | None) -> str:
     """Normalize requested backtest exogenous mode."""
     mode = (exog_mode or DEFAULT_BACKTEST_EXOG_MODE).strip().lower()
@@ -300,11 +372,33 @@ def _add_confidence_bands(
     timestamps: "pd.DatetimeIndex | np.ndarray",
     predictions: np.ndarray,
     horizon_hours: int,
-) -> None:
-    """Add upper/lower 80% confidence band traces to a forecast figure."""
-    hw = _confidence_half_width(horizon_hours)
-    upper = predictions * (1 + hw)
-    lower = predictions * (1 - hw)
+    region: str | None = None,
+    model_name: str = "ensemble",
+) -> dict[str, float | int | bool | str]:
+    """Add upper/lower 80% prediction interval traces to a forecast figure."""
+    from models.evaluation import apply_empirical_interval
+
+    interval_meta = {"method": "heuristic", "target_coverage": 0.80}
+    empirical = None
+    if region:
+        empirical = _empirical_interval_from_backtests(region, model_name, horizon_hours)
+    if empirical and bool(empirical.get("available")):
+        lower, upper = apply_empirical_interval(
+            predictions,
+            float(empirical["lower_error"]),
+            float(empirical["upper_error"]),
+        )
+        interval_meta = {"method": "empirical", **empirical}
+    else:
+        hw = _confidence_half_width(horizon_hours)
+        upper = predictions * (1 + hw)
+        lower = predictions * (1 - hw)
+
+    band_name = (
+        "80% empirical prediction interval"
+        if interval_meta["method"] == "empirical"
+        else "80% CI"
+    )
 
     fig.add_trace(
         go.Scatter(
@@ -324,10 +418,11 @@ def _add_confidence_bands(
             line=dict(width=0),
             fill="tonexty",
             fillcolor=COLORS["confidence"],
-            name="80% CI",
+            name=band_name,
             hoverinfo="skip",
         )
     )
+    return interval_meta
 
 
 def _add_trailing_actuals(
@@ -1533,12 +1628,23 @@ def _outlook_tab_from_redis(
             showlegend=False,
         )
     )
-    _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
+    interval_meta = _add_confidence_bands(
+        fig, timestamps, predictions, horizon_hours, region=region, model_name=model_name
+    )
     _add_trailing_actuals(fig, demand_json)
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
+    interval_caption = ""
+    if interval_meta.get("method") == "empirical":
+        interval_caption = (
+            f"<br><sup>80% empirical prediction interval "
+            f"(calibration window: last {int(interval_meta.get('calibration_window_hours', 0))}h)</sup>"
+        )
     fig.update_layout(
         **PLOT_LAYOUT,
-        title=f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}",
+        title=(
+            f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}"
+            f"{interval_caption}"
+        ),
         xaxis_title="Date/Time",
         yaxis_title="Demand (MW)",
         hovermode="x unified",
@@ -1617,6 +1723,27 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
         metrics = next(iter(all_metrics.values()))
     else:
         metrics = {"mape": 0, "rmse": 0, "mae": 0, "r2": 0}
+    residuals = actual - predictions
+    interval_monitor = {"recent_coverage": 0.0, "drift": -0.8}
+    interval_window = 0
+    interval_available = False
+    try:
+        from models.evaluation import (
+            apply_empirical_interval,
+            compute_interval_coverage_drift,
+            empirical_error_quantiles,
+        )
+
+        interval_window = int(min(len(residuals), max(horizon_hours * 5, 120)))
+        recent_resid = residuals[-interval_window:] if interval_window else residuals
+        q = empirical_error_quantiles(recent_resid, lower_q=0.10, upper_q=0.90)
+        lower_band, upper_band = apply_empirical_interval(
+            predictions, q["lower_error"], q["upper_error"]
+        )
+        interval_monitor = compute_interval_coverage_drift(actual, lower_band, upper_band, 0.80)
+        interval_available = bool(q.get("sample_size", 0) > 0)
+    except Exception:
+        lower_band, upper_band = predictions, predictions
 
     # Build the chart
     fig = go.Figure()
@@ -1644,6 +1771,29 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
             line=dict(color=model_colors.get(model_name, "#00d4aa"), width=2, dash="dash"),
         )
     )
+    if interval_available:
+        fig.add_trace(
+            go.Scatter(
+                x=timestamps,
+                y=upper_band,
+                mode="lines",
+                line=dict(width=0),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=timestamps,
+                y=lower_band,
+                mode="lines",
+                line=dict(width=0),
+                fill="tonexty",
+                fillcolor=COLORS["confidence"],
+                name="80% empirical prediction interval",
+                hoverinfo="skip",
+            )
+        )
     fig.add_trace(
         go.Scatter(
             x=list(timestamps) + list(timestamps[::-1]),
@@ -1681,6 +1831,8 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     rmse_str = f"{metrics.get('rmse', 0):,.0f} MW{mode_suffix}"
     mae_str = f"{metrics.get('mae', 0):,.0f} MW{mode_suffix}"
     r2_str = f"{metrics.get('r2', 0):.3f}{mode_suffix}"
+    coverage_str = f"{interval_monitor.get('recent_coverage', 0.0) * 100:.1f}%"
+    drift_pp = interval_monitor.get("drift", 0.0) * 100.0
 
     from components.insights import build_insight_card, generate_tab3_insights
 
@@ -1705,7 +1857,11 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
         rmse_str,
         mae_str,
         r2_str,
-        f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}.",
+        (
+            f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}. "
+            f"Interval: 80% empirical prediction interval (calibration window: last {interval_window}h). "
+            f"Recent coverage: {coverage_str} (drift vs 80% target: {drift_pp:+.1f} pp)."
+        ),
         insight_card,
     )
 
@@ -3495,14 +3651,26 @@ def register_callbacks(app):
                 showlegend=False,
             )
         )
-        _add_confidence_bands(fig, timestamps, predictions, horizon_hours)
+        interval_meta = _add_confidence_bands(
+            fig, timestamps, predictions, horizon_hours, region=region, model_name=model_name
+        )
         _add_trailing_actuals(fig, demand_json)
 
         # Layout
         horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
+        interval_caption = ""
+        if interval_meta.get("method") == "empirical":
+            interval_caption = (
+                f"<br><sup>80% empirical prediction interval "
+                f"(calibration window: last "
+                f"{int(interval_meta.get('calibration_window_hours', 0))}h)</sup>"
+            )
         fig.update_layout(
             **PLOT_LAYOUT,
-            title=f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}",
+            title=(
+                f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}"
+                f"{interval_caption}"
+            ),
             xaxis_title="Date/Time",
             yaxis_title="Demand (MW)",
             hovermode="x unified",
@@ -3703,6 +3871,30 @@ def register_callbacks(app):
                 line=dict(color=model_colors.get(model_name, "#00d4aa"), width=2, dash="dash"),
             )
         )
+        interval_meta = result.get("interval", {})
+        if isinstance(interval_meta, dict) and len(interval_meta.get("lower", [])) == len(predictions):
+            fig.add_trace(
+                go.Scatter(
+                    x=timestamps,
+                    y=interval_meta["upper"],
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip",
+                )
+            )
+            fig.add_trace(
+                go.Scatter(
+                    x=timestamps,
+                    y=interval_meta["lower"],
+                    mode="lines",
+                    line=dict(width=0),
+                    fill="tonexty",
+                    fillcolor=COLORS["confidence"],
+                    name="80% empirical prediction interval",
+                    hoverinfo="skip",
+                )
+            )
 
         # Error shading (where forecast differs from actual)
         fig.add_trace(
@@ -3750,6 +3942,10 @@ def register_callbacks(app):
         rmse_str = f"{metrics['rmse']:,.0f} MW{mode_suffix}"
         mae_str = f"{metrics['mae']:,.0f} MW{mode_suffix}"
         r2_str = f"{metrics['r2']:.3f}{mode_suffix}"
+        monitor = interval_meta.get("coverage_monitor", {}) if isinstance(interval_meta, dict) else {}
+        coverage_str = f"{monitor.get('recent_coverage', 0.0) * 100:.1f}%"
+        drift_pp = monitor.get("drift", 0.0) * 100.0
+        calibration_window = int(interval_meta.get("calibration_window_hours", 0) or 0)
 
         # Generate insights
         from components.insights import build_insight_card, generate_tab3_insights
@@ -3779,7 +3975,11 @@ def register_callbacks(app):
             rmse_str,
             mae_str,
             r2_str,
-            f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}.",
+            (
+                f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}. "
+                f"Interval: 80% empirical prediction interval (calibration window: last {calibration_window}h). "
+                f"Recent coverage: {coverage_str} (drift vs 80% target: {drift_pp:+.1f} pp)."
+            ),
             insight_card,
         )
 
@@ -4212,7 +4412,12 @@ def _run_backtest_for_horizon(
 
     from data.feature_engineering import engineer_exogenous_features, engineer_features
     from data.preprocessing import merge_demand_weather
-    from models.evaluation import compute_all_metrics
+    from models.evaluation import (
+        apply_empirical_interval,
+        compute_all_metrics,
+        compute_interval_coverage_drift,
+        empirical_error_quantiles,
+    )
 
     exog_mode = _normalize_backtest_exog_mode(exog_mode)
     data_hash = _compute_data_hash(demand_df, weather_df, region)
@@ -4246,6 +4451,11 @@ def _run_backtest_for_horizon(
             cached_sqlite.setdefault("fold_boundaries", [0])
             cached_sqlite.setdefault("exog_mode", exog_mode)
             cached_sqlite.setdefault("exog_source", "unknown")
+            if isinstance(cached_sqlite.get("interval"), dict):
+                if "lower" in cached_sqlite["interval"]:
+                    cached_sqlite["interval"]["lower"] = np.array(cached_sqlite["interval"]["lower"])
+                if "upper" in cached_sqlite["interval"]:
+                    cached_sqlite["interval"]["upper"] = np.array(cached_sqlite["interval"]["upper"])
             _BACKTEST_CACHE[cache_key] = (cached_sqlite, data_hash, time.time())
             log.info(
                 "backtest_sqlite_cache_hit", region=region, horizon=horizon_hours, model=model_name
@@ -4361,6 +4571,14 @@ def _run_backtest_for_horizon(
     predictions = np.concatenate(all_predictions)
     timestamps = np.concatenate(all_timestamps)
     metrics = compute_all_metrics(actual, predictions)
+    residuals = actual - predictions
+    calibration_window = int(min(len(residuals), max(horizon_hours * 5, 120)))
+    recent_residuals = residuals[-calibration_window:] if calibration_window else residuals
+    q = empirical_error_quantiles(recent_residuals, lower_q=0.10, upper_q=0.90)
+    lower_interval, upper_interval = apply_empirical_interval(
+        predictions, q["lower_error"], q["upper_error"]
+    )
+    interval_monitor = compute_interval_coverage_drift(actual, lower_interval, upper_interval, 0.80)
 
     result = {
         "timestamps": timestamps,
@@ -4371,6 +4589,17 @@ def _run_backtest_for_horizon(
         "fold_boundaries": fold_boundaries,
         "exog_mode": exog_mode,
         "exog_source": ", ".join(sorted(exog_sources)) if exog_sources else "unknown",
+        "interval": {
+            "method": "empirical",
+            "target_coverage": 0.80,
+            "calibration_window_hours": calibration_window,
+            "sample_size": int(q["sample_size"]),
+            "lower_error": float(q["lower_error"]),
+            "upper_error": float(q["upper_error"]),
+            "lower": lower_interval,
+            "upper": upper_interval,
+            "coverage_monitor": interval_monitor,
+        },
     }
 
     log.info(
@@ -4381,7 +4610,19 @@ def _run_backtest_for_horizon(
         exog_mode=exog_mode,
         folds=len(fold_boundaries),
         mape=round(metrics["mape"], 2),
+        interval_recent_coverage=round(interval_monitor["recent_coverage"], 4),
+        interval_drift_pp=round(interval_monitor["drift"] * 100.0, 2),
     )
+    if abs(interval_monitor["drift"]) > 0.05:
+        log.warning(
+            "prediction_interval_coverage_drift",
+            region=region,
+            horizon=horizon_hours,
+            model=model_name,
+            recent_coverage=round(interval_monitor["recent_coverage"], 4),
+            target=0.80,
+            drift_pp=round(interval_monitor["drift"] * 100.0, 2),
+        )
 
     # Cache the result (in-memory)
     _BACKTEST_CACHE[cache_key] = (result, data_hash, time.time())
@@ -4403,6 +4644,11 @@ def _run_backtest_for_horizon(
             "fold_boundaries": result["fold_boundaries"],
             "exog_mode": result["exog_mode"],
             "exog_source": result["exog_source"],
+            "interval": {
+                **{k: v for k, v in result["interval"].items() if k not in ("lower", "upper")},
+                "lower": result["interval"]["lower"].tolist(),
+                "upper": result["interval"]["upper"].tolist(),
+            },
         }
         sqlite_cache.set(sqlite_key, serializable, ttl=CACHE_TTL_SECONDS)
     except Exception as e:

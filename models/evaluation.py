@@ -135,3 +135,81 @@ def compute_error_by_hour(
     grouped = df.groupby("hour")["abs_error"].agg(["mean", "std", "count"])
     grouped = grouped.rename(columns={"mean": "mean_abs_error", "std": "std_abs_error"})
     return grouped.reset_index()
+
+
+def empirical_error_quantiles(
+    residuals: np.ndarray,
+    lower_q: float = 0.10,
+    upper_q: float = 0.90,
+) -> dict[str, float]:
+    """
+    Estimate empirical forecast-error quantiles from residuals.
+
+    Residuals are expected to be ``actual - predicted`` so interval bounds for
+    predictions are derived as:
+      lower = pred + q_lower
+      upper = pred + q_upper
+    """
+    values = np.asarray(residuals, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size == 0:
+        return {"lower_error": 0.0, "upper_error": 0.0, "sample_size": 0}
+    return {
+        "lower_error": float(np.quantile(values, lower_q)),
+        "upper_error": float(np.quantile(values, upper_q)),
+        "sample_size": int(values.size),
+    }
+
+
+def apply_empirical_interval(
+    predicted: np.ndarray,
+    lower_error: float,
+    upper_error: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply empirical residual quantiles around point forecasts."""
+    pred = np.asarray(predicted, dtype=float)
+    return pred + lower_error, pred + upper_error
+
+
+def compute_interval_coverage(
+    actual: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+) -> float:
+    """Compute interval coverage rate in [0, 1]."""
+    y = np.asarray(actual, dtype=float)
+    lo = np.asarray(lower, dtype=float)
+    hi = np.asarray(upper, dtype=float)
+    if y.size == 0:
+        return 0.0
+    inside = (y >= lo) & (y <= hi)
+    return float(np.mean(inside))
+
+
+def compute_interval_coverage_drift(
+    actual: np.ndarray,
+    lower: np.ndarray,
+    upper: np.ndarray,
+    target_coverage: float = 0.80,
+    window_size: int = 168,
+) -> dict[str, float]:
+    """
+    Monitor prediction-interval coverage drift over time.
+
+    Returns both overall and recent-window drift (actual minus target).
+    """
+    y = np.asarray(actual, dtype=float)
+    lo = np.asarray(lower, dtype=float)
+    hi = np.asarray(upper, dtype=float)
+    n = int(min(y.size, lo.size, hi.size))
+    if n == 0:
+        return {"overall_coverage": 0.0, "recent_coverage": 0.0, "drift": -target_coverage}
+    y, lo, hi = y[:n], lo[:n], hi[:n]
+    overall_cov = compute_interval_coverage(y, lo, hi)
+    recent_n = max(1, min(window_size, n))
+    recent_cov = compute_interval_coverage(y[-recent_n:], lo[-recent_n:], hi[-recent_n:])
+    return {
+        "overall_coverage": overall_cov,
+        "recent_coverage": recent_cov,
+        "drift": recent_cov - target_coverage,
+    }
