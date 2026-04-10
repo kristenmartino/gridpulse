@@ -814,9 +814,9 @@ def build_insight_card(
                 [category_badge, html.Span(insight.text)],
                 style={
                     "padding": "6px 0",
-                    "borderBottom": "1px solid #2a2a3e",
+                    "borderBottom": "1px solid #263556",
                     "fontSize": "0.82rem",
-                    "color": "#b0b0c0",
+                    "color": "#DDE6F2",
                     "lineHeight": "1.5",
                 },
             )
@@ -842,7 +842,7 @@ def build_insight_card(
                     ),
                     html.Span(
                         f"  {persona_title}",
-                        style={"color": "#8a8fa8", "fontSize": "0.75rem"},
+                        style={"color": "#A8B3C7", "fontSize": "0.75rem"},
                     ),
                 ],
                 style={"marginBottom": "8px"},

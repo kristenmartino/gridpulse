@@ -1405,7 +1405,7 @@ def _alerts_tab_from_redis(region):
         alert_cards = [
             html.P(
                 "No active alerts",
-                style={"color": "#8a8fa8", "textAlign": "center", "padding": "20px"},
+                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
             )
         ]
 
@@ -1425,7 +1425,7 @@ def _alerts_tab_from_redis(region):
         breakdown_items.append(
             html.Div(
                 f"\U0001f7e1 Warning: {n_warn}",
-                style={"fontSize": "0.75rem", "color": "#f0ad4e"},
+                style={"fontSize": "0.75rem", "color": "#FFB84D"},
             )
         )
     if n_info:
@@ -1439,7 +1439,7 @@ def _alerts_tab_from_redis(region):
         breakdown_items.append(
             html.Div(
                 "No active alerts",
-                style={"fontSize": "0.75rem", "color": "#8a8fa8"},
+                style={"fontSize": "0.75rem", "color": "#A8B3C7"},
             )
         )
     breakdown = html.Div(breakdown_items)
@@ -1515,7 +1515,7 @@ def _alerts_tab_from_redis(region):
     ]
     fig_timeline = go.Figure()
     for date, name, reg, sev in events:
-        color = COLORS["ensemble"] if reg == region else "#8a8fa8"
+        color = COLORS["ensemble"] if reg == region else "#A8B3C7"
         fig_timeline.add_trace(
             go.Scatter(
                 x=[date],
@@ -1611,7 +1611,7 @@ def _outlook_tab_from_redis(
             y=predictions,
             mode="lines",
             name=f"{model_name.upper()} Forecast",
-            line=dict(color=COLORS.get("ensemble", "#00d4aa"), width=2),
+            line=dict(color=COLORS.get("ensemble", "#2DE2C4"), width=2),
             fill="tozeroy",
             fillcolor="rgba(0, 212, 170, 0.1)",
         )
@@ -1748,10 +1748,10 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     # Build the chart
     fig = go.Figure()
     model_colors = {
-        "xgboost": COLORS.get("ensemble", "#00d4aa"),
+        "xgboost": COLORS.get("ensemble", "#2DE2C4"),
         "prophet": COLORS.get("prophet", "#ff6b6b"),
         "arima": COLORS.get("arima", "#4ecdc4"),
-        "ensemble": COLORS.get("ensemble", "#00d4aa"),
+        "ensemble": COLORS.get("ensemble", "#2DE2C4"),
     }
     fig.add_trace(
         go.Scatter(
@@ -1768,7 +1768,7 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
             y=predictions,
             mode="lines",
             name=f"{model_name.upper()} Forecast",
-            line=dict(color=model_colors.get(model_name, "#00d4aa"), width=2, dash="dash"),
+            line=dict(color=model_colors.get(model_name, "#2DE2C4"), width=2, dash="dash"),
         )
     )
     if interval_available:
@@ -3035,7 +3035,7 @@ def register_callbacks(app):
             alert_cards = [
                 html.P(
                     "No active alerts",
-                    style={"color": "#8a8fa8", "textAlign": "center", "padding": "20px"},
+                    style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
                 )
             ]
 
@@ -3055,7 +3055,7 @@ def register_callbacks(app):
             )
         if n_warn:
             breakdown_items.append(
-                html.Div(f"🟡 Warning: {n_warn}", style={"fontSize": "0.75rem", "color": "#f0ad4e"})
+                html.Div(f"🟡 Warning: {n_warn}", style={"fontSize": "0.75rem", "color": "#FFB84D"})
             )
         if n_info:
             breakdown_items.append(
@@ -3063,7 +3063,7 @@ def register_callbacks(app):
             )
         if not alerts:
             breakdown_items.append(
-                html.Div("No active alerts", style={"fontSize": "0.75rem", "color": "#8a8fa8"})
+                html.Div("No active alerts", style={"fontSize": "0.75rem", "color": "#A8B3C7"})
             )
         breakdown = html.Div(breakdown_items)
 
@@ -3148,7 +3148,7 @@ def register_callbacks(app):
         ]
         fig_timeline = go.Figure()
         for date, name, reg, sev in events:
-            color = COLORS["ensemble"] if reg == region else "#8a8fa8"
+            color = COLORS["ensemble"] if reg == region else "#A8B3C7"
             fig_timeline.add_trace(
                 go.Scatter(
                     x=[date],
@@ -3458,7 +3458,7 @@ def register_callbacks(app):
         from datetime import datetime
 
         if not freshness_json:
-            return html.Span("⏳ Loading…", style={"color": "#8a8fa8", "fontSize": "0.75rem"})
+            return html.Span("⏳ Loading…", style={"color": "#A8B3C7", "fontSize": "0.75rem"})
 
         freshness = json.loads(freshness_json)
         statuses = [freshness.get(s, "fresh") for s in ("demand", "weather", "alerts")]
@@ -3488,7 +3488,7 @@ def register_callbacks(app):
                 html.Span(f"{icon} {label}", style={"marginRight": "8px"}),
                 html.Span(
                     f"Data through: {data_time_text}" if data_time_text else "",
-                    style={"color": "#8a8fa8", "fontSize": "0.7rem"},
+                    style={"color": "#A8B3C7", "fontSize": "0.7rem"},
                 ),
             ],
             style={"color": color, "fontSize": "0.75rem", "fontWeight": "500"},
@@ -3764,7 +3764,7 @@ def register_callbacks(app):
                 y=predictions,
                 mode="lines",
                 name=f"{model_name.upper()} Forecast",
-                line=dict(color=COLORS.get("ensemble", "#00d4aa"), width=2),
+                line=dict(color=COLORS.get("ensemble", "#2DE2C4"), width=2),
                 fill="tozeroy",
                 fillcolor="rgba(0, 212, 170, 0.1)",
             )
@@ -3988,10 +3988,10 @@ def register_callbacks(app):
 
         # Forecast line
         model_colors = {
-            "xgboost": COLORS.get("ensemble", "#00d4aa"),
+            "xgboost": COLORS.get("ensemble", "#2DE2C4"),
             "prophet": COLORS.get("prophet", "#ff6b6b"),
             "arima": COLORS.get("arima", "#4ecdc4"),
-            "ensemble": COLORS.get("ensemble", "#00d4aa"),
+            "ensemble": COLORS.get("ensemble", "#2DE2C4"),
         }
 
         fig.add_trace(
@@ -4000,7 +4000,7 @@ def register_callbacks(app):
                 y=predictions,
                 mode="lines",
                 name=f"{model_name.upper()} Forecast",
-                line=dict(color=model_colors.get(model_name, "#00d4aa"), width=2, dash="dash"),
+                line=dict(color=model_colors.get(model_name, "#2DE2C4"), width=2, dash="dash"),
             )
         )
         interval_meta = result.get("interval", {})
@@ -4195,7 +4195,7 @@ def _build_overview_briefing(
         log.error("overview_briefing_failed", error=str(exc))
         return html.Div(
             "Briefing unavailable",
-            style={"color": "#8a8fa8", "fontStyle": "italic"},
+            style={"color": "#A8B3C7", "fontStyle": "italic"},
         )
 
     persona = get_persona(persona_id)
@@ -4219,7 +4219,7 @@ def _build_overview_briefing(
                 html.Li(
                     obs,
                     style={
-                        "color": "#b0b0c0",
+                        "color": "#A8B3C7",
                         "fontSize": "0.82rem",
                         "marginBottom": "4px",
                         "lineHeight": "1.5",
@@ -4239,7 +4239,7 @@ def _build_overview_briefing(
             source_label,
             style={
                 "fontSize": "0.65rem",
-                "color": "#8a8fa8",
+                "color": "#A8B3C7",
                 "textTransform": "uppercase",
                 "letterSpacing": "0.5px",
             },
@@ -4276,7 +4276,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
         if source == "timestamp":
             continue
         cfg = source_config.get(source, {"label": source.title(), "icon": "\u25cf"})
-        color = status_colors.get(status, "#8a8fa8")
+        color = status_colors.get(status, "#A8B3C7")
         status_text = status.upper() if status != "fresh" else "LIVE"
         badges.append(
             html.Div(
@@ -4453,8 +4453,8 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
 
     # Pricing tier thresholds
     for pct, label, color in [
-        (0.85, "High tier (85%)", "#f0ad4e"),
-        (0.70, "Moderate (70%)", "#8a8fa8"),
+        (0.85, "High tier (85%)", "#FFB84D"),
+        (0.70, "Moderate (70%)", "#A8B3C7"),
     ]:
         fig.add_hline(
             y=capacity * pct,
@@ -4574,7 +4574,7 @@ def _build_overview_digest(
         return html.Div(
             html.P(
                 "No insights available yet. Explore tabs to generate data.",
-                style={"color": "#8a8fa8", "fontSize": "0.82rem", "fontStyle": "italic"},
+                style={"color": "#A8B3C7", "fontSize": "0.82rem", "fontStyle": "italic"},
             )
         )
 
@@ -4611,7 +4611,7 @@ def _empty_figure(message: str = "") -> go.Figure:
             dict(
                 text=message,
                 showarrow=False,
-                font=dict(size=14, color="#8a8fa8"),
+                font=dict(size=14, color="#A8B3C7"),
                 xref="paper",
                 yref="paper",
                 x=0.5,

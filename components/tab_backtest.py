@@ -11,6 +11,36 @@ from dash import html
 from components.cards import build_chart_container
 
 
+def _section_header(title: str, subtitle: str) -> html.Div:
+    """Render a lightweight section header."""
+    return html.Div(
+        [
+            html.Span(
+                title,
+                style={
+                    "color": "#F7FAFC",
+                    "fontSize": "0.85rem",
+                    "fontWeight": "600",
+                    "marginRight": "8px",
+                },
+            ),
+            html.Span(
+                subtitle,
+                style={
+                    "color": "#A8B3C7",
+                    "fontSize": "0.75rem",
+                },
+            ),
+        ],
+        style={
+            "padding": "10px 0 4px 0",
+            "borderBottom": "1px solid #263556",
+            "marginTop": "12px",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def layout() -> html.Div:
     """Build Tab 7 (Backtest) layout."""
     return html.Div(
@@ -73,6 +103,8 @@ def layout() -> html.Div:
             ),
             # AI insight card
             html.Div(id="tab3-insight-card"),
+            # ── Accuracy Metrics ─────────────────────────
+            _section_header("Accuracy Metrics", "Model performance on holdout data"),
             # Metrics row
             dbc.Row(
                 [
@@ -152,6 +184,8 @@ def layout() -> html.Div:
                 ],
                 className="mt-3 g-2",
             ),
+            # ── Horizon Analysis ─────────────────────────
+            _section_header("Horizon Analysis", "How accuracy varies with forecast distance"),
             # Info panel
             dbc.Row(
                 [

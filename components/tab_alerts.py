@@ -15,6 +15,36 @@ from dash import html
 from components.cards import build_chart_container
 
 
+def _section_header(title: str, subtitle: str) -> html.Div:
+    """Render a lightweight section header."""
+    return html.Div(
+        [
+            html.Span(
+                title,
+                style={
+                    "color": "#F7FAFC",
+                    "fontSize": "0.85rem",
+                    "fontWeight": "600",
+                    "marginRight": "8px",
+                },
+            ),
+            html.Span(
+                subtitle,
+                style={
+                    "color": "#A8B3C7",
+                    "fontSize": "0.75rem",
+                },
+            ),
+        ],
+        style={
+            "padding": "10px 0 4px 0",
+            "borderBottom": "1px solid #263556",
+            "marginTop": "12px",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def layout() -> html.Div:
     """Build Tab 5 layout."""
     return html.Div(
@@ -43,7 +73,7 @@ def layout() -> html.Div:
                                         "Components:",
                                         style={
                                             "fontSize": "0.75rem",
-                                            "color": "#8a8fa8",
+                                            "color": "#A8B3C7",
                                             "margin": "4px 0",
                                         },
                                     ),
@@ -74,6 +104,8 @@ def layout() -> html.Div:
                 ],
                 className="g-2",
             ),
+            # ── Monitoring ───────────────────────────────
+            _section_header("Monitoring", "Anomaly detection and exceedance tracking"),
             # Middle: anomaly detection + temperature exceedance
             dbc.Row(
                 [
@@ -94,6 +126,8 @@ def layout() -> html.Div:
                 ],
                 className="g-2 mt-1",
             ),
+            # ── History ──────────────────────────────────
+            _section_header("History", "Past extreme events and their impact"),
             # Bottom: historical timeline
             dbc.Row(
                 [

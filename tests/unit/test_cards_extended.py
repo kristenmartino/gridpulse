@@ -110,7 +110,7 @@ class TestBuildNewsFeed(unittest.TestCase):
         assert feed.className == "news-ribbon"
 
         header = feed.children[0]
-        assert header.children == "Energy News"
+        assert header.children == "Grid Signals"
         assert header.className == "news-ribbon-header"
 
         viewport = feed.children[1]

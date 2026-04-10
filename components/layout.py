@@ -53,7 +53,7 @@ def build_layout() -> dbc.Container:
                                 [
                                     html.Label(
                                         "Balancing Authority",
-                                        style={"color": "#8a8fa8", "fontSize": "0.7rem"},
+                                        style={"color": "#A8B3C7", "fontSize": "0.7rem"},
                                     ),
                                     dbc.Select(
                                         id="region-selector",
@@ -71,7 +71,7 @@ def build_layout() -> dbc.Container:
                             dbc.Col(
                                 [
                                     html.Label(
-                                        "View", style={"color": "#8a8fa8", "fontSize": "0.7rem"}
+                                        "View", style={"color": "#A8B3C7", "fontSize": "0.7rem"}
                                     ),
                                     dbc.Select(
                                         id="persona-selector",

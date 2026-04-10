@@ -222,25 +222,25 @@ class TestUpdateHeaderFreshness:
         assert isinstance(result, html.Span)
         # Check color indicates live
         style = result.style or {}
-        assert style.get("color") == "#00d4aa"
+        assert style.get("color") == "#2BD67B"
 
     def test_all_demo_shows_demo_label(self, callbacks):
         fn = callbacks["update_header_freshness"]
         result = fn(_freshness_json(demand="demo", weather="demo", alerts="demo"))
         style = result.style or {}
-        assert style.get("color") == "#8a8fa8"
+        assert style.get("color") == "#A8B3C7"
 
     def test_any_error_shows_degraded(self, callbacks):
         fn = callbacks["update_header_freshness"]
         result = fn(_freshness_json(weather="error"))
         style = result.style or {}
-        assert style.get("color") == "#ff4757"
+        assert style.get("color") == "#FF5C7A"
 
     def test_stale_shows_partial(self, callbacks):
         fn = callbacks["update_header_freshness"]
         result = fn(_freshness_json(demand="stale"))
         style = result.style or {}
-        assert style.get("color") == "#ffa502"
+        assert style.get("color") == "#FFB84D"
 
     def test_latest_data_timestamp_rendered(self, callbacks):
         fn = callbacks["update_header_freshness"]

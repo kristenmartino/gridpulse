@@ -11,6 +11,36 @@ from dash import html
 from components.cards import build_chart_container
 
 
+def _section_header(title: str, subtitle: str) -> html.Div:
+    """Render a lightweight section header."""
+    return html.Div(
+        [
+            html.Span(
+                title,
+                style={
+                    "color": "#F7FAFC",
+                    "fontSize": "0.85rem",
+                    "fontWeight": "600",
+                    "marginRight": "8px",
+                },
+            ),
+            html.Span(
+                subtitle,
+                style={
+                    "color": "#A8B3C7",
+                    "fontSize": "0.75rem",
+                },
+            ),
+        ],
+        style={
+            "padding": "10px 0 4px 0",
+            "borderBottom": "1px solid #263556",
+            "marginTop": "12px",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def layout() -> html.Div:
     """Build Demand Outlook tab layout."""
     return html.Div(
@@ -24,7 +54,7 @@ def layout() -> html.Div:
                                 [
                                     html.Span(
                                         "Forecast as of: ",
-                                        style={"fontSize": "0.9rem", "color": "#666"},
+                                        style={"fontSize": "0.9rem", "color": "#A8B3C7"},
                                     ),
                                     html.Span(
                                         id="outlook-data-through",
@@ -38,6 +68,8 @@ def layout() -> html.Div:
                     ),
                 ]
             ),
+            # ── Forecast Controls ────────────────────────────
+            _section_header("Forecast Controls", "Horizon and model selection"),
             # Horizon selector
             dbc.Row(
                 [
@@ -97,6 +129,8 @@ def layout() -> html.Div:
             ),
             # AI insight card
             html.Div(id="tab2-insight-card"),
+            # ── Key Metrics ──────────────────────────────
+            _section_header("Key Metrics", "Forecast summary statistics"),
             # KPI cards row
             dbc.Row(
                 [

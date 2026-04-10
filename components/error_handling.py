@@ -150,7 +150,7 @@ def error_state(
             html.Pre(
                 error_detail[:200],
                 style={
-                    "color": "#666",
+                    "color": "#A8B3C7",
                     "fontSize": "0.7rem",
                     "marginTop": "12px",
                     "padding": "8px",

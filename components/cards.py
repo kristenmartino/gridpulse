@@ -118,9 +118,9 @@ def build_alert_card(
                 ],
             ),
             html.P(
-                headline, style={"margin": "4px 0 0 0", "fontSize": "0.8rem", "color": "#b0b0c0"}
+                headline, style={"margin": "4px 0 0 0", "fontSize": "0.8rem", "color": "#A8B3C7"}
             ),
-            html.Small(f"Expires: {expires}", style={"color": "#8a8fa8"}) if expires else None,
+            html.Small(f"Expires: {expires}", style={"color": "#A8B3C7"}) if expires else None,
         ],
         className=f"alert-card {severity}",
     )
@@ -161,7 +161,7 @@ def build_chart_container(
                     config={"displayModeBar": True, "responsive": True},
                 ),
                 type="circle",
-                color="#00d4aa",
+                color="#38D0FF",
             ),
         ],
         className="chart-container",
@@ -221,7 +221,7 @@ def build_news_feed(articles: list[dict]) -> html.Div:
         return html.Div(
             html.P(
                 "No news available",
-                style={"color": "#6c6c7c", "textAlign": "center", "padding": "20px"},
+                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
             ),
             className="news-ribbon",
         )
@@ -240,7 +240,7 @@ def build_news_feed(articles: list[dict]) -> html.Div:
     # Duplicate cards for seamless looping
     return html.Div(
         [
-            html.Div("Energy News", className="news-ribbon-header"),
+            html.Div("Grid Signals", className="news-ribbon-header"),
             html.Div(
                 html.Div(cards + cards, className="news-ticker-track"),
                 className="news-ticker-viewport",

@@ -15,10 +15,42 @@ from dash import html
 from components.cards import build_chart_container
 
 
+def _section_header(title: str, subtitle: str) -> html.Div:
+    """Render a lightweight section header."""
+    return html.Div(
+        [
+            html.Span(
+                title,
+                style={
+                    "color": "#F7FAFC",
+                    "fontSize": "0.85rem",
+                    "fontWeight": "600",
+                    "marginRight": "8px",
+                },
+            ),
+            html.Span(
+                subtitle,
+                style={
+                    "color": "#A8B3C7",
+                    "fontSize": "0.75rem",
+                },
+            ),
+        ],
+        style={
+            "padding": "10px 0 4px 0",
+            "borderBottom": "1px solid #263556",
+            "marginTop": "12px",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def layout() -> html.Div:
     """Build Tab 3 layout."""
     return html.Div(
         [
+            # ── Model Selection ─────────────────────────────
+            _section_header("Model Selection", "Choose models to compare"),
             # Model selector
             dbc.Row(
                 [
@@ -59,6 +91,8 @@ def layout() -> html.Div:
                     ),
                 ]
             ),
+            # ── Residual Analysis ────────────────────────
+            _section_header("Residual Analysis", "Error distribution and patterns"),
             # Residual analysis row
             dbc.Row(
                 [
@@ -83,6 +117,8 @@ def layout() -> html.Div:
                 ],
                 className="g-2 mt-1",
             ),
+            # ── Error Patterns ───────────────────────────
+            _section_header("Error Patterns", "Temporal error structure and feature drivers"),
             # Bottom row: error heatmap + SHAP
             dbc.Row(
                 [
