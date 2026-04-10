@@ -57,7 +57,9 @@ def layout() -> html.Div:
                             # Weather sliders
                             html.Div(
                                 [
-                                    _section_header("Scenario Builder", "Adjust weather parameters"),
+                                    _section_header(
+                                        "Scenario Builder", "Adjust weather parameters"
+                                    ),
                                     _slider("Temperature (°F)", "sim-temp", -10, 120, 75, 1, "°F"),
                                     _slider("Wind Speed (mph)", "sim-wind", 0, 80, 15, 1, "mph"),
                                     _slider("Cloud Cover (%)", "sim-cloud", 0, 100, 50, 5, "%"),

@@ -49,7 +49,9 @@ def layout() -> html.Div:
     return html.Div(
         [
             # ── Weather Correlations ────────────────────────
-            _section_header("Weather Correlations", "Direct relationships between weather and energy"),
+            _section_header(
+                "Weather Correlations", "Direct relationships between weather and energy"
+            ),
             # Top row: scatter plots
             dbc.Row(
                 [
@@ -75,7 +77,9 @@ def layout() -> html.Div:
                 className="g-2",
             ),
             # ── Feature Analysis ─────────────────────────
-            _section_header("Feature Analysis", "Multi-variable correlation and importance ranking"),
+            _section_header(
+                "Feature Analysis", "Multi-variable correlation and importance ranking"
+            ),
             # Middle row: heatmap + feature importance
             dbc.Row(
                 [
