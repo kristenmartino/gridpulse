@@ -1,22 +1,26 @@
-/* NextEra Energy Dashboard — Custom Styles */
+/* GridPulse — Energy Intelligence Platform */
+
+/* ── Typography ───────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap');
 
 /* ── Overall ───────────────────────────────────────────── */
 body {
-    background-color: #1a1a2e !important;
-    color: #e0e0e0;
-    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background-color: #0B1020 !important;
+    color: #DDE6F2;
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 /* ── Header ────────────────────────────────────────────── */
 .dashboard-header {
-    background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%);
-    border-bottom: 2px solid #e94560;
+    background: linear-gradient(135deg, #17223B 0%, #0B1020 100%);
+    border-bottom: 2px solid #38D0FF;
     padding: 12px 24px;
     margin-bottom: 0;
 }
 
 .dashboard-title {
-    color: #ffffff;
+    color: #F7FAFC;
+    font-family: 'Sora', 'Inter', sans-serif;
     font-size: 1.4rem;
     font-weight: 700;
     margin: 0;
@@ -24,24 +28,24 @@ body {
 }
 
 .dashboard-subtitle {
-    color: #8a8fa8;
+    color: #A8B3C7;
     font-size: 0.8rem;
     margin: 0;
 }
 
 .persona-switcher {
     max-width: 280px;
-    background-color: #16213e;
-    color: #e0e0e0;
-    border: 1px solid #0f3460;
+    background-color: #11182D;
+    color: #DDE6F2;
+    border: 1px solid #263556;
     border-radius: 6px;
     font-size: 0.9rem;
 }
 
 /* ── Welcome Card ──────────────────────────────────────── */
 .welcome-card {
-    background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
-    border-left: 4px solid #e94560;
+    background: linear-gradient(135deg, #11182D 0%, #0B1020 100%);
+    border-left: 4px solid #38D0FF;
     border-radius: 8px;
     padding: 16px 20px;
     margin: 12px 0;
@@ -49,14 +53,14 @@ body {
 }
 
 .welcome-card .welcome-title {
-    color: #ffffff;
+    color: #F7FAFC;
     font-size: 1.05rem;
     font-weight: 600;
     margin-bottom: 6px;
 }
 
 .welcome-card .welcome-message {
-    color: #b0b0c0;
+    color: #A8B3C7;
     font-size: 0.85rem;
     line-height: 1.5;
     margin: 0;
@@ -68,8 +72,8 @@ body {
 }
 
 .kpi-card {
-    background: #16213e;
-    border: 1px solid #0f3460;
+    background: #11182D;
+    border: 1px solid #263556;
     border-radius: 8px;
     padding: 14px 16px;
     text-align: center;
@@ -78,11 +82,11 @@ body {
 
 .kpi-card:hover {
     transform: translateY(-2px);
-    border-color: #e94560;
+    border-color: #38D0FF;
 }
 
 .kpi-label {
-    color: #8a8fa8;
+    color: #A8B3C7;
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -90,7 +94,7 @@ body {
 }
 
 .kpi-value {
-    color: #ffffff;
+    color: #F7FAFC;
     font-size: 1.5rem;
     font-weight: 700;
     line-height: 1.2;
@@ -101,18 +105,18 @@ body {
     margin-top: 2px;
 }
 
-.kpi-delta.positive { color: #2ecc71; }
-.kpi-delta.negative { color: #e94560; }
-.kpi-delta.neutral  { color: #8a8fa8; }
+.kpi-delta.positive { color: #2BD67B; }
+.kpi-delta.negative { color: #FF5C7A; }
+.kpi-delta.neutral  { color: #A8B3C7; }
 
 /* ── Tabs ──────────────────────────────────────────────── */
 .nav-tabs {
-    border-bottom: 2px solid #0f3460;
+    border-bottom: 2px solid #263556;
     padding: 0 12px;
 }
 
 .nav-tabs .nav-link {
-    color: #8a8fa8;
+    color: #A8B3C7;
     font-size: 0.85rem;
     font-weight: 500;
     padding: 10px 16px;
@@ -122,14 +126,14 @@ body {
 }
 
 .nav-tabs .nav-link:hover {
-    color: #e0e0e0;
-    border-bottom-color: #0f3460;
+    color: #DDE6F2;
+    border-bottom-color: #263556;
 }
 
 .nav-tabs .nav-link.active {
-    color: #ffffff;
+    color: #F7FAFC;
     background: transparent;
-    border-bottom-color: #e94560;
+    border-bottom-color: #38D0FF;
 }
 
 .tab-content {
@@ -138,15 +142,15 @@ body {
 
 /* ── Charts ────────────────────────────────────────────── */
 .chart-container {
-    background: #16213e;
-    border: 1px solid #0f3460;
+    background: #11182D;
+    border: 1px solid #263556;
     border-radius: 8px;
     padding: 12px;
     margin-bottom: 12px;
 }
 
 .chart-title {
-    color: #e0e0e0;
+    color: #DDE6F2;
     font-size: 0.9rem;
     font-weight: 600;
     margin-bottom: 8px;
@@ -154,8 +158,8 @@ body {
 
 /* ── Insight Cards ────────────────────────────────────── */
 .insight-card {
-    background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
-    border: 1px solid #0f3460;
+    background: linear-gradient(135deg, #11182D 0%, #0B1020 100%);
+    border: 1px solid #263556;
     border-radius: 8px;
     padding: 14px 16px;
     margin: 8px 0;
@@ -168,30 +172,30 @@ body {
 
 /* ── Scenario Simulator Sliders ────────────────────────── */
 .slider-container {
-    background: #16213e;
-    border: 1px solid #0f3460;
+    background: #11182D;
+    border: 1px solid #263556;
     border-radius: 8px;
     padding: 16px;
     margin-bottom: 12px;
 }
 
 .slider-label {
-    color: #b0b0c0;
+    color: #A8B3C7;
     font-size: 0.8rem;
     margin-bottom: 2px;
 }
 
 .slider-value {
-    color: #ffffff;
+    color: #F7FAFC;
     font-weight: 600;
     font-size: 0.9rem;
 }
 
 /* ── Preset Scenario Buttons ───────────────────────────── */
 .preset-btn {
-    background: #0f3460;
-    border: 1px solid #1a3a6e;
-    color: #e0e0e0;
+    background: #17223B;
+    border: 1px solid #263556;
+    color: #DDE6F2;
     font-size: 0.78rem;
     padding: 6px 10px;
     border-radius: 6px;
@@ -202,8 +206,8 @@ body {
 }
 
 .preset-btn:hover {
-    background: #1a3a6e;
-    color: #ffffff;
+    background: #263556;
+    color: #F7FAFC;
 }
 
 .preset-btn .preset-name {
@@ -212,7 +216,7 @@ body {
 }
 
 .preset-btn .preset-meta {
-    color: #8a8fa8;
+    color: #A8B3C7;
     font-size: 0.7rem;
 }
 
@@ -225,13 +229,13 @@ body {
 }
 
 .alert-card.critical {
-    background: rgba(233, 69, 96, 0.15);
-    border-left-color: #e94560;
+    background: rgba(255, 92, 122, 0.15);
+    border-left-color: #FF5C7A;
 }
 
 .alert-card.warning {
-    background: rgba(255, 183, 77, 0.15);
-    border-left-color: #ffb74d;
+    background: rgba(255, 184, 77, 0.15);
+    border-left-color: #FFB84D;
 }
 
 .alert-card.info {
@@ -246,8 +250,8 @@ body {
 }
 
 .metrics-table th {
-    background: #0f3460;
-    color: #e0e0e0;
+    background: #17223B;
+    color: #DDE6F2;
     padding: 8px 12px;
     font-size: 0.8rem;
     text-align: center;
@@ -256,21 +260,21 @@ body {
 .metrics-table td {
     padding: 8px 12px;
     text-align: center;
-    border-bottom: 1px solid #0f3460;
+    border-bottom: 1px solid #263556;
     font-size: 0.85rem;
 }
 
-/* ── News Ticker ──────────────────────────────────────── */
+/* ── News / Grid Signals ─────────────────────────────── */
 .news-ribbon {
-    background: #16213e;
-    border: 1px solid #0f3460;
+    background: #11182D;
+    border: 1px solid #263556;
     border-radius: 8px;
     padding: 12px 16px;
     margin-top: 16px;
 }
 
 .news-ribbon-header {
-    color: #8a8fa8;
+    color: #A8B3C7;
     font-size: 0.75rem;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -299,9 +303,9 @@ body {
 
 .news-ribbon-card {
     flex: 0 0 260px;
-    background: #1a1a2e;
-    border: 1px solid #0f3460;
-    border-left: 3px solid #e94560;
+    background: #0B1020;
+    border: 1px solid #263556;
+    border-left: 3px solid #263556;
     border-radius: 6px;
     padding: 10px 12px;
     transition: border-color 0.15s;
@@ -310,11 +314,11 @@ body {
 }
 
 .news-ribbon-card:hover {
-    border-color: #e94560;
+    border-color: #4A7BFF;
 }
 
 .news-ribbon-card .news-title {
-    color: #e0e0e0;
+    color: #DDE6F2;
     font-size: 0.8rem;
     font-weight: 500;
     line-height: 1.3;
@@ -325,19 +329,19 @@ body {
 }
 
 .news-ribbon-card:hover .news-title {
-    color: #e94560;
+    color: #38D0FF;
 }
 
 .news-ribbon-card .news-meta {
-    color: #6c6c7c;
+    color: #A8B3C7;
     font-size: 0.7rem;
     margin-top: 6px;
 }
 
 /* ── AI Briefing Card ─────────────────────────────────── */
 .briefing-card {
-    background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
-    border: 1px solid #0f3460;
+    background: linear-gradient(135deg, #11182D 0%, #0B1020 100%);
+    border: 1px solid #263556;
     border-radius: 8px;
     padding: 16px 20px;
     margin: 8px 0;
@@ -355,7 +359,7 @@ body {
 
 .skeleton-line {
     height: 12px;
-    background: linear-gradient(90deg, #1a1a2e 25%, #0f3460 50%, #1a1a2e 75%);
+    background: linear-gradient(90deg, #0B1020 25%, #17223B 50%, #0B1020 75%);
     background-size: 200% 100%;
     border-radius: 4px;
     margin-bottom: 10px;
@@ -377,8 +381,8 @@ body {
 
 /* ── Insight Digest ──────────────────────────────────── */
 .insight-digest {
-    background: linear-gradient(135deg, #16213e 0%, #1a1a2e 100%);
-    border: 1px solid #0f3460;
+    background: linear-gradient(135deg, #11182D 0%, #0B1020 100%);
+    border: 1px solid #263556;
     border-radius: 8px;
     padding: 14px 16px;
     min-height: 260px;
@@ -386,7 +390,7 @@ body {
 
 .insight-digest:empty::after {
     content: "Loading insights...";
-    color: #8a8fa8;
+    color: #A8B3C7;
     font-size: 0.82rem;
     font-style: italic;
 }
@@ -405,9 +409,9 @@ body {
     display: inline-block;
 }
 
-.freshness-badge.fresh   { background: #2ecc71; color: #1a1a2e; }
-.freshness-badge.stale   { background: #ffb74d; color: #1a1a2e; }
-.freshness-badge.expired { background: #e94560; color: #ffffff; }
+.freshness-badge.fresh   { background: #2BD67B; color: #0B1020; }
+.freshness-badge.stale   { background: #FFB84D; color: #0B1020; }
+.freshness-badge.expired { background: #FF5C7A; color: #F7FAFC; }
 
 /* ── Region Selector ───────────────────────────────────── */
 .region-selector {

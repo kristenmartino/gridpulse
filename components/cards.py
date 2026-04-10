@@ -65,7 +65,7 @@ def build_welcome_card(
     title: str,
     message: str,
     avatar: str = "👋",
-    color: str = "#e94560",
+    color: str = "#38D0FF",
 ) -> html.Div:
     """
     Build a persona-specific welcome card.

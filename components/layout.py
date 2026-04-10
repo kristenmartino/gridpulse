@@ -40,9 +40,9 @@ def build_layout() -> dbc.Container:
                         [
                             dbc.Col(
                                 [
-                                    html.H1("\u26a1 GridPulse", className="dashboard-title"),
+                                    html.H1("GridPulse", className="dashboard-title"),
                                     html.P(
-                                        "Demand Forecasting & Analytics",
+                                        "Energy Intelligence Platform",
                                         className="dashboard-subtitle",
                                     ),
                                 ],
@@ -71,7 +71,7 @@ def build_layout() -> dbc.Container:
                             dbc.Col(
                                 [
                                     html.Label(
-                                        "Persona", style={"color": "#8a8fa8", "fontSize": "0.7rem"}
+                                        "View", style={"color": "#8a8fa8", "fontSize": "0.7rem"}
                                     ),
                                     dbc.Select(
                                         id="persona-selector",
@@ -94,7 +94,7 @@ def build_layout() -> dbc.Container:
                                     html.Div(
                                         [
                                             dbc.Button(
-                                                "Presentation Mode",
+                                                "Briefing Mode",
                                                 id="meeting-mode-btn",
                                                 size="sm",
                                                 color="info",
@@ -103,7 +103,7 @@ def build_layout() -> dbc.Container:
                                                 style={"fontSize": "0.75rem"},
                                             ),
                                             dbc.Button(
-                                                "\U0001f517 Bookmark",
+                                                "Save View",
                                                 id="bookmark-btn",
                                                 size="sm",
                                                 color="secondary",

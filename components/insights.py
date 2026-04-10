@@ -788,7 +788,7 @@ def build_insight_card(
     severity_colors = {
         "info": "#64b5f6",
         "notable": "#ffb74d",
-        "warning": "#e94560",
+        "warning": "#FF5C7A",
     }
 
     insight_items = []

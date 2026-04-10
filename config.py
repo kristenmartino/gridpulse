@@ -232,14 +232,14 @@ TAB_IDS: list[str] = [
 
 TAB_LABELS: dict[str, str] = {
     "tab-overview": "Overview",
-    "tab-forecast": "Load History",
+    "tab-forecast": "History",
     "tab-outlook": "Forecast",
-    "tab-backtest": "Backtest",
-    "tab-generation": "Generation & Net Load",
-    "tab-weather": "Weather Correlation",
-    "tab-models": "Model QA",
-    "tab-alerts": "Alerts & Events",
-    "tab-simulator": "What-If Planner",
+    "tab-backtest": "Validation",
+    "tab-generation": "Grid",
+    "tab-weather": "Conditions",
+    "tab-models": "Models",
+    "tab-alerts": "Risk",
+    "tab-simulator": "Scenarios",
 }
 
 # ---------------------------------------------------------------------------
