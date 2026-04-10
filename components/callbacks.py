@@ -4546,6 +4546,8 @@ def _build_overview_digest(
         build_insight_card,
         generate_tab1_insights,
         generate_tab2_insights,
+        generate_tab3_insights,
+        generate_tab4_insights,
     )
 
     all_insights: list[Insight] = []
@@ -4558,7 +4560,6 @@ def _build_overview_digest(
         pass
 
     # Tab 2: Forecast insights (need predictions — skip if unavailable)
-    # We'll just use tab1 + any cached model data
     try:
         for horizon in [168, 24]:
             pred_key = (region, horizon)
@@ -4567,6 +4568,67 @@ def _build_overview_digest(
                 tab2 = generate_tab2_insights(persona_id, region, preds, timestamps)
                 all_insights.extend(tab2)
                 break
+    except Exception:
+        pass
+
+    # Tab 3: Validation insights (from backtest cache)
+    try:
+        for model_name in ["xgboost", "prophet", "arima"]:
+            for horizon in [168, 24, 720]:
+                bt_key = (region, horizon, model_name, DEFAULT_BACKTEST_EXOG_MODE)
+                if bt_key in _BACKTEST_CACHE:
+                    result_dict, _, _ = _BACKTEST_CACHE[bt_key]
+                    if isinstance(result_dict, dict) and "mape" in result_dict:
+                        metrics = {model_name: result_dict}
+                        tab3 = generate_tab3_insights(
+                            persona_id,
+                            region,
+                            metrics,
+                            model_name=model_name,
+                            horizon_hours=horizon,
+                        )
+                        all_insights.extend(tab3)
+                        break
+            else:
+                continue
+            break
+    except Exception:
+        pass
+
+    # Tab 4: Grid insights (from generation cache)
+    try:
+        if region in _GENERATION_CACHE:
+            gen_df, _ = _GENERATION_CACHE[region]
+            if gen_df is not None and not gen_df.empty:
+                gen_copy = gen_df.copy()
+                gen_copy["timestamp"] = pd.to_datetime(gen_copy["timestamp"])
+                pivot = gen_copy.pivot_table(
+                    index="timestamp",
+                    columns="fuel_type",
+                    values="generation_mw",
+                    aggfunc="sum",
+                ).fillna(0)
+                total_gen = pivot.sum(axis=1)
+                renewable_cols = [
+                    c for c in pivot.columns if c.lower() in ("wind", "solar", "hydro")
+                ]
+                renewable_gen = (
+                    pivot[renewable_cols].sum(axis=1) if renewable_cols else total_gen * 0
+                )
+                renewable_pct = (
+                    (renewable_gen.sum() / total_gen.sum() * 100) if total_gen.sum() > 0 else 0.0
+                )
+                net_load = total_gen - renewable_gen
+                tab4 = generate_tab4_insights(
+                    persona_id=persona_id,
+                    region=region,
+                    net_load=net_load,
+                    demand=total_gen,
+                    renewable_pct=renewable_pct,
+                    pivot=pivot,
+                    timestamps=pd.DatetimeIndex(pivot.index),
+                )
+                all_insights.extend(tab4)
     except Exception:
         pass
 
