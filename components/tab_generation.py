@@ -16,6 +16,36 @@ from dash import html
 from components.cards import build_chart_container
 
 
+def _section_header(title: str, subtitle: str) -> html.Div:
+    """Render a lightweight section header."""
+    return html.Div(
+        [
+            html.Span(
+                title,
+                style={
+                    "color": "#F7FAFC",
+                    "fontSize": "0.85rem",
+                    "fontWeight": "600",
+                    "marginRight": "8px",
+                },
+            ),
+            html.Span(
+                subtitle,
+                style={
+                    "color": "#A8B3C7",
+                    "fontSize": "0.75rem",
+                },
+            ),
+        ],
+        style={
+            "padding": "10px 0 4px 0",
+            "borderBottom": "1px solid #263556",
+            "marginTop": "12px",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def layout() -> html.Div:
     """Build Tab 4 (Generation & Net Load) layout."""
     return html.Div(
@@ -37,6 +67,8 @@ def layout() -> html.Div:
                     ),
                 ]
             ),
+            # ── Controls ────────────────────────────────────
+            _section_header("Controls", "Time range selection"),
             # Date range selector
             dbc.Row(
                 [
@@ -74,6 +106,8 @@ def layout() -> html.Div:
             ),
             # AI insight card
             html.Div(id="tab4-insight-card"),
+            # ── Key Metrics ──────────────────────────────
+            _section_header("Key Metrics", "Renewable share and net load indicators"),
             # KPI row (4 cards)
             dbc.Row(
                 [
@@ -160,8 +194,9 @@ def layout() -> html.Div:
                 ],
                 className="mt-3 g-2",
             ),
+            # ── Generation Mix ───────────────────────────
+            _section_header("Generation Mix", "Fuel type breakdown over time"),
             # Supporting chart: Generation Mix (stacked area)
-            html.Div(className="mt-3"),
             build_chart_container(
                 "tab4-gen-mix-chart",
                 "Generation Mix by Fuel Type",

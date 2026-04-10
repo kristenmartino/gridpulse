@@ -1146,7 +1146,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             line=dict(color=COLORS["arima"], width=1),
         )
     )
-    fig_resid_time.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+    fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
     fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
 
     fig_resid_hist = go.Figure(
@@ -1162,7 +1162,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
         )
     )
-    fig_resid_pred.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+    fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
     fig_resid_pred.update_layout(
         **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
     )
@@ -1303,7 +1303,7 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
             name="Renewable Contribution",
             line=dict(width=0),
             fill="tonexty",
-            fillcolor="rgba(46,204,113,0.20)",
+            fillcolor="rgba(45,226,196,0.15)",
         )
     )
     fig_hero.update_layout(
@@ -1613,7 +1613,7 @@ def _outlook_tab_from_redis(
             name=f"{model_name.upper()} Forecast",
             line=dict(color=COLORS.get("ensemble", "#2DE2C4"), width=2),
             fill="tozeroy",
-            fillcolor="rgba(0, 212, 170, 0.1)",
+            fillcolor="rgba(56,208,255,0.10)",
         )
     )
     fig.add_trace(
@@ -1622,7 +1622,7 @@ def _outlook_tab_from_redis(
             y=[peak_val],
             mode="markers+text",
             name="Peak",
-            marker=dict(color="#ff6b6b", size=12, symbol="triangle-up"),
+            marker=dict(color="#FF5C7A", size=12, symbol="triangle-up"),
             text=[f"Peak: {peak_val:,.0f} MW"],
             textposition="top center",
             showlegend=False,
@@ -1749,8 +1749,8 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     fig = go.Figure()
     model_colors = {
         "xgboost": COLORS.get("ensemble", "#2DE2C4"),
-        "prophet": COLORS.get("prophet", "#ff6b6b"),
-        "arima": COLORS.get("arima", "#4ecdc4"),
+        "prophet": COLORS.get("prophet", "#E69F00"),
+        "arima": COLORS.get("arima", "#009E73"),
         "ensemble": COLORS.get("ensemble", "#2DE2C4"),
     }
     fig.add_trace(
@@ -1799,7 +1799,7 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
             x=list(timestamps) + list(timestamps[::-1]),
             y=list(predictions) + list(actual[::-1]),
             fill="toself",
-            fillcolor="rgba(255, 107, 107, 0.15)",
+            fillcolor="rgba(255,92,122,0.12)",
             line=dict(width=0),
             name="Forecast Error",
             showlegend=True,
@@ -2264,7 +2264,7 @@ def register_callbacks(app):
                 name="Actual Demand",
                 line=dict(color=COLORS["actual"], width=2),
                 fill="tozeroy",
-                fillcolor="rgba(0, 212, 170, 0.1)",
+                fillcolor="rgba(56,208,255,0.10)",
             )
         )
 
@@ -2677,7 +2677,7 @@ def register_callbacks(app):
                     line=dict(color=model_colors.get(model_key, COLORS["actual"]), width=1),
                 )
             )
-        fig_resid_time.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+        fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
         fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
 
         fig_resid_hist = go.Figure()
@@ -2714,7 +2714,7 @@ def register_callbacks(app):
                     ),
                 )
             )
-        fig_resid_pred.add_hline(y=0, line=dict(color="#ffffff", dash="dash", width=0.5))
+        fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
         fig_resid_pred.update_layout(
             **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
         )
@@ -2924,7 +2924,7 @@ def register_callbacks(app):
                 name="Renewable Contribution",
                 line=dict(width=0),
                 fill="tonexty",
-                fillcolor="rgba(46,204,113,0.20)",
+                fillcolor="rgba(45,226,196,0.15)",
             )
         )
 
@@ -3310,7 +3310,7 @@ def register_callbacks(app):
         )
         fig_price.add_vline(
             x=current_util * 100,
-            line=dict(color="#ffffff", dash="dash"),
+            line=dict(color="#F7FAFC", dash="dash"),
             annotation_text=f"Scenario: {current_util * 100:.0f}%",
         )
         fig_price.update_layout(**PLOT_LAYOUT, xaxis_title="Utilization %", yaxis_title="$/MWh")
@@ -3766,7 +3766,7 @@ def register_callbacks(app):
                 name=f"{model_name.upper()} Forecast",
                 line=dict(color=COLORS.get("ensemble", "#2DE2C4"), width=2),
                 fill="tozeroy",
-                fillcolor="rgba(0, 212, 170, 0.1)",
+                fillcolor="rgba(56,208,255,0.10)",
             )
         )
 
@@ -3777,7 +3777,7 @@ def register_callbacks(app):
                 y=[peak_val],
                 mode="markers+text",
                 name="Peak",
-                marker=dict(color="#ff6b6b", size=12, symbol="triangle-up"),
+                marker=dict(color="#FF5C7A", size=12, symbol="triangle-up"),
                 text=[f"Peak: {peak_val:,.0f} MW"],
                 textposition="top center",
                 showlegend=False,
@@ -3989,8 +3989,8 @@ def register_callbacks(app):
         # Forecast line
         model_colors = {
             "xgboost": COLORS.get("ensemble", "#2DE2C4"),
-            "prophet": COLORS.get("prophet", "#ff6b6b"),
-            "arima": COLORS.get("arima", "#4ecdc4"),
+            "prophet": COLORS.get("prophet", "#E69F00"),
+            "arima": COLORS.get("arima", "#009E73"),
             "ensemble": COLORS.get("ensemble", "#2DE2C4"),
         }
 
@@ -4049,7 +4049,7 @@ def register_callbacks(app):
                     x=list(fold_ts) + list(fold_ts[::-1]),
                     y=list(fold_pred) + list(fold_act[::-1]),
                     fill="toself",
-                    fillcolor="rgba(255, 107, 107, 0.15)",
+                    fillcolor="rgba(255,92,122,0.12)",
                     line=dict(width=0),
                     name="Forecast Error" if fold_i == 0 else None,
                     showlegend=(fold_i == 0),

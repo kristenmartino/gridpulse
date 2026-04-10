@@ -10,10 +10,42 @@ from dash import html
 from components.cards import build_chart_container
 
 
+def _section_header(title: str, subtitle: str) -> html.Div:
+    """Render a lightweight section header."""
+    return html.Div(
+        [
+            html.Span(
+                title,
+                style={
+                    "color": "#F7FAFC",
+                    "fontSize": "0.85rem",
+                    "fontWeight": "600",
+                    "marginRight": "8px",
+                },
+            ),
+            html.Span(
+                subtitle,
+                style={
+                    "color": "#A8B3C7",
+                    "fontSize": "0.75rem",
+                },
+            ),
+        ],
+        style={
+            "padding": "10px 0 4px 0",
+            "borderBottom": "1px solid #263556",
+            "marginTop": "12px",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def layout() -> html.Div:
     """Build Tab 1 (Historical Demand) layout."""
     return html.Div(
         [
+            # ── Controls ────────────────────────────────────
+            _section_header("Controls", "Time range and overlay options"),
             # Controls row
             dbc.Row(
                 [
@@ -71,6 +103,8 @@ def layout() -> html.Div:
             build_chart_container("tab1-forecast-chart", "Historical Demand", height="420px"),
             # AI insight card
             html.Div(id="tab1-insight-card"),
+            # ── Key Metrics ──────────────────────────────
+            _section_header("Key Metrics", "Demand statistics for selected period"),
             # Bottom row: KPI cards
             dbc.Row(
                 [

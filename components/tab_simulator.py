@@ -15,6 +15,36 @@ from components.cards import build_chart_container
 from simulation.presets import PRESETS
 
 
+def _section_header(title: str, subtitle: str) -> html.Div:
+    """Render a lightweight section header."""
+    return html.Div(
+        [
+            html.Span(
+                title,
+                style={
+                    "color": "#F7FAFC",
+                    "fontSize": "0.85rem",
+                    "fontWeight": "600",
+                    "marginRight": "8px",
+                },
+            ),
+            html.Span(
+                subtitle,
+                style={
+                    "color": "#A8B3C7",
+                    "fontSize": "0.75rem",
+                },
+            ),
+        ],
+        style={
+            "padding": "10px 0 4px 0",
+            "borderBottom": "1px solid #263556",
+            "marginTop": "12px",
+            "marginBottom": "8px",
+        },
+    )
+
+
 def layout() -> html.Div:
     """Build Tab 6 layout."""
     return html.Div(
@@ -27,10 +57,7 @@ def layout() -> html.Div:
                             # Weather sliders
                             html.Div(
                                 [
-                                    html.H6(
-                                        "Weather Scenario Builder",
-                                        style={"color": "#ffffff", "marginBottom": "12px"},
-                                    ),
+                                    _section_header("Scenario Builder", "Adjust weather parameters"),
                                     _slider("Temperature (°F)", "sim-temp", -10, 120, 75, 1, "°F"),
                                     _slider("Wind Speed (mph)", "sim-wind", 0, 80, 15, 1, "mph"),
                                     _slider("Cloud Cover (%)", "sim-cloud", 0, 100, 50, 5, "%"),
@@ -70,7 +97,7 @@ def layout() -> html.Div:
                                                 dbc.Button(
                                                     "▶ Run Scenario",
                                                     id="sim-run-btn",
-                                                    color="danger",
+                                                    color="info",
                                                     size="sm",
                                                     className="w-100",
                                                 ),
@@ -96,10 +123,7 @@ def layout() -> html.Div:
                             # Preset scenarios
                             html.Div(
                                 [
-                                    html.H6(
-                                        "Preset Historical Scenarios",
-                                        style={"color": "#ffffff", "marginBottom": "10px"},
-                                    ),
+                                    _section_header("Presets", "Replay historical extremes"),
                                     html.Div(
                                         [
                                             _preset_button(key, preset)
@@ -116,6 +140,8 @@ def layout() -> html.Div:
                     # ── Right panel: impact dashboard ─────────────────────
                     dbc.Col(
                         [
+                            # ── Impact Dashboard ────────────────────────
+                            _section_header("Impact Dashboard", "Scenario vs baseline comparison"),
                             # Impact KPIs
                             dbc.Row(
                                 [
@@ -210,6 +236,8 @@ def layout() -> html.Div:
                                 "Baseline vs Scenario Forecast",
                                 height="340px",
                             ),
+                            # ── Analysis ────────────────────────────────
+                            _section_header("Analysis", "Price and renewable generation impact"),
                             # Bottom row: price curve + renewable breakdown
                             dbc.Row(
                                 [
