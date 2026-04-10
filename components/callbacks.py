@@ -77,8 +77,8 @@ PLOT_TEMPLATE = "plotly_dark"
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,
     paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(22,33,62,0.8)",
-    font=dict(color="#e0e0e0", size=11),
+    plot_bgcolor="rgba(17,24,45,0.8)",
+    font=dict(color="#DDE6F2", size=11),
     margin=dict(l=50, r=20, t=30, b=40),
     legend=dict(orientation="h", y=-0.15),
 )
@@ -1418,7 +1418,7 @@ def _alerts_tab_from_redis(region):
         breakdown_items.append(
             html.Div(
                 f"\U0001f534 Critical: {n_crit}",
-                style={"fontSize": "0.75rem", "color": "#e94560"},
+                style={"fontSize": "0.75rem", "color": "#FF5C7A"},
             )
         )
     if n_warn:
@@ -1462,7 +1462,7 @@ def _alerts_tab_from_redis(region):
                 x=a_ts,
                 y=a_upper,
                 name="Upper (2\u03c3)",
-                line=dict(color="#e94560", dash="dash", width=1),
+                line=dict(color="#FF5C7A", dash="dash", width=1),
             )
         )
         fig_anomaly.add_trace(
@@ -1470,7 +1470,7 @@ def _alerts_tab_from_redis(region):
                 x=a_ts,
                 y=a_lower,
                 name="Lower (2\u03c3)",
-                line=dict(color="#e94560", dash="dash", width=1),
+                line=dict(color="#FF5C7A", dash="dash", width=1),
             )
         )
         if len(a_anom_ts) > 0:
@@ -1480,7 +1480,7 @@ def _alerts_tab_from_redis(region):
                     y=a_anom_vals,
                     mode="markers",
                     name="Anomaly",
-                    marker=dict(color="#e94560", size=8, symbol="diamond"),
+                    marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
                 )
             )
         fig_anomaly.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
@@ -1498,7 +1498,7 @@ def _alerts_tab_from_redis(region):
         for t in [95, 100, 105]:
             fig_temp.add_hline(
                 y=t,
-                line=dict(color="#e94560", dash="dot", width=1),
+                line=dict(color="#FF5C7A", dash="dot", width=1),
                 annotation_text=f"{t}\u00b0F",
                 annotation_position="right",
             )
@@ -2175,13 +2175,13 @@ def register_callbacks(app):
             return (
                 html.Div(
                     err_msg,
-                    style={"color": "#e94560", "fontSize": "0.8rem", "padding": "8px"},
+                    style={"color": "#FF5C7A", "fontSize": "0.8rem", "padding": "8px"},
                 ),
                 html.Div(),
                 _empty_figure(err_msg),
                 html.Div(
                     err_msg,
-                    style={"color": "#e94560", "fontSize": "0.8rem", "padding": "8px"},
+                    style={"color": "#FF5C7A", "fontSize": "0.8rem", "padding": "8px"},
                 ),
             )
 
@@ -3050,7 +3050,7 @@ def register_callbacks(app):
         if n_crit:
             breakdown_items.append(
                 html.Div(
-                    f"🔴 Critical: {n_crit}", style={"fontSize": "0.75rem", "color": "#e94560"}
+                    f"🔴 Critical: {n_crit}", style={"fontSize": "0.75rem", "color": "#FF5C7A"}
                 )
             )
         if n_warn:
@@ -3091,7 +3091,7 @@ def register_callbacks(app):
                     x=recent["timestamp"],
                     y=upper,
                     name="Upper (2σ)",
-                    line=dict(color="#e94560", dash="dash", width=1),
+                    line=dict(color="#FF5C7A", dash="dash", width=1),
                 )
             )
             fig_anomaly.add_trace(
@@ -3099,7 +3099,7 @@ def register_callbacks(app):
                     x=recent["timestamp"],
                     y=lower,
                     name="Lower (2σ)",
-                    line=dict(color="#e94560", dash="dash", width=1),
+                    line=dict(color="#FF5C7A", dash="dash", width=1),
                 )
             )
             if not anomalies.empty:
@@ -3109,7 +3109,7 @@ def register_callbacks(app):
                         y=anomalies["demand_mw"],
                         mode="markers",
                         name="Anomaly",
-                        marker=dict(color="#e94560", size=8, symbol="diamond"),
+                        marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
                     )
                 )
             fig_anomaly.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
@@ -3132,7 +3132,7 @@ def register_callbacks(app):
             for t in [95, 100, 105]:
                 fig_temp.add_hline(
                     y=t,
-                    line=dict(color="#e94560", dash="dot", width=1),
+                    line=dict(color="#FF5C7A", dash="dot", width=1),
                     annotation_text=f"{t}°F",
                     annotation_position="right",
                 )
@@ -3464,13 +3464,13 @@ def register_callbacks(app):
         statuses = [freshness.get(s, "fresh") for s in ("demand", "weather", "alerts")]
 
         if all(s == "fresh" for s in statuses):
-            color, icon, label = "#00d4aa", "🟢", "Live"
+            color, icon, label = "#2BD67B", "🟢", "Live"
         elif all(s == "demo" for s in statuses):
-            color, icon, label = "#8a8fa8", "🧪", "Demo"
+            color, icon, label = "#A8B3C7", "🧪", "Demo"
         elif any(s == "error" for s in statuses):
-            color, icon, label = "#ff4757", "🔴", "Degraded"
+            color, icon, label = "#FF5C7A", "🔴", "Degraded"
         else:
-            color, icon, label = "#ffa502", "🟡", "Partial"
+            color, icon, label = "#FFB84D", "🟡", "Partial"
 
         # Show latest data timestamp (when the actual data is from)
         latest_data = freshness.get("latest_data", "")
@@ -3557,7 +3557,7 @@ def register_callbacks(app):
             dismissable=True,
             duration=4000,
             is_open=True,
-            style={"backgroundColor": "#1e2130", "color": "#e0e0e0", "border": "1px solid #00d4aa"},
+            style={"backgroundColor": "#11182D", "color": "#DDE6F2", "border": "1px solid #263556"},
         )
         return search, toast
 
@@ -4204,7 +4204,7 @@ def _build_overview_briefing(
         html.P(
             result.summary,
             style={
-                "color": "#e0e0e0",
+                "color": "#DDE6F2",
                 "fontSize": "0.9rem",
                 "lineHeight": "1.6",
                 "marginBottom": "12px",
@@ -4265,10 +4265,10 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
     }
 
     status_colors = {
-        "fresh": "#00d4aa",
-        "stale": "#f0ad4e",
-        "demo": "#8a8fa8",
-        "error": "#e94560",
+        "fresh": "#2BD67B",
+        "stale": "#FFB84D",
+        "demo": "#A8B3C7",
+        "error": "#FF5C7A",
     }
 
     badges = []
@@ -4302,7 +4302,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
                     "display": "inline-flex",
                     "alignItems": "center",
                     "fontSize": "0.75rem",
-                    "color": "#b0b0c0",
+                    "color": "#A8B3C7",
                     "padding": "4px 12px",
                     "marginRight": "12px",
                 },
@@ -4318,7 +4318,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
                 "DATA SOURCES",
                 style={
                     "fontSize": "0.65rem",
-                    "color": "#8a8fa8",
+                    "color": "#A8B3C7",
                     "textTransform": "uppercase",
                     "letterSpacing": "1px",
                     "marginRight": "16px",
@@ -4331,7 +4331,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
             "flexWrap": "wrap",
             "alignItems": "center",
             "padding": "8px 12px",
-            "background": "#16213e",
+            "background": "#11182D",
             "borderRadius": "6px",
         },
     )
@@ -4396,7 +4396,7 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
     }
     fig.update_layout(
         **renew_layout,
-        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color="#e0e0e0")),
+        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color="#DDE6F2")),
         showlegend=True,
         yaxis=dict(
             title="Wind (mph)",
@@ -4444,11 +4444,11 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
     fig.add_hline(
         y=capacity,
         line_dash="dot",
-        line_color="#e94560",
+        line_color="#FF5C7A",
         annotation_text=f"Capacity: {capacity:,.0f} MW",
         annotation_position="top left",
         annotation_font_size=10,
-        annotation_font_color="#e94560",
+        annotation_font_color="#FF5C7A",
     )
 
     # Pricing tier thresholds
@@ -4470,7 +4470,7 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
     trader_layout = {**PLOT_LAYOUT, "margin": dict(l=50, r=10, t=35, b=30)}
     fig.update_layout(
         **trader_layout,
-        title=dict(text="Demand vs Capacity", font=dict(size=13, color="#e0e0e0")),
+        title=dict(text="Demand vs Capacity", font=dict(size=13, color="#DDE6F2")),
         showlegend=False,
         xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
         yaxis=dict(
@@ -4514,7 +4514,7 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
             marker_color=colors,
             text=[f"{v:.1f}%" for v in mape_values],
             textposition="outside",
-            textfont=dict(color="#e0e0e0", size=11),
+            textfont=dict(color="#DDE6F2", size=11),
             hovertemplate="%{x}: %{y:.2f}% MAPE<extra></extra>",
         )
     )
@@ -4522,7 +4522,7 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
     model_layout = {**PLOT_LAYOUT, "margin": dict(l=40, r=10, t=35, b=30)}
     fig.update_layout(
         **model_layout,
-        title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#e0e0e0")),
+        title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#DDE6F2")),
         showlegend=False,
         yaxis=dict(
             title="MAPE (%)",

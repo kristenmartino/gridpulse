@@ -74,7 +74,7 @@ def loading_spinner(message: str = "Loading data...") -> html.Div:
             html.P(
                 message,
                 style={
-                    "color": "#8a8fa8",
+                    "color": "#A8B3C7",
                     "marginTop": "12px",
                     "fontSize": "0.9rem",
                 },
@@ -118,8 +118,8 @@ def empty_state(
     return html.Div(
         [
             html.Div(icon, style={"fontSize": "2.5rem", "marginBottom": "12px"}),
-            html.H5(title, style={"color": "#e0e0e0", "marginBottom": "6px"}),
-            html.P(message, style={"color": "#8a8fa8", "fontSize": "0.85rem"}),
+            html.H5(title, style={"color": "#DDE6F2", "marginBottom": "6px"}),
+            html.P(message, style={"color": "#A8B3C7", "fontSize": "0.85rem"}),
         ],
         style={
             "display": "flex",
@@ -142,8 +142,8 @@ def error_state(
     """
     children = [
         html.Div("⚠️", style={"fontSize": "2.5rem", "marginBottom": "12px"}),
-        html.H5(title, style={"color": "#e94560", "marginBottom": "6px"}),
-        html.P(message, style={"color": "#8a8fa8", "fontSize": "0.85rem"}),
+        html.H5(title, style={"color": "#FF5C7A", "marginBottom": "6px"}),
+        html.P(message, style={"color": "#A8B3C7", "fontSize": "0.85rem"}),
     ]
     if error_detail:
         children.append(
@@ -154,7 +154,7 @@ def error_state(
                     "fontSize": "0.7rem",
                     "marginTop": "12px",
                     "padding": "8px",
-                    "background": "#0f1a2e",
+                    "background": "#0B1020",
                     "borderRadius": "4px",
                     "maxWidth": "400px",
                     "overflow": "hidden",
@@ -272,13 +272,13 @@ CONFIDENCE_LEVELS = {
     "low": {
         "emoji": "🔴",
         "label": "Low",
-        "color": "#e94560",
+        "color": "#FF5C7A",
         "description": "Using fallback data — verify before decisions",
     },
     "demo": {
         "emoji": "🧪",
         "label": "Demo",
-        "color": "#8a8fa8",
+        "color": "#A8B3C7",
         "description": "Synthetic demo data — not real",
     },
 }
@@ -346,7 +346,7 @@ def confidence_badge(
         parts.append(
             html.Span(
                 f"· {age_text}",
-                style={"color": "#8a8fa8", "fontSize": "0.7rem"},
+                style={"color": "#A8B3C7", "fontSize": "0.7rem"},
             )
         )
 

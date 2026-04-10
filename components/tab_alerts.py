@@ -38,7 +38,7 @@ def layout() -> html.Div:
                                         children="Normal",
                                         className="kpi-delta neutral",
                                     ),
-                                    html.Hr(style={"borderColor": "#0f3460"}),
+                                    html.Hr(style={"borderColor": "#263556"}),
                                     html.P(
                                         "Components:",
                                         style={
