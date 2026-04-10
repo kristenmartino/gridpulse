@@ -346,11 +346,11 @@ class TestMeetingMode:
             src = f.read()
         assert "meeting-mode-btn" in src
 
-    def test_present_button_label(self):
-        """Meeting mode button should say 'Present'."""
+    def test_briefing_button_label(self):
+        """Meeting mode button should say 'Briefing Mode'."""
         with open("components/layout.py") as f:
             src = f.read()
-        assert "Present" in src
+        assert "Briefing Mode" in src
 
 
 # ── H3: Test Pyramid Definition ──────────────────────────────
