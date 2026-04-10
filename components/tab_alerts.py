@@ -104,6 +104,9 @@ def layout() -> html.Div:
                 ],
                 className="g-2",
             ),
+            # ── Current Conditions ──────────────────────
+            _section_header("Current Conditions", "Latest weather readings for this region"),
+            html.Div(id="tab5-weather-context"),
             # ── Monitoring ───────────────────────────────
             _section_header("Monitoring", "Anomaly detection and exceedance tracking"),
             # Middle: anomaly detection + temperature exceedance

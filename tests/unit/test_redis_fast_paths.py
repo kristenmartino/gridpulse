@@ -547,7 +547,7 @@ class TestAlertsTabFromRedis:
 
         result = _alerts_tab_from_redis("FPL")
         assert result is not None
-        assert len(result) == 7
+        assert len(result) == 8
         alert_cards = result[0]
         assert len(alert_cards) == 1
         # Each card is an html.Div from build_alert_card

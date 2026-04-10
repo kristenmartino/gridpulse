@@ -50,7 +50,7 @@ def layout() -> html.Div:
         [
             # ── Weather Correlations ────────────────────────
             _section_header(
-                "Weather Correlations", "Direct relationships between weather and energy"
+                "Weather Correlations", "How weather conditions drive demand and generation"
             ),
             # Top row: scatter plots
             dbc.Row(
@@ -78,7 +78,7 @@ def layout() -> html.Div:
             ),
             # ── Feature Analysis ─────────────────────────
             _section_header(
-                "Feature Analysis", "Multi-variable correlation and importance ranking"
+                "Impact Analysis", "Which weather variables have the strongest demand impact"
             ),
             # Middle row: heatmap + feature importance
             dbc.Row(

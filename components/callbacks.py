@@ -1383,8 +1383,8 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
 def _alerts_tab_from_redis(region):
     """Redis fast path for update_alerts_tab callback.
 
-    Returns a 7-tuple (alert_cards, stress_str, stress_label_span, breakdown,
-    fig_anomaly, fig_temp, fig_timeline) or None if cache miss.
+    Returns an 8-tuple (alert_cards, stress_str, stress_label_span, breakdown,
+    fig_anomaly, fig_temp, fig_timeline, weather_context) or None if cache miss.
     """
     cached = redis_get(f"wattcast:alerts:{region}")
     if cached is None:
@@ -1544,6 +1544,34 @@ def _alerts_tab_from_redis(region):
         yaxis_range=[0, 100],
     )
 
+    # Weather context: build from cached temperature if available
+    weather_context = html.Div()
+    if t_vals:
+        import dash_bootstrap_components as dbc
+
+        last_temp = float(t_vals[-1])
+        color = "#FF5C7A" if last_temp >= 95 else ("#FFB84D" if last_temp >= 85 else "#2BD67B")
+        weather_context = dbc.Row(
+            [
+                dbc.Col(
+                    html.Div(
+                        [
+                            html.P("TEMPERATURE", className="kpi-label"),
+                            html.H4(
+                                f"{last_temp:.0f}°F",
+                                className="kpi-value",
+                                style={"fontSize": "1.3rem"},
+                            ),
+                        ],
+                        className="kpi-card",
+                        style={"borderTop": f"3px solid {color}"},
+                    ),
+                    md=3,
+                ),
+            ],
+            className="g-2",
+        )
+
     return (
         alert_cards,
         str(stress),
@@ -1552,6 +1580,7 @@ def _alerts_tab_from_redis(region):
         fig_anomaly,
         fig_temp,
         fig_timeline,
+        weather_context,
     )
 
 
@@ -3023,6 +3052,7 @@ def register_callbacks(app):
             Output("tab5-anomaly-chart", "figure"),
             Output("tab5-temp-exceedance", "figure"),
             Output("tab5-timeline", "figure"),
+            Output("tab5-weather-context", "children"),
         ],
         [
             Input("region-selector", "value"),
@@ -3035,7 +3065,7 @@ def register_callbacks(app):
     def update_alerts_tab(region, demand_json, weather_json, active_tab):
         """Update Tab 5 alerts and stress indicators."""
         if active_tab != "tab-alerts":
-            return [no_update] * 7
+            return [no_update] * 8
         empty = _empty_figure("Loading...")
 
         # ── v2 Redis fast path ──────────────────────────────
@@ -3193,6 +3223,16 @@ def register_callbacks(app):
             **PLOT_LAYOUT, xaxis_title="Date", yaxis_title="Severity Score", yaxis_range=[0, 100]
         )
 
+        # Build weather context from latest reading
+        weather_context = html.Div()
+        if weather_json:
+            try:
+                w_df = pd.read_json(io.StringIO(weather_json))
+                if not w_df.empty:
+                    weather_context = _build_weather_context(w_df.iloc[-1])
+            except Exception:
+                log.warning("weather_context_build_failed")
+
         return (
             alert_cards,
             str(stress),
@@ -3201,6 +3241,7 @@ def register_callbacks(app):
             fig_anomaly,
             fig_temp,
             fig_timeline,
+            weather_context,
         )
 
     # ── 9. TAB 6: SCENARIO SIMULATOR ─────────────────────────
@@ -4300,6 +4341,107 @@ def _build_overview_briefing(
         style={"borderLeft": f"4px solid {persona.color}"},
         className="briefing-card-content",
     )
+
+
+def _build_weather_context(latest: "pd.Series") -> html.Div:
+    """Build a row of weather KPI mini-cards from the latest weather reading."""
+    import dash_bootstrap_components as dbc
+
+    temp = latest.get("temperature_2m")
+    wind = latest.get("wind_speed_80m", latest.get("wind_speed_10m"))
+    humidity = latest.get("relative_humidity_2m")
+    cloud = latest.get("cloud_cover")
+
+    cards = []
+
+    if temp is not None:
+        t = float(temp)
+        color = "#FF5C7A" if t >= 95 else ("#FFB84D" if t >= 85 else "#2BD67B")
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("TEMPERATURE", className="kpi-label"),
+                        html.H4(
+                            f"{t:.0f}°F",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if wind is not None:
+        w = float(wind)
+        color = "#FF5C7A" if w >= 40 else ("#FFB84D" if w >= 25 else "#2BD67B")
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("WIND SPEED", className="kpi-label"),
+                        html.H4(
+                            f"{w:.0f} mph",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if humidity is not None:
+        h = float(humidity)
+        color = "#FFB84D" if h >= 80 else "#2BD67B"
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("HUMIDITY", className="kpi-label"),
+                        html.H4(
+                            f"{h:.0f}%",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if cloud is not None:
+        c = float(cloud)
+        color = "#A8B3C7"
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("CLOUD COVER", className="kpi-label"),
+                        html.H4(
+                            f"{c:.0f}%",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if not cards:
+        return html.Div()
+
+    return dbc.Row(cards, className="g-2")
 
 
 def _build_overview_data_health(freshness_data: dict | None) -> html.Div:

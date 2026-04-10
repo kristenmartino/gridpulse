@@ -976,7 +976,7 @@ class TestAlertsTabV1:
         result = callbacks["update_alerts_tab"](
             "FPL", _demand_json(), _weather_json(), "tab-forecast"
         )
-        assert result == [no_update] * 7
+        assert result == [no_update] * 8
 
     def test_v1_with_alerts(self, callbacks):
         """V1 fallback with demo alerts returns alert cards and figures."""
@@ -1003,8 +1003,17 @@ class TestAlertsTabV1:
                 "FPL", _demand_json(), _weather_json(), "tab-alerts"
             )
 
-        assert len(result) == 7
-        alert_cards, stress, stress_label, breakdown, fig_anomaly, fig_temp, fig_timeline = result
+        assert len(result) == 8
+        (
+            alert_cards,
+            stress,
+            stress_label,
+            breakdown,
+            fig_anomaly,
+            fig_temp,
+            fig_timeline,
+            weather_ctx,
+        ) = result
         assert len(alert_cards) == 2
         assert int(stress) > 0
         assert isinstance(fig_anomaly, go.Figure)
@@ -1027,7 +1036,7 @@ class TestAlertsTabV1:
         ):
             result = callbacks["update_alerts_tab"]("FPL", None, None, "tab-alerts")
 
-        assert len(result) == 7
+        assert len(result) == 8
         # fig_anomaly should be the empty figure (no demand)
         assert isinstance(result[4], go.Figure)
 
@@ -1039,7 +1048,7 @@ class TestAlertsTabV1:
         ):
             result = callbacks["update_alerts_tab"]("FPL", None, None, "tab-alerts")
 
-        assert len(result) == 7
+        assert len(result) == 8
         alert_cards = result[0]
         # Should contain a single "No active alerts" paragraph
         assert len(alert_cards) == 1
