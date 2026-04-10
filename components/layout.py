@@ -161,6 +161,11 @@ def build_layout() -> dbc.Container:
                         tab_id="tab-outlook",
                     ),
                     dbc.Tab(
+                        tab_models.layout(),
+                        label=TAB_LABELS["tab-models"],
+                        tab_id="tab-models",
+                    ),
+                    dbc.Tab(
                         tab_backtest.layout(),
                         label=TAB_LABELS["tab-backtest"],
                         tab_id="tab-backtest",
@@ -174,11 +179,6 @@ def build_layout() -> dbc.Container:
                         tab_weather.layout(),
                         label=TAB_LABELS["tab-weather"],
                         tab_id="tab-weather",
-                    ),
-                    dbc.Tab(
-                        tab_models.layout(),
-                        label=TAB_LABELS["tab-models"],
-                        tab_id="tab-models",
                     ),
                     dbc.Tab(
                         tab_alerts.layout(),

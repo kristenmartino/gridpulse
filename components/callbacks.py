@@ -2613,7 +2613,7 @@ def register_callbacks(app):
 
         return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
 
-    # ── 6. TAB 3: MODEL COMPARISON ────────────────────────────
+    # ── 6. MODELS TAB: COMPARISON & DIAGNOSTICS ────────────────────────────
 
     @app.callback(
         [
@@ -2633,7 +2633,7 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def update_models_tab(demand_json, active_tab, selected_models, region):
-        """Update Tab 3 model diagnostics using model service."""
+        """Update Models tab diagnostics using model service."""
         if active_tab != "tab-models":
             return [no_update] * 6
         if not demand_json:
@@ -3932,7 +3932,7 @@ def register_callbacks(app):
             insight_card,
         )
 
-    # ── TAB 7: BACKTEST ─────────────────────────────────────────
+    # ── VALIDATION TAB: BACKTEST & ACCURACY ─────────────────────
 
     @app.callback(
         [
@@ -4762,7 +4762,7 @@ def _build_overview_digest(
     except Exception:
         pass
 
-    # Tab 3: Validation insights (from backtest cache)
+    # Validation tab: model accuracy insights (from backtest cache)
     try:
         for model_name in ["xgboost", "prophet", "arima"]:
             for horizon in [168, 24, 720]:

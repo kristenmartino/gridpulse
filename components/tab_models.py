@@ -1,5 +1,5 @@
 """
-Tab 3: Model Comparison & Diagnostics (Dev's primary view).
+Models tab: Model comparison, diagnostics, and oversight.
 
 Components:
 - Model selector toggle
@@ -46,11 +46,11 @@ def _section_header(title: str, subtitle: str) -> html.Div:
 
 
 def layout() -> html.Div:
-    """Build Tab 3 layout."""
+    """Build the Models tab layout."""
     return html.Div(
         [
             # ── Model Selection ─────────────────────────────
-            _section_header("Model Selection", "Choose models to compare"),
+            _section_header("Model Selection", "Select models for comparative oversight"),
             # Model selector
             dbc.Row(
                 [
@@ -92,7 +92,7 @@ def layout() -> html.Div:
                 ]
             ),
             # ── Residual Analysis ────────────────────────
-            _section_header("Residual Analysis", "Error distribution and patterns"),
+            _section_header("Residual Analysis", "Diagnose systematic error patterns"),
             # Residual analysis row
             dbc.Row(
                 [
@@ -118,7 +118,7 @@ def layout() -> html.Div:
                 className="g-2 mt-1",
             ),
             # ── Error Patterns ───────────────────────────
-            _section_header("Error Patterns", "Temporal error structure and feature drivers"),
+            _section_header("Error Patterns", "When and why forecasts degrade"),
             # Bottom row: error heatmap + SHAP
             dbc.Row(
                 [

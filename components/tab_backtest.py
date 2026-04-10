@@ -1,8 +1,8 @@
 """
-Tab 7: Backtest - Forecast Accuracy Analysis.
+Validation tab: Model accuracy on holdout data.
 
-Shows forecast vs actual demand comparison with different forecast horizons.
-Allows users to visualize model accuracy at 24h, 7-day, and 30-day horizons.
+Compares forecast predictions against actual demand across different forecast
+horizons, providing trust evidence for model reliability.
 """
 
 import dash_bootstrap_components as dbc
@@ -42,7 +42,7 @@ def _section_header(title: str, subtitle: str) -> html.Div:
 
 
 def layout() -> html.Div:
-    """Build Tab 7 (Backtest) layout."""
+    """Build the Validation tab layout."""
     return html.Div(
         [
             # Header with description
@@ -51,8 +51,8 @@ def layout() -> html.Div:
                     dbc.Col(
                         [
                             html.P(
-                                "Compare forecast predictions against actual demand at different forecast horizons. "
-                                "Select a horizon to see how accuracy varies based on how far ahead the forecast was made.",
+                                "Validate model reliability by comparing predictions against actual demand at "
+                                "different forecast horizons. Select a horizon to assess accuracy over time.",
                                 className="text-muted mb-3",
                                 style={"fontSize": "0.9rem"},
                             ),
@@ -104,7 +104,7 @@ def layout() -> html.Div:
             # AI insight card
             html.Div(id="tab3-insight-card"),
             # ── Accuracy Metrics ─────────────────────────
-            _section_header("Accuracy Metrics", "Model performance on holdout data"),
+            _section_header("Accuracy Metrics", "Trust indicators from holdout evaluation"),
             # Metrics row
             dbc.Row(
                 [
@@ -185,7 +185,7 @@ def layout() -> html.Div:
                 className="mt-3 g-2",
             ),
             # ── Horizon Analysis ─────────────────────────
-            _section_header("Horizon Analysis", "How accuracy varies with forecast distance"),
+            _section_header("Horizon Analysis", "Reliability across forecast distances"),
             # Info panel
             dbc.Row(
                 [

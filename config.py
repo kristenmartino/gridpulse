@@ -222,10 +222,10 @@ TAB_IDS: list[str] = [
     "tab-overview",
     "tab-forecast",
     "tab-outlook",
+    "tab-models",
     "tab-backtest",
     "tab-generation",
     "tab-weather",
-    "tab-models",
     "tab-alerts",
     "tab-simulator",
 ]

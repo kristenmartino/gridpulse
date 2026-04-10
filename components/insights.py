@@ -256,7 +256,7 @@ def _extract_backtest_stats(
     predictions: np.ndarray | None,
     timestamps: pd.DatetimeIndex | None,
 ) -> dict:
-    """Extract statistics needed for Tab 3 insight rules."""
+    """Extract statistics needed for Validation tab insight rules."""
     stats: dict = {
         "best_model": None,
         "best_mape": None,
@@ -560,7 +560,7 @@ def generate_tab2_insights(
 
 
 # ---------------------------------------------------------------------------
-# Tab 3: Backtest insights
+# Validation tab: model accuracy insights
 # ---------------------------------------------------------------------------
 
 
@@ -576,7 +576,7 @@ def generate_tab3_insights(
     ensemble_weights: dict[str, float] | None = None,
     num_folds: int = 1,
 ) -> list[Insight]:
-    """Generate Backtest tab insights."""
+    """Generate Validation tab (backtest) insights."""
     if not metrics:
         return []
 
