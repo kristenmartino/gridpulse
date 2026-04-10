@@ -86,7 +86,7 @@ PLOT_LAYOUT = dict(
 # Color palette (colorblind-safe — Wong 2011)
 from datetime import UTC  # noqa: E402
 
-from components.accessibility import CB_PALETTE  # noqa: E402
+from components.accessibility import CB_PALETTE, LINE_STYLES  # noqa: E402
 
 COLORS = {
     "actual": CB_PALETTE["blue"],
@@ -104,6 +104,14 @@ COLORS = {
     "solar": CB_PALETTE["yellow"],
     "hydro": CB_PALETTE["blue"],
     "other": "#b0b0b0",
+}
+
+# Model-aware confidence band fill colors (base model color at 12% opacity)
+_MODEL_BAND_COLORS = {
+    "xgboost": "rgba(86,180,233,0.12)",  # sky_blue
+    "prophet": "rgba(230,159,0,0.12)",  # orange
+    "arima": "rgba(0,158,115,0.12)",  # green
+    "ensemble": "rgba(213,94,0,0.12)",  # vermillion
 }
 
 
@@ -397,6 +405,8 @@ def _add_confidence_bands(
         else "80% indicative range"
     )
 
+    band_fill = _MODEL_BAND_COLORS.get(model_name, COLORS["confidence"])
+
     fig.add_trace(
         go.Scatter(
             x=timestamps,
@@ -414,9 +424,9 @@ def _add_confidence_bands(
             mode="lines",
             line=dict(width=0),
             fill="tonexty",
-            fillcolor=COLORS["confidence"],
+            fillcolor=band_fill,
             name=band_name,
-            hoverinfo="skip",
+            hovertemplate="%{fullData.name}<br>%{y:,.0f} MW<extra></extra>",
         )
     )
     return interval_meta
@@ -1605,13 +1615,20 @@ def _outlook_tab_from_redis(
     range_val = peak_val - min_val
 
     fig = go.Figure()
+    model_style = LINE_STYLES.get(
+        model_name, {"color": COLORS["ensemble"], "width": 2, "dash": "solid"}
+    )
     fig.add_trace(
         go.Scatter(
             x=timestamps,
             y=predictions,
             mode="lines",
             name=f"{model_name.upper()} Forecast",
-            line=dict(color=COLORS.get("ensemble", "#2DE2C4"), width=2),
+            line=dict(
+                color=COLORS.get(model_name, COLORS["ensemble"]),
+                width=model_style.get("width", 2),
+                dash=model_style.get("dash", "solid"),
+            ),
             fill="tozeroy",
             fillcolor="rgba(56,208,255,0.10)",
         )
@@ -1625,6 +1642,18 @@ def _outlook_tab_from_redis(
             marker=dict(color="#FF5C7A", size=12, symbol="triangle-up"),
             text=[f"Peak: {peak_val:,.0f} MW"],
             textposition="top center",
+            showlegend=False,
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[timestamps[min_idx]],
+            y=[min_val],
+            mode="markers+text",
+            name="Min",
+            marker=dict(color="#38D0FF", size=10, symbol="triangle-down"),
+            text=[f"Min: {min_val:,.0f} MW"],
+            textposition="bottom center",
             showlegend=False,
         )
     )
@@ -3757,14 +3786,21 @@ def register_callbacks(app):
         # Build chart
         fig = go.Figure()
 
-        # Forecast line
+        # Forecast line (model-aware color + dash pattern)
+        model_style = LINE_STYLES.get(
+            model_name, {"color": COLORS["ensemble"], "width": 2, "dash": "solid"}
+        )
         fig.add_trace(
             go.Scatter(
                 x=timestamps,
                 y=predictions,
                 mode="lines",
                 name=f"{model_name.upper()} Forecast",
-                line=dict(color=COLORS.get("ensemble", "#2DE2C4"), width=2),
+                line=dict(
+                    color=COLORS.get(model_name, COLORS["ensemble"]),
+                    width=model_style.get("width", 2),
+                    dash=model_style.get("dash", "solid"),
+                ),
                 fill="tozeroy",
                 fillcolor="rgba(56,208,255,0.10)",
             )
@@ -3780,6 +3816,19 @@ def register_callbacks(app):
                 marker=dict(color="#FF5C7A", size=12, symbol="triangle-up"),
                 text=[f"Peak: {peak_val:,.0f} MW"],
                 textposition="top center",
+                showlegend=False,
+            )
+        )
+        # Add min marker
+        fig.add_trace(
+            go.Scatter(
+                x=[timestamps[min_idx]],
+                y=[min_val],
+                mode="markers+text",
+                name="Min",
+                marker=dict(color="#38D0FF", size=10, symbol="triangle-down"),
+                text=[f"Min: {min_val:,.0f} MW"],
+                textposition="bottom center",
                 showlegend=False,
             )
         )
