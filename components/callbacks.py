@@ -4360,7 +4360,9 @@ def register_callbacks(app):
 
             horizon_hours = int(horizon) if horizon else 168
             options = build_replay_options(region or "FPL", horizon_hours, model_name or "xgboost")
-            return options, "current", {"display": "block"}
+            # Hide if only "Current" (no historical snapshots to compare)
+            visible = {"display": "block"} if len(options) > 1 else hidden
+            return options, "current", visible
         except Exception:
             log.debug("replay_selector_populate_failed")
             return default_opts, "current", hidden
@@ -4390,6 +4392,14 @@ def register_callbacks(app):
         if current_fig is None:
             return no_update, ""
 
+        # Fast path: if "current" and no replay traces exist, skip figure round-trip
+        has_replay_traces = any(
+            (t.get("name") or "").startswith("Forecast from ")
+            for t in (current_fig.get("data") or [])
+        )
+        if (not replay_value or replay_value == "current") and not has_replay_traces:
+            return no_update, ""
+
         fig = go.Figure(current_fig)
 
         # Strip any previously added replay traces
@@ -4411,17 +4421,24 @@ def register_callbacks(app):
                 region or "FPL", horizon_hours, model_name or "xgboost", replay_value
             )
             if snap:
+                from datetime import datetime as _dt
+
+                try:
+                    snap_label = _dt.fromisoformat(snap["scored_at"]).strftime("%b %d %H:%M UTC")
+                except (ValueError, TypeError):
+                    snap_label = snap["scored_at"][:16]
+
                 fig.add_trace(
                     go.Scatter(
                         x=pd.to_datetime(snap["timestamps"]),
                         y=snap["predictions"],
                         mode="lines",
-                        name=f"Forecast from {snap['scored_at'][:16]}",
+                        name=f"Forecast from {snap_label}",
                         line=dict(color="#A8B3C7", width=2, dash="dash"),
                         opacity=0.6,
                     )
                 )
-                return fig, f"Comparing with forecast from {snap['scored_at'][:16]}"
+                return fig, f"Comparing with forecast from {snap_label}"
         except Exception:
             log.debug("replay_overlay_failed")
 

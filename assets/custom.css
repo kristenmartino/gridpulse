@@ -481,6 +481,37 @@ body {
 .freshness-badge.stale   { background: #FFB84D; color: #0B1020; }
 .freshness-badge.expired { background: #FF5C7A; color: #F7FAFC; }
 
+/* ── Dash Dropdown (dark theme override) ──────────────── */
+.Select-control {
+    background-color: #1A2342 !important;
+    border-color: #263556 !important;
+    color: #F7FAFC !important;
+}
+.Select-menu-outer {
+    background-color: #1A2342 !important;
+    border-color: #263556 !important;
+}
+.VirtualizedSelectOption {
+    background-color: #1A2342 !important;
+    color: #F7FAFC !important;
+}
+.VirtualizedSelectFocusedOption {
+    background-color: #263556 !important;
+}
+.Select-value-label, .Select-placeholder {
+    color: #F7FAFC !important;
+}
+.Select-input > input {
+    color: #F7FAFC !important;
+}
+.Select-arrow {
+    border-color: #A8B3C7 transparent transparent !important;
+}
+.is-open > .Select-control .Select-arrow {
+    border-color: transparent transparent #A8B3C7 !important;
+}
+.Select-clear-zone { color: #A8B3C7 !important; }
+
 /* ── Region Selector ───────────────────────────────────── */
 .region-selector {
     max-width: 240px;

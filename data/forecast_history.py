@@ -50,13 +50,21 @@ def _init_db(conn: sqlite3.Connection) -> None:
             timestamps_json TEXT NOT NULL,
             peak_mw REAL NOT NULL,
             avg_mw REAL NOT NULL,
-            created_at REAL NOT NULL
+            created_at REAL NOT NULL,
+            predictions_hash TEXT NOT NULL DEFAULT ''
         )
     """)
     conn.execute("""
         CREATE INDEX IF NOT EXISTS idx_snapshots_lookup
         ON forecast_snapshots (region, horizon_hours, model_name, scored_at)
     """)
+    # Backfill: add predictions_hash column if upgrading from older schema
+    import contextlib
+
+    with contextlib.suppress(sqlite3.OperationalError):
+        conn.execute(
+            "ALTER TABLE forecast_snapshots ADD COLUMN predictions_hash TEXT NOT NULL DEFAULT ''"
+        )
     conn.commit()
     _initialized = True
 
@@ -97,20 +105,20 @@ def save_forecast_snapshot(
     with _connect() as conn:
         # Content dedup: skip if predictions match the most recent snapshot
         latest = conn.execute(
-            """SELECT predictions_json FROM forecast_snapshots
+            """SELECT predictions_hash FROM forecast_snapshots
                WHERE region = ? AND horizon_hours = ? AND model_name = ?
                ORDER BY scored_at DESC LIMIT 1""",
             (region, horizon_hours, model_name),
         ).fetchone()
-        if latest and _predictions_hash(json.loads(latest["predictions_json"])) == pred_hash:
+        if latest and latest["predictions_hash"] and latest["predictions_hash"] == pred_hash:
             log.debug("snapshot_content_duplicate_skipped", region=region, model=model_name)
             return
 
         conn.execute(
             """INSERT INTO forecast_snapshots
                (region, horizon_hours, model_name, scored_at, predictions_json,
-                timestamps_json, peak_mw, avg_mw, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                timestamps_json, peak_mw, avg_mw, created_at, predictions_hash)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 region,
                 horizon_hours,
@@ -121,6 +129,7 @@ def save_forecast_snapshot(
                 peak_mw,
                 avg_mw,
                 time.time(),
+                pred_hash,
             ),
         )
 
@@ -229,16 +238,22 @@ def build_replay_options(
         follow in newest-first order.
     """
     options: list[dict] = [{"label": "Current", "value": "current"}]
-    snapshots = list_forecast_snapshots(region, horizon_hours, model_name)
-    for snap in snapshots:
+    with _connect() as conn:
+        rows = conn.execute(
+            """SELECT scored_at, peak_mw FROM forecast_snapshots
+               WHERE region = ? AND horizon_hours = ? AND model_name = ?
+               ORDER BY scored_at DESC""",
+            (region, horizon_hours, model_name),
+        ).fetchall()
+    for row in rows:
         try:
-            dt = datetime.fromisoformat(snap["scored_at"])
+            dt = datetime.fromisoformat(row["scored_at"])
             label = dt.strftime("%b %d %H:%M")
-            peak = snap["peak_mw"]
+            peak = row["peak_mw"]
             options.append(
                 {
                     "label": f"{label} (Peak: {peak:,.0f} MW)",
-                    "value": snap["scored_at"],
+                    "value": row["scored_at"],
                 }
             )
         except (ValueError, KeyError):
