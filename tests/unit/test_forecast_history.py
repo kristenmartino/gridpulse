@@ -217,11 +217,11 @@ class TestBuildReplayOptions:
                 data.forecast_history._initialized = False
 
                 save_forecast_snapshot(
-                    "FPL", 24, "xgboost", _sample_timestamps(), _sample_predictions()
+                    "FPL", 24, "xgboost", _sample_timestamps(), _sample_predictions(base=20000)
                 )
                 time.sleep(0.01)
                 save_forecast_snapshot(
-                    "FPL", 24, "xgboost", _sample_timestamps(), _sample_predictions()
+                    "FPL", 24, "xgboost", _sample_timestamps(), _sample_predictions(base=40000)
                 )
 
                 options = build_replay_options("FPL", 24, "xgboost")
@@ -242,9 +242,13 @@ class TestBuildReplayOptions:
 
                 data.forecast_history._initialized = False
 
-                for _ in range(5):
+                for i in range(5):
                     save_forecast_snapshot(
-                        "FPL", 24, "xgboost", _sample_timestamps(), _sample_predictions()
+                        "FPL",
+                        24,
+                        "xgboost",
+                        _sample_timestamps(),
+                        _sample_predictions(base=20000 + i * 1000),
                     )
                     time.sleep(0.001)
 
@@ -268,6 +272,70 @@ class TestEmptyState:
                 data.forecast_history._initialized = False
 
                 assert list_forecast_snapshots("FPL", 24, "xgboost") == []
+        finally:
+            os.unlink(db)
+
+
+# ── Content deduplication ─────────────────────────────────────────
+
+
+class TestContentDedup:
+    def test_identical_predictions_not_saved_twice(self):
+        db = _temp_db()
+        try:
+            with patch("data.forecast_history.CACHE_DB_PATH", db):
+                import data.forecast_history
+
+                data.forecast_history._initialized = False
+
+                preds = _sample_predictions(base=30000)
+                save_forecast_snapshot("FPL", 24, "xgboost", _sample_timestamps(), preds)
+                time.sleep(0.01)
+                # Same predictions again — should be skipped
+                save_forecast_snapshot("FPL", 24, "xgboost", _sample_timestamps(), preds)
+
+                result = list_forecast_snapshots("FPL", 24, "xgboost")
+                assert len(result) == 1
+
+        finally:
+            os.unlink(db)
+
+    def test_different_predictions_saved(self):
+        db = _temp_db()
+        try:
+            with patch("data.forecast_history.CACHE_DB_PATH", db):
+                import data.forecast_history
+
+                data.forecast_history._initialized = False
+
+                save_forecast_snapshot(
+                    "FPL", 24, "xgboost", _sample_timestamps(), _sample_predictions(base=30000)
+                )
+                time.sleep(0.01)
+                save_forecast_snapshot(
+                    "FPL", 24, "xgboost", _sample_timestamps(), _sample_predictions(base=40000)
+                )
+
+                result = list_forecast_snapshots("FPL", 24, "xgboost")
+                assert len(result) == 2
+        finally:
+            os.unlink(db)
+
+    def test_same_predictions_different_combo_saved(self):
+        """Same predictions for different region/horizon should both save."""
+        db = _temp_db()
+        try:
+            with patch("data.forecast_history.CACHE_DB_PATH", db):
+                import data.forecast_history
+
+                data.forecast_history._initialized = False
+
+                preds = _sample_predictions()
+                save_forecast_snapshot("FPL", 24, "xgboost", _sample_timestamps(), preds)
+                save_forecast_snapshot("ERCOT", 24, "xgboost", _sample_timestamps(), preds)
+
+                assert len(list_forecast_snapshots("FPL", 24, "xgboost")) == 1
+                assert len(list_forecast_snapshots("ERCOT", 24, "xgboost")) == 1
         finally:
             os.unlink(db)
 

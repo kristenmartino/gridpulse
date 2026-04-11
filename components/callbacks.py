@@ -4072,7 +4072,6 @@ def register_callbacks(app):
             Output("outlook-min-time", "children"),
             Output("outlook-range", "children"),
             Output("tab2-insight-card", "children"),
-            Output("replay-label", "children"),
         ],
         [
             Input("outlook-horizon", "value"),
@@ -4080,7 +4079,6 @@ def register_callbacks(app):
             Input("dashboard-tabs", "active_tab"),
             Input("demand-store", "data"),
             Input("persona-selector", "value"),
-            Input("replay-selector", "value"),
         ],
         [
             State("weather-store", "data"),
@@ -4094,14 +4092,13 @@ def register_callbacks(app):
         active_tab,
         demand_json,
         persona_id,
-        replay_value,
         weather_json,
         region,
     ):
         """Generate forward-looking demand forecast."""
         # Only run when this tab is active — avoids 10s+ model training on page load
         if active_tab != "tab-outlook":
-            return [no_update] * 10
+            return [no_update] * 9
 
         log.info("outlook_callback_start", horizon=horizon, model=model_name, region=region)
 
@@ -4114,8 +4111,7 @@ def register_callbacks(app):
                 region, horizon_hours, model_name, demand_json, weather_json, persona_id
             )
             if redis_result is not None:
-                # Append empty replay label (10th output) to 9-element Redis result
-                return list(redis_result) + [""]
+                return redis_result
 
         # ── v1 compute fallback ─────────────────────────────
         if not demand_json or not weather_json:
@@ -4134,7 +4130,6 @@ def register_callbacks(app):
                 "",
                 "Loading...",
                 empty_insight,
-                "",
             )
 
         try:
@@ -4154,7 +4149,6 @@ def register_callbacks(app):
                 "",
                 "No data",
                 empty_insight,
-                "",
             )
 
         # Get the data through date (last timestamp in demand data)
@@ -4186,7 +4180,6 @@ def register_callbacks(app):
                 "",
                 "No data",
                 empty_insight,
-                "",
             )
 
         timestamps = pd.to_datetime(result["timestamps"])
@@ -4323,32 +4316,6 @@ def register_callbacks(app):
         )
         insight_card = build_insight_card(tab2_insights, persona, "tab-outlook")
 
-        # Overlay historical snapshot (NEXD-14)
-        replay_label_text = ""
-        try:
-            from config import feature_enabled
-
-            if feature_enabled("forecast_replay") and replay_value and replay_value != "current":
-                from data.forecast_history import get_forecast_snapshot
-
-                snap = get_forecast_snapshot(
-                    region or "FPL", horizon_hours, model_name, replay_value
-                )
-                if snap:
-                    fig.add_trace(
-                        go.Scatter(
-                            x=pd.to_datetime(snap["timestamps"]),
-                            y=snap["predictions"],
-                            mode="lines",
-                            name=f"Forecast from {snap['scored_at'][:16]}",
-                            line=dict(color="#A8B3C7", width=2, dash="dash"),
-                            opacity=0.6,
-                        )
-                    )
-                    replay_label_text = f"Comparing with forecast from {snap['scored_at'][:16]}"
-        except Exception:
-            log.debug("replay_overlay_failed")
-
         log.info("outlook_callback_complete", horizon=horizon_hours, peak=peak_str)
         return (
             fig,
@@ -4360,7 +4327,6 @@ def register_callbacks(app):
             min_time,
             range_str,
             insight_card,
-            replay_label_text,
         )
 
     # ── FORECAST REPLAY SELECTOR (NEXD-14) ──────────────────────
@@ -4375,8 +4341,8 @@ def register_callbacks(app):
             Input("outlook-horizon", "value"),
             Input("outlook-model", "value"),
             Input("dashboard-tabs", "active_tab"),
+            Input("region-selector", "value"),
         ],
-        [State("region-selector", "value")],
         prevent_initial_call=True,
     )
     def populate_replay_selector(horizon, model_name, active_tab, region):
@@ -4398,6 +4364,68 @@ def register_callbacks(app):
         except Exception:
             log.debug("replay_selector_populate_failed")
             return default_opts, "current", hidden
+
+    # ── FORECAST REPLAY OVERLAY (NEXD-14) ───────────────────────
+
+    @app.callback(
+        [
+            Output("outlook-chart", "figure", allow_duplicate=True),
+            Output("replay-label", "children"),
+        ],
+        [Input("replay-selector", "value")],
+        [
+            State("outlook-chart", "figure"),
+            State("outlook-horizon", "value"),
+            State("outlook-model", "value"),
+            State("region-selector", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def overlay_replay_snapshot(replay_value, current_fig, horizon, model_name, region):
+        """Overlay a historical forecast snapshot on the current chart.
+
+        This is a lightweight callback — it only reads from SQLite and
+        patches the existing figure.  It never recomputes a forecast.
+        """
+        if current_fig is None:
+            return no_update, ""
+
+        fig = go.Figure(current_fig)
+
+        # Strip any previously added replay traces
+        fig.data = [t for t in fig.data if not (t.name or "").startswith("Forecast from ")]
+
+        if not replay_value or replay_value == "current":
+            return fig, ""
+
+        try:
+            from config import feature_enabled
+
+            if not feature_enabled("forecast_replay"):
+                return fig, ""
+
+            from data.forecast_history import get_forecast_snapshot
+
+            horizon_hours = int(horizon) if horizon else 168
+            snap = get_forecast_snapshot(
+                region or "FPL", horizon_hours, model_name or "xgboost", replay_value
+            )
+            if snap:
+                fig.add_trace(
+                    go.Scatter(
+                        x=pd.to_datetime(snap["timestamps"]),
+                        y=snap["predictions"],
+                        mode="lines",
+                        name=f"Forecast from {snap['scored_at'][:16]}",
+                        line=dict(color="#A8B3C7", width=2, dash="dash"),
+                        opacity=0.6,
+                    )
+                )
+                return fig, f"Comparing with forecast from {snap['scored_at'][:16]}"
+        except Exception:
+            log.debug("replay_overlay_failed")
+
+        return fig, ""
 
     # ── VALIDATION TAB: BACKTEST & ACCURACY ─────────────────────
 

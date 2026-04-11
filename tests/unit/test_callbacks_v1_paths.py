@@ -1065,25 +1065,18 @@ class TestDemandOutlookV1:
     def test_tab_guard(self, callbacks):
         """Non-active tab returns no_update."""
         result = callbacks["update_demand_outlook"](
-            24,
-            "xgboost",
-            "tab-forecast",
-            _demand_json(),
-            "grid_ops",
-            "current",
-            _weather_json(),
-            "FPL",
+            24, "xgboost", "tab-forecast", _demand_json(), "grid_ops", _weather_json(), "FPL"
         )
-        assert result == [no_update] * 10
+        assert result == [no_update] * 9
 
     def test_no_data_returns_loading(self, callbacks):
         """No demand/weather data returns loading placeholder."""
         with patch("components.callbacks.redis_get", return_value=None):
             result = callbacks["update_demand_outlook"](
-                24, "xgboost", "tab-outlook", None, "grid_ops", "current", None, "FPL"
+                24, "xgboost", "tab-outlook", None, "grid_ops", None, "FPL"
             )
 
-        assert len(result) == 10
+        assert len(result) == 9
         assert isinstance(result[0], go.Figure)
 
     def test_v1_with_valid_forecast(self, callbacks):
@@ -1098,17 +1091,10 @@ class TestDemandOutlookV1:
             patch("components.callbacks._run_forecast_outlook", return_value=fake_result),
         ):
             result = callbacks["update_demand_outlook"](
-                24,
-                "xgboost",
-                "tab-outlook",
-                _demand_json(),
-                "grid_ops",
-                "current",
-                _weather_json(),
-                "FPL",
+                24, "xgboost", "tab-outlook", _demand_json(), "grid_ops", _weather_json(), "FPL"
             )
 
-        assert len(result) == 10
+        assert len(result) == 9
         fig = result[0]
         peak = result[2]
         avg = result[4]
@@ -1126,17 +1112,10 @@ class TestDemandOutlookV1:
             ),
         ):
             result = callbacks["update_demand_outlook"](
-                24,
-                "xgboost",
-                "tab-outlook",
-                _demand_json(),
-                "grid_ops",
-                "current",
-                _weather_json(),
-                "FPL",
+                24, "xgboost", "tab-outlook", _demand_json(), "grid_ops", _weather_json(), "FPL"
             )
 
-        assert len(result) == 10
+        assert len(result) == 9
         # KPIs should show explicit error placeholders
         assert result[2] == "No data"
 

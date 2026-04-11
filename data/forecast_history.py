@@ -10,6 +10,7 @@ Pure logic — no Dash dependencies.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 import time
@@ -25,6 +26,12 @@ log = structlog.get_logger()
 MAX_SNAPSHOTS = 30
 
 _initialized = False
+
+
+def _predictions_hash(predictions: list[float]) -> str:
+    """Compute a stable hash of predictions for content deduplication."""
+    raw = ",".join(f"{p:.2f}" for p in predictions)
+    return hashlib.md5(raw.encode()).hexdigest()  # noqa: S324
 
 
 def _init_db(conn: sqlite3.Connection) -> None:
@@ -85,16 +92,18 @@ def save_forecast_snapshot(
     scored_at = datetime.now(tz=UTC).isoformat()
     peak_mw = max(predictions) if predictions else 0.0
     avg_mw = sum(predictions) / len(predictions) if predictions else 0.0
+    pred_hash = _predictions_hash(predictions)
 
     with _connect() as conn:
-        # Check for duplicate scored_at (within same second)
-        existing = conn.execute(
-            """SELECT id FROM forecast_snapshots
-               WHERE region = ? AND horizon_hours = ? AND model_name = ? AND scored_at = ?""",
-            (region, horizon_hours, model_name, scored_at),
+        # Content dedup: skip if predictions match the most recent snapshot
+        latest = conn.execute(
+            """SELECT predictions_json FROM forecast_snapshots
+               WHERE region = ? AND horizon_hours = ? AND model_name = ?
+               ORDER BY scored_at DESC LIMIT 1""",
+            (region, horizon_hours, model_name),
         ).fetchone()
-        if existing:
-            log.debug("snapshot_duplicate_skipped", region=region, scored_at=scored_at)
+        if latest and _predictions_hash(json.loads(latest["predictions_json"])) == pred_hash:
+            log.debug("snapshot_content_duplicate_skipped", region=region, model=model_name)
             return
 
         conn.execute(
