@@ -525,6 +525,10 @@ def _run_forecast_outlook(
     )
     future_df = _create_future_features(train_df, future_timestamps)
 
+    # NEXD-13: SHAP data for inline tooltips (populated for XGBoost only)
+    shap_data = None
+    xgb_model_dict = None
+
     try:
         if model_name == "xgboost":
             from models.xgboost_model import predict_xgboost, train_xgboost
@@ -543,6 +547,22 @@ def _run_forecast_outlook(
                 _MODEL_CACHE[mck] = (xgb_model, data_hash, time.time())
                 log.info("model_cached", region=region, model="xgboost")
             predictions = predict_xgboost(xgb_model, future_df)[:horizon_hours]
+
+            # Compute SHAP values for per-point tooltips (NEXD-13)
+            xgb_model_dict = xgb_model
+            try:
+                from config import feature_enabled
+
+                if feature_enabled("inline_tooltips"):
+                    from models.xgboost_model import compute_shap_values
+
+                    shap_result = compute_shap_values(xgb_model, future_df)
+                    shap_data = {
+                        "shap_values": shap_result["shap_values"][:horizon_hours],
+                        "feature_names": shap_result["feature_names"],
+                    }
+            except Exception:
+                log.debug("shap_computation_skipped", model=model_name, region=region)
 
         elif model_name == "prophet":
             from models.prophet_model import predict_prophet, train_prophet
@@ -757,10 +777,15 @@ def _run_forecast_outlook(
         log.warning("outlook_model_failed", model=model_name, error=str(e))
         return {"error": str(e)}
 
-    return {
+    result = {
         "timestamps": future_timestamps,
         "predictions": predictions,
     }
+    if shap_data is not None:
+        result["shap_data"] = shap_data
+    if xgb_model_dict is not None:
+        result["model_dict"] = xgb_model_dict
+    return result
 
 
 def _create_future_features(
@@ -4124,6 +4149,25 @@ def register_callbacks(app):
         timestamps = pd.to_datetime(result["timestamps"])
         predictions = result["predictions"]
 
+        # Build per-point tooltip strings (NEXD-13)
+        tooltips = None
+        try:
+            from config import feature_enabled
+
+            if feature_enabled("inline_tooltips"):
+                from data.explainability import build_tooltip_strings
+
+                shap_data = result.get("shap_data")
+                tooltips = build_tooltip_strings(
+                    shap_values=shap_data.get("shap_values") if shap_data else None,
+                    feature_names=shap_data.get("feature_names") if shap_data else None,
+                    model_dict=result.get("model_dict"),
+                    n_points=len(predictions),
+                    model_name=model_name,
+                )
+        except Exception:
+            log.debug("tooltip_build_skipped")
+
         # Calculate KPIs
         peak_val = np.max(predictions)
         peak_idx = np.argmax(predictions)
@@ -4143,21 +4187,26 @@ def register_callbacks(app):
         model_style = LINE_STYLES.get(
             model_name, {"color": COLORS["ensemble"], "width": 2, "dash": "solid"}
         )
-        fig.add_trace(
-            go.Scatter(
-                x=timestamps,
-                y=predictions,
-                mode="lines",
-                name=f"{model_name.upper()} Forecast",
-                line=dict(
-                    color=COLORS.get(model_name, COLORS["ensemble"]),
-                    width=model_style.get("width", 2),
-                    dash=model_style.get("dash", "solid"),
-                ),
-                fill="tozeroy",
-                fillcolor="rgba(56,208,255,0.10)",
-            )
+        # Forecast trace with optional SHAP tooltips (NEXD-13)
+        forecast_kwargs: dict = dict(
+            x=timestamps,
+            y=predictions,
+            mode="lines",
+            name=f"{model_name.upper()} Forecast",
+            line=dict(
+                color=COLORS.get(model_name, COLORS["ensemble"]),
+                width=model_style.get("width", 2),
+                dash=model_style.get("dash", "solid"),
+            ),
+            fill="tozeroy",
+            fillcolor="rgba(56,208,255,0.10)",
         )
+        if tooltips and any(tooltips):
+            forecast_kwargs["customdata"] = tooltips
+            forecast_kwargs["hovertemplate"] = (
+                "<b>%{x|%a %b %d %H:%M}</b><br>Demand: %{y:,.0f} MW<br>%{customdata}<extra></extra>"
+            )
+        fig.add_trace(go.Scatter(**forecast_kwargs))
 
         # Add peak marker
         fig.add_trace(
