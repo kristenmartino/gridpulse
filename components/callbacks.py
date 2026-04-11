@@ -3729,6 +3729,100 @@ def register_callbacks(app):
         )
         return search, toast
 
+    # ── NEXD-9: SMART DEFAULTS — PERSIST & RESTORE FILTERS ───
+
+    @app.callback(
+        [
+            Output("region-selector", "value", allow_duplicate=True),
+            Output("persona-selector", "value", allow_duplicate=True),
+            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+            Output("tab1-timerange", "value", allow_duplicate=True),
+            Output("outlook-horizon", "value", allow_duplicate=True),
+            Output("outlook-model", "value", allow_duplicate=True),
+            Output("backtest-horizon", "value", allow_duplicate=True),
+            Output("gen-date-range", "value", allow_duplicate=True),
+            Output("tab3-model-selector", "value", allow_duplicate=True),
+            Output("sim-duration", "value", allow_duplicate=True),
+        ],
+        Input("url", "pathname"),
+        [
+            State("user-prefs-store", "data"),
+            State("url", "search"),
+        ],
+        prevent_initial_call="initial_duplicate",
+    )
+    def restore_user_prefs(pathname, prefs_data, search):
+        """NEXD-9: Restore saved filter state from localStorage on page load."""
+        from config import feature_enabled
+
+        n_outputs = 10
+        if not feature_enabled("smart_defaults"):
+            return [no_update] * n_outputs
+
+        # If URL has bookmark params, let restore_bookmark handle it
+        if search and "=" in search:
+            return [no_update] * n_outputs
+
+        if not prefs_data or not isinstance(prefs_data, dict):
+            return [no_update] * n_outputs
+
+        from data.user_prefs import TRACKED_FILTERS, validate_prefs
+
+        prefs = validate_prefs(prefs_data)
+
+        # Build output list: region, persona, tab, then each tracked filter
+        outputs = [
+            prefs.region or no_update,
+            prefs.persona or no_update,
+            prefs.tab or no_update,
+        ]
+
+        for fid in TRACKED_FILTERS:
+            val = prefs.filters.get(fid)
+            outputs.append(val if val is not None else no_update)
+
+        return outputs
+
+    @app.callback(
+        Output("user-prefs-store", "data"),
+        [
+            Input("region-selector", "value"),
+            Input("persona-selector", "value"),
+            Input("dashboard-tabs", "active_tab"),
+            Input("tab1-timerange", "value"),
+            Input("outlook-horizon", "value"),
+            Input("outlook-model", "value"),
+            Input("backtest-horizon", "value"),
+            Input("gen-date-range", "value"),
+            Input("tab3-model-selector", "value"),
+            Input("sim-duration", "value"),
+        ],
+        prevent_initial_call=True,
+    )
+    def save_user_prefs(region, persona, tab, *filter_values):
+        """NEXD-9: Persist current filter state to localStorage."""
+        from config import feature_enabled
+
+        if not feature_enabled("smart_defaults"):
+            return no_update
+
+        from datetime import UTC, datetime
+
+        from data.user_prefs import TRACKED_FILTERS
+
+        filters = {}
+        for fid, val in zip(TRACKED_FILTERS, filter_values, strict=False):
+            if val is not None:
+                filters[fid] = val
+
+        return {
+            "region": region or "FPL",
+            "persona": persona or "grid_ops",
+            "tab": tab or "tab-overview",
+            "filters": filters,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
     # ── SPRINT 5: A4+E3 — PER-WIDGET CONFIDENCE BADGES ───────
 
     @app.callback(

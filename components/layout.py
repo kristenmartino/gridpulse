@@ -212,6 +212,8 @@ def build_layout() -> dbc.Container:
             # NEXD-8: Session snapshot for "What Changed" (persisted in localStorage)
             dcc.Store(id="session-snapshot-store", storage_type="local"),
             dcc.Store(id="changes-store"),
+            # NEXD-9: User preferences (persisted in localStorage)
+            dcc.Store(id="user-prefs-store", storage_type="local"),
         ],
         fluid=True,
         style={"padding": 0},
