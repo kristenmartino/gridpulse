@@ -170,6 +170,55 @@ body {
     display: none;
 }
 
+/* ── What Changed Card (NEXD-8) ───────────────────────── */
+.changes-card {
+    background: linear-gradient(135deg, #11182D 0%, #0B1020 100%);
+    border: 1px solid #263556;
+    border-left: 3px solid #F6AD55;
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin: 8px 0;
+    animation: fadeIn 0.3s ease-in;
+}
+
+.changes-card:empty {
+    display: none;
+}
+
+.changes-card .changes-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.changes-card .changes-title {
+    font-weight: 600;
+    color: #F7FAFC;
+    font-size: 0.85rem;
+}
+
+.changes-card .changes-timestamp {
+    color: #A8B3C7;
+    font-size: 0.7rem;
+}
+
+.changes-card .change-item {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(38, 53, 86, 0.5);
+    font-size: 0.82rem;
+    color: #DDE6F2;
+    line-height: 1.5;
+}
+
+.changes-card .change-item:last-child {
+    border-bottom: none;
+}
+
+.changes-card .change-icon {
+    margin-right: 8px;
+}
+
 /* ── Scenario Simulator Sliders ────────────────────────── */
 .slider-container {
     background: #11182D;
@@ -481,7 +530,7 @@ body {
 
 /* ── Reduced Motion ────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-    .welcome-card, .insight-card { animation: none; }
+    .welcome-card, .insight-card, .changes-card { animation: none; }
     .news-ticker-track { animation: none; }
     .kpi-card { transition: none; }
     * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }

@@ -340,6 +340,7 @@ FEATURE_FLAGS: dict[str, bool] = {
     "api_fallback_badges": True,  # Sprint 4 (G2)
     "ai_insights": True,  # Persona-aware insight cards on all tabs
     "ai_briefing": True,  # Claude-powered executive briefing on Overview tab
+    "what_changed": True,  # NEXD-8: session-aware change detection
 }
 
 

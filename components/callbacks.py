@@ -2285,6 +2285,104 @@ def register_callbacks(app):
             return no_update
         return _build_overview_news()
 
+    # ── 3b. NEXD-8: SESSION CHANGE DETECTION ──────────────────
+
+    @app.callback(
+        [
+            Output("session-snapshot-store", "data"),
+            Output("changes-store", "data"),
+        ],
+        [
+            Input("demand-store", "data"),
+            Input("audit-store", "data"),
+            Input("data-freshness-store", "data"),
+        ],
+        [
+            State("session-snapshot-store", "data"),
+            State("region-selector", "value"),
+            State("persona-selector", "value"),
+        ],
+        prevent_initial_call=False,
+    )
+    def compute_session_changes(
+        demand_json, audit_json, freshness_json, prev_snapshots, region, persona
+    ):
+        """Compute snapshot of current data and diff against last visit."""
+        from config import feature_enabled
+
+        if not feature_enabled("what_changed"):
+            return no_update, no_update
+
+        import json as _json
+
+        from data.session_diff import SessionSnapshot, compute_diff, compute_snapshot
+
+        region = region or "FPL"
+        persona = persona or "grid_ops"
+
+        # Parse inputs
+        demand_df = None
+        if demand_json:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+
+        audit_data = None
+        if audit_json:
+            audit_data = _json.loads(audit_json) if isinstance(audit_json, str) else audit_json
+
+        freshness_data = None
+        if freshness_json:
+            freshness_data = (
+                _json.loads(freshness_json) if isinstance(freshness_json, str) else freshness_json
+            )
+
+        # Build current snapshot
+        current = compute_snapshot(region, persona, demand_df, audit_data, freshness_data)
+
+        # Load previous snapshots dict (may be None on first visit)
+        snapshots = prev_snapshots if isinstance(prev_snapshots, dict) else {}
+
+        # Diff against previous for this region
+        changes = []
+        prev_entry = snapshots.get(region)
+        if prev_entry and isinstance(prev_entry, dict):
+            prev_snap_data = prev_entry.get("snapshot")
+            if prev_snap_data:
+                prev_snap = SessionSnapshot.from_dict(prev_snap_data)
+                changes = [c.to_dict() for c in compute_diff(prev_snap, current, persona)]
+
+        # Save current snapshot for this region
+        snapshots[region] = {
+            "snapshot": current.to_dict(),
+            "timestamp": current.timestamp,
+        }
+
+        return snapshots, _json.dumps(changes)
+
+    @app.callback(
+        Output("overview-changes", "children"),
+        [
+            Input("changes-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+        [
+            State("persona-selector", "value"),
+            State("region-selector", "value"),
+            State("session-snapshot-store", "data"),
+        ],
+        prevent_initial_call=True,
+    )
+    def render_changes_card(changes_json, active_tab, persona, region, snapshots):
+        """Render 'What Changed' card on Overview tab."""
+        if active_tab != "tab-overview":
+            return no_update
+
+        from config import feature_enabled
+
+        if not feature_enabled("what_changed"):
+            return html.Div()
+
+        return _build_changes_card(changes_json, persona or "grid_ops", region or "FPL", snapshots)
+
     # ── 4. TAB 1: DEMAND FORECAST ─────────────────────────────
 
     @app.callback(
@@ -4442,6 +4540,67 @@ def _build_weather_context(latest: "pd.Series") -> html.Div:
         return html.Div()
 
     return dbc.Row(cards, className="g-2")
+
+
+def _build_changes_card(
+    changes_json: str | None,
+    persona: str,
+    region: str,
+    snapshots: dict | None,
+) -> html.Div:
+    """Build the 'Since your last visit' card for the Overview tab (NEXD-8)."""
+    import json as _json
+
+    from data.session_diff import format_relative_time
+
+    if not changes_json:
+        return html.Div()
+
+    try:
+        changes = _json.loads(changes_json) if isinstance(changes_json, str) else changes_json
+    except Exception:
+        return html.Div()
+
+    if not changes:
+        return html.Div()
+
+    # Get previous visit timestamp for this region
+    prev_timestamp = None
+    if snapshots and isinstance(snapshots, dict):
+        entry = snapshots.get(region)
+        if entry and isinstance(entry, dict):
+            prev_timestamp = entry.get("timestamp")
+
+    rel_time = format_relative_time(prev_timestamp) if prev_timestamp else ""
+
+    # Build bullet items
+    items = []
+    for change in changes[:5]:
+        icon = change.get("icon", "")
+        text = change.get("text", "")
+        items.append(
+            html.Div(
+                [
+                    html.Span(icon, className="change-icon"),
+                    html.Span(text),
+                ],
+                className="change-item",
+            )
+        )
+
+    header_parts = [
+        html.Span("Since your last visit", className="changes-title"),
+    ]
+    if rel_time:
+        header_parts.append(html.Span(rel_time, className="changes-timestamp"))
+
+    return html.Div(
+        [
+            html.Div(header_parts, className="changes-header"),
+            *items,
+        ],
+        className="changes-card",
+    )
 
 
 def _build_overview_data_health(freshness_data: dict | None) -> html.Div:

@@ -209,6 +209,9 @@ def build_layout() -> dbc.Container:
             dcc.Store(id="pipeline-log-store"),
             # AI briefing cache for Overview tab
             dcc.Store(id="briefing-store"),
+            # NEXD-8: Session snapshot for "What Changed" (persisted in localStorage)
+            dcc.Store(id="session-snapshot-store", storage_type="local"),
+            dcc.Store(id="changes-store"),
         ],
         fluid=True,
         style={"padding": 0},

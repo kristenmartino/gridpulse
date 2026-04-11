@@ -30,6 +30,8 @@ def layout() -> html.Div:
                 children=_skeleton_briefing(),
                 className="briefing-card",
             ),
+            # ── Section A.5: What Changed Since Last Visit (NEXD-8) ──
+            html.Div(id="overview-changes", className="mt-2"),
             # ── Section B: Data Health ────────────────────────────
             html.Div(id="overview-data-health", className="mt-2"),
             # ── Section C: Quick Navigation ───────────────────────

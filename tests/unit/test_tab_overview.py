@@ -32,6 +32,7 @@ class TestOverviewLayout:
         required = [
             "overview-greeting",
             "overview-briefing",
+            "overview-changes",
             "overview-data-health",
             "overview-spotlight-chart",
             "overview-insight-digest",
