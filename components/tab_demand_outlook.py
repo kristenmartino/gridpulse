@@ -6,7 +6,7 @@ starting from the latest available data point.
 """
 
 import dash_bootstrap_components as dbc
-from dash import html
+from dash import dcc, html
 
 from components.cards import build_chart_container
 
@@ -120,6 +120,49 @@ def layout() -> html.Div:
                     ),
                 ],
                 className="mb-3",
+            ),
+            # ── Forecast Replay (NEXD-14) ──────────────────────
+            html.Div(
+                id="replay-container",
+                children=[
+                    dbc.Row(
+                        [
+                            dbc.Col(
+                                [
+                                    html.Label(
+                                        "Forecast Replay:",
+                                        className="fw-bold",
+                                        style={"fontSize": "0.85rem"},
+                                    ),
+                                    dcc.Dropdown(
+                                        id="replay-selector",
+                                        options=[{"label": "Current", "value": "current"}],
+                                        value="current",
+                                        clearable=False,
+                                        style={"fontSize": "0.85rem"},
+                                    ),
+                                ],
+                                md=6,
+                            ),
+                            dbc.Col(
+                                [
+                                    html.Div(
+                                        id="replay-label",
+                                        children="",
+                                        style={
+                                            "fontSize": "0.8rem",
+                                            "color": "#A8B3C7",
+                                            "paddingTop": "28px",
+                                        },
+                                    ),
+                                ],
+                                md=6,
+                            ),
+                        ],
+                        className="mb-2",
+                    ),
+                ],
+                style={"display": "none"},
             ),
             # Main forecast chart
             build_chart_container(

@@ -785,6 +785,26 @@ def _run_forecast_outlook(
         result["shap_data"] = shap_data
     if xgb_model_dict is not None:
         result["model_dict"] = xgb_model_dict
+
+    # Save snapshot for replay (NEXD-14)
+    try:
+        from config import feature_enabled
+
+        if feature_enabled("forecast_replay"):
+            from data.forecast_history import save_forecast_snapshot
+
+            save_forecast_snapshot(
+                region=region,
+                horizon_hours=horizon_hours,
+                model_name=model_name,
+                timestamps=[str(t) for t in future_timestamps],
+                predictions=predictions.tolist()
+                if hasattr(predictions, "tolist")
+                else list(predictions),
+            )
+    except Exception:
+        log.debug("forecast_snapshot_save_failed", region=region, model=model_name)
+
     return result
 
 
@@ -4052,6 +4072,7 @@ def register_callbacks(app):
             Output("outlook-min-time", "children"),
             Output("outlook-range", "children"),
             Output("tab2-insight-card", "children"),
+            Output("replay-label", "children"),
         ],
         [
             Input("outlook-horizon", "value"),
@@ -4059,6 +4080,7 @@ def register_callbacks(app):
             Input("dashboard-tabs", "active_tab"),
             Input("demand-store", "data"),
             Input("persona-selector", "value"),
+            Input("replay-selector", "value"),
         ],
         [
             State("weather-store", "data"),
@@ -4067,12 +4089,19 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def update_demand_outlook(
-        horizon, model_name, active_tab, demand_json, persona_id, weather_json, region
+        horizon,
+        model_name,
+        active_tab,
+        demand_json,
+        persona_id,
+        replay_value,
+        weather_json,
+        region,
     ):
         """Generate forward-looking demand forecast."""
         # Only run when this tab is active — avoids 10s+ model training on page load
         if active_tab != "tab-outlook":
-            return [no_update] * 9
+            return [no_update] * 10
 
         log.info("outlook_callback_start", horizon=horizon, model=model_name, region=region)
 
@@ -4085,7 +4114,8 @@ def register_callbacks(app):
                 region, horizon_hours, model_name, demand_json, weather_json, persona_id
             )
             if redis_result is not None:
-                return redis_result
+                # Append empty replay label (10th output) to 9-element Redis result
+                return list(redis_result) + [""]
 
         # ── v1 compute fallback ─────────────────────────────
         if not demand_json or not weather_json:
@@ -4104,6 +4134,7 @@ def register_callbacks(app):
                 "",
                 "Loading...",
                 empty_insight,
+                "",
             )
 
         try:
@@ -4113,7 +4144,18 @@ def register_callbacks(app):
             log.error("outlook_parse_error", error=str(e))
             fig = go.Figure()
             fig.update_layout(**PLOT_LAYOUT)
-            return fig, "Error", "No data", "", "No data", "No data", "", "No data", empty_insight
+            return (
+                fig,
+                "Error",
+                "No data",
+                "",
+                "No data",
+                "No data",
+                "",
+                "No data",
+                empty_insight,
+                "",
+            )
 
         # Get the data through date (last timestamp in demand data)
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
@@ -4144,6 +4186,7 @@ def register_callbacks(app):
                 "",
                 "No data",
                 empty_insight,
+                "",
             )
 
         timestamps = pd.to_datetime(result["timestamps"])
@@ -4280,6 +4323,32 @@ def register_callbacks(app):
         )
         insight_card = build_insight_card(tab2_insights, persona, "tab-outlook")
 
+        # Overlay historical snapshot (NEXD-14)
+        replay_label_text = ""
+        try:
+            from config import feature_enabled
+
+            if feature_enabled("forecast_replay") and replay_value and replay_value != "current":
+                from data.forecast_history import get_forecast_snapshot
+
+                snap = get_forecast_snapshot(
+                    region or "FPL", horizon_hours, model_name, replay_value
+                )
+                if snap:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=pd.to_datetime(snap["timestamps"]),
+                            y=snap["predictions"],
+                            mode="lines",
+                            name=f"Forecast from {snap['scored_at'][:16]}",
+                            line=dict(color="#A8B3C7", width=2, dash="dash"),
+                            opacity=0.6,
+                        )
+                    )
+                    replay_label_text = f"Comparing with forecast from {snap['scored_at'][:16]}"
+        except Exception:
+            log.debug("replay_overlay_failed")
+
         log.info("outlook_callback_complete", horizon=horizon_hours, peak=peak_str)
         return (
             fig,
@@ -4291,7 +4360,44 @@ def register_callbacks(app):
             min_time,
             range_str,
             insight_card,
+            replay_label_text,
         )
+
+    # ── FORECAST REPLAY SELECTOR (NEXD-14) ──────────────────────
+
+    @app.callback(
+        [
+            Output("replay-selector", "options"),
+            Output("replay-selector", "value"),
+            Output("replay-container", "style"),
+        ],
+        [
+            Input("outlook-horizon", "value"),
+            Input("outlook-model", "value"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+        [State("region-selector", "value")],
+        prevent_initial_call=True,
+    )
+    def populate_replay_selector(horizon, model_name, active_tab, region):
+        """Populate the replay dropdown with available forecast snapshots."""
+        from config import feature_enabled
+
+        hidden = {"display": "none"}
+        default_opts = [{"label": "Current", "value": "current"}]
+
+        if active_tab != "tab-outlook" or not feature_enabled("forecast_replay"):
+            return default_opts, "current", hidden
+
+        try:
+            from data.forecast_history import build_replay_options
+
+            horizon_hours = int(horizon) if horizon else 168
+            options = build_replay_options(region or "FPL", horizon_hours, model_name or "xgboost")
+            return options, "current", {"display": "block"}
+        except Exception:
+            log.debug("replay_selector_populate_failed")
+            return default_opts, "current", hidden
 
     # ── VALIDATION TAB: BACKTEST & ACCURACY ─────────────────────
 
