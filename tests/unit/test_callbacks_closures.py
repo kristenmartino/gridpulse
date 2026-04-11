@@ -264,64 +264,69 @@ class TestUpdateHeaderFreshness:
 
 
 class TestRestoreBookmark:
-    """C2: URL bookmark restore callback (lines 2968-2987)."""
+    """C2+NEXD-12: URL bookmark restore callback (15 outputs)."""
 
     def test_empty_search_returns_no_update(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("")
-        assert result == (no_update, no_update, no_update)
+        assert result == [no_update] * 15
 
     def test_none_search_returns_no_update(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn(None)
-        assert result == (no_update, no_update, no_update)
+        assert result == [no_update] * 15
 
     def test_valid_region_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("?region=FPL")
-        region, persona, tab = result
-        assert region == "FPL"
-        assert persona is no_update
-        assert tab is no_update
+        assert result[0] == "FPL"
+        assert result[1] is no_update
+        assert result[2] is no_update
 
     def test_valid_persona_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("?persona=grid_ops")
-        region, persona, tab = result
-        assert region is no_update
-        assert persona == "grid_ops"
+        assert result[0] is no_update
+        assert result[1] == "grid_ops"
 
     def test_valid_tab_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("?tab=tab-forecast")
-        region, persona, tab = result
-        assert tab == "tab-forecast"
+        assert result[2] == "tab-forecast"
 
     def test_all_params_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("?region=ERCOT&persona=trader&tab=tab-outlook")
-        region, persona, tab = result
-        assert region == "ERCOT"
-        assert persona == "trader"
-        assert tab == "tab-outlook"
+        assert result[0] == "ERCOT"
+        assert result[1] == "trader"
+        assert result[2] == "tab-outlook"
 
     def test_invalid_region_ignored(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("?region=INVALID_REGION")
-        region, persona, tab = result
-        assert region is no_update
+        assert result[0] is no_update
 
     def test_invalid_persona_ignored(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("?persona=nonexistent_persona")
-        region, persona, tab = result
-        assert persona is no_update
+        assert result[1] is no_update
 
     def test_invalid_tab_ignored(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("?tab=tab-nonexistent")
-        region, persona, tab = result
-        assert tab is no_update
+        assert result[2] is no_update
+
+    def test_filter_params_restored(self, callbacks):
+        fn = callbacks["restore_bookmark"]
+        result = fn("?region=FPL&f.tab1-timerange=168")
+        # Index 3 = tab1-timerange (first filter output)
+        assert result[3] == "168"
+
+    def test_slider_params_restored(self, callbacks):
+        fn = callbacks["restore_bookmark"]
+        result = fn("?region=FPL&s.temp=5")
+        # Index 10 = sim-temp (first slider output)
+        assert result[10] == 5.0
 
 
 # ===========================================================================
@@ -330,21 +335,24 @@ class TestRestoreBookmark:
 
 
 class TestCreateBookmark:
-    """C2: URL bookmark creation callback (lines 3001-3017)."""
+    """C2+NEXD-12: URL bookmark creation callback (full state)."""
+
+    # 12 extra state values: 7 filters + 5 sim sliders (all None = no filter/slider state)
+    _defaults = (None,) * 12
 
     def test_no_clicks_returns_no_update(self, callbacks):
         fn = callbacks["create_bookmark"]
-        result = fn(0, "FPL", "grid_ops", "tab-forecast")
+        result = fn(0, "FPL", "grid_ops", "tab-forecast", *self._defaults)
         assert result == (no_update, no_update)
 
     def test_none_clicks_returns_no_update(self, callbacks):
         fn = callbacks["create_bookmark"]
-        result = fn(None, "FPL", "grid_ops", "tab-forecast")
+        result = fn(None, "FPL", "grid_ops", "tab-forecast", *self._defaults)
         assert result == (no_update, no_update)
 
     def test_creates_bookmark_url(self, callbacks):
         fn = callbacks["create_bookmark"]
-        search, toast = fn(1, "FPL", "grid_ops", "tab-forecast")
+        search, toast = fn(1, "FPL", "grid_ops", "tab-forecast", *self._defaults)
         assert "region=FPL" in search
         assert "persona=grid_ops" in search
         assert "tab=tab-forecast" in search
@@ -353,9 +361,23 @@ class TestCreateBookmark:
         import dash_bootstrap_components as dbc
 
         fn = callbacks["create_bookmark"]
-        search, toast = fn(1, "ERCOT", "trader", "tab-outlook")
+        search, toast = fn(1, "ERCOT", "trader", "tab-outlook", *self._defaults)
         assert isinstance(toast, dbc.Toast)
         assert toast.is_open is True
+
+    def test_includes_filter_params(self, callbacks):
+        fn = callbacks["create_bookmark"]
+        # First filter state = tab1-timerange = "720"
+        state_values = ("720",) + (None,) * 11
+        search, toast = fn(1, "FPL", "grid_ops", "tab-forecast", *state_values)
+        assert "f.tab1-timerange=720" in search
+
+    def test_includes_slider_params(self, callbacks):
+        fn = callbacks["create_bookmark"]
+        # 7 filter Nones + sim-temp=5
+        state_values = (None,) * 7 + (5,) + (None,) * 4
+        search, toast = fn(1, "FPL", "grid_ops", "tab-simulator", *state_values)
+        assert "s.temp=5" in search
 
 
 # ===========================================================================

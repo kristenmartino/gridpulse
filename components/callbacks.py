@@ -32,13 +32,11 @@ from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
     REGION_CAPACITY_MW,
-    REGION_NAMES,
-    TAB_LABELS,
     WEATHER_VARIABLES,
 )
 from data.redis_client import redis_get
 from hash_utils import stable_int_seed
-from personas.config import PERSONAS, get_persona, get_welcome_card
+from personas.config import get_persona, get_welcome_card
 
 log = structlog.get_logger()
 
@@ -3569,6 +3567,29 @@ def register_callbacks(app):
             w.get("shortwave_radiation", 500),
         )
 
+    # ── NEXD-12: RESET SCENARIO SLIDERS ───────────────────────
+
+    @app.callback(
+        [
+            Output("sim-temp", "value", allow_duplicate=True),
+            Output("sim-wind", "value", allow_duplicate=True),
+            Output("sim-cloud", "value", allow_duplicate=True),
+            Output("sim-humidity", "value", allow_duplicate=True),
+            Output("sim-solar", "value", allow_duplicate=True),
+            Output("sim-duration", "value", allow_duplicate=True),
+        ],
+        Input("sim-reset-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_sim_sliders(n_clicks):
+        """NEXD-12: Reset scenario sliders to defaults."""
+        if not n_clicks:
+            return [no_update] * 6
+
+        from data.user_prefs import SIM_DURATION_DEFAULT, SIM_SLIDER_DEFAULTS, SIM_SLIDERS
+
+        return [SIM_SLIDER_DEFAULTS[sid] for sid in SIM_SLIDERS] + [SIM_DURATION_DEFAULT]
+
     # ── SPRINT 4: G2 — API FALLBACK BANNER ────────────────────
 
     @app.callback(
@@ -3669,35 +3690,59 @@ def register_callbacks(app):
             Output("region-selector", "value", allow_duplicate=True),
             Output("persona-selector", "value", allow_duplicate=True),
             Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+            # NEXD-12: tracked filters
+            Output("tab1-timerange", "value", allow_duplicate=True),
+            Output("outlook-horizon", "value", allow_duplicate=True),
+            Output("outlook-model", "value", allow_duplicate=True),
+            Output("backtest-horizon", "value", allow_duplicate=True),
+            Output("gen-date-range", "value", allow_duplicate=True),
+            Output("tab3-model-selector", "value", allow_duplicate=True),
+            Output("sim-duration", "value", allow_duplicate=True),
+            # NEXD-12: sim sliders
+            Output("sim-temp", "value", allow_duplicate=True),
+            Output("sim-wind", "value", allow_duplicate=True),
+            Output("sim-cloud", "value", allow_duplicate=True),
+            Output("sim-humidity", "value", allow_duplicate=True),
+            Output("sim-solar", "value", allow_duplicate=True),
         ],
         Input("url", "search"),
         prevent_initial_call=True,
     )
     def restore_bookmark(search):
-        """C2: Restore dashboard state from URL query parameters.
+        """C2+NEXD-12: Restore full dashboard state from URL query parameters.
 
-        Supported params: ?region=FPL&persona=trader&tab=tab-forecast
+        Supports core params (region, persona, tab), tracked filters (f.*),
+        and scenario slider values (s.*).  Old URLs without f.*/s.* still work.
         """
+        n_outputs = 15  # 3 core + 7 filters + 5 sliders
         if not search:
-            return no_update, no_update, no_update
+            return [no_update] * n_outputs
 
-        from urllib.parse import parse_qs
+        from data.user_prefs import (
+            SIM_SLIDERS,
+            TRACKED_FILTERS,
+            deserialize_bookmark_params,
+        )
 
-        params = parse_qs(search.lstrip("?"))
+        state = deserialize_bookmark_params(search)
+        if not state:
+            return [no_update] * n_outputs
 
-        region = params.get("region", [None])[0]
-        persona = params.get("persona", [None])[0]
-        tab = params.get("tab", [None])[0]
+        outputs = [
+            state.get("region", no_update),
+            state.get("persona", no_update),
+            state.get("tab", no_update),
+        ]
 
-        # Validate values
-        if region and region not in REGION_NAMES:
-            region = None
-        if persona and persona not in PERSONAS:
-            persona = None
-        if tab and tab not in TAB_LABELS:
-            tab = None
+        filters = state.get("filters", {})
+        for fid in TRACKED_FILTERS:
+            outputs.append(filters.get(fid, no_update))
 
-        return (region or no_update, persona or no_update, tab or no_update)
+        sim_sliders = state.get("sim_sliders", {})
+        for sid in SIM_SLIDERS:
+            outputs.append(sim_sliders.get(sid, no_update))
+
+        return outputs
 
     @app.callback(
         [Output("url", "search"), Output("bookmark-toast", "children")],
@@ -3706,22 +3751,52 @@ def register_callbacks(app):
             State("region-selector", "value"),
             State("persona-selector", "value"),
             State("dashboard-tabs", "active_tab"),
+            # NEXD-12: tracked filters
+            State("tab1-timerange", "value"),
+            State("outlook-horizon", "value"),
+            State("outlook-model", "value"),
+            State("backtest-horizon", "value"),
+            State("gen-date-range", "value"),
+            State("tab3-model-selector", "value"),
+            State("sim-duration", "value"),
+            # NEXD-12: sim sliders
+            State("sim-temp", "value"),
+            State("sim-wind", "value"),
+            State("sim-cloud", "value"),
+            State("sim-humidity", "value"),
+            State("sim-solar", "value"),
         ],
         prevent_initial_call=True,
     )
-    def create_bookmark(n_clicks, region, persona, tab):
-        """C2: Serialize current dashboard state into a shareable URL."""
+    def create_bookmark(n_clicks, region, persona, tab, *state_values):
+        """C2+NEXD-12: Serialize full dashboard state into a shareable URL."""
         if not n_clicks:
             return no_update, no_update
 
-        from urllib.parse import urlencode
+        from data.user_prefs import (
+            SIM_SLIDERS,
+            TRACKED_FILTERS,
+            serialize_bookmark_params,
+        )
 
-        params = urlencode({"region": region, "persona": persona, "tab": tab})
-        search = f"?{params}"
+        filter_values = state_values[: len(TRACKED_FILTERS)]
+        slider_values = state_values[len(TRACKED_FILTERS) :]
+
+        filters: dict = {}
+        for fid, val in zip(TRACKED_FILTERS, filter_values, strict=False):
+            if val is not None:
+                filters[fid] = val
+
+        sim_sliders: dict = {}
+        for sid, val in zip(SIM_SLIDERS, slider_values, strict=False):
+            if val is not None:
+                sim_sliders[sid] = val
+
+        search = serialize_bookmark_params(region, persona, tab, filters, sim_sliders)
 
         toast = dbc.Toast(
             "Bookmark saved! URL updated — copy it to share this view.",
-            header="🔗 Bookmark Created",
+            header="Bookmark Created",
             dismissable=True,
             duration=4000,
             is_open=True,

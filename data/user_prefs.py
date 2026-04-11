@@ -1,9 +1,12 @@
 """
-Smart Defaults (Backlog NEXD-9: "Smart Defaults That Learn").
+Smart Defaults & Scenario Bookmarks (NEXD-9 + NEXD-12).
 
 Persists the user's preferred region, persona, active tab, and per-tab filter
 values in localStorage.  On return visits the dashboard silently restores these
 instead of falling back to hardcoded defaults.
+
+NEXD-12 adds serialize/deserialize for full dashboard state in URL bookmarks,
+including per-tab filters and scenario simulator slider values.
 
 Pure logic — no Dash or I/O dependencies.
 """
@@ -49,6 +52,35 @@ _FILTER_OPTIONS: dict[str, set[str] | None] = {
     "tab3-model-selector": {"prophet", "arima", "xgboost", "ensemble"},
     "sim-duration": None,  # numeric, validated separately
 }
+
+# ── Scenario simulator slider IDs, defaults, ranges ──────────────────
+
+SIM_SLIDERS: list[str] = [
+    "sim-temp",
+    "sim-wind",
+    "sim-cloud",
+    "sim-humidity",
+    "sim-solar",
+]
+
+SIM_SLIDER_DEFAULTS: dict[str, float] = {
+    "sim-temp": 75,
+    "sim-wind": 15,
+    "sim-cloud": 50,
+    "sim-humidity": 60,
+    "sim-solar": 500,
+}
+
+SIM_SLIDER_RANGES: dict[str, tuple[float, float]] = {
+    "sim-temp": (-10, 120),
+    "sim-wind": (0, 80),
+    "sim-cloud": (0, 100),
+    "sim-humidity": (0, 100),
+    "sim-solar": (0, 1000),
+}
+
+# Default sim-duration (tracked as a filter, not a slider)
+SIM_DURATION_DEFAULT: int = 24
 
 
 @dataclass
@@ -134,3 +166,126 @@ def validate_prefs(prefs_data: dict | None) -> UserPrefs:
     prefs.filters = clean_filters
 
     return prefs
+
+
+# ── NEXD-12: Bookmark serialization / deserialization ─────────────────
+
+# Checklist filter IDs whose values are lists (comma-separated in URL)
+_CHECKLIST_FILTERS: set[str] = {"tab3-model-selector"}
+
+
+def serialize_bookmark_params(
+    region: str,
+    persona: str,
+    tab: str,
+    filters: dict[str, str | list[str] | int],
+    sim_sliders: dict[str, float] | None = None,
+) -> str:
+    """Serialize full dashboard state into a URL query string.
+
+    Args:
+        region: Balancing authority code.
+        persona: Persona ID.
+        tab: Active tab ID.
+        filters: Dict of tracked filter ID to current value.
+        sim_sliders: Dict of sim slider ID to current numeric value.
+
+    Returns:
+        URL query string with leading "?".
+    """
+    from urllib.parse import urlencode
+
+    params: dict[str, str] = {
+        "region": region or "FPL",
+        "persona": persona or "grid_ops",
+        "tab": tab or "tab-overview",
+    }
+
+    for fid in TRACKED_FILTERS:
+        val = filters.get(fid)
+        if val is None:
+            continue
+        if isinstance(val, list):
+            params[f"f.{fid}"] = ",".join(str(v) for v in val)
+        else:
+            params[f"f.{fid}"] = str(val)
+
+    if sim_sliders:
+        for sid in SIM_SLIDERS:
+            val = sim_sliders.get(sid)
+            if val is not None:
+                short_key = sid.replace("sim-", "s.")
+                params[short_key] = str(val)
+
+    return f"?{urlencode(params)}"
+
+
+def deserialize_bookmark_params(search: str) -> dict:
+    """Parse URL query string into validated dashboard state.
+
+    Args:
+        search: URL search string (e.g. "?region=FPL&f.tab1-timerange=168").
+
+    Returns:
+        Dict with optional keys: region, persona, tab, filters, sim_sliders.
+        Missing or invalid values are omitted so callers can use no_update.
+    """
+    from urllib.parse import parse_qs
+
+    if not search:
+        return {}
+
+    params = parse_qs(search.lstrip("?"))
+    result: dict = {}
+
+    from config import REGION_NAMES, TAB_IDS
+    from personas.config import PERSONAS
+
+    region = params.get("region", [None])[0]
+    if region and region in REGION_NAMES:
+        result["region"] = region
+
+    persona = params.get("persona", [None])[0]
+    if persona and persona in PERSONAS:
+        result["persona"] = persona
+
+    tab = params.get("tab", [None])[0]
+    if tab and tab in TAB_IDS:
+        result["tab"] = tab
+
+    # Tracked filters (f. prefix)
+    filters: dict[str, str | list[str] | int] = {}
+    for fid in TRACKED_FILTERS:
+        raw = params.get(f"f.{fid}", [None])[0]
+        if raw is None:
+            continue
+        if fid in _CHECKLIST_FILTERS:
+            val: str | list[str] | int = raw.split(",")
+        else:
+            val = raw
+        validated = _validate_filter_value(fid, val)
+        if validated is not None:
+            filters[fid] = validated
+    if filters:
+        result["filters"] = filters
+
+    # Sim sliders (s. prefix)
+    sim_sliders: dict[str, float] = {}
+    for sid in SIM_SLIDERS:
+        short_key = sid.replace("sim-", "s.")
+        raw_slider = params.get(short_key, [None])[0]
+        if raw_slider is None:
+            continue
+        try:
+            num = float(raw_slider)
+            min_v, max_v = SIM_SLIDER_RANGES[sid]
+            if min_v <= num <= max_v:
+                sim_sliders[sid] = num
+            else:
+                log.warning("bookmark_slider_out_of_range", slider=sid, value=num)
+        except (TypeError, ValueError):
+            log.warning("bookmark_slider_invalid", slider=sid, raw=raw_slider)
+    if sim_sliders:
+        result["sim_sliders"] = sim_sliders
+
+    return result
