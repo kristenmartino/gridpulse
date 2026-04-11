@@ -3823,6 +3823,51 @@ def register_callbacks(app):
             "updated_at": datetime.now(UTC).isoformat(),
         }
 
+    # ── NEXD-11: CROSS-TAB CONTEXTUAL LINKS ──────────────────
+
+    @app.callback(
+        Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        Input({"type": "cross-tab-link", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def handle_cross_tab_link(n_clicks_list):
+        """NEXD-11: Navigate to the tab indicated by a cross-tab insight link."""
+        from config import feature_enabled
+
+        if not feature_enabled("cross_tab_links"):
+            return no_update
+
+        triggered = ctx.triggered_id
+        if not triggered or not isinstance(triggered, dict):
+            return no_update
+
+        # Only act when a click actually occurred
+        if not any(n for n in n_clicks_list if n):
+            return no_update
+
+        return triggered["index"]
+
+    @app.callback(
+        Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        Input({"type": "quick-nav-btn", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def handle_quick_nav_click(n_clicks_list):
+        """NEXD-11: Navigate to the tab indicated by a quick-nav card click."""
+        from config import feature_enabled
+
+        if not feature_enabled("cross_tab_links"):
+            return no_update
+
+        triggered = ctx.triggered_id
+        if not triggered or not isinstance(triggered, dict):
+            return no_update
+
+        if not any(n for n in n_clicks_list if n):
+            return no_update
+
+        return triggered["index"]
+
     # ── SPRINT 5: A4+E3 — PER-WIDGET CONFIDENCE BADGES ───────
 
     @app.callback(

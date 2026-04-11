@@ -349,7 +349,12 @@ def _collect_ids(component, collected=None):
         collected = set()
 
     if hasattr(component, "id") and component.id is not None:
-        collected.add(component.id)
+        cid = component.id
+        # Pattern-matching IDs are dicts; store the 'type' key as a string
+        if isinstance(cid, dict):
+            collected.add(cid.get("type", str(cid)))
+        else:
+            collected.add(cid)
 
     if hasattr(component, "children"):
         children = component.children

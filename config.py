@@ -342,6 +342,7 @@ FEATURE_FLAGS: dict[str, bool] = {
     "ai_briefing": True,  # Claude-powered executive briefing on Overview tab
     "what_changed": True,  # NEXD-8: session-aware change detection
     "smart_defaults": True,  # NEXD-9: remember last filter state in localStorage
+    "cross_tab_links": True,  # NEXD-11: contextual links between tabs
 }
 
 

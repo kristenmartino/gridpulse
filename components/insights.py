@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 from dash import html
 
-from config import REGION_CAPACITY_MW, mape_grade
+from config import REGION_CAPACITY_MW, feature_enabled, mape_grade
 from personas.config import get_persona
 
 # ---------------------------------------------------------------------------
@@ -39,6 +39,8 @@ class Insight:
     metric_name: str | None = None
     metric_value: float | None = None
     persona_relevance: list[str] = field(default_factory=list)
+    related_tab: str | None = None  # NEXD-11: target tab id (e.g. "tab-forecast")
+    related_tab_label: str | None = None  # NEXD-11: human label (e.g. "Historical")
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +436,11 @@ def generate_tab1_insights(
                 )
             )
 
+    # NEXD-11: tag all insights with source tab
+    for ins in insights:
+        ins.related_tab = "tab-forecast"
+        ins.related_tab_label = "Historical"
+
     return _filter_for_persona(insights, persona_id)
 
 
@@ -555,6 +562,11 @@ def generate_tab2_insights(
             persona_relevance=["data_scientist"],
         )
     )
+
+    # NEXD-11: tag all insights with source tab
+    for ins in insights:
+        ins.related_tab = "tab-outlook"
+        ins.related_tab_label = "Forecast"
 
     return _filter_for_persona(insights, persona_id)
 
@@ -744,6 +756,11 @@ def generate_tab3_insights(
             )
         )
 
+    # NEXD-11: tag all insights with source tab
+    for ins in insights:
+        ins.related_tab = "tab-backtest"
+        ins.related_tab_label = "Validation"
+
     return _filter_for_persona(insights, persona_id)
 
 
@@ -791,6 +808,8 @@ def build_insight_card(
         "warning": "#FF5C7A",
     }
 
+    show_links = feature_enabled("cross_tab_links")
+
     insight_items = []
     for insight in insights[:max_insights]:
         sev_color = severity_colors.get(insight.severity, "#64b5f6")
@@ -809,9 +828,28 @@ def build_insight_card(
             },
         )
 
+        row_children = [category_badge, html.Span(insight.text)]
+
+        # NEXD-11: append cross-tab link when insight has a related tab
+        # Skip if we're already on the insight's source tab
+        if (
+            show_links
+            and insight.related_tab
+            and insight.related_tab_label
+            and insight.related_tab != tab_name
+        ):
+            row_children.append(
+                html.Span(
+                    f" \u2192 {insight.related_tab_label}",
+                    id={"type": "cross-tab-link", "index": insight.related_tab},
+                    className="cross-tab-link",
+                    n_clicks=0,
+                )
+            )
+
         insight_items.append(
             html.Div(
-                [category_badge, html.Span(insight.text)],
+                row_children,
                 style={
                     "padding": "6px 0",
                     "borderBottom": "1px solid #263556",
@@ -988,5 +1026,10 @@ def generate_tab4_insights(
                         persona_relevance=["renewables", "data_scientist"],
                     )
                 )
+
+    # NEXD-11: tag all insights with source tab
+    for ins in insights:
+        ins.related_tab = "tab-generation"
+        ins.related_tab_label = "Grid"
 
     return _filter_for_persona(insights, persona_id)

@@ -170,6 +170,25 @@ body {
     display: none;
 }
 
+/* ── Cross-Tab Links (NEXD-11) ────────────────────────── */
+.cross-tab-link {
+    color: #38D0FF;
+    font-size: 0.72rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-left: 6px;
+    white-space: nowrap;
+}
+.cross-tab-link:hover {
+    text-decoration: underline;
+    color: #6BE0FF;
+}
+.overview-quick-nav-card:hover {
+    background: #172040 !important;
+    border-color: #38D0FF !important;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
 /* ── What Changed Card (NEXD-8) ───────────────────────── */
 .changes-card {
     background: linear-gradient(135deg, #11182D 0%, #0B1020 100%);
@@ -531,6 +550,7 @@ body {
 /* ── Reduced Motion ────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
     .welcome-card, .insight-card, .changes-card { animation: none; }
+    .overview-quick-nav-card { transition: none !important; }
     .news-ticker-track { animation: none; }
     .kpi-card { transition: none; }
     * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
