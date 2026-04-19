@@ -75,7 +75,7 @@ jobs:
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
             --command python \
-            --args "-m,jobs,scoring" \
+            --args=-m,jobs,scoring \
             --task-timeout 900 \
             --memory 2Gi \
             --cpu 2 \
@@ -90,7 +90,7 @@ jobs:
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
             --command python \
-            --args "-m,jobs,training" \
+            --args=-m,jobs,training \
             --task-timeout 3600 \
             --memory 4Gi \
             --cpu 2 \

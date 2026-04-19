@@ -12,7 +12,7 @@ unchanged so Cloud Scheduler retries only on hard failures.
 from __future__ import annotations
 
 import sys
-from typing import Callable
+from collections.abc import Callable
 
 import structlog
 

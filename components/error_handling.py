@@ -362,10 +362,7 @@ def is_warming(freshness: dict[str, str] | None) -> bool:
         return False
     # Treat any primary source being "warming" as a warming page. Alerts
     # alone warming (without demand/weather warming) doesn't dominate the UI.
-    for source in ("demand", "weather"):
-        if freshness.get(source) == "warming":
-            return True
-    return False
+    return any(freshness.get(source) == "warming" for source in ("demand", "weather"))
 
 
 def confidence_badge(

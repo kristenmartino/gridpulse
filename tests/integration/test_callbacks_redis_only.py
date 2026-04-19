@@ -131,7 +131,7 @@ class TestForecastOutlookWarming:
         monkeypatch.setattr(
             xgb_mod,
             "predict_xgboost",
-            lambda model, X: np.full(len(X), 40_000.0),
+            lambda model, x: np.full(len(x), 40_000.0),
         )
 
         demand_df, weather_df = _sample_frames()

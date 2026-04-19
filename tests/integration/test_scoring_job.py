@@ -119,8 +119,8 @@ def _fake_xgb_model() -> dict:
     """Tiny fake xgboost model payload that predict_xgboost can tolerate."""
 
     class _FakeBooster:
-        def predict(self, X):
-            return np.full(len(X), 40_000.0)
+        def predict(self, x):
+            return np.full(len(x), 40_000.0)
 
     return {
         "model": _FakeBooster(),
@@ -164,7 +164,7 @@ class TestScoringJob:
         monkeypatch.setattr(
             xgb_mod,
             "predict_xgboost",
-            lambda model, X: np.full(len(X), 41_000.0),
+            lambda model, x: np.full(len(x), 41_000.0),
         )
 
         # Patch the diagnostics path's forecast service to avoid training.
