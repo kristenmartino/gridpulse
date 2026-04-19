@@ -27,7 +27,7 @@ Your job is to improve product coherence, positioning, and UX **without breaking
 ### Guardrails
 - Do not rewrite unrelated systems.
 - Do not change frameworks.
-- Do not destabilize data ingestion, caching, model training, or precompute infrastructure for surface-level UI work.
+- Do not destabilize data ingestion, caching, model training, or the scheduled-jobs pipeline for surface-level UI work.
 - Do not remove personas, model validation, or operational context just to simplify the UI.
 - Do not add unsupported marketing claims.
 
@@ -61,6 +61,27 @@ This framing should guide UI copy, navigation naming, and landing-page work. For
 This is a **Dash/Plotly** dashboard application for weather-aware energy demand forecasting.
 It uses 3 ML models (Prophet, SARIMAX, XGBoost) combined via a weighted ensemble
 to forecast hourly electricity demand for 8 US balancing authorities.
+
+### Runtime split (production)
+- **Cloud Run Service (`gridpulse`)** — stateless Dash/Flask web app. Reads
+  from Redis only; never fetches EIA/Open-Meteo or trains models in the
+  request path. When Redis is cold, renders a `warming` degraded state.
+- **Cloud Run Jobs (scheduled by Cloud Scheduler)**
+  - `gridpulse-scoring-job` — hourly. Fetches EIA/weather, loads latest
+    models from GCS, writes forecasts + alerts + diagnostics +
+    weather-correlation to Redis. Entry point: `python -m jobs scoring`.
+  - `gridpulse-training-job` — daily at 04:00 UTC. Trains XGBoost/Prophet/
+    SARIMAX, persists to `gs://nextera-portfolio-energy-cache/models/`,
+    writes backtests to Redis. Entry point: `python -m jobs training`.
+- **Model store** — GCS at `gs://nextera-portfolio-energy-cache/models/` via
+  `models/persistence.py`. Layout: `{region}/{model_name}/{version}.pkl` +
+  `.meta.json`, atomically pointed to by `latest.json`. Scoring job pulls
+  via `load_model()` with local disk cache at `/app/trained_models/`.
+- **Redis gating** — `REQUIRE_REDIS` flag (true in staging/production, false
+  in development) controls whether callbacks fall back to inline compute.
+  See `components/callbacks.py` for the three warming gates.
+
+Setup + bootstrap procedure: `docs/SCHEDULED_JOBS.md`.
 
 ### Active top-level tabs in the current shell
 - Overview
@@ -225,6 +246,7 @@ When making shell/UI changes:
 - `PRD.md` — requirements, personas, descoping rationale, ADRs
 - `TECHNICAL_SPEC.md` — data sources, features, models, caching
 - `docs/BACKTEST_RESULTS.md` — real EIA holdout accuracy
+- `docs/SCHEDULED_JOBS.md` — Cloud Run Jobs deploy + bootstrap procedure
 - `tests/TEST_PYRAMID.md` — coverage targets and testing strategy
 - `specs/archive/` — historical reference only; do not treat as current truth unless cross-verified
 
@@ -251,7 +273,11 @@ When making shell/UI changes:
 - Rollback grade means a model should be disabled and logged as an alert
 
 ### Data freshness / fallback behavior (G2)
-- `data-freshness-store` tracks per-source status such as `fresh | stale | demo | error`
+- `data-freshness-store` tracks per-source status such as `fresh | stale | warming | demo | error`
+- `warming` is emitted in production when `REQUIRE_REDIS=True` and Redis has
+  no entry for the requested key yet (e.g. before the first scoring-job run,
+  or after a Redis flush). The UI renders a "Data warming up" message instead
+  of spinning callbacks.
 - `fallback-banner` renders warnings only when degraded
 - Production fallback paths should prefer stale real data over fake data when possible
 - Demo data is for offline/demo contexts and must not silently overwrite real cached data during production incidents

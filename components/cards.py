@@ -139,9 +139,14 @@ def build_chart_container(
 
     header_items = [html.Span(title, className="chart-title")]
     if freshness:
-        badge_class = (
-            "fresh" if freshness == "fresh" else ("stale" if freshness == "stale" else "expired")
-        )
+        # Map freshness token → badge CSS class. "warming" is a distinct
+        # degraded-but-expected state surfaced in Redis-only deployments.
+        badge_class = {
+            "fresh": "fresh",
+            "stale": "stale",
+            "warming": "warming",
+            "demo": "stale",
+        }.get(freshness, "expired")
         header_items.append(
             html.Span(
                 freshness, className=f"freshness-badge {badge_class}", style={"marginLeft": "8px"}

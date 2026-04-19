@@ -32,6 +32,7 @@ from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
     REGION_CAPACITY_MW,
+    REQUIRE_REDIS,
     WEATHER_VARIABLES,
 )
 from data.redis_client import redis_get
@@ -509,6 +510,23 @@ def _run_forecast_outlook(
             return cached_sqlite
     except Exception as e:
         log.debug("forecast_sqlite_cache_miss", error=str(e))
+
+    # REQUIRE_REDIS: the scheduled scoring job owns forecast generation.
+    # If neither the in-memory cache nor the SQLite cache has a hit, surface
+    # a warming state rather than training inline. The Dash UI treats this
+    # like any other degraded state and renders a skeleton.
+    if REQUIRE_REDIS:
+        log.info(
+            "forecast_warming_state",
+            region=region,
+            horizon=horizon_hours,
+            model=model_name,
+        )
+        return {
+            "error": "warming",
+            "status": "warming",
+            "message": "Forecasts are being refreshed by the scheduled job.",
+        }
 
     # Merge and engineer features
     merged_df = merge_demand_weather(demand_df, weather_df)
@@ -2011,7 +2029,37 @@ def register_callbacks(app):
             if redis_result is not None:
                 return redis_result
 
-        # ── v1 compute fallback ─────────────────────────────
+        # ── REQUIRE_REDIS gate ───────────────────────────────
+        # In staging/production the scoring job owns the pipeline. A Redis
+        # miss means either the first scoring run hasn't finished yet or
+        # Redis was flushed. Surface this as a "warming" state so the UI
+        # can render a skeleton — never block the request on API fetches
+        # or inline training.
+        if REQUIRE_REDIS:
+            log.info("load_data_warming_state", region=region)
+            pipe.step("redis_miss_warming", source="redis")
+            freshness = {
+                "demand": "warming",
+                "weather": "warming",
+                "alerts": "warming",
+                "timestamp": datetime.now(UTC).isoformat(),
+            }
+            pipeline_summary = pipe.done()
+            empty_demand = pd.DataFrame(
+                columns=["timestamp", "demand_mw"]
+            ).to_json(date_format="iso")
+            empty_weather = pd.DataFrame(columns=["timestamp"]).to_json(
+                date_format="iso"
+            )
+            return (
+                empty_demand,
+                empty_weather,
+                json.dumps(freshness),
+                "{}",
+                json.dumps(pipeline_summary, default=str),
+            )
+
+        # ── v1 compute fallback (dev only) ───────────────────
         try:
             if EIA_API_KEY and EIA_API_KEY != "your_eia_api_key_here":
                 from data.eia_client import fetch_demand
@@ -2146,7 +2194,6 @@ def register_callbacks(app):
         """Reconfigure dashboard for selected persona with live data.
 
         Fires on persona change AND region change (immediate, no API wait).
-        Uses precomputed _region_data cache for instant KPI updates.
         Only switches active tab when the persona selector triggered the callback.
         Hides standalone welcome/KPI cards when on overview tab (overview has its own).
         """
@@ -2166,14 +2213,11 @@ def register_callbacks(app):
         card_data = get_welcome_card(persona_id)
 
         from personas.welcome import generate_welcome_message
-        from precompute import _region_data
 
-        # Use precomputed data if available (instant), fall back to demand-store (parsed)
+        # Parse from the demand-store; Redis fast path has already populated it.
         demand_df = None
         weather_df = None
-        if region in _region_data:
-            demand_df, weather_df = _region_data[region]
-        elif demand_json:
+        if demand_json:
             demand_df = pd.read_json(io.StringIO(demand_json))
             if weather_json:
                 weather_df = pd.read_json(io.StringIO(weather_json))
@@ -5891,6 +5935,23 @@ def _run_backtest_for_horizon(
             return cached_sqlite
     except Exception as e:
         log.debug("backtest_sqlite_cache_miss", error=str(e))
+
+    # REQUIRE_REDIS: the daily training job recomputes backtests and writes
+    # them to Redis. A miss at this layer means the training job hasn't
+    # produced results yet — surface warming instead of running walk-forward
+    # training inline (which would time out a web request).
+    if REQUIRE_REDIS:
+        log.info(
+            "backtest_warming_state",
+            region=region,
+            horizon=horizon_hours,
+            model=model_name,
+        )
+        return {
+            "error": "warming",
+            "status": "warming",
+            "message": "Backtests are being refreshed by the nightly training job.",
+        }
 
     # Merge once; features are built fold-by-fold from train-history-only slices
     merged_df = merge_demand_weather(demand_df, weather_df)

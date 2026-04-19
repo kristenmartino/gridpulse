@@ -290,7 +290,7 @@ class TestDataConfidence:
     def test_confidence_levels_dict_complete(self):
         from components.error_handling import CONFIDENCE_LEVELS
 
-        assert set(CONFIDENCE_LEVELS.keys()) == {"high", "medium", "low", "demo"}
+        assert set(CONFIDENCE_LEVELS.keys()) == {"high", "medium", "low", "demo", "warming"}
         for level in CONFIDENCE_LEVELS.values():
             assert "emoji" in level
             assert "label" in level

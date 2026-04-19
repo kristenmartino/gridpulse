@@ -59,9 +59,42 @@ jobs:
             --min-instances 0 \
             --max-instances 2 \
             --cpu-boost \
+            --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
-            --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true" \
+            --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379,REQUIRE_REDIS=true,PRECOMPUTE_ENABLED=false" \
             --tag "sha-$(echo ${{ github.sha }} | cut -c1-7)"
+
+      # Staging Cloud Run Jobs: same image, different entrypoint. Suffixed
+      # -dev so they can coexist with the production jobs in the same region.
+      - name: Deploy scoring job (Dev)
+        run: |
+          gcloud run jobs deploy gridpulse-scoring-job-dev \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --vpc-connector wattcast-connector \
+            --set-secrets "EIA_API_KEY=eia-api-key:latest" \
+            --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
+            --command python \
+            --args "-m,jobs,scoring" \
+            --task-timeout 900 \
+            --memory 2Gi \
+            --cpu 2 \
+            --max-retries 1
+
+      - name: Deploy training job (Dev)
+        run: |
+          gcloud run jobs deploy gridpulse-training-job-dev \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --vpc-connector wattcast-connector \
+            --set-secrets "EIA_API_KEY=eia-api-key:latest" \
+            --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
+            --command python \
+            --args "-m,jobs,training" \
+            --task-timeout 3600 \
+            --memory 4Gi \
+            --cpu 2 \
+            --max-retries 1
 
       - name: Get dev URL
         id: url

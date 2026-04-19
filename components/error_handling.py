@@ -281,6 +281,15 @@ CONFIDENCE_LEVELS = {
         "color": "#A8B3C7",
         "description": "Synthetic demo data — not real",
     },
+    # "warming" is surfaced in Redis-only deployments when the scheduled
+    # scoring / training jobs haven't produced results yet (e.g. first
+    # deploy, Redis eviction, or a scheduler outage).
+    "warming": {
+        "emoji": "⏳",
+        "label": "Warming",
+        "color": "#7aa8ff",
+        "description": "Pipeline is refreshing — data will appear shortly",
+    },
 }
 
 
@@ -293,15 +302,17 @@ def data_confidence_level(
     Determine confidence level from source status and data age.
 
     Args:
-        source_status: "fresh", "stale", "demo", or "error".
+        source_status: "fresh", "stale", "warming", "demo", or "error".
         age_seconds: How old the data is (None = unknown).
         stale_threshold: Seconds before fresh data becomes medium confidence.
 
     Returns:
-        Confidence level: "high", "medium", "low", or "demo".
+        Confidence level: "high", "medium", "low", "warming", or "demo".
     """
     if source_status == "demo":
         return "demo"
+    if source_status == "warming":
+        return "warming"
     if source_status == "error":
         return "low"
     if source_status == "stale":
@@ -310,6 +321,51 @@ def data_confidence_level(
     if age_seconds is not None and age_seconds > stale_threshold:
         return "medium"
     return "high"
+
+
+def warming_state(
+    title: str = "Data is warming up",
+    message: str = (
+        "The scheduled pipeline is refreshing data. "
+        "This page will populate shortly — try refreshing in a minute."
+    ),
+) -> html.Div:
+    """Render a calm degraded-state placeholder for Redis-only deployments.
+
+    Used when ``data-freshness-store`` reports ``warming`` for the primary
+    data source (typically right after a deploy, cache eviction, or
+    scheduler outage). Intentionally low-alarm — this is expected behavior
+    during the first few minutes of a new container, not an error.
+    """
+    return html.Div(
+        [
+            html.Div("⏳", style={"fontSize": "2.25rem", "marginBottom": "12px"}),
+            html.H5(title, style={"color": "#DDE6F2", "marginBottom": "6px"}),
+            html.P(message, style={"color": "#A8B3C7", "fontSize": "0.85rem"}),
+        ],
+        style={
+            "display": "flex",
+            "flexDirection": "column",
+            "alignItems": "center",
+            "justifyContent": "center",
+            "padding": "60px 0",
+            "textAlign": "center",
+            "background": "rgba(122, 168, 255, 0.04)",
+            "borderRadius": "6px",
+        },
+    )
+
+
+def is_warming(freshness: dict[str, str] | None) -> bool:
+    """Return ``True`` when the primary data source is in the warming state."""
+    if not freshness:
+        return False
+    # Treat any primary source being "warming" as a warming page. Alerts
+    # alone warming (without demand/weather warming) doesn't dominate the UI.
+    for source in ("demand", "weather"):
+        if freshness.get(source) == "warming":
+            return True
+    return False
 
 
 def confidence_badge(

@@ -153,7 +153,7 @@ This structure is both a product framing model and a guide for future IA cleanup
 | R5.3 | Structured JSON logging via structlog | Must Have |
 | R5.4 | WCAG-aware palette and ARIA support | Should Have |
 | R5.5 | Environment config matrix (dev/staging/production) | Must Have |
-| R5.6 | Scaled precompute path for higher-volume deployment scenarios | Should Have |
+| R5.6 | Scheduled scoring (hourly) + training (daily) via Cloud Run Jobs; Redis-only web read path | Must Have |
 
 ---
 
@@ -161,7 +161,7 @@ This structure is both a product framing model and a guide for future IA cleanup
 
 | Requirement | Target |
 |---|---|
-| Tab / screen load time | p95 < 2 seconds where cached/precomputed data is available |
+| Tab / screen load time | p95 < 2 seconds when Redis is warm (populated by the hourly scoring job) |
 | Forecast accuracy (XGBoost, ERCOT reference) | MAPE < 5% on 21-day holdout |
 | Test coverage | 80%+ unit, 70%+ integration, all major screens render |
 | Graceful degradation | App continues rendering with visible freshness/degraded-state indicators |

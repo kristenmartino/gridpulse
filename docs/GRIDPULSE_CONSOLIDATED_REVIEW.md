@@ -3,6 +3,17 @@
 **Date:** 2026-04-09
 **Basis:** Synthesis of `CHART_TABLE_FORECAST_REVIEW.md`, `GRIDPULSE_360_PRODUCT_REVIEW.md`, `GRIDPULSE_MERGED_360_PRODUCT_REVIEW.md`, plus independent code audit of `callbacks.py`, `precompute.py`, `populate_redis.py`, `prophet_model.py`, `model_service.py`, and test suite.
 
+> **Historical note (2026-04-19):** This review captures the state of the
+> codebase when `precompute.py` ran as an in-process daemon thread and
+> `populate_redis.py` ran as a 12h cron Cloud Run Job. That architecture
+> has since been retired. Scoring and training now run as two scheduled
+> Cloud Run Jobs (`gridpulse-scoring-job`, hourly; `gridpulse-training-job`,
+> daily), shared phase logic lives in `jobs/phases.py`, and models are
+> persisted to GCS via `models/persistence.py`. Findings below that
+> reference `precompute.py` or `populate_redis.py` describe the prior
+> system; read them as historical record, not as current code pointers.
+> See [`docs/SCHEDULED_JOBS.md`](SCHEDULED_JOBS.md) for the current pipeline.
+
 ---
 
 ## How to read this document

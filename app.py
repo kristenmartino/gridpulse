@@ -84,24 +84,44 @@ from components.callbacks import register_callbacks  # noqa: E402
 
 register_callbacks(app)
 
-# ── Precompute models and predictions ─────────────────────────
-# Starts on first HTTP request (not during import) to avoid Python import
-# lock deadlock. The scheduler daemon thread then runs precompute_all()
-# immediately and re-runs every PRECOMPUTE_INTERVAL_HOURS.
+# ── Optional in-process precompute (development only) ─────────
+# In staging/production the scoring + training Cloud Run Jobs own the
+# pipeline, so PRECOMPUTE_ENABLED defaults to False (see config._ENV_DEFAULTS).
+# Dev keeps an in-process trigger so contributors can run the app end-to-end
+# without Cloud Run Jobs or a separate Redis populator. The trigger fires on
+# the first HTTP request — not at import time — to avoid Python import-lock
+# deadlocks with gunicorn's fork model.
 from config import PRECOMPUTE_ENABLED  # noqa: E402
 
 if PRECOMPUTE_ENABLED:
+    import threading as _threading  # noqa: E402
+
     _precompute_triggered = False
+    _precompute_lock = _threading.Lock()
+
+    def _run_dev_scoring() -> None:
+        """Invoke the scoring job in a background thread for dev startup."""
+        try:
+            from jobs.scoring_job import run as scoring_run
+
+            scoring_run()
+        except Exception:  # pragma: no cover — dev convenience only
+            log.exception("dev_scoring_trigger_failed")
 
     @server.before_request
     def _trigger_precompute():
         global _precompute_triggered  # noqa: PLW0603
         if _precompute_triggered:
             return
-        _precompute_triggered = True
-        from precompute import start_background_scheduler  # noqa: E402
-
-        start_background_scheduler()
+        with _precompute_lock:
+            if _precompute_triggered:
+                return
+            _precompute_triggered = True
+        _threading.Thread(
+            target=_run_dev_scoring,
+            daemon=True,
+            name="dev-scoring-trigger",
+        ).start()
 
 
 # ── Health check for Cloud Run ─────────────────────────────────

@@ -151,7 +151,7 @@ For live EIA data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia
 │   ├── ensemble.py                 # Ensemble weighting logic
 │   ├── evaluation.py               # MAPE, RMSE, MAE, R²
 │   └── pricing.py                  # Merit-order pricing model
-├── scaling-analytics/              # Scaled / precompute scaffold
+├── jobs/                           # Cloud Run Jobs (hourly scoring, daily training)
 ├── personas/                       # Persona configs and welcome logic
 ├── tests/                          # Unit / integration / e2e tests
 ├── Dockerfile                      # Multi-stage, non-root, healthcheck
@@ -165,11 +165,22 @@ For live EIA data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia
 **Production** is deployed automatically on push to `main` via GitHub Actions.
 
 ```text
-Cloud Run (gridpulse)  →  gridpulse.kristenmartino.ai
-  ├── Memorystore (Redis)  →  pre-computed forecasts + backtests
-  ├── Cloud Run Job        →  populate-redis (12h cron via Cloud Scheduler)
-  └── VPC Connector        →  links Run to Redis
+Cloud Run Service (gridpulse)  →  gridpulse.kristenmartino.ai
+  ├── Memorystore (Redis)       →  forecasts, backtests, alerts, diagnostics
+  ├── VPC Connector             →  links service + jobs to Redis
+  └── GCS (models/)             →  pickled XGBoost / Prophet / SARIMAX + latest.json
+
+Cloud Scheduler  →  Cloud Run Jobs
+  ├── gridpulse-scoring-hourly  →  gridpulse-scoring-job   (0 * * * *)
+  └── gridpulse-training-daily  →  gridpulse-training-job  (0 4 * * *)
 ```
+
+The web service is stateless and **Redis-only**: it never calls EIA, Open-Meteo, or
+trains models in the request path. All expensive work runs in the two scheduled
+Cloud Run Jobs. When Redis is cold, the UI renders a "warming" state.
+
+Setup + bootstrap procedure for Cloud Scheduler, IAM, and the first run is in
+[docs/SCHEDULED_JOBS.md](docs/SCHEDULED_JOBS.md).
 
 ### Manual deployment
 
@@ -200,6 +211,7 @@ See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test
 | [EXECUTION_BRIEF.md](EXECUTION_BRIEF.md) | Agent-ready prioritization layer for redesign and repositioning work |
 | [PRD.md](PRD.md) | Product requirements, personas, ADRs, scope decisions |
 | [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md) | Data sources, features, models, caching, pipeline details |
+| [docs/SCHEDULED_JOBS.md](docs/SCHEDULED_JOBS.md) | Cloud Run Jobs deploy + first-run bootstrap |
 | [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) | Model accuracy on real EIA holdout data |
 
 ---

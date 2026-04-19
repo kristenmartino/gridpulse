@@ -64,7 +64,41 @@ jobs:
             --no-cpu-throttling \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
-            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379"
+            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379,REQUIRE_REDIS=true,PRECOMPUTE_ENABLED=false"
+
+      # The scoring + training Cloud Run Jobs run from the same container image
+      # but with different entrypoints. Cloud Scheduler invokes them on cron
+      # (hourly scoring, daily training). See docs/SCHEDULED_JOBS.md for the
+      # one-time setup of the scheduler entries and service-account IAM.
+      - name: Deploy scoring job (Production)
+        run: |
+          gcloud run jobs deploy gridpulse-scoring-job \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --vpc-connector wattcast-connector \
+            --set-secrets "EIA_API_KEY=eia-api-key:latest" \
+            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
+            --command python \
+            --args "-m,jobs,scoring" \
+            --task-timeout 900 \
+            --memory 4Gi \
+            --cpu 2 \
+            --max-retries 1
+
+      - name: Deploy training job (Production)
+        run: |
+          gcloud run jobs deploy gridpulse-training-job \
+            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --region ${{ env.REGION }} \
+            --vpc-connector wattcast-connector \
+            --set-secrets "EIA_API_KEY=eia-api-key:latest" \
+            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
+            --command python \
+            --args "-m,jobs,training" \
+            --task-timeout 3600 \
+            --memory 8Gi \
+            --cpu 4 \
+            --max-retries 1
 
       - name: Get production URL
         id: url

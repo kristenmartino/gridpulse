@@ -41,6 +41,11 @@ _ENV_DEFAULTS: dict[str, dict] = {
         "profile": True,
         "workers": 1,
         "gcs_enabled": False,
+        # Dev: allow the in-process precompute thread so contributors can
+        # work without Cloud Run Jobs + Redis. The web callbacks keep their
+        # v1 compute fallback when REQUIRE_REDIS is false.
+        "precompute_enabled": True,
+        "require_redis": False,
     },
     "staging": {
         "cache_ttl": 86400,
@@ -50,6 +55,11 @@ _ENV_DEFAULTS: dict[str, dict] = {
         "profile": False,
         "workers": 2,
         "gcs_enabled": True,
+        # Staging + production: pipeline runs in Cloud Run Jobs on a cron
+        # schedule (hourly scoring, daily training). The web service is a
+        # Redis-only reader — never fetches/trains inline.
+        "precompute_enabled": False,
+        "require_redis": True,
     },
     "production": {
         "cache_ttl": 86400,
@@ -59,6 +69,8 @@ _ENV_DEFAULTS: dict[str, dict] = {
         "profile": False,
         "workers": 2,
         "gcs_enabled": True,
+        "precompute_enabled": False,
+        "require_redis": True,
     },
 }
 _env = _ENV_DEFAULTS.get(ENVIRONMENT, _ENV_DEFAULTS["development"])
@@ -92,6 +104,18 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 # ---------------------------------------------------------------------------
 REDIS_HOST = os.getenv("REDIS_HOST", "")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+
+# When True the web callbacks (load_data, _run_forecast_outlook,
+# _run_backtest_for_horizon) must NOT fall back to synchronous API fetches
+# or inline model training. Cache misses surface as a degraded / "warming"
+# UI state. Staging and production default to True because Cloud Run Jobs
+# own the pipeline; dev defaults to False so contributors can run the app
+# end-to-end without Redis or the scheduled jobs.
+REQUIRE_REDIS = os.getenv("REQUIRE_REDIS", str(_env.get("require_redis", False))).lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # ---------------------------------------------------------------------------
 # Caching
@@ -317,7 +341,13 @@ RATE_LIMIT_ALERT_THRESHOLD = 3  # consecutive 429s before alerting
 # ---------------------------------------------------------------------------
 # Precomputation (Startup Cache Warming)
 # ---------------------------------------------------------------------------
-PRECOMPUTE_ENABLED = os.getenv("PRECOMPUTE_ENABLED", "true").lower() in ("true", "1", "yes")
+# In dev this keeps the legacy in-process precompute thread available so
+# contributors without Cloud Run Jobs can still warm caches on startup.
+# In staging/production the daily training job + hourly scoring job own
+# the pipeline, so the default is False (see `_ENV_DEFAULTS`).
+PRECOMPUTE_ENABLED = os.getenv(
+    "PRECOMPUTE_ENABLED", str(_env.get("precompute_enabled", False))
+).lower() in ("true", "1", "yes")
 PRECOMPUTE_DEFAULT_REGION = os.getenv("PRECOMPUTE_DEFAULT_REGION", "FPL")
 PRECOMPUTE_ALL_REGIONS = os.getenv("PRECOMPUTE_ALL_REGIONS", "true").lower() in ("true", "1", "yes")
 PRECOMPUTE_MAX_WORKERS = int(os.getenv("PRECOMPUTE_MAX_WORKERS", "4"))

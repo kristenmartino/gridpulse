@@ -757,10 +757,7 @@ class TestSwitchPersona:
         mock_ctx = MagicMock()
         mock_ctx.triggered_id = "persona-selector"
 
-        with (
-            patch("components.callbacks.ctx", mock_ctx),
-            patch("precompute._region_data", {}, create=True),
-        ):
+        with patch("components.callbacks.ctx", mock_ctx):
             # 5th arg = current_tab (State)
             result = callbacks["switch_persona"]("grid_ops", "FPL", None, None, "tab-forecast")
 
@@ -776,24 +773,18 @@ class TestSwitchPersona:
         mock_ctx = MagicMock()
         mock_ctx.triggered_id = "region-selector"
 
-        with (
-            patch("components.callbacks.ctx", mock_ctx),
-            patch("precompute._region_data", {}, create=True),
-        ):
+        with patch("components.callbacks.ctx", mock_ctx):
             result = callbacks["switch_persona"]("grid_ops", "FPL", None, None, "tab-forecast")
 
         welcome, kpis, active_tab = result
         assert active_tab is no_update
 
     def test_with_demand_data(self, callbacks):
-        """When demand_json is provided but not in precompute cache."""
+        """When demand_json is provided, switch_persona parses and builds KPIs."""
         mock_ctx = MagicMock()
         mock_ctx.triggered_id = "region-selector"
 
-        with (
-            patch("components.callbacks.ctx", mock_ctx),
-            patch("precompute._region_data", {}, create=True),
-        ):
+        with patch("components.callbacks.ctx", mock_ctx):
             result = callbacks["switch_persona"](
                 "renewables", "FPL", _demand_json(), _weather_json(), "tab-forecast"
             )

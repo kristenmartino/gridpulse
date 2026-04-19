@@ -45,11 +45,19 @@ GridPulse is a Dash/Plotly-based application that combines:
 - role-specific product surfaces across a shared data/model core
 
 ### Current runtime architecture
-- Dash app served via Flask/Gunicorn-compatible entrypoint
-- Cloud Run deployment target
-- Redis/Memorystore used for precomputed serving in production flows
-- SQLite used for local or app-layer caching patterns
-- precompute/scaled analytics scaffolding available in `scaling-analytics/`
+- Dash app served via Flask/Gunicorn-compatible entrypoint on Cloud Run
+- Redis/Memorystore used as the **sole** production read path; the web
+  service never fetches EIA/Open-Meteo or trains models inline
+- GCS (`gs://nextera-portfolio-energy-cache/models/`) stores trained
+  XGBoost / Prophet / SARIMAX pickles via `models/persistence.py`
+- SQLite used for local or app-layer caching patterns (dev mode)
+- Scheduled Cloud Run Jobs populate Redis and GCS:
+  - `gridpulse-scoring-job` — hourly, writes forecasts/alerts/diagnostics
+  - `gridpulse-training-job` — daily (04:00 UTC), persists new models
+  - Shared phase logic lives in `jobs/phases.py`, CLI dispatcher in
+    `jobs/__main__.py` (`python -m jobs {scoring|training}`)
+- `REQUIRE_REDIS` config flag gates the legacy inline compute fallback
+  (true in staging/production, false in development)
 
 ---
 
@@ -318,22 +326,27 @@ Representative cache layers include:
 
 | Data Type | Cache Location | Typical Behavior |
 |---|---|---|
-| Demand / weather data | SQLite and/or Redis-backed paths | TTL-based reuse and degraded fallback |
+| Demand / weather data | Redis (prod) / SQLite (dev) | TTL-based reuse; web reads only |
 | News/signals | feed-specific path | may be refreshed more frequently |
-| Trained models | in-memory / job-generated path | region-scoped |
-| Predictions / backtests | in-memory or precomputed serving | region/horizon scoped |
+| Trained models | GCS `models/` + local disk cache | region-scoped, pickled, `latest.json` pointer |
+| Predictions / backtests | Redis, written by scoring/training jobs | region/horizon scoped |
 
 ## 7.2 Invalidation Principles
-- TTL expiry
-- input/data-hash change
-- explicit refresh or precompute update
+- TTL expiry (Redis keys, 24h default)
+- input/data-hash change recorded in GCS model metadata
+- explicit refresh or new scheduled job run
+- atomic `latest.json` flip on training-job success
 
 ## 7.3 Fallback Behavior
 ### Intended production behavior
-1. Serve fresh real data when available.
-2. Serve stale real cached data when fresh data is unavailable.
-3. Surface degraded or no-data states when needed.
-4. Use demo/synthetic data explicitly in demo/offline contexts, not as a silent overwrite of real operational state.
+1. Serve fresh Redis data written by the hourly scoring job.
+2. Serve stale Redis entries (with staleness badges) when the scoring job
+   has missed a cycle but values still exist.
+3. Surface a `warming` state when `REQUIRE_REDIS=True` and Redis has no
+   entry yet — the UI renders a "Data warming up" message instead of
+   blocking on an inline fetch or training.
+4. Use demo/synthetic data explicitly in demo/offline contexts, not as a
+   silent overwrite of real operational state.
 
 This behavior matters because operational credibility is reduced when fake data overwrites previously valid real data during upstream outages.
 
@@ -468,7 +481,7 @@ Some older documentation may reference news-specific keys or older fallback assu
 ├── simulation/                # Scenario engine and presets
 ├── personas/                  # Role/view configuration
 ├── observability.py           # Logging / pipeline observability
-├── scaling-analytics/         # Scaled/precompute scaffolding
+├── jobs/                      # Cloud Run Jobs (scoring, training, phases, CLI)
 ├── tests/                     # Unit / integration / e2e
 ├── Dockerfile                 # Container spec
 └── .github/workflows/         # CI / deploy automation

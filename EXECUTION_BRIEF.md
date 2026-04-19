@@ -1,6 +1,10 @@
 # EXECUTION_BRIEF.md — GridPulse Redesign and Repositioning Master Brief
 
-_Last updated: 2026-04-09_
+_Last updated: 2026-04-19_
+
+> **Pipeline scheduling status:** Done. The web service is Redis-only in
+> production; hourly scoring and daily training run as Cloud Run Jobs.
+> Details: [`docs/SCHEDULED_JOBS.md`](docs/SCHEDULED_JOBS.md).
 
 ## 1. Mission
 
