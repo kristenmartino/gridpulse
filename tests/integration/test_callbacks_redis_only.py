@@ -104,9 +104,7 @@ class TestForecastOutlookWarming:
         monkeypatch.setattr(weather, "fetch_weather", _boom)
 
         demand_df, weather_df = _sample_frames()
-        result = cbs._run_forecast_outlook(
-            demand_df, weather_df, 24, "xgboost", "ERCOT"
-        )
+        result = cbs._run_forecast_outlook(demand_df, weather_df, 24, "xgboost", "ERCOT")
 
         assert isinstance(result, dict)
         assert result.get("status") == "warming"
@@ -135,9 +133,7 @@ class TestForecastOutlookWarming:
         )
 
         demand_df, weather_df = _sample_frames()
-        result = cbs._run_forecast_outlook(
-            demand_df, weather_df, 24, "xgboost", "ERCOT"
-        )
+        result = cbs._run_forecast_outlook(demand_df, weather_df, 24, "xgboost", "ERCOT")
         # Not warming — either a real result or a different fallback error.
         assert result.get("status") != "warming"
 
@@ -164,9 +160,7 @@ class TestBacktestWarming:
 
 
 class TestLoadDataWarming:
-    def test_load_data_returns_warming_empty_frames(
-        self, monkeypatch, clear_caches
-    ) -> None:
+    def test_load_data_returns_warming_empty_frames(self, monkeypatch, clear_caches) -> None:
         """When REQUIRE_REDIS=True and Redis returns None, load_data returns empty-frame warming."""
         import components.callbacks as cbs
 
@@ -215,13 +209,9 @@ class TestLoadDataWarming:
 
         # Frames are empty
         demand_parsed = json.loads(demand_json)
-        assert demand_parsed.get("data") in (None, []) or len(
-            demand_parsed.get("data", [])
-        ) == 0
+        assert demand_parsed.get("data") in (None, []) or len(demand_parsed.get("data", [])) == 0
         weather_parsed = json.loads(weather_json)
-        assert weather_parsed.get("data") in (None, []) or len(
-            weather_parsed.get("data", [])
-        ) == 0
+        assert weather_parsed.get("data") in (None, []) or len(weather_parsed.get("data", [])) == 0
 
         # Freshness says warming across sources
         freshness = json.loads(freshness_json)
@@ -229,18 +219,14 @@ class TestLoadDataWarming:
         assert freshness.get("weather") == "warming"
         assert freshness.get("alerts") == "warming"
 
-    def test_load_data_uses_redis_when_available(
-        self, monkeypatch, clear_caches
-    ) -> None:
+    def test_load_data_uses_redis_when_available(self, monkeypatch, clear_caches) -> None:
         """When Redis has data, the warming gate is bypassed and Redis values are used."""
         import components.callbacks as cbs
 
         monkeypatch.setattr(cbs, "REQUIRE_REDIS", True)
 
         sentinel = ("demand-json", "weather-json", "freshness-json", "{}", "{}")
-        monkeypatch.setattr(
-            cbs, "_load_data_from_redis", lambda region: sentinel
-        )
+        monkeypatch.setattr(cbs, "_load_data_from_redis", lambda region: sentinel)
 
         import dash
         import dash_bootstrap_components as dbc

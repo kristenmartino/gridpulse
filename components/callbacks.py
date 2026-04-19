@@ -2045,12 +2045,10 @@ def register_callbacks(app):
                 "timestamp": datetime.now(UTC).isoformat(),
             }
             pipeline_summary = pipe.done()
-            empty_demand = pd.DataFrame(
-                columns=["timestamp", "demand_mw"]
-            ).to_json(date_format="iso")
-            empty_weather = pd.DataFrame(columns=["timestamp"]).to_json(
+            empty_demand = pd.DataFrame(columns=["timestamp", "demand_mw"]).to_json(
                 date_format="iso"
             )
+            empty_weather = pd.DataFrame(columns=["timestamp"]).to_json(date_format="iso")
             return (
                 empty_demand,
                 empty_weather,

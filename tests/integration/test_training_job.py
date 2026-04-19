@@ -33,7 +33,8 @@ def synthetic_frames():
     demand = pd.DataFrame(
         {
             "timestamp": ts,
-            "demand_mw": 40_000 + 5000 * np.sin(2 * np.pi * np.arange(n) / 24)
+            "demand_mw": 40_000
+            + 5000 * np.sin(2 * np.pi * np.arange(n) / 24)
             + np.random.normal(0, 200, n),
             "region": "ERCOT",
         }
@@ -72,9 +73,7 @@ def patch_data_sources(monkeypatch, synthetic_frames):
     import jobs.phases as phases
 
     monkeypatch.setattr(eia, "fetch_demand", lambda region, **kw: demand_df.copy())
-    monkeypatch.setattr(
-        weather, "fetch_weather", lambda region, **kw: weather_df.copy()
-    )
+    monkeypatch.setattr(weather, "fetch_weather", lambda region, **kw: weather_df.copy())
     monkeypatch.setattr(phases, "_has_eia_key", lambda: True)
 
 
@@ -171,12 +170,8 @@ class TestTrainingJob:
             "train_xgboost",
             lambda df, n_splits=3: {"model": "x", "cv_scores": []},
         )
-        monkeypatch.setattr(
-            prophet_mod, "train_prophet", lambda df: {"type": "prophet"}
-        )
-        monkeypatch.setattr(
-            arima_mod, "train_arima", lambda df: {"type": "sarimax"}
-        )
+        monkeypatch.setattr(prophet_mod, "train_prophet", lambda df: {"type": "prophet"})
+        monkeypatch.setattr(arima_mod, "train_arima", lambda df: {"type": "sarimax"})
 
         # save_model returns None for xgboost (simulates GCS failure),
         # works for everything else.

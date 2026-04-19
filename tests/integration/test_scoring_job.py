@@ -40,7 +40,8 @@ def synthetic_region_frames():
     demand = pd.DataFrame(
         {
             "timestamp": ts,
-            "demand_mw": 40_000 + 5000 * np.sin(2 * np.pi * np.arange(n) / 24)
+            "demand_mw": 40_000
+            + 5000 * np.sin(2 * np.pi * np.arange(n) / 24)
             + np.random.normal(0, 200, n),
             "region": "ERCOT",
         }
@@ -56,9 +57,7 @@ def synthetic_region_frames():
             "wind_speed_80m": 12.0,
             "wind_speed_120m": 15.0,
             "wind_direction_10m": 180.0,
-            "shortwave_radiation": np.maximum(
-                0, 500 * np.sin(2 * np.pi * (np.arange(n) - 6) / 24)
-            ),
+            "shortwave_radiation": np.maximum(0, 500 * np.sin(2 * np.pi * (np.arange(n) - 6) / 24)),
             "direct_normal_irradiance": 0.0,
             "diffuse_radiation": 0.0,
             "cloud_cover": 40.0,
@@ -208,9 +207,7 @@ class TestScoringJob:
         monkeypatch,
     ) -> None:
         """No model in GCS → still writes actuals/weather/generation/alerts."""
-        monkeypatch.setattr(
-            "jobs.scoring_job.load_model", lambda region, model_name: None
-        )
+        monkeypatch.setattr("jobs.scoring_job.load_model", lambda region, model_name: None)
 
         from jobs import scoring_job
 

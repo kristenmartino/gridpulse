@@ -319,9 +319,7 @@ def save_model(
     try:
         bucket = client.bucket(GCS_BUCKET_NAME)
         model_blob = bucket.blob(_blob_path(region, model_name, version, ".pkl"))
-        model_blob.upload_from_string(
-            model_bytes, content_type="application/octet-stream"
-        )
+        model_blob.upload_from_string(model_bytes, content_type="application/octet-stream")
         meta_blob = bucket.blob(_blob_path(region, model_name, version, ".meta.json"))
         meta_blob.upload_from_string(
             json.dumps(metadata.to_dict(), indent=2),
@@ -380,9 +378,7 @@ def get_model_metadata(region: str, model_name: str) -> ModelMetadata | None:
         return None
 
 
-def load_model(
-    region: str, model_name: str
-) -> tuple[Any, ModelMetadata] | None:
+def load_model(region: str, model_name: str) -> tuple[Any, ModelMetadata] | None:
     """Load the latest saved model for ``(region, model_name)``.
 
     Uses a local disk cache under :data:`LOCAL_MODEL_CACHE_DIR` keyed by

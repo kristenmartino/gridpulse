@@ -143,9 +143,7 @@ def fetch_region_data(region: str) -> RegionData | None:
     return RegionData(region=region, demand_df=demand_df, weather_df=weather_df)
 
 
-def fetch_all_regions(
-    regions: list[str], max_workers: int | None = None
-) -> dict[str, RegionData]:
+def fetch_all_regions(regions: list[str], max_workers: int | None = None) -> dict[str, RegionData]:
     """Fetch data for every region in parallel."""
     workers = max_workers or PRECOMPUTE_MAX_WORKERS
     out: dict[str, RegionData] = {}
@@ -345,9 +343,7 @@ def _build_future_feature_frame(featured: pd.DataFrame, horizon: int) -> pd.Data
     return future_df
 
 
-def predict_and_write_forecast(
-    data: RegionData, xgb_model: dict | None
-) -> PhaseResult:
+def predict_and_write_forecast(data: RegionData, xgb_model: dict | None) -> PhaseResult:
     """Run the XGBoost forward forecast and write ``wattcast:forecast:{region}:1h``."""
     from data.redis_client import redis_set
     from models.xgboost_model import predict_xgboost
@@ -430,9 +426,7 @@ def write_backtests(data: RegionData) -> PhaseResult:
             actual = np.asarray(bt["actual"]).tolist()
             preds = np.asarray(bt["predictions"]).tolist()
             timestamps = [pd.Timestamp(t).isoformat() for t in bt["timestamps"]]
-            residuals = (
-                np.asarray(bt["actual"]) - np.asarray(bt["predictions"])
-            ).tolist()
+            residuals = (np.asarray(bt["actual"]) - np.asarray(bt["predictions"])).tolist()
             redis_set(
                 f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}",
                 {
@@ -532,12 +526,8 @@ def write_weather_correlation(data: RegionData) -> PhaseResult:
             "seasonal": {
                 "timestamps": _ts_list(demand_ts.index),
                 "original": demand_ts.values.tolist(),
-                "trend": [
-                    float(v) if not np.isnan(v) else None for v in trend.values
-                ],
-                "residual": [
-                    float(v) if not np.isnan(v) else None for v in residual.values
-                ],
+                "trend": [float(v) if not np.isnan(v) else None for v in trend.values],
+                "residual": [float(v) if not np.isnan(v) else None for v in residual.values],
             },
         }
         for col in (
@@ -551,9 +541,7 @@ def write_weather_correlation(data: RegionData) -> PhaseResult:
             payload[col] = wc_merged[col].tolist() if col in wc_merged.columns else []
 
         redis_set(f"wattcast:weather-correlation:{region}", payload, ttl=REDIS_TTL)
-        return PhaseResult(
-            region=region, ok=True, details={"rows": len(wc_merged)}
-        )
+        return PhaseResult(region=region, ok=True, details={"rows": len(wc_merged)})
     except Exception as e:
         log.warning("job_weather_correlation_failed", region=region, error=str(e))
         return PhaseResult(region=region, ok=False, error=str(e))
@@ -579,9 +567,7 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
         diag_residuals = diag_actual - diag_ensemble
         diag_ts = data.demand_df["timestamp"].iloc[: len(diag_ensemble)]
         hours_of_day = diag_ts.dt.hour
-        error_by_hour = pd.DataFrame(
-            {"hour": hours_of_day, "abs_error": np.abs(diag_residuals)}
-        )
+        error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(diag_residuals)})
         hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
 
         fi_names = [
@@ -669,18 +655,12 @@ def write_alerts(data: RegionData) -> PhaseResult:
             "anomaly": {
                 "timestamps": _ts_list(recent["timestamp"]),
                 "demand": recent["demand_mw"].tolist(),
-                "upper": [
-                    float(v) if not np.isnan(v) else None for v in upper.values
-                ],
-                "lower": [
-                    float(v) if not np.isnan(v) else None for v in lower.values
-                ],
+                "upper": [float(v) if not np.isnan(v) else None for v in upper.values],
+                "lower": [float(v) if not np.isnan(v) else None for v in lower.values],
                 "anomaly_timestamps": _ts_list(anomalies["timestamp"])
                 if not anomalies.empty
                 else [],
-                "anomaly_values": anomalies["demand_mw"].tolist()
-                if not anomalies.empty
-                else [],
+                "anomaly_values": anomalies["demand_mw"].tolist() if not anomalies.empty else [],
             },
         }
         if not recent_w.empty and "temperature_2m" in recent_w.columns:
@@ -787,6 +767,7 @@ __all__ = [
 
 
 # ── Backwards-compat helpers (unused by callers, kept for readability) ──
+
 
 def _unused_json_dumps_placeholder() -> None:  # pragma: no cover
     json.dumps({})  # keeps ``json`` import in use if redis_set paths change

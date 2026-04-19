@@ -242,9 +242,7 @@ class TestLatestPointer:
         import models.persistence as mp
 
         _reset_persistence_state(str(tmp_path / "cache"))
-        store: dict[str, bytes] = {
-            "cache/models/latest.json": b"this is not json"
-        }
+        store: dict[str, bytes] = {"cache/models/latest.json": b"this is not json"}
         fake_client = _make_fake_client(store)
 
         with (
@@ -488,9 +486,7 @@ class TestPickleFailure:
             patch.object(mp, "GCS_PATH_PREFIX", "cache"),
             patch.object(mp, "_get_client", return_value=fake_client),
         ):
-            assert (
-                mp.save_model("ERCOT", "xgboost", unpicklable, "h", 1) is None
-            )
+            assert mp.save_model("ERCOT", "xgboost", unpicklable, "h", 1) is None
 
     def test_corrupt_blob_returns_none(self, tmp_path) -> None:
         """A corrupt pickled blob → load_model returns None rather than raising."""
@@ -499,9 +495,7 @@ class TestPickleFailure:
         _reset_persistence_state(str(tmp_path / "cache"))
         version = "20240101T000000Z"
         store: dict[str, bytes] = {
-            "cache/models/latest.json": json.dumps(
-                {"ERCOT": {"xgboost": version}}
-            ).encode("utf-8"),
+            "cache/models/latest.json": json.dumps({"ERCOT": {"xgboost": version}}).encode("utf-8"),
             f"cache/models/ERCOT/xgboost/{version}.pkl": b"not a pickle",
             f"cache/models/ERCOT/xgboost/{version}.meta.json": json.dumps(
                 {
