@@ -161,6 +161,7 @@ class TestArimaModel:
         mock_fitted = MagicMock()
         mock_fitted.aic = 1000.0
         mock_fitted.resid = np.random.normal(0, 100, 100)
+        mock_fitted.params = np.array([0.1, 0.2, 0.3])
         mock_model = MagicMock()
         mock_model.fit.return_value = mock_fitted
         mock_sarimax_cls.return_value = mock_model
@@ -175,11 +176,14 @@ class TestArimaModel:
             df = _make_small_feature_df(300)
             result = train_arima(df, auto_order=True)
 
-        assert "model" in result
+        # Lean payload: params + tail context instead of the fitted object.
+        assert "params" in result
+        assert "tail_y" in result
         assert "order" in result
         assert "seasonal_order" in result
         assert "exog_cols" in result
         assert result["exog_cols"] == ARIMA_EXOG_COLS
+        assert "model" not in result
 
     @patch("models.arima_model._auto_select_order")
     def test_train_arima_uses_default_order_when_auto_disabled(self, mock_auto):
@@ -187,6 +191,7 @@ class TestArimaModel:
         mock_fitted = MagicMock()
         mock_fitted.aic = 500.0
         mock_fitted.resid = np.random.normal(0, 50, 100)
+        mock_fitted.params = np.array([0.1, 0.2, 0.3])
         mock_model = MagicMock()
         mock_model.fit.return_value = mock_fitted
 
@@ -214,6 +219,7 @@ class TestArimaModel:
             mock_fitted = MagicMock()
             mock_fitted.aic = 500.0
             mock_fitted.resid = np.random.normal(0, 50, min(100, len(y)))
+            mock_fitted.params = np.array([0.1, 0.2, 0.3])
             mock_inst = MagicMock()
             mock_inst.fit.return_value = mock_fitted
             return mock_inst
@@ -277,6 +283,40 @@ class TestArimaModel:
         result = predict_arima(model_dict, future_df, periods=periods)
         assert len(result) == periods
         assert np.isnan(result).all()
+
+    def test_train_arima_pickle_size_is_lean(self):
+        """Regression: pickled train_arima output must be < 100 KB.
+
+        Previously the fitted SARIMAXResults was persisted directly, producing
+        ~500 MB artifacts per region that OOM'd the training job. The lean
+        payload stores only params + a tail slice and should pickle to a few
+        kilobytes.
+        """
+        import pickle
+
+        df = _make_small_feature_df(2200)
+        # Real SARIMAX on ~2200 rows is slow but bounded; skip auto-order to
+        # keep the test fast while still exercising the real fit+persist path.
+        result = train_arima(df, auto_order=False, max_training_rows=400)
+
+        blob = pickle.dumps(result)
+        assert len(blob) < 100_000, f"payload grew to {len(blob)} bytes"
+        assert "params" in result
+        assert "tail_y" in result
+        assert "model" not in result
+
+    def test_predict_arima_lean_payload_roundtrips(self):
+        """Lean payload should forecast without pickling a fitted object."""
+        periods = 24
+        df = _make_small_feature_df(400)
+        trained = train_arima(df, auto_order=False, max_training_rows=300)
+
+        future_df = _make_small_feature_df(periods)
+        forecast = predict_arima(trained, future_df, periods=periods)
+
+        assert len(forecast) == periods
+        assert np.isfinite(forecast).any(), "forecast should not be all-NaN"
+        assert (forecast >= 0).all(), "demand forecasts must be non-negative"
 
     def test_auto_select_order_returns_valid_tuple(self):
         """_auto_select_order returns (order, seasonal_order) tuples."""

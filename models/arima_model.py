@@ -29,6 +29,11 @@ ARIMA_EXOG_COLS = [
 DEFAULT_ORDER = (2, 1, 2)
 DEFAULT_SEASONAL_ORDER = (1, 1, 1, 24)
 
+# Tail length (hours) kept with the pickled payload so SARIMAX can be
+# reconstructed and its Kalman filter initialized at predict time. 10 full
+# seasonal cycles at m=24 is more than enough for stable state initialization.
+PICKLE_TAIL_ROWS = 240
+
 
 def train_arima(
     df: pd.DataFrame,
@@ -160,11 +165,23 @@ def train_arima(
             order = (1, 1, 1)
             seasonal_order = (0, 0, 0, 0)
 
+    # Lean payload: save only the fitted params and the tail of training data
+    # needed to re-initialize SARIMAX at predict time. A full SARIMAXResults
+    # object pickles at ~500 MB because it retains Kalman filter/smoother
+    # state-covariance matrices; the lean form is a few kilobytes.
+    tail_len = min(len(y), PICKLE_TAIL_ROWS)
+    tail_y = np.asarray(y[-tail_len:], dtype=np.float32)
+    tail_exog = np.asarray(exog[-tail_len:], dtype=np.float32) if exog is not None else None
+    params = np.asarray(fitted.params, dtype=np.float64)
+    log.info("arima_payload_lean", param_count=len(params), tail_rows=tail_len)
+
     return {
-        "model": fitted,
+        "params": params,
         "order": order,
         "seasonal_order": seasonal_order,
         "exog_cols": ARIMA_EXOG_COLS,
+        "tail_y": tail_y,
+        "tail_exog": tail_exog,
     }
 
 
@@ -174,20 +191,40 @@ def predict_arima(
     periods: int = 168,
 ) -> np.ndarray:
     """
-    Generate forecasts from a fitted SARIMAX model.
+    Generate forecasts from a SARIMAX model payload.
+
+    Supports the lean payload produced by the current ``train_arima``
+    (``params`` + ``tail_y`` / ``tail_exog``) as well as legacy payloads that
+    stored a fitted ``SARIMAXResults`` under ``"model"`` for one roll-forward
+    cycle of backward compatibility.
 
     Args:
-        model_dict: Output from train_arima().
+        model_dict: Output from train_arima() (lean) or a legacy dict with
+            a fitted ``SARIMAXResults`` under ``"model"``.
         future_exog: DataFrame with exogenous variable values for forecast period.
         periods: Number of hourly steps to forecast.
 
     Returns:
         Forecast array of length `periods`.
     """
-    fitted = model_dict["model"]
     exog = _get_exog(future_exog, n_rows=periods)
 
     try:
+        if "params" in model_dict:
+            from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+            reconstructed = SARIMAX(
+                model_dict["tail_y"],
+                exog=model_dict.get("tail_exog"),
+                order=model_dict["order"],
+                seasonal_order=model_dict["seasonal_order"],
+                enforce_stationarity=False,
+                enforce_invertibility=False,
+            )
+            fitted = reconstructed.filter(model_dict["params"])
+        else:
+            fitted = model_dict["model"]
+
         forecast = fitted.forecast(steps=periods, exog=exog)
         # Clamp negative forecasts to 0 (demand can't be negative)
         forecast = np.maximum(forecast, 0)
