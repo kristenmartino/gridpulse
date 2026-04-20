@@ -9,6 +9,8 @@ Features:
 - TTL-based expiration with configurable per-key TTL
 - Stale-data fallback: returns expired data when API is down
 - WAL mode for concurrent reads with gunicorn workers
+- Process-local write serialization + per-connection ``busy_timeout`` so
+  the scoring job's parallel region fetches don't trip ``database is locked``
 - JSON serialization for DataFrames and dicts
 """
 
@@ -17,6 +19,7 @@ from __future__ import annotations
 import io
 import json
 import sqlite3
+import threading
 import time
 from contextlib import contextmanager
 from typing import Any
@@ -28,6 +31,13 @@ from config import CACHE_DB_PATH, CACHE_TTL_SECONDS
 
 log = structlog.get_logger()
 
+# SQLite writer contention settings. WAL mode allows concurrent readers but
+# still serializes writers; under the scoring job's ThreadPoolExecutor fan-out
+# (one region per worker) concurrent ``cache.set`` calls race on the single
+# writer slot. 30s matches the Cloud Run Jobs per-region timeout budget.
+_CONNECT_TIMEOUT_SECONDS = 30
+_BUSY_TIMEOUT_MS = 30_000
+
 
 class Cache:
     """SQLite cache with TTL-based expiration and stale fallback."""
@@ -35,6 +45,9 @@ class Cache:
     def __init__(self, db_path: str = CACHE_DB_PATH, default_ttl: int = CACHE_TTL_SECONDS):
         self.db_path = db_path
         self.default_ttl = default_ttl
+        # Process-local lock serializing writes from this Cache instance.
+        # Reads are not guarded — WAL lets them run concurrently with a writer.
+        self._write_lock = threading.Lock()
         self._init_db()
 
     def _init_db(self) -> None:
@@ -55,9 +68,15 @@ class Cache:
 
     @contextmanager
     def _connect(self):
-        """Context manager for SQLite connections."""
-        conn = sqlite3.connect(self.db_path, timeout=10)
+        """Context manager for SQLite connections.
+
+        Every connection sets ``PRAGMA busy_timeout`` so writers block up to
+        ``_BUSY_TIMEOUT_MS`` waiting for the exclusive lock instead of
+        failing with ``database is locked`` as soon as contention appears.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=_CONNECT_TIMEOUT_SECONDS)
         try:
+            conn.execute(f"PRAGMA busy_timeout = {_BUSY_TIMEOUT_MS}")
             yield conn
         finally:
             conn.close()
@@ -120,7 +139,7 @@ class Cache:
         ttl = ttl if ttl is not None else self.default_ttl
         value_str, data_type = self._serialize(value)
 
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO cache (key, value, data_type, created_at, ttl_seconds)
                    VALUES (?, ?, ?, ?, ?)""",
@@ -132,14 +151,14 @@ class Cache:
 
     def delete(self, key: str) -> None:
         """Remove a key from the cache."""
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute("DELETE FROM cache WHERE key = ?", (key,))
             conn.commit()
         log.debug("cache_deleted", key=key)
 
     def clear(self) -> None:
         """Remove all entries from the cache."""
-        with self._connect() as conn:
+        with self._write_lock, self._connect() as conn:
             conn.execute("DELETE FROM cache")
             conn.commit()
         log.info("cache_cleared")

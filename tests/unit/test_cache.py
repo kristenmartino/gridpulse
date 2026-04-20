@@ -1,6 +1,7 @@
 """Unit tests for data/cache.py."""
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
@@ -92,3 +93,59 @@ class TestCacheInit:
         cache = Cache(db_path=db_path)
         cache.set("test", "value")
         assert cache.get("test") == "value"
+
+
+class TestCacheConcurrency:
+    """Regression tests for the SQLite writer-contention fix.
+
+    The scoring job fans out region fetches via ThreadPoolExecutor; every
+    fetch calls ``cache.set()`` on the same SQLite file. Before the
+    ``threading.Lock`` + ``busy_timeout`` fix, this produced
+    ``sqlite3.OperationalError: database is locked`` under load.
+    """
+
+    def test_concurrent_writes_do_not_raise(self, tmp_path):
+        cache = Cache(db_path=str(tmp_path / "concurrent.db"), default_ttl=3600)
+
+        # DataFrame payloads sized to approximate a real demand fetch
+        # (hourly data for ~90 days).
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=2160, freq="h"),
+                "demand_mw": range(2160),
+            }
+        )
+
+        def write(i: int) -> bool:
+            cache.set(f"region_{i}", df)
+            return cache.get(f"region_{i}") is not None
+
+        # 16 threads × 4 writes each matches the worst-case scoring-job fan-out
+        # (8 regions × demand + weather + generation + diagnostics writes).
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            results = list(pool.map(write, range(64)))
+
+        assert all(results)
+        # Every key should round-trip.
+        for i in range(64):
+            assert cache.get(f"region_{i}") is not None
+
+    def test_concurrent_reads_during_writes(self, tmp_path):
+        """Readers should not be blocked or fail while writers contend."""
+        cache = Cache(db_path=str(tmp_path / "mixed.db"), default_ttl=3600)
+        cache.set("seed", "initial")
+
+        def writer(i: int) -> None:
+            cache.set(f"w_{i}", {"i": i, "data": list(range(100))})
+
+        def reader(_: int) -> str | None:
+            return cache.get("seed")
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            write_fut = [pool.submit(writer, i) for i in range(32)]
+            read_fut = [pool.submit(reader, i) for i in range(32)]
+            for f in write_fut:
+                f.result()
+            reads = [f.result() for f in read_fut]
+
+        assert all(r == "initial" for r in reads)
