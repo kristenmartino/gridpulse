@@ -71,6 +71,7 @@ jobs:
           gcloud run jobs deploy gridpulse-scoring-job-dev \
             --image ${{ env.IMAGE }}:${{ github.sha }} \
             --region ${{ env.REGION }} \
+            --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
@@ -86,6 +87,7 @@ jobs:
           gcloud run jobs deploy gridpulse-training-job-dev \
             --image ${{ env.IMAGE }}:${{ github.sha }} \
             --region ${{ env.REGION }} \
+            --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \

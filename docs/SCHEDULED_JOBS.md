@@ -97,10 +97,10 @@ for JOB in gridpulse-scoring-job gridpulse-training-job; do
 done
 ```
 
-The GitHub Actions workflows need to be updated (one-time) to pass
-`--service-account=gridpulse-job@...` when deploying the jobs. The
-current workflows rely on the default compute SA, which is acceptable
-for staging — tighten this before relying on the jobs in production.
+Both `deploy-prod.yml` and `deploy-dev.yml` pin the Cloud Run Jobs to this
+SA via `--service-account=gridpulse-job@$PROJECT.iam.gserviceaccount.com`,
+so redeploys preserve the least-privilege binding rather than falling back
+to the default compute SA.
 
 ### 2. Cloud Scheduler entries
 
