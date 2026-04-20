@@ -205,13 +205,20 @@ class Cache:
             return json.loads(value_str)
 
 
-# Module-level singleton
+# Module-level singleton. ``_cache_lock`` guards construction so concurrent
+# first-callers (e.g. the scoring job's ThreadPoolExecutor workers) don't
+# each build their own ``Cache`` — duplicate instances would each run
+# ``_init_db`` (WAL pragma + CREATE TABLE) against the same file and race
+# on the exclusive WAL-transition lock.
 _cache: Cache | None = None
+_cache_lock = threading.Lock()
 
 
 def get_cache() -> Cache:
-    """Get or create the module-level cache singleton."""
+    """Get or create the module-level cache singleton (thread-safe)."""
     global _cache
     if _cache is None:
-        _cache = Cache()
+        with _cache_lock:
+            if _cache is None:
+                _cache = Cache()
     return _cache

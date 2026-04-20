@@ -149,3 +149,32 @@ class TestCacheConcurrency:
             reads = [f.result() for f in read_fut]
 
         assert all(r == "initial" for r in reads)
+
+    def test_get_cache_singleton_is_thread_safe(self, monkeypatch, tmp_path):
+        """Concurrent first-callers of get_cache() must converge on one instance.
+
+        Regression for the scoring-job ``database is locked`` failure: when
+        multiple threads hit ``get_cache()`` simultaneously on a fresh
+        container, each was constructing its own ``Cache`` and running
+        ``_init_db`` (WAL pragma) concurrently, racing on the exclusive
+        journal-mode transition lock.
+        """
+        import data.cache as cache_mod
+
+        db_path = str(tmp_path / "singleton.db")
+        monkeypatch.setattr(cache_mod, "CACHE_DB_PATH", db_path)
+        monkeypatch.setattr(cache_mod, "_cache", None)
+
+        instances: set[int] = set()
+        lock = __import__("threading").Lock()
+
+        def call_get_cache(_: int) -> int:
+            c = cache_mod.get_cache()
+            with lock:
+                instances.add(id(c))
+            return id(c)
+
+        with ThreadPoolExecutor(max_workers=16) as pool:
+            list(pool.map(call_get_cache, range(32)))
+
+        assert len(instances) == 1, f"expected 1 singleton, got {len(instances)}"
