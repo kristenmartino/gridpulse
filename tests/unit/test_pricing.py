@@ -67,11 +67,20 @@ class TestReserveMargin:
     """Reserve margin calculation."""
 
     def test_surplus(self):
-        margin = compute_reserve_margin(80000, "ERCOT")
+        from config import REGION_CAPACITY_MW
+
+        # Half capacity is unambiguously a surplus regardless of annual
+        # capacity refreshes.
+        margin = compute_reserve_margin(REGION_CAPACITY_MW["ERCOT"] // 2, "ERCOT")
         assert margin > 0
 
     def test_deficit(self):
-        margin = compute_reserve_margin(150000, "ERCOT")
+        from config import REGION_CAPACITY_MW
+
+        # Loading above installed capacity is unambiguously a deficit;
+        # using REGION_CAPACITY_MW so this stays correct when capacity
+        # figures are refreshed from their 2025+ source reports.
+        margin = compute_reserve_margin(int(REGION_CAPACITY_MW["ERCOT"] * 1.1), "ERCOT")
         assert margin < 0
 
     def test_at_capacity(self):
