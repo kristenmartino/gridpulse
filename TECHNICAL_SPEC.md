@@ -160,19 +160,19 @@ GridPulse includes an external news/signals integration for contextual headlines
 
 ## 3.1 Balancing Authorities
 
-| Code | Full Name | Centroid (lat, lon) | Approx. Capacity (MW) |
-|---|---|---|---|
-| ERCOT | Texas (ERCOT) | 31.0, -97.0 | 130,000 |
-| CAISO | California (CAISO) | 37.0, -120.0 | 80,000 |
-| PJM | Mid-Atlantic (PJM) | 39.5, -77.0 | 185,000 |
-| MISO | Midwest (MISO) | 41.0, -89.0 | 175,000 |
-| NYISO | New York (NYISO) | 42.5, -74.0 | 38,000 |
-| FPL | Florida (FPL/NextEra) | 26.9, -80.1 | 32,000 |
-| SPP | Southwest (SPP) | 35.5, -97.5 | 90,000 |
-| ISONE | New England (ISO-NE) | 42.3, -71.8 | 30,000 |
+| Code | Full Name | Centroid (lat, lon) | Capacity (MW) | Source (2025) |
+|---|---|---|---|---|
+| ERCOT | Texas (ERCOT) | 31.0, -97.0 | 153,000 | ERCOT CDR — Summer 2025 resource assessment |
+| CAISO | California (CAISO) | 37.0, -120.0 | 86,000 | CAISO 2024 Annual Report on Market Issues & Performance (Aug 2025) |
+| PJM | Mid-Atlantic (PJM) | 39.5, -77.0 | 184,202 | PJM 2025 State of the Market (Monitoring Analytics) |
+| MISO | Midwest (MISO) | 41.0, -89.0 | 186,986 | MISO Fast Facts 2025 |
+| NYISO | New York (NYISO) | 42.5, -74.0 | 37,375 | NYISO 2025 Power Trends Report |
+| FPL | Florida (FPL/NextEra) | 26.9, -80.1 | 35,963 | NextEra Energy 2024 10-K (filed Feb 2025) |
+| SPP | Southwest (SPP) | 35.5, -97.5 | 102,376 | SPP Fast Facts 2025 (derived from wind-share of total nameplate) |
+| ISONE | New England (ISO-NE) | 42.3, -71.8 | 30,000 | ISO-NE 2025 Regional System Plan |
 
 ### Note on FPL
-FPL represents Florida Power & Light’s service territory, not all statewide Florida demand.
+FPL represents Florida Power & Light’s service territory, not all statewide Florida demand. Of the eight BAs in GridPulse, FPL is the only investor-owned utility (a NextEra Energy subsidiary); the other seven are nonprofit ISOs/RTOs whose nearest equivalent of an "annual report to shareholders" is their State-of-the-Market, Power Trends, or Regional System Plan publication — the sources cited above.
 
 ## 3.2 Weather Location Assumption
 Weather data is fetched for centroid coordinates representing each balancing authority. This is a pragmatic simplification and can reduce fidelity for geographically large regions.

@@ -159,18 +159,46 @@ REGION_COORDINATES: dict[str, dict] = {
 REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.items()}
 
 # ---------------------------------------------------------------------------
-# Generation Capacity (MW) — from EIA-860 data
+# Generation Capacity (MW)
 # Used by the scenario simulator's merit-order pricing model.
-# Update annually or fetch from: electricity/operating-generator-capacity
+# Values reflect total installed nameplate capacity from each BA's most
+# recent 2025 publication (ISOs/RTOs are nonprofits and do not issue
+# shareholder reports; their State-of-the-Market / Power Trends / Regional
+# System Plan reports are the equivalent source of truth). FPL is the only
+# investor-owned BA in this set — its figure comes from NextEra Energy's
+# 10-K filed with the SEC.
+#   ERCOT — ~153,000 MW installed (CDR summer 2025; includes wind, solar,
+#           battery, thermal)
+#           https://www.ercot.com/gridinfo/resource
+#   CAISO — 86,000 MW (CAISO 2024 Annual Report on Market Issues &
+#           Performance, published Aug 2025)
+#           https://www.caiso.com/documents/2024-annual-report-on-market-issues-and-performance.pdf
+#   PJM   — 184,202 MW (2025 State of the Market Report, Monitoring
+#           Analytics)
+#           https://www.monitoringanalytics.com/reports/PJM_State_of_the_Market/2025/
+#   MISO  — 186,986 MW (MISO 2025 market capacity, Fast Facts)
+#           https://www.misoenergy.org/about/miso-strategy-and-value-proposition/miso-fast-facts/
+#   NYISO — 37,375 MW (NYISO 2025 Power Trends, summer 2024 generating
+#           capability)
+#           https://www.nyiso.com/documents/20142/2223020/2025-Power-Trends.pdf
+#   FPL   — 35,963 MW net generating capacity (NextEra Energy 2024 10-K
+#           filed Feb 2025 — the "2025 annual report")
+#           https://www.investor.nexteraenergy.com/financial-information/sec-filings
+#   SPP   — 102,376 MW nameplate (derived from SPP Fast Facts 2025: wind
+#           35,740 MW = 34.9% of total nameplate)
+#           https://www.spp.org/about-us/fast-facts/
+#   ISONE — 30,000 MW (ISO-NE 2025 Regional System Plan — "nearly
+#           30,000 MW of generating capacity")
+#           https://www.iso-ne.com/static-assets/documents/100030/final_2025_rsp.pdf
 # ---------------------------------------------------------------------------
 REGION_CAPACITY_MW: dict[str, int] = {
-    "ERCOT": 130_000,
-    "CAISO": 80_000,
-    "PJM": 185_000,
-    "MISO": 175_000,
-    "NYISO": 38_000,
-    "FPL": 32_000,
-    "SPP": 90_000,
+    "ERCOT": 153_000,
+    "CAISO": 86_000,
+    "PJM": 184_202,
+    "MISO": 186_986,
+    "NYISO": 37_375,
+    "FPL": 35_963,
+    "SPP": 102_376,
     "ISONE": 30_000,
 }
 
