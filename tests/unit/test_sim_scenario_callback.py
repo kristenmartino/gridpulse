@@ -44,21 +44,43 @@ def callbacks():
     return fns
 
 
-def _call_run_scenario(fn, *, demand_json, active_tab, duration=24):
-    """Invoke run_scenario with a stable default slider/region set."""
+def _call_run_scenario(
+    fn,
+    *,
+    demand_json,
+    active_tab,
+    duration=24,
+    temp=75,
+    wind=10,
+    cloud=50,
+    humidity=60,
+    solar_irr=500,
+    region="FPL",
+):
+    """Invoke run_scenario with configurable slider values.
+
+    Defaults mirror the baseline weather (75°F / 60% humidity / 50% cloud)
+    so the scenario collapses to the baseline with zero delta.
+    """
     return fn(
         0,  # run_clicks
         [0],  # preset_clicks (ALL wildcard — at least one preset button)
         demand_json,  # demand-store.data
         active_tab,  # dashboard-tabs.active_tab
-        75,  # sim-temp
-        10,  # sim-wind
-        30,  # sim-cloud
-        50,  # sim-humidity
-        200,  # sim-solar
+        temp,  # sim-temp
+        wind,  # sim-wind
+        cloud,  # sim-cloud
+        humidity,  # sim-humidity
+        solar_irr,  # sim-solar
         duration,  # sim-duration (hours)
-        "FPL",  # region-selector
+        region,  # region-selector
     )
+
+
+def _extract_demand_delta_mw(result):
+    """Pull the numeric MW delta out of the KPI string (e.g. '+1,234 MW')."""
+    s = result[1].replace(",", "").replace(" MW", "").replace("+", "")
+    return float(s)
 
 
 def _populated_demand_json(n=48, base_mw=28000):
@@ -119,6 +141,58 @@ class TestRunScenarioWarmingState:
         fn = callbacks["run_scenario"]
         result = _call_run_scenario(fn, demand_json="not json", active_tab="tab-simulator")
         assert result[1] == "Warming up"
+
+
+class TestRunScenarioHeuristicSensitivity:
+    """Regression coverage for the heuristic `/65` flattening bug.
+
+    Before the fix, moving temperature from 75 → 120°F produced a
+    demand delta of ~1% (buried in noise). These tests lock in that
+    each slider now moves its target KPI by a materially visible
+    amount.
+    """
+
+    def _base_kwargs(self):
+        return dict(demand_json=_populated_demand_json(n=48), active_tab="tab-simulator")
+
+    def test_hot_temperature_increases_demand(self, callbacks):
+        fn = callbacks["run_scenario"]
+        mock_ctx = MagicMock(triggered_id="sim-run-btn")
+        with patch("components.callbacks.ctx", mock_ctx):
+            baseline = _call_run_scenario(fn, temp=75, **self._base_kwargs())
+            hot = _call_run_scenario(fn, temp=110, **self._base_kwargs())
+        hot_delta = _extract_demand_delta_mw(hot)
+        base_delta = _extract_demand_delta_mw(baseline)
+        # A 35°F jump above baseline should lift demand by >5% of the
+        # ~28k MW fixture — i.e. >1,400 MW above the baseline scenario.
+        assert hot_delta - base_delta > 1400
+
+    def test_cold_temperature_increases_demand(self, callbacks):
+        fn = callbacks["run_scenario"]
+        mock_ctx = MagicMock(triggered_id="sim-run-btn")
+        with patch("components.callbacks.ctx", mock_ctx):
+            baseline = _call_run_scenario(fn, temp=75, **self._base_kwargs())
+            cold = _call_run_scenario(fn, temp=10, **self._base_kwargs())
+        assert _extract_demand_delta_mw(cold) - _extract_demand_delta_mw(baseline) > 2000
+
+    def test_humidity_amplifies_heat_demand(self, callbacks):
+        fn = callbacks["run_scenario"]
+        mock_ctx = MagicMock(triggered_id="sim-run-btn")
+        with patch("components.callbacks.ctx", mock_ctx):
+            dry = _call_run_scenario(fn, temp=100, humidity=20, **self._base_kwargs())
+            humid = _call_run_scenario(fn, temp=100, humidity=95, **self._base_kwargs())
+        assert _extract_demand_delta_mw(humid) > _extract_demand_delta_mw(dry)
+
+    def test_solar_reduces_net_load_reserve(self, callbacks):
+        """Higher solar irradiance → more renewable gen → higher reserve margin."""
+        fn = callbacks["run_scenario"]
+        mock_ctx = MagicMock(triggered_id="sim-run-btn")
+        with patch("components.callbacks.ctx", mock_ctx):
+            low_sun = _call_run_scenario(fn, solar_irr=50, **self._base_kwargs())
+            high_sun = _call_run_scenario(fn, solar_irr=1000, **self._base_kwargs())
+        low_reserve = float(low_sun[5].rstrip("%"))
+        high_reserve = float(high_sun[5].rstrip("%"))
+        assert high_reserve > low_reserve + 1.0  # at least 1 pp improvement
 
 
 class TestRunScenarioPopulated:

@@ -3527,12 +3527,32 @@ def register_callbacks(app):
         baseline = demand_df["demand_mw"].tail(duration).values
         capacity = REGION_CAPACITY_MW.get(region, 50000)
 
-        baseline_temp = 75
-        cdd_delta = max(0, temp - 65) - max(0, baseline_temp - 65)
-        hdd_delta = max(0, 65 - temp) - max(0, 65 - baseline_temp)
-        temp_factor = 1 + (cdd_delta * 0.02 + hdd_delta * 0.015) / 65
+        # Baseline weather corresponds to the default slider values so the
+        # scenario collapses to the baseline when sliders are unmoved.
+        baseline_temp = 75.0  # °F
+        baseline_humidity = 60.0  # %
+        baseline_cloud = 50.0  # %
 
-        seed = stable_int_seed(("scenario_simulation", region, temp, wind))
+        cdd = max(0.0, temp - 65.0)
+        hdd = max(0.0, 65.0 - temp)
+        cdd_base = max(0.0, baseline_temp - 65.0)
+        hdd_base = max(0.0, 65.0 - baseline_temp)
+
+        # Standard utility load-temperature elasticities: cooling load grows
+        # ~0.5%/°F above 65°F and heating load ~0.3%/°F below it. The
+        # previous `/65` divisor flattened this to ~0.03%/°F and made the
+        # slider visually inert.
+        temp_effect = (cdd - cdd_base) * 0.005 + (hdd - hdd_base) * 0.003
+
+        # Humidity amplifies cooling load (heat-index effect); only on hot
+        # days. Cloud cover dampens cooling load via reduced solar heat
+        # gain on buildings. Both are zero when temperature is at/below 65.
+        humidity_effect = cdd * 0.0015 * (humidity - baseline_humidity) / 100.0
+        cloud_effect = -cdd * 0.0010 * (cloud - baseline_cloud) / 100.0
+
+        temp_factor = 1.0 + temp_effect + humidity_effect + cloud_effect
+
+        seed = stable_int_seed(("scenario_simulation", region, temp, wind, cloud, humidity))
         rng = np.random.RandomState(seed)
         scenario = baseline * temp_factor + rng.normal(0, capacity * 0.005, len(baseline))
         scenario = np.maximum(scenario, 0)
@@ -3540,16 +3560,26 @@ def register_callbacks(app):
         delta = scenario - baseline
         mean_delta = np.mean(delta)
 
-        from models.pricing import estimate_price_impact
-
-        base_price = estimate_price_impact(np.mean(baseline), capacity)
-        scen_price = estimate_price_impact(np.mean(scenario), capacity)
-        reserve = (capacity - np.max(scenario)) / capacity * 100
-
         from data.feature_engineering import compute_solar_capacity_factor, compute_wind_power
 
         wind_power = float(compute_wind_power(pd.Series([wind])).iloc[0])
         solar_cf = float(compute_solar_capacity_factor(pd.Series([solar_irr])).iloc[0])
+
+        # Approximate nameplate renewable shares of total capacity (US avg
+        # across the 8 modeled BAs). Per-region splits vary but these are
+        # representative enough for the heuristic path; price and reserve
+        # then respond to net load (= demand − renewable gen), so solar
+        # and wind sliders actually move the economics.
+        wind_share = 0.15
+        solar_share = 0.10
+        renewable_gen = wind_power * wind_share * capacity + solar_cf * solar_share * capacity
+        net_load = np.maximum(scenario - renewable_gen, 0)
+
+        from models.pricing import estimate_price_impact
+
+        base_price = estimate_price_impact(np.mean(baseline), capacity)
+        scen_price = estimate_price_impact(np.mean(net_load), capacity)
+        reserve = (capacity - np.max(net_load)) / capacity * 100
 
         timestamps = demand_df["timestamp"].tail(duration)
         fig_forecast = go.Figure()
@@ -3587,7 +3617,7 @@ def register_callbacks(app):
 
         utilizations = np.linspace(0.5, 1.1, 100)
         prices = estimate_price_impact(utilizations * capacity, capacity)
-        current_util = np.mean(scenario) / capacity
+        current_util = np.mean(net_load) / capacity
         fig_price = go.Figure()
         fig_price.add_trace(
             go.Scatter(
