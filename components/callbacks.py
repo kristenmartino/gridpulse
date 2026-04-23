@@ -5624,25 +5624,33 @@ def _build_persona_kpis(
                 min_mw = min(demand_vals)
                 pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
 
-    # Extract weather stats
+    # Extract weather stats. pandas ``.mean()`` is NaN-aware but returns NaN
+    # when every value is null — coerce that to ``None`` so the downstream
+    # ``is not None`` guards (and Redis fallback) behave consistently.
     avg_wind = None
     avg_solar = None
     if weather_df is not None:
         if "wind_speed_80m" in weather_df.columns:
-            avg_wind = weather_df["wind_speed_80m"].mean()
+            mean = weather_df["wind_speed_80m"].mean()
+            avg_wind = float(mean) if pd.notna(mean) else None
         if "shortwave_radiation" in weather_df.columns:
-            avg_solar = weather_df["shortwave_radiation"].mean()
+            mean = weather_df["shortwave_radiation"].mean()
+            avg_solar = float(mean) if pd.notna(mean) else None
 
-    # Fallback: read weather stats from Redis
-    if avg_wind is None and avg_solar is None:
+    # Fallback: read weather stats from Redis. Gate each metric independently
+    # so a missing column in ``weather_df`` still triggers the Redis lookup
+    # for that metric (previously both had to be ``None`` for any fallback).
+    # Also filter None/NaN entries before averaging — Redis arrays can have
+    # gaps where Open-Meteo emitted nulls.
+    if avg_wind is None or avg_solar is None:
         weather_redis = redis_get(f"wattcast:weather:{region}")
         if weather_redis:
-            if "wind_speed_80m" in weather_redis:
-                vals = weather_redis["wind_speed_80m"]
+            if avg_wind is None and "wind_speed_80m" in weather_redis:
+                vals = [v for v in weather_redis["wind_speed_80m"] if pd.notna(v)]
                 if vals:
                     avg_wind = sum(vals) / len(vals)
-            if "shortwave_radiation" in weather_redis:
-                vals = weather_redis["shortwave_radiation"]
+            if avg_solar is None and "shortwave_radiation" in weather_redis:
+                vals = [v for v in weather_redis["shortwave_radiation"] if pd.notna(v)]
                 if vals:
                     avg_solar = sum(vals) / len(vals)
 

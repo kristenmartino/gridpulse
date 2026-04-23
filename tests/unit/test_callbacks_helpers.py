@@ -976,6 +976,97 @@ class TestBuildPersonaKpis:
         # Range should be 30000 − 25000 = 5000, not 30000.
         assert value_str == "5,000 MW", f"expected 5,000 MW range, got {value_str}"
 
+    @patch("components.callbacks.redis_get")
+    def test_weather_redis_fallback_filters_none_and_nan(self, mock_redis):
+        """Regression: Redis weather arrays can carry None/NaN gaps
+        (Open-Meteo nulls). The naive ``sum(vals)/len(vals)`` path used to
+        either raise on None or propagate NaN into the Avg Wind / Avg
+        Solar cards. Must filter null entries before averaging.
+        """
+        from components.callbacks import _build_persona_kpis
+
+        def fake_redis_get(key):
+            if "weather" in key:
+                return {
+                    "wind_speed_80m": [10.0, None, 20.0, float("nan"), 30.0],
+                    "shortwave_radiation": [100.0, None, 300.0, float("nan"), 500.0],
+                }
+            return None
+
+        mock_redis.side_effect = fake_redis_get
+        result = _build_persona_kpis("renewables", "CAISO", None, None)
+        # renewables KPI order: Wind CF, Solar CF, Avg Wind, Avg Solar
+        avg_wind_card = result.children[2]
+        avg_wind_str = avg_wind_card.children.children[1].children
+        # Mean of 10, 20, 30 = 20.0 mph
+        assert avg_wind_str == "20.0 mph", f"expected 20.0 mph, got {avg_wind_str}"
+
+        avg_solar_card = result.children[3]
+        avg_solar_str = avg_solar_card.children.children[1].children
+        # Mean of 100, 300, 500 = 300 W/m²
+        assert avg_solar_str == "300 W/m\u00b2", f"expected 300 W/m², got {avg_solar_str}"
+
+    @patch("components.callbacks.redis_get")
+    def test_weather_partial_df_falls_back_per_metric(self, mock_redis):
+        """Regression: previously the Redis fallback required *both*
+        avg_wind and avg_solar to be None. If ``weather_df`` supplied only
+        one column, the other silently stayed ``None`` and rendered as
+        "No data" even with fresh Redis data. Each metric must fall back
+        independently.
+        """
+        from components.callbacks import _build_persona_kpis
+
+        def fake_redis_get(key):
+            if "weather" in key:
+                return {
+                    "wind_speed_80m": [10.0, 15.0, 20.0],
+                    "shortwave_radiation": [200.0, 400.0, 600.0],
+                }
+            return None
+
+        mock_redis.side_effect = fake_redis_get
+        # weather_df has only wind_speed_80m — solar column missing
+        partial_df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=3, freq="h", tz="UTC"),
+                "wind_speed_80m": [5.0, 5.0, 5.0],
+            }
+        )
+        result = _build_persona_kpis("renewables", "CAISO", None, partial_df)
+        # Avg Wind from the DataFrame (5.0), Avg Solar from Redis (400)
+        avg_wind_str = result.children[2].children.children[1].children
+        avg_solar_str = result.children[3].children.children[1].children
+        assert avg_wind_str == "5.0 mph", f"expected 5.0 mph, got {avg_wind_str}"
+        assert avg_solar_str == "400 W/m\u00b2", (
+            f"expected 400 W/m² (Redis fallback), got {avg_solar_str}"
+        )
+
+    @patch("components.callbacks.redis_get")
+    def test_weather_all_nan_df_coerces_to_none_and_falls_back(self, mock_redis):
+        """Regression: ``series.mean()`` on an all-NaN column returns NaN,
+        not ``None``. The old code kept that NaN as ``avg_wind`` and the
+        Redis fallback gate evaluated ``is None`` to False — so the card
+        rendered "nan mph" instead of the Redis value.
+        """
+        from components.callbacks import _build_persona_kpis
+
+        def fake_redis_get(key):
+            if "weather" in key:
+                return {"wind_speed_80m": [8.0, 12.0, 16.0]}
+            return None
+
+        mock_redis.side_effect = fake_redis_get
+        nan_df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=3, freq="h", tz="UTC"),
+                "wind_speed_80m": [np.nan, np.nan, np.nan],
+            }
+        )
+        result = _build_persona_kpis("renewables", "CAISO", None, nan_df)
+        avg_wind_str = result.children[2].children.children[1].children
+        # Mean of 8, 12, 16 from Redis = 12.0
+        assert avg_wind_str == "12.0 mph", f"expected 12.0 mph, got {avg_wind_str}"
+
     @patch("components.callbacks.redis_get", return_value=None)
     def test_backtest_cache_used_for_mape(self, mock_redis, demand_df):
         import components.callbacks as cb
