@@ -3489,9 +3489,7 @@ def register_callbacks(app):
         # Parse defensively — warming-state JSON is a valid-but-empty frame,
         # and the first page render may pass demand_json=None.
         try:
-            demand_df = (
-                pd.read_json(io.StringIO(demand_json)) if demand_json else pd.DataFrame()
-            )
+            demand_df = pd.read_json(io.StringIO(demand_json)) if demand_json else pd.DataFrame()
         except ValueError:
             demand_df = pd.DataFrame()
 
@@ -3500,11 +3498,16 @@ def register_callbacks(app):
             warming = "Warming up"
             return (
                 warming_fig,
-                warming, "",
-                warming, "",
-                warming, "",
-                warming, "",
-                warming_fig, warming_fig,
+                warming,
+                "",
+                warming,
+                "",
+                warming,
+                "",
+                warming,
+                "",
+                warming_fig,
+                warming_fig,
             )
 
         triggered = ctx.triggered_id

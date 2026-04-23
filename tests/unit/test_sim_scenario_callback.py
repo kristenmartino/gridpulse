@@ -47,17 +47,17 @@ def callbacks():
 def _call_run_scenario(fn, *, demand_json, active_tab, duration=24):
     """Invoke run_scenario with a stable default slider/region set."""
     return fn(
-        0,                 # run_clicks
-        [0],               # preset_clicks (ALL wildcard — at least one preset button)
-        demand_json,       # demand-store.data
-        active_tab,        # dashboard-tabs.active_tab
-        75,                # sim-temp
-        10,                # sim-wind
-        30,                # sim-cloud
-        50,                # sim-humidity
-        200,               # sim-solar
-        duration,          # sim-duration (hours)
-        "FPL",             # region-selector
+        0,  # run_clicks
+        [0],  # preset_clicks (ALL wildcard — at least one preset button)
+        demand_json,  # demand-store.data
+        active_tab,  # dashboard-tabs.active_tab
+        75,  # sim-temp
+        10,  # sim-wind
+        30,  # sim-cloud
+        50,  # sim-humidity
+        200,  # sim-solar
+        duration,  # sim-duration (hours)
+        "FPL",  # region-selector
     )
 
 
@@ -84,9 +84,7 @@ class TestRunScenarioTabGate:
 
     def test_none_active_tab_returns_no_update(self, callbacks):
         fn = callbacks["run_scenario"]
-        result = _call_run_scenario(
-            fn, demand_json=_populated_demand_json(), active_tab=None
-        )
+        result = _call_run_scenario(fn, demand_json=_populated_demand_json(), active_tab=None)
         assert result == [no_update] * 11
 
 
@@ -100,10 +98,10 @@ class TestRunScenarioWarmingState:
         # 11 outputs: fig, demand, demand_pct, price, price_delta, reserve,
         # reserve_status, renewable, renewable_detail, price_fig, renewable_fig
         assert len(result) == 11
-        assert result[1] == "Warming up"   # demand
-        assert result[3] == "Warming up"   # price
-        assert result[5] == "Warming up"   # reserve
-        assert result[7] == "Warming up"   # renewable
+        assert result[1] == "Warming up"  # demand
+        assert result[3] == "Warming up"  # price
+        assert result[5] == "Warming up"  # reserve
+        assert result[7] == "Warming up"  # renewable
         # Figures are plotly.graph_objs.Figure — assert they exist, no crash.
         assert isinstance(result[0], go.Figure)
         assert isinstance(result[9], go.Figure)
@@ -119,9 +117,7 @@ class TestRunScenarioWarmingState:
     def test_malformed_demand_returns_warming(self, callbacks):
         """Defensive: corrupt JSON shouldn't crash the callback."""
         fn = callbacks["run_scenario"]
-        result = _call_run_scenario(
-            fn, demand_json="not json", active_tab="tab-simulator"
-        )
+        result = _call_run_scenario(fn, demand_json="not json", active_tab="tab-simulator")
         assert result[1] == "Warming up"
 
 
