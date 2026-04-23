@@ -1534,6 +1534,75 @@ class TestRunBacktestForHorizon:
             result = _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
         assert "error" in result
 
+    def test_require_redis_short_circuits_without_bypass(self, demand_df, weather_df):
+        """Web-service path: REQUIRE_REDIS=True → warming stub, no inline train."""
+        import components.callbacks as cb
+        from components.callbacks import _run_backtest_for_horizon
+
+        cb._BACKTEST_CACHE.clear()
+        with (
+            patch("components.callbacks.REQUIRE_REDIS", True),
+            patch("data.cache.get_cache") as mock_get_cache,
+        ):
+            mock_cache = MagicMock()
+            mock_cache.get.return_value = None
+            mock_get_cache.return_value = mock_cache
+            result = _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
+        assert result.get("status") == "warming"
+
+    @patch("data.cache.get_cache")
+    @patch("data.preprocessing.merge_demand_weather")
+    @patch("data.feature_engineering.engineer_features")
+    @patch("models.evaluation.compute_all_metrics")
+    def test_bypass_redis_guard_runs_compute(
+        self,
+        mock_metrics,
+        mock_features,
+        mock_merge,
+        mock_get_cache,
+        demand_df,
+        weather_df,
+    ):
+        """Training-job path: bypass_redis_guard=True bypasses the warming stub
+        and actually computes, so the nightly job can populate Redis."""
+        import components.callbacks as cb
+        from components.callbacks import _run_backtest_for_horizon
+
+        cb._BACKTEST_CACHE.clear()
+
+        n = 1200
+        ts = pd.date_range("2024-01-01", periods=n, freq="h", tz="UTC")
+        featured = pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": np.random.default_rng(1).normal(30000, 1000, n),
+                "temperature_2m": np.ones(n) * 80,
+                "hour": ts.hour,
+            }
+        )
+        mock_merge.return_value = featured
+        mock_features.return_value = featured
+        mock_metrics.return_value = {"mape": 4.5, "rmse": 900, "mae": 700, "r2": 0.92}
+
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_get_cache.return_value = mock_cache
+
+        with (
+            patch("components.callbacks.REQUIRE_REDIS", True),
+            patch("components.callbacks._predict_single_fold", return_value=np.ones(24) * 30000),
+        ):
+            result = _run_backtest_for_horizon(
+                demand_df,
+                weather_df,
+                24,
+                "xgboost",
+                "ERCOT",
+                bypass_redis_guard=True,
+            )
+        assert "metrics" in result
+        assert result.get("status") != "warming"
+
 
 # ===========================================================================
 # _run_forecast_outlook

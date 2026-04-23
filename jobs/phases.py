@@ -412,6 +412,7 @@ def write_backtests(data: RegionData) -> PhaseResult:
                 "xgboost",
                 region,
                 DEFAULT_BACKTEST_EXOG_MODE,
+                bypass_redis_guard=True,
             )
             if "error" in bt:
                 log.warning(

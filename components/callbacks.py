@@ -5920,6 +5920,7 @@ def _run_backtest_for_horizon(
     model_name: str,
     region: str,
     exog_mode: str = DEFAULT_BACKTEST_EXOG_MODE,
+    bypass_redis_guard: bool = False,
 ) -> dict:
     """
     Walk-forward backtest for a specific forecast horizon.
@@ -5935,6 +5936,11 @@ def _run_backtest_for_horizon(
         horizon_hours: Forecast horizon (24, 168, or 720 hours)
         model_name: Model to use (xgboost, prophet, arima, ensemble)
         region: Region code
+        exog_mode: Backtest exogenous-weather mode.
+        bypass_redis_guard: When True, skip the REQUIRE_REDIS warming
+            early-return. Reserved for the nightly training job which is
+            the authoritative compute path — if that job short-circuits
+            on REQUIRE_REDIS, nothing ever populates the backtest keys.
 
     Returns:
         Dict with predictions, actuals, timestamps, metrics, num_folds,
@@ -6003,8 +6009,10 @@ def _run_backtest_for_horizon(
     # REQUIRE_REDIS: the daily training job recomputes backtests and writes
     # them to Redis. A miss at this layer means the training job hasn't
     # produced results yet — surface warming instead of running walk-forward
-    # training inline (which would time out a web request).
-    if REQUIRE_REDIS:
+    # training inline (which would time out a web request). The training
+    # job itself passes bypass_redis_guard=True so it can actually do the
+    # compute this guard exists to defer.
+    if REQUIRE_REDIS and not bypass_redis_guard:
         log.info(
             "backtest_warming_state",
             region=region,
