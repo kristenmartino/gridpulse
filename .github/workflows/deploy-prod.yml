@@ -97,7 +97,7 @@ jobs:
             --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
             --command python \
             --args=-m,jobs,training \
-            --task-timeout 3600 \
+            --task-timeout 7200 \
             --memory 8Gi \
             --cpu 4 \
             --max-retries 1
