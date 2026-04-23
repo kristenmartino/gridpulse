@@ -971,13 +971,18 @@ def _load_data_from_redis(region):
     pipe.step("fetch_demand", rows=len(cached_actuals.get("demand_mw", [])), source="redis")
     pipe.step("fetch_weather", rows=len(cached_weather.get("timestamps", [])), source="redis")
 
-    # Convert parallel-arrays to DataFrame JSON
+    # Convert parallel-arrays to DataFrame JSON. Sanitize spurious zero-demand
+    # readings to NaN — a balancing authority never truly reads 0 MW; these
+    # are missing-data artifacts (commonly legacy Redis entries written
+    # before the EIA ingestion fix). Charts/KPIs handle NaN correctly; zeros
+    # otherwise render as misleading dips to zero.
     demand_df = pd.DataFrame(
         {
             "timestamp": cached_actuals["timestamps"],
             "demand_mw": cached_actuals["demand_mw"],
         }
     )
+    demand_df.loc[demand_df["demand_mw"] <= 0, "demand_mw"] = np.nan
     weather_cols = {k: v for k, v in cached_weather.items() if k not in ("region",)}
     weather_df = pd.DataFrame(weather_cols)
     if "timestamps" in weather_df.columns:
@@ -2505,16 +2510,20 @@ def register_callbacks(app):
 
         fig = go.Figure()
 
-        # Actual demand only
+        # Actual demand only. Mask spurious zero-demand hours (EIA returns 0
+        # for missing observations; a balancing authority never truly reads
+        # 0 MW) so plotly draws a gap instead of a misleading dip to zero.
+        demand_y = demand_df["demand_mw"].where(demand_df["demand_mw"] > 0)
         fig.add_trace(
             go.Scatter(
                 x=demand_df["timestamp"],
-                y=demand_df["demand_mw"],
+                y=demand_y,
                 mode="lines",
                 name="Actual Demand",
                 line=dict(color=COLORS["actual"], width=2),
                 fill="tozeroy",
                 fillcolor="rgba(56,208,255,0.10)",
+                connectgaps=False,
             )
         )
 

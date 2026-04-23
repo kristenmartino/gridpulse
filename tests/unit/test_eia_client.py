@@ -100,21 +100,41 @@ class TestParseDemandRecords:
         assert df.empty
         assert list(df.columns) == ["timestamp", "demand_mw", "forecast_mw", "region"]
 
-    def test_missing_value_field_defaults_to_zero(self):
-        """Records with missing 'value' default to 0."""
+    def test_missing_value_field_becomes_nan(self):
+        """Records with missing 'value' become NaN (preserved as missing)."""
         records = [
             {"period": "2024-01-01T00", "type": "D"},
         ]
         df = _parse_demand_records(records, "PJM")
-        assert df["demand_mw"].iloc[0] == 0.0
+        assert pd.isna(df["demand_mw"].iloc[0])
 
-    def test_null_value_field_defaults_to_zero(self):
-        """Records with None value default to 0."""
+    def test_null_value_field_becomes_nan(self):
+        """Records with None value become NaN (not zero-filled)."""
         records = [
             {"period": "2024-01-01T00", "value": None, "type": "D"},
         ]
         df = _parse_demand_records(records, "PJM")
-        assert df["demand_mw"].iloc[0] == 0.0
+        assert pd.isna(df["demand_mw"].iloc[0])
+
+    def test_zero_value_coerced_to_nan(self):
+        """Literal 0 demand is impossible for a balancing authority — coerce to NaN."""
+        records = [
+            {"period": "2024-01-01T00", "value": 0, "type": "D"},
+            {"period": "2024-01-01T01", "value": 0.0, "type": "D"},
+            {"period": "2024-01-01T02", "value": 28500, "type": "D"},
+        ]
+        df = _parse_demand_records(records, "NYIS")
+        assert pd.isna(df["demand_mw"].iloc[0])
+        assert pd.isna(df["demand_mw"].iloc[1])
+        assert df["demand_mw"].iloc[2] == 28500.0
+
+    def test_non_numeric_value_coerced_to_nan(self):
+        """Garbage strings in 'value' don't blow up parsing — become NaN."""
+        records = [
+            {"period": "2024-01-01T00", "value": "not-a-number", "type": "D"},
+        ]
+        df = _parse_demand_records(records, "PJM")
+        assert pd.isna(df["demand_mw"].iloc[0])
 
     def test_records_sorted_by_timestamp(self):
         records = [

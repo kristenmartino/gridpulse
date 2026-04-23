@@ -265,6 +265,36 @@ class TestLoadDataFromRedis:
         assert audit_json["weather_source"] == "redis"
         assert audit_json["forecast_source"] == "redis"
 
+    @patch("components.callbacks.redis_get")
+    def test_zero_and_negative_demand_coerced_to_nan(self, mock_rg):
+        """Spurious 0 and negative demand rows (legacy Redis entries) should
+        be coerced to NaN so charts draw a gap instead of a misleading dip."""
+        payload = {
+            "timestamps": _ts(5),
+            "demand_mw": [28000, 0, -5, 29000, 30000],
+        }
+        mock_rg.side_effect = lambda k: {
+            "wattcast:actuals:NYIS": payload,
+            "wattcast:weather:NYIS": _weather_payload(5),
+        }.get(k)
+
+        from components.callbacks import _load_data_from_redis
+
+        result = _load_data_from_redis("NYIS")
+        assert result is not None
+        # Round-trip through pandas to verify NaN is preserved across JSON.
+        import io
+
+        import pandas as pd
+
+        demand_df = pd.read_json(io.StringIO(result[0]))
+        vals = demand_df["demand_mw"].tolist()
+        assert vals[0] == 28000
+        assert pd.isna(vals[1])  # was 0
+        assert pd.isna(vals[2])  # was -5
+        assert vals[3] == 29000
+        assert vals[4] == 30000
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TestWeatherTabFromRedis

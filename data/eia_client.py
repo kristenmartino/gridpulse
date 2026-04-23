@@ -322,13 +322,27 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
 
 
 def _parse_demand_records(records: list[dict], region: str) -> pd.DataFrame:
-    """Parse EIA demand records into a clean DataFrame."""
+    """Parse EIA demand records into a clean DataFrame.
+
+    EIA returns ``null`` for missing observations. Preserve that as ``NaN``
+    (not ``0``) so downstream preprocessing can interpolate short gaps and
+    flag long ones. Also coerce literal ``0`` to ``NaN`` — a balancing
+    authority serving a state's load never reads 0 MW, so zeros are always
+    missing-data artifacts (commonly a null that was zero-filled upstream).
+    """
     rows = []
     for r in records:
+        raw = r.get("value")
+        try:
+            val = float(raw) if raw not in (None, "") else float("nan")
+        except (TypeError, ValueError):
+            val = float("nan")
+        if val == 0:
+            val = float("nan")
         rows.append(
             {
                 "timestamp": pd.Timestamp(r["period"], tz="UTC"),
-                "value": float(r.get("value", 0) or 0),
+                "value": val,
                 "type": r.get("type", ""),
                 "region": region,
             }
