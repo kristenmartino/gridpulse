@@ -936,6 +936,47 @@ class TestBuildPersonaKpis:
         assert result is not None
 
     @patch("components.callbacks.redis_get", return_value=None)
+    def test_spurious_zero_demand_excluded_from_range(self, mock_redis):
+        """Regression: EIA-sourced zero-hour rows (e.g. NYISO 2026-02-10)
+        collapsed Demand Range to the full peak because ``.min()`` returned
+        0. Non-positive demand is never physically real; must be filtered.
+        """
+        from components.callbacks import _build_persona_kpis
+
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=12, freq="h", tz="UTC"),
+                # 6 real hours + 6 spurious zero hours (simulates NYISO outage)
+                "demand_mw": [15000, 16000, 18000, 20000, 22000, 24000, 0, 0, 0, 0, 0, 0],
+            }
+        )
+        result = _build_persona_kpis("grid_ops", "NYISO", df, None)
+        # grid_ops KPI order: Peak, Reserve Margin, Forecast Error, Demand Range
+        demand_range_card = result.children[3]
+        # Drill into dbc.Col > html.Div > [P(label), H3(value), P(delta)]
+        value_node = demand_range_card.children.children[1]
+        value_str = value_node.children
+        # Peak 24000 − Min 15000 = 9000, not 24000.
+        assert value_str == "9,000 MW", f"expected 9,000 MW range, got {value_str}"
+
+    @patch("components.callbacks.redis_get")
+    def test_redis_fallback_excludes_zero_demand(self, mock_redis):
+        """Redis fallback path must also skip non-positive demand values."""
+        from components.callbacks import _build_persona_kpis
+
+        def fake_redis_get(key):
+            if "actuals" in key:
+                return {"demand_mw": [0, 0, 25000, 30000, 28000], "timestamps": []}
+            return None
+
+        mock_redis.side_effect = fake_redis_get
+        result = _build_persona_kpis("grid_ops", "NYISO", None, None)
+        demand_range_card = result.children[3]
+        value_str = demand_range_card.children.children[1].children
+        # Range should be 30000 − 25000 = 5000, not 30000.
+        assert value_str == "5,000 MW", f"expected 5,000 MW range, got {value_str}"
+
+    @patch("components.callbacks.redis_get", return_value=None)
     def test_backtest_cache_used_for_mape(self, mock_redis, demand_df):
         import components.callbacks as cb
         from components.callbacks import _build_persona_kpis

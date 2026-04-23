@@ -5601,7 +5601,12 @@ def _build_persona_kpis(
     min_mw = None
     pct_of_capacity = None
     if demand_df is not None and "demand_mw" in demand_df.columns:
+        # Drop NaN and non-positive values — EIA occasionally emits spurious
+        # zero rows (e.g. NYISO 2026-02-10 had 6 consecutive zero-hours)
+        # that collapse Demand Range to the full peak. Utility demand is
+        # never physically 0 or negative for any covered BA.
         valid = demand_df.dropna(subset=["demand_mw"])
+        valid = valid[valid["demand_mw"] > 0]
         if not valid.empty:
             peak_mw = valid["demand_mw"].max()
             avg_mw = valid["demand_mw"].mean()
@@ -5612,11 +5617,12 @@ def _build_persona_kpis(
     if peak_mw is None:
         actuals_redis = redis_get(f"wattcast:actuals:{region}")
         if actuals_redis and actuals_redis.get("demand_mw"):
-            demand_vals = actuals_redis["demand_mw"]
-            peak_mw = max(demand_vals)
-            avg_mw = sum(demand_vals) / len(demand_vals)
-            min_mw = min(demand_vals)
-            pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
+            demand_vals = [v for v in actuals_redis["demand_mw"] if v is not None and v > 0]
+            if demand_vals:
+                peak_mw = max(demand_vals)
+                avg_mw = sum(demand_vals) / len(demand_vals)
+                min_mw = min(demand_vals)
+                pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
 
     # Extract weather stats
     avg_wind = None
