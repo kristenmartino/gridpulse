@@ -3443,7 +3443,15 @@ def register_callbacks(app):
             Output("sim-price-chart", "figure"),
             Output("sim-renewable-chart", "figure"),
         ],
-        [Input("sim-run-btn", "n_clicks"), Input({"type": "preset-btn", "index": ALL}, "n_clicks")],
+        [
+            Input("sim-run-btn", "n_clicks"),
+            Input({"type": "preset-btn", "index": ALL}, "n_clicks"),
+            # Auto-fire the default scenario as soon as demand-store hydrates
+            # or the user lands on the tab, so the KPIs never sit on their
+            # initial placeholder text.
+            Input("demand-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
         [
             State("sim-temp", "value"),
             State("sim-wind", "value"),
@@ -3452,13 +3460,13 @@ def register_callbacks(app):
             State("sim-solar", "value"),
             State("sim-duration", "value"),
             State("region-selector", "value"),
-            State("demand-store", "data"),
         ],
-        prevent_initial_call=True,
     )
     def run_scenario(
         run_clicks,
         preset_clicks,
+        demand_json,
+        active_tab,
         temp,
         wind,
         cloud,
@@ -3466,12 +3474,38 @@ def register_callbacks(app):
         solar_irr,
         duration,
         region,
-        demand_json,
     ):
-        """Run scenario simulation and update impact dashboard."""
-        empty = _empty_figure("Click 'Run Scenario' or select a preset")
-        if not demand_json:
-            return (empty, "No data", "", "No data", "", "No data", "", "No data", "", empty, empty)
+        """Run scenario simulation and update impact dashboard.
+
+        Fires on button clicks, preset selection, and whenever demand data
+        arrives or the simulator tab becomes active. The active-tab guard
+        avoids wasted work when the user is on another tab. The warming
+        guard handles the REQUIRE_REDIS path where load_data() serializes
+        an empty DataFrame while the scoring job is still populating Redis.
+        """
+        if active_tab != "tab-simulator":
+            return [no_update] * 11
+
+        # Parse defensively — warming-state JSON is a valid-but-empty frame,
+        # and the first page render may pass demand_json=None.
+        try:
+            demand_df = (
+                pd.read_json(io.StringIO(demand_json)) if demand_json else pd.DataFrame()
+            )
+        except ValueError:
+            demand_df = pd.DataFrame()
+
+        if demand_df.empty or "demand_mw" not in demand_df.columns:
+            warming_fig = _empty_figure("Data warming up — refresh shortly.")
+            warming = "Warming up"
+            return (
+                warming_fig,
+                warming, "",
+                warming, "",
+                warming, "",
+                warming, "",
+                warming_fig, warming_fig,
+            )
 
         triggered = ctx.triggered_id
         if isinstance(triggered, dict) and triggered.get("type") == "preset-btn":
@@ -3486,7 +3520,6 @@ def register_callbacks(app):
             solar_irr = w.get("shortwave_radiation", solar_irr)
             region = preset.get("region", region)
 
-        demand_df = pd.read_json(io.StringIO(demand_json))
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
         baseline = demand_df["demand_mw"].tail(duration).values
         capacity = REGION_CAPACITY_MW.get(region, 50000)

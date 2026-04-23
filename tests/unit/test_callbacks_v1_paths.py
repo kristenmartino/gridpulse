@@ -1186,18 +1186,24 @@ class TestBacktestV1:
 
 
 class TestRunScenario:
-    """Tests for run_scenario callback (lines 2661-2811)."""
+    """Tests for run_scenario callback.
 
-    def test_no_demand_returns_empty(self, callbacks):
-        """When demand_json is None, return empty placeholders."""
+    Signature (post-fix): run_clicks, preset_clicks, demand_json, active_tab,
+    temp, wind, cloud, humidity, solar, duration, region.
+    """
+
+    def test_no_demand_returns_warming(self, callbacks):
+        """When demand_json is None on an active simulator tab, return warming."""
         mock_ctx = MagicMock()
         mock_ctx.triggered_id = "sim-run-btn"
 
         with patch("components.callbacks.ctx", mock_ctx):
-            result = callbacks["run_scenario"](1, [], 95, 15, 50, 60, 500, 24, "FPL", None)
+            result = callbacks["run_scenario"](
+                1, [], None, "tab-simulator", 95, 15, 50, 60, 500, 24, "FPL"
+            )
 
         assert len(result) == 11
-        assert result[1] == "No data"
+        assert result[1] == "Warming up"
 
     def test_run_button_click(self, callbacks):
         """Run button produces forecast, price, renewable figures."""
@@ -1206,7 +1212,7 @@ class TestRunScenario:
 
         with patch("components.callbacks.ctx", mock_ctx):
             result = callbacks["run_scenario"](
-                1, [], 95, 15, 50, 60, 500, 24, "FPL", _demand_json()
+                1, [], _demand_json(), "tab-simulator", 95, 15, 50, 60, 500, 24, "FPL"
             )
 
         assert len(result) == 11
@@ -1251,7 +1257,7 @@ class TestRunScenario:
             patch("simulation.presets.get_preset", return_value=preset_data),
         ):
             result = callbacks["run_scenario"](
-                0, [1], 75, 15, 50, 60, 500, 24, "FPL", _demand_json()
+                0, [1], _demand_json(), "tab-simulator", 75, 15, 50, 60, 500, 24, "FPL"
             )
 
         assert len(result) == 11
