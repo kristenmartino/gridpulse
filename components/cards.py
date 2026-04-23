@@ -253,3 +253,16 @@ def build_news_feed(articles: list[dict]) -> html.Div:
         ],
         className="news-ribbon",
     )
+
+
+def section_header(title: str, subtitle: str = "") -> html.Div:
+    """Standardized section title used across tabs.
+
+    Renders a quiet divider-label pair (Notion/Linear style) via the
+    shared ``.section-header`` CSS rule. Prefer this over inline-styled
+    section headers in tab layouts.
+    """
+    children: list = [html.Span(title, className="section-header__title")]
+    if subtitle:
+        children.append(html.Span(subtitle, className="section-header__subtitle"))
+    return html.Div(children, className="section-header")

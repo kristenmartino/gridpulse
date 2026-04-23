@@ -11,37 +11,12 @@ Components:
 import dash_bootstrap_components as dbc
 from dash import html
 
-from components.cards import build_chart_container
+from components.cards import build_chart_container, section_header
 
 
 def _section_header(title: str, subtitle: str) -> html.Div:
-    """Render a lightweight section header."""
-    return html.Div(
-        [
-            html.Span(
-                title,
-                style={
-                    "color": "#F7FAFC",
-                    "fontSize": "0.85rem",
-                    "fontWeight": "600",
-                    "marginRight": "8px",
-                },
-            ),
-            html.Span(
-                subtitle,
-                style={
-                    "color": "#A8B3C7",
-                    "fontSize": "0.75rem",
-                },
-            ),
-        ],
-        style={
-            "padding": "10px 0 4px 0",
-            "borderBottom": "1px solid #263556",
-            "marginTop": "12px",
-            "marginBottom": "8px",
-        },
-    )
+    """Delegate to the shared ``section_header`` helper."""
+    return section_header(title, subtitle)
 
 
 def layout() -> html.Div:

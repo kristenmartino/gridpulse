@@ -76,10 +76,19 @@ PLOT_TEMPLATE = "plotly_dark"
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,
     paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(17,24,45,0.8)",
-    font=dict(color="#DDE6F2", size=11),
-    margin=dict(l=50, r=20, t=30, b=40),
-    legend=dict(orientation="h", y=-0.15),
+    plot_bgcolor="rgba(0,0,0,0)",
+    font=dict(
+        color="#C9D0DB",
+        size=11,
+        family="Inter, 'Segoe UI', system-ui, sans-serif",
+    ),
+    margin=dict(l=48, r=16, t=24, b=36),
+    legend=dict(
+        orientation="h",
+        y=-0.18,
+        font=dict(size=11),
+        bgcolor="rgba(0,0,0,0)",
+    ),
 )
 
 # Color palette (colorblind-safe — Wong 2011)
