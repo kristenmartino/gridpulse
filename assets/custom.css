@@ -85,11 +85,36 @@
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
     --shadow-focus: 0 0 0 3px var(--accent-ring);
 
-    /* Motion */
+    /* Motion — durations */
     --duration-fast: 120ms;
     --duration-base: 160ms;
     --duration-slow: 240ms;
-    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+    /* Motion — easing vocabulary
+     *   --ease-out-quint   default for entering states (hover-in, focus, mount)
+     *   --ease-in-quint    faster exits — feels "snappy back" on hover-out
+     *   --ease-spring      subtle spring; the original GridPulse motion curve
+     *   --ease-emphasized  CSS linear() spring for palette/toast slide-in.
+     *                      Falls back to --ease-spring where linear() is unsupported
+     *                      (overridden by the @supports block below).
+     *   --ease             retained as alias of --ease-spring so prior rules
+     *                      keep working unchanged.
+     */
+    --ease-out-quint:  cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-quint:   cubic-bezier(0.64, 0, 0.78, 0);
+    --ease-spring:     cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-emphasized: var(--ease-spring);
+    --ease:            var(--ease-spring);
+}
+
+@supports (transition-timing-function: linear(0, 1)) {
+    :root {
+        --ease-emphasized: linear(
+            0, 0.009 1.4%, 0.084 4.4%, 0.36 11.1%, 0.679 19.7%,
+            0.917 28.7%, 1.061 38.4%, 1.121 49.7%, 1.097 60.7%,
+            1.045 71.7%, 1.005 84.7%, 0.992 100%
+        );
+    }
 }
 
 /* ── Base ──────────────────────────────────────────────── */
@@ -178,22 +203,31 @@ body {
     margin: var(--space-2) 0 var(--space-3) 0;
 }
 
+/* Sub-pixel border via box-shadow (layer 1) so focus rings can stack
+ * without layout shift; layer 2 is the inset highlight; layer 3 is depth.
+ * Asymmetric transition: 80ms ease-in-quint on exit (snappy back),
+ * 120ms ease-out-quint on enter (deliberate). */
 .kpi-card {
     background: var(--bg-raised);
-    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     padding: var(--space-3) var(--space-4);
     text-align: center;
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03) inset, var(--shadow-xs);
-    transition: transform var(--duration-base) var(--ease),
-                border-color var(--duration-base) var(--ease),
-                box-shadow var(--duration-base) var(--ease);
+    box-shadow:
+        0 0 0 1px var(--border-subtle),
+        0 0 0 1px rgba(255, 255, 255, 0.03) inset,
+        0 1px 2px rgba(0, 0, 0, 0.24);
+    transition: transform 80ms var(--ease-in-quint),
+                box-shadow 80ms var(--ease-in-quint);
 }
 
 .kpi-card:hover {
     transform: translateY(-1px);
-    border-color: var(--border-default);
-    box-shadow: var(--shadow-sm);
+    box-shadow:
+        0 0 0 1px var(--border-default),
+        0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+        0 4px 12px rgba(0, 0, 0, 0.40);
+    transition: transform 120ms var(--ease-out-quint),
+                box-shadow 120ms var(--ease-out-quint);
 }
 
 .kpi-label {
@@ -259,16 +293,20 @@ body {
 /* ── Charts ────────────────────────────────────────────── */
 .chart-container {
     background: var(--bg-raised);
-    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     padding: var(--space-3);
     margin-bottom: var(--space-3);
-    box-shadow: var(--shadow-xs);
-    transition: border-color var(--duration-base) var(--ease);
+    box-shadow:
+        0 0 0 1px var(--border-subtle),
+        0 1px 2px rgba(0, 0, 0, 0.24);
+    transition: box-shadow 80ms var(--ease-in-quint);
 }
 
 .chart-container:hover {
-    border-color: var(--border-default);
+    box-shadow:
+        0 0 0 1px var(--border-default),
+        0 1px 2px rgba(0, 0, 0, 0.24);
+    transition: box-shadow 120ms var(--ease-out-quint);
 }
 
 .chart-title {
@@ -327,11 +365,12 @@ body {
     cursor: pointer;
     margin-left: var(--space-2);
     white-space: nowrap;
-    transition: color var(--duration-base) var(--ease);
+    transition: color 80ms var(--ease-in-quint);
 }
 .cross-tab-link:hover {
     text-decoration: underline;
     color: var(--accent-hover);
+    transition: color 120ms var(--ease-out-quint);
 }
 
 .overview-quick-nav-card {
@@ -424,9 +463,9 @@ body {
     font-size: var(--text-sm);
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-md);
-    transition: background var(--duration-base) var(--ease),
-                border-color var(--duration-base) var(--ease),
-                color var(--duration-base) var(--ease);
+    transition: background 80ms var(--ease-in-quint),
+                border-color 80ms var(--ease-in-quint),
+                color 80ms var(--ease-in-quint);
     width: 100%;
     text-align: left;
     margin-bottom: var(--space-2);
@@ -436,6 +475,9 @@ body {
     background: var(--bg-hover);
     border-color: var(--border-strong);
     color: var(--text-primary);
+    transition: background 120ms var(--ease-out-quint),
+                border-color 120ms var(--ease-out-quint),
+                color 120ms var(--ease-out-quint);
 }
 
 .preset-btn .preset-name {
@@ -579,11 +621,12 @@ body {
 /* ── AI Briefing Card ─────────────────────────────────── */
 .briefing-card {
     background: var(--bg-raised);
-    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     padding: var(--space-4) var(--space-5);
     margin: var(--space-2) 0;
-    box-shadow: var(--shadow-xs);
+    box-shadow:
+        0 0 0 1px var(--border-subtle),
+        0 1px 2px rgba(0, 0, 0, 0.24);
     animation: fadeIn var(--duration-slow) var(--ease);
 }
 
@@ -736,10 +779,15 @@ body {
 }
 
 /* ── Focus Indicators (Accessibility) ─────────────────── */
+/* Dual-layer ring (Radix/Vercel pattern):
+ *   inner 2px in --bg-base creates a clean gap that follows the element's
+ *   own border-radius; outer 2px in --accent-base is the visible ring.
+ *   Avoids the awkward outline-offset on rounded corners. */
 *:focus-visible {
-    outline: 2px solid var(--accent-base);
-    outline-offset: 2px;
-    border-radius: var(--radius-sm);
+    outline: none;
+    box-shadow:
+        0 0 0 2px var(--bg-base),
+        0 0 0 4px var(--accent-base);
 }
 
 .nav-tabs .nav-link:focus-visible {
