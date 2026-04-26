@@ -53,9 +53,17 @@ app = dash.Dash(
 )
 
 # Google Analytics (GA4)
+# Preconnect hints sit at the top of <head> so the TCP/TLS handshake to
+# fonts.googleapis.com, fonts.gstatic.com, and googletagmanager.com starts
+# in parallel with the rest of HTML parsing — saves 100–200ms of RTT on
+# cold loads. fonts.gstatic.com requires crossorigin since the @font-face
+# request itself is anonymous CORS.
 app.index_string = """<!DOCTYPE html>
 <html>
   <head>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.googletagmanager.com">
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
