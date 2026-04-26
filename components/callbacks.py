@@ -91,6 +91,23 @@ PLOT_LAYOUT = dict(
     ),
 )
 
+
+def _layout(*, uirevision: str | None = None, **overrides) -> dict:
+    """Compose a Plotly layout dict from PLOT_LAYOUT + per-call overrides.
+
+    ``uirevision`` is the Plotly hook that preserves user-set UI state
+    (zoom, pan, legend toggles) across figure re-renders. Tie it to
+    *user-meaningful* state — region, horizon, model — NOT to a raw data
+    hash, so that auto-refreshes (5-min interval, store updates) reuse
+    the same revision string and the chart's interaction state survives.
+    Changing the string forces Plotly to re-initialize the view, which
+    is the desired behavior when the user picks a new region/horizon.
+    """
+    layout = {**PLOT_LAYOUT, **overrides}
+    if uirevision is not None:
+        layout["uirevision"] = uirevision
+    return layout
+
 # Color palette (colorblind-safe — Wong 2011)
 from datetime import UTC  # noqa: E402
 
@@ -1052,7 +1069,9 @@ def _weather_tab_from_redis(region):
             marker=dict(size=3, color=COLORS["actual"], opacity=0.4),
         )
     )
-    fig_temp.update_layout(**PLOT_LAYOUT, xaxis_title="Temperature (°F)", yaxis_title="Demand (MW)")
+    fig_temp.update_layout(
+        **_layout(uirevision=region, xaxis_title="Temperature (°F)", yaxis_title="Demand (MW)")
+    )
 
     # Scatter: Wind
     fig_wind = go.Figure(
@@ -1064,7 +1083,11 @@ def _weather_tab_from_redis(region):
         )
     )
     fig_wind.update_layout(
-        **PLOT_LAYOUT, xaxis_title="Wind Speed (mph)", yaxis_title="Wind Power Estimate"
+        **_layout(
+            uirevision=region,
+            xaxis_title="Wind Speed (mph)",
+            yaxis_title="Wind Power Estimate",
+        )
     )
 
     # Scatter: Solar
@@ -1077,7 +1100,11 @@ def _weather_tab_from_redis(region):
         )
     )
     fig_solar.update_layout(
-        **PLOT_LAYOUT, xaxis_title="GHI (W/m²)", yaxis_title="Solar Capacity Factor"
+        **_layout(
+            uirevision=region,
+            xaxis_title="GHI (W/m²)",
+            yaxis_title="Solar Capacity Factor",
+        )
     )
 
     # Heatmap
@@ -1094,7 +1121,7 @@ def _weather_tab_from_redis(region):
             texttemplate="%{text}",
         )
     )
-    fig_heatmap.update_layout(**PLOT_LAYOUT)
+    fig_heatmap.update_layout(**_layout(uirevision=region))
 
     # Feature importance
     imp_names = imp_data.get("names", [])
@@ -1107,7 +1134,9 @@ def _weather_tab_from_redis(region):
             marker_color=COLORS["ensemble"],
         )
     )
-    fig_importance.update_layout(**PLOT_LAYOUT, xaxis_title="Correlation Strength")
+    fig_importance.update_layout(
+        **_layout(uirevision=region, xaxis_title="Correlation Strength")
+    )
 
     # Seasonal decomposition
     s_ts = pd.to_datetime(seasonal.get("timestamps", []))
@@ -1150,7 +1179,7 @@ def _weather_tab_from_redis(region):
         row=3,
         col=1,
     )
-    fig_seasonal.update_layout(**PLOT_LAYOUT, height=350)
+    fig_seasonal.update_layout(**_layout(uirevision=region, height=350))
 
     return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
 
@@ -1183,6 +1212,10 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     cached = redis_get(f"wattcast:diagnostics:{region}")
     if cached is None:
         return None
+
+    # uirevision keyed on region + sorted model selection so zoom/legend
+    # state survives Redis refresh but resets when the user picks new models.
+    uirev = f"{region}:{','.join(sorted(selected_models))}"
 
     log.info("diagnostics_redis_hit", region=region)
     metrics = cached.get("metrics", {})
@@ -1232,12 +1265,14 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
         )
     )
     fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
-    fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
+    fig_resid_time.update_layout(**_layout(uirevision=uirev, yaxis_title="Residual (MW)"))
 
     fig_resid_hist = go.Figure(
         go.Histogram(x=residuals, nbinsx=50, marker_color=COLORS["ensemble"])
     )
-    fig_resid_hist.update_layout(**PLOT_LAYOUT, xaxis_title="Residual (MW)", yaxis_title="Count")
+    fig_resid_hist.update_layout(
+        **_layout(uirevision=uirev, xaxis_title="Residual (MW)", yaxis_title="Count")
+    )
 
     fig_resid_pred = go.Figure(
         go.Scatter(
@@ -1249,7 +1284,11 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     )
     fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
     fig_resid_pred.update_layout(
-        **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
+        **_layout(
+            uirevision=uirev,
+            xaxis_title="Predicted (MW)",
+            yaxis_title="Residual (MW)",
+        )
     )
 
     h_hours = hourly_err.get("hours", list(range(24)))
@@ -1263,7 +1302,11 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
         )
     )
     fig_heatmap.update_layout(
-        **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
+        **_layout(
+            uirevision=uirev,
+            xaxis_title="Hour of Day",
+            yaxis_title="Mean |Error| (MW)",
+        )
     )
 
     if "xgboost" in selected_models:
@@ -1277,7 +1320,9 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
                 marker_color=COLORS["xgboost"],
             )
         )
-        fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+        fig_shap.update_layout(
+            **_layout(uirevision=uirev, xaxis_title="Feature Importance")
+        )
     else:
         fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
 
@@ -1293,6 +1338,10 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
     cached_gen = redis_get(f"wattcast:generation:{region}")
     if cached_gen is None or not cached_gen.get("timestamps"):
         return None
+
+    # uirevision keyed on region + range so zoom survives Redis refresh
+    # but resets when user picks a new date range.
+    uirev = f"{region}:{range_hours}"
 
     log.info("generation_redis_hit", region=region)
     # Convert parallel-arrays to DataFrame
@@ -1392,10 +1441,12 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
         )
     )
     fig_hero.update_layout(
-        **PLOT_LAYOUT,
-        yaxis_title="MW",
-        hovermode="x unified",
-        title=f"Demand vs Net Load \u2014 {region}",
+        **_layout(
+            uirevision=uirev,
+            yaxis_title="MW",
+            hovermode="x unified",
+            title=f"Demand vs Net Load \u2014 {region}",
+        )
     )
 
     fig_mix = go.Figure()
@@ -1424,10 +1475,12 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
                 )
             )
     fig_mix.update_layout(
-        **PLOT_LAYOUT,
-        yaxis_title="Generation (MW)",
-        hovermode="x unified",
-        title=f"Generation Mix \u2014 {region}",
+        **_layout(
+            uirevision=uirev,
+            yaxis_title="Generation (MW)",
+            hovermode="x unified",
+            title=f"Generation Mix \u2014 {region}",
+        )
     )
 
     from components.insights import build_insight_card, generate_tab4_insights
@@ -1568,7 +1621,7 @@ def _alerts_tab_from_redis(region):
                     marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
                 )
             )
-        fig_anomaly.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
+        fig_anomaly.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
     else:
         fig_anomaly = empty
 
@@ -1587,7 +1640,7 @@ def _alerts_tab_from_redis(region):
                 annotation_text=f"{t}\u00b0F",
                 annotation_position="right",
             )
-        fig_temp.update_layout(**PLOT_LAYOUT, yaxis_title="\u00b0F")
+        fig_temp.update_layout(**_layout(uirevision=region, yaxis_title="\u00b0F"))
     else:
         fig_temp = empty
 
@@ -1613,10 +1666,12 @@ def _alerts_tab_from_redis(region):
             )
         )
     fig_timeline.update_layout(
-        **PLOT_LAYOUT,
-        xaxis_title="Date",
-        yaxis_title="Severity Score",
-        yaxis_range=[0, 100],
+        **_layout(
+            uirevision=region,
+            xaxis_title="Date",
+            yaxis_title="Severity Score",
+            yaxis_range=[0, 100],
+        )
     )
 
     # Weather context: build from cached temperature if available
@@ -1773,14 +1828,16 @@ def _outlook_tab_from_redis(
             f"(calibration window: last {int(interval_meta.get('calibration_window_hours', 0))}h)</sup>"
         )
     fig.update_layout(
-        **PLOT_LAYOUT,
-        title=(
-            f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}"
-            f"{interval_caption}"
-        ),
-        xaxis_title="Date/Time",
-        yaxis_title="Demand (MW)",
-        hovermode="x unified",
+        **_layout(
+            uirevision=f"{region}:{horizon_hours}",
+            title=(
+                f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}"
+                f"{interval_caption}"
+            ),
+            xaxis_title="Date/Time",
+            yaxis_title="Demand (MW)",
+            hovermode="x unified",
+        )
     )
 
     from components.insights import build_insight_card, generate_tab2_insights
@@ -1949,14 +2006,16 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
         720: "30-day ahead: Forecast made 1 month before. Tests long-term planning reliability.",
     }
     fig.update_layout(
-        **PLOT_LAYOUT,
-        title=(
-            f"{horizon_labels.get(horizon_hours, '')} Pre-computed Backtest: "
-            f"{model_name.upper()} vs Actual — {region}<br><sup>{exog_caption}</sup>"
-        ),
-        xaxis_title="Date/Time",
-        yaxis_title="Demand (MW)",
-        hovermode="x unified",
+        **_layout(
+            uirevision=f"{region}:{horizon_hours}:{model_name}",
+            title=(
+                f"{horizon_labels.get(horizon_hours, '')} Pre-computed Backtest: "
+                f"{model_name.upper()} vs Actual — {region}<br><sup>{exog_caption}</sup>"
+            ),
+            xaxis_title="Date/Time",
+            yaxis_title="Demand (MW)",
+            hovermode="x unified",
+        )
     )
 
     mode_suffix = f" ({payload_mode})"
@@ -2554,11 +2613,13 @@ def register_callbacks(app):
                 )
 
         fig.update_layout(
-            **PLOT_LAYOUT,
-            title=f"Historical Demand - {region}",
-            xaxis_title="Time (UTC)",
-            yaxis_title="Demand (MW)",
-            hovermode="x unified",
+            **_layout(
+                uirevision=f"{region}:{timerange}",
+                title=f"Historical Demand - {region}",
+                xaxis_title="Time (UTC)",
+                yaxis_title="Demand (MW)",
+                hovermode="x unified",
+            )
         )
         return fig
 
@@ -2702,7 +2763,7 @@ def register_callbacks(app):
             )
         )
         fig_temp.update_layout(
-            **PLOT_LAYOUT, xaxis_title="Temperature (°F)", yaxis_title="Demand (MW)"
+            **_layout(uirevision=region, xaxis_title="Temperature (°F)", yaxis_title="Demand (MW)")
         )
 
         from data.feature_engineering import compute_solar_capacity_factor, compute_wind_power
@@ -2717,7 +2778,11 @@ def register_callbacks(app):
             )
         )
         fig_wind.update_layout(
-            **PLOT_LAYOUT, xaxis_title="Wind Speed (mph)", yaxis_title="Wind Power Estimate"
+            **_layout(
+                uirevision=region,
+                xaxis_title="Wind Speed (mph)",
+                yaxis_title="Wind Power Estimate",
+            )
         )
 
         merged["solar_cf"] = compute_solar_capacity_factor(merged["shortwave_radiation"])
@@ -2730,7 +2795,11 @@ def register_callbacks(app):
             )
         )
         fig_solar.update_layout(
-            **PLOT_LAYOUT, xaxis_title="GHI (W/m²)", yaxis_title="Solar Capacity Factor"
+            **_layout(
+                uirevision=region,
+                xaxis_title="GHI (W/m²)",
+                yaxis_title="Solar Capacity Factor",
+            )
         )
 
         corr_cols = [
@@ -2758,7 +2827,7 @@ def register_callbacks(app):
                 texttemplate="%{text}",
             )
         )
-        fig_heatmap.update_layout(**PLOT_LAYOUT)
+        fig_heatmap.update_layout(**_layout(uirevision=region))
 
         importance = corr["demand_mw"].drop("demand_mw").abs().sort_values(ascending=True)
         fig_importance = go.Figure(
@@ -2769,7 +2838,9 @@ def register_callbacks(app):
                 marker_color=COLORS["ensemble"],
             )
         )
-        fig_importance.update_layout(**PLOT_LAYOUT, xaxis_title="Correlation Strength")
+        fig_importance.update_layout(
+            **_layout(uirevision=region, xaxis_title="Correlation Strength")
+        )
 
         demand_ts = merged.set_index("timestamp")["demand_mw"].resample("h").mean().dropna()
         trend = demand_ts.rolling(168, center=True).mean()
@@ -2810,7 +2881,7 @@ def register_callbacks(app):
             row=3,
             col=1,
         )
-        fig_seasonal.update_layout(**PLOT_LAYOUT, height=350)
+        fig_seasonal.update_layout(**_layout(uirevision=region, height=350))
 
         return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
 
@@ -2925,6 +2996,10 @@ def register_callbacks(app):
                 _empty_figure("Select XGBoost to view SHAP feature importance."),
             )
 
+        # uirevision keyed on region + sorted model selection so zoom/legend
+        # state survives data refresh but resets when the user picks new models.
+        uirev = f"{region}:{','.join(sorted(selected))}"
+
         fig_resid_time = go.Figure()
         for model_key, residuals in model_residuals.items():
             fig_resid_time.add_trace(
@@ -2937,7 +3012,7 @@ def register_callbacks(app):
                 )
             )
         fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
-        fig_resid_time.update_layout(**PLOT_LAYOUT, yaxis_title="Residual (MW)")
+        fig_resid_time.update_layout(**_layout(uirevision=uirev, yaxis_title="Residual (MW)"))
 
         fig_resid_hist = go.Figure()
         for model_key, residuals in model_residuals.items():
@@ -2951,10 +3026,12 @@ def register_callbacks(app):
                 )
             )
         fig_resid_hist.update_layout(
-            **PLOT_LAYOUT,
-            barmode="overlay",
-            xaxis_title="Residual (MW)",
-            yaxis_title="Count",
+            **_layout(
+                uirevision=uirev,
+                barmode="overlay",
+                xaxis_title="Residual (MW)",
+                yaxis_title="Count",
+            )
         )
 
         fig_resid_pred = go.Figure()
@@ -2975,7 +3052,9 @@ def register_callbacks(app):
             )
         fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
         fig_resid_pred.update_layout(
-            **PLOT_LAYOUT, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
+            **_layout(
+                uirevision=uirev, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
+            )
         )
 
         hours_of_day = timestamps.dt.hour
@@ -2992,9 +3071,11 @@ def register_callbacks(app):
                     opacity=0.85,
                 )
             )
-        fig_heatmap.update_layout(**PLOT_LAYOUT, barmode="group")
+        fig_heatmap.update_layout(**_layout(uirevision=uirev, barmode="group"))
         fig_heatmap.update_layout(
-            **PLOT_LAYOUT, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
+            **_layout(
+                uirevision=uirev, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
+            )
         )
 
         if "xgboost" in selected:
@@ -3007,7 +3088,7 @@ def register_callbacks(app):
                     marker_color=COLORS["xgboost"],
                 )
             )
-            fig_shap.update_layout(**PLOT_LAYOUT, xaxis_title="Feature Importance")
+            fig_shap.update_layout(**_layout(uirevision=uirev, xaxis_title="Feature Importance"))
         else:
             fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
 
@@ -3188,10 +3269,12 @@ def register_callbacks(app):
         )
 
         fig_hero.update_layout(
-            **PLOT_LAYOUT,
-            yaxis_title="MW",
-            hovermode="x unified",
-            title=f"Demand vs Net Load \u2014 {region}",
+            **_layout(
+                uirevision=f"{region}:{range_hours}",
+                yaxis_title="MW",
+                hovermode="x unified",
+                title=f"Demand vs Net Load \u2014 {region}",
+            )
         )
 
         # ── Supporting Chart: Generation Mix Stacked Area ──
@@ -3211,10 +3294,12 @@ def register_callbacks(app):
                     )
                 )
         fig_mix.update_layout(
-            **PLOT_LAYOUT,
-            yaxis_title="Generation (MW)",
-            hovermode="x unified",
-            title=f"Generation Mix \u2014 {region}",
+            **_layout(
+                uirevision=f"{region}:{range_hours}",
+                yaxis_title="Generation (MW)",
+                hovermode="x unified",
+                title=f"Generation Mix \u2014 {region}",
+            )
         )
 
         # ── Insight Card ──
@@ -3372,7 +3457,7 @@ def register_callbacks(app):
                         marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
                     )
                 )
-            fig_anomaly.update_layout(**PLOT_LAYOUT, yaxis_title="MW")
+            fig_anomaly.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
         else:
             fig_anomaly = empty
 
@@ -3396,7 +3481,7 @@ def register_callbacks(app):
                     annotation_text=f"{t}°F",
                     annotation_position="right",
                 )
-            fig_temp.update_layout(**PLOT_LAYOUT, yaxis_title="°F")
+            fig_temp.update_layout(**_layout(uirevision=region, yaxis_title="°F"))
         else:
             fig_temp = empty
 
@@ -3421,7 +3506,12 @@ def register_callbacks(app):
                 )
             )
         fig_timeline.update_layout(
-            **PLOT_LAYOUT, xaxis_title="Date", yaxis_title="Severity Score", yaxis_range=[0, 100]
+            **_layout(
+                uirevision=region,
+                xaxis_title="Date",
+                yaxis_title="Severity Score",
+                yaxis_range=[0, 100],
+            )
         )
 
         # Build weather context from latest reading
@@ -3627,10 +3717,12 @@ def register_callbacks(app):
             )
         )
         fig_forecast.update_layout(
-            **PLOT_LAYOUT,
-            yaxis_title="Demand (MW)",
-            yaxis2=dict(title="Delta (MW)", overlaying="y", side="right", showgrid=False),
-            hovermode="x unified",
+            **_layout(
+                uirevision=region,
+                yaxis_title="Demand (MW)",
+                yaxis2=dict(title="Delta (MW)", overlaying="y", side="right", showgrid=False),
+                hovermode="x unified",
+            )
         )
 
         utilizations = np.linspace(0.5, 1.1, 100)
@@ -3650,7 +3742,9 @@ def register_callbacks(app):
             line=dict(color="#F7FAFC", dash="dash"),
             annotation_text=f"Scenario: {current_util * 100:.0f}%",
         )
-        fig_price.update_layout(**PLOT_LAYOUT, xaxis_title="Utilization %", yaxis_title="$/MWh")
+        fig_price.update_layout(
+            **_layout(uirevision=region, xaxis_title="Utilization %", yaxis_title="$/MWh")
+        )
 
         fig_renewable = go.Figure()
         fig_renewable.add_trace(
@@ -3663,7 +3757,7 @@ def register_callbacks(app):
             )
         )
         fig_renewable.update_layout(
-            **PLOT_LAYOUT, yaxis_title="Capacity Factor %", yaxis_range=[0, 110]
+            **_layout(uirevision=region, yaxis_title="Capacity Factor %", yaxis_range=[0, 110])
         )
 
         delta_dir = "positive" if mean_delta < 0 else "negative"
@@ -4239,10 +4333,14 @@ def register_callbacks(app):
             if redis_result is not None:
                 return redis_result
 
+        # uirevision keyed on region + horizon so zoom/legend state persists
+        # across data refresh but resets when the user picks a new horizon.
+        uirev = f"{region}:{horizon_hours}"
+
         # ── v1 compute fallback ─────────────────────────────
         if not demand_json or not weather_json:
             fig = go.Figure()
-            fig.update_layout(**PLOT_LAYOUT)
+            fig.update_layout(**_layout(uirevision=uirev))
             fig.add_annotation(
                 text="Loading data...", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
             )
@@ -4264,7 +4362,7 @@ def register_callbacks(app):
         except Exception as e:
             log.error("outlook_parse_error", error=str(e))
             fig = go.Figure()
-            fig.update_layout(**PLOT_LAYOUT)
+            fig.update_layout(**_layout(uirevision=uirev))
             return (
                 fig,
                 "Error",
@@ -4287,7 +4385,7 @@ def register_callbacks(app):
 
         if "error" in result:
             fig = go.Figure()
-            fig.update_layout(**PLOT_LAYOUT)
+            fig.update_layout(**_layout(uirevision=uirev))
             fig.add_annotation(
                 text=f"Forecast failed: {result['error']}",
                 xref="paper",
@@ -4411,14 +4509,16 @@ def register_callbacks(app):
                 f"{int(interval_meta.get('calibration_window_hours', 0))}h)</sup>"
             )
         fig.update_layout(
-            **PLOT_LAYOUT,
-            title=(
-                f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}"
-                f"{interval_caption}"
-            ),
-            xaxis_title="Date/Time",
-            yaxis_title="Demand (MW)",
-            hovermode="x unified",
+            **_layout(
+                uirevision=uirev,
+                title=(
+                    f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}"
+                    f"{interval_caption}"
+                ),
+                xaxis_title="Date/Time",
+                yaxis_title="Demand (MW)",
+                hovermode="x unified",
+            )
         )
 
         # Format KPI strings
@@ -4615,6 +4715,11 @@ def register_callbacks(app):
         horizon_hours = int(horizon)
         empty_insight = html.Div()
 
+        # uirevision keyed on region + horizon + model so zoom/legend state
+        # persists across data refresh but resets when the user picks a new
+        # horizon or model.
+        uirev = f"{region}:{horizon_hours}:{model_name}"
+
         # Horizon explanations
         explanations = {
             24: "24-hour ahead: Forecast made 1 day before. Best for day-ahead scheduling.",
@@ -4632,7 +4737,7 @@ def register_callbacks(app):
         if not demand_json:
             log.debug("backtest_no_data")
             fig = go.Figure()
-            fig.update_layout(**PLOT_LAYOUT)
+            fig.update_layout(**_layout(uirevision=uirev))
             fig.add_annotation(
                 text="No data available. Select a region to load data.",
                 xref="paper",
@@ -4672,7 +4777,7 @@ def register_callbacks(app):
 
         if "error" in result:
             fig = go.Figure()
-            fig.update_layout(**PLOT_LAYOUT)
+            fig.update_layout(**_layout(uirevision=uirev))
             fig.add_annotation(
                 text=f"Backtest failed: {result['error']}",
                 xref="paper",
@@ -4799,14 +4904,16 @@ def register_callbacks(app):
         horizon_label = horizon_labels.get(horizon_hours, "")
         fold_label = f" ({num_folds} folds)" if num_folds > 1 else ""
         fig.update_layout(
-            **PLOT_LAYOUT,
-            title=(
-                f"{horizon_label} Walk-Forward Backtest{fold_label}: "
-                f"{model_name.upper()} vs Actual — {region}<br><sup>{exog_caption}</sup>"
-            ),
-            xaxis_title="Date/Time",
-            yaxis_title="Demand (MW)",
-            hovermode="x unified",
+            **_layout(
+                uirevision=uirev,
+                title=(
+                    f"{horizon_label} Walk-Forward Backtest{fold_label}: "
+                    f"{model_name.upper()} vs Actual — {region}<br><sup>{exog_caption}</sup>"
+                ),
+                xaxis_title="Date/Time",
+                yaxis_title="Demand (MW)",
+                hovermode="x unified",
+            )
         )
 
         # Format metrics
@@ -4887,11 +4994,11 @@ def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go
             hovertemplate="%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
         )
     )
-    sparkline_layout = {
-        **PLOT_LAYOUT,
-        "showlegend": False,
-        "margin": dict(l=40, r=10, t=10, b=30),
-    }
+    sparkline_layout = _layout(
+        uirevision=region,
+        showlegend=False,
+        margin=dict(l=40, r=10, t=10, b=30),
+    )
     fig.update_layout(
         **sparkline_layout,
         xaxis=dict(
@@ -5279,11 +5386,11 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
             )
         )
 
-    renew_layout = {
-        **PLOT_LAYOUT,
-        "margin": dict(l=45, r=45, t=35, b=40),
-        "legend": dict(orientation="h", y=-0.15, font=dict(size=10)),
-    }
+    renew_layout = _layout(
+        uirevision=region,
+        margin=dict(l=45, r=45, t=35, b=40),
+        legend=dict(orientation="h", y=-0.15, font=dict(size=10)),
+    )
     fig.update_layout(
         **renew_layout,
         title=dict(text="Renewable Potential (48h)", font=dict(size=13, color="#DDE6F2")),
@@ -5357,7 +5464,7 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
             annotation_font_color=color,
         )
 
-    trader_layout = {**PLOT_LAYOUT, "margin": dict(l=50, r=10, t=35, b=30)}
+    trader_layout = _layout(uirevision=region, margin=dict(l=50, r=10, t=35, b=30))
     fig.update_layout(
         **trader_layout,
         title=dict(text="Demand vs Capacity", font=dict(size=13, color="#DDE6F2")),
@@ -5409,7 +5516,7 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
         )
     )
 
-    model_layout = {**PLOT_LAYOUT, "margin": dict(l=40, r=10, t=35, b=30)}
+    model_layout = _layout(uirevision=region, margin=dict(l=40, r=10, t=35, b=30))
     fig.update_layout(
         **model_layout,
         title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#DDE6F2")),
@@ -5558,20 +5665,22 @@ def _build_overview_news() -> html.Div:
 def _empty_figure(message: str = "") -> go.Figure:
     fig = go.Figure()
     fig.update_layout(
-        **PLOT_LAYOUT,
-        annotations=[
-            dict(
-                text=message,
-                showarrow=False,
-                font=dict(size=14, color="#A8B3C7"),
-                xref="paper",
-                yref="paper",
-                x=0.5,
-                y=0.5,
-            )
-        ],
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
+        **_layout(
+            uirevision="empty",
+            annotations=[
+                dict(
+                    text=message,
+                    showarrow=False,
+                    font=dict(size=14, color="#A8B3C7"),
+                    xref="paper",
+                    yref="paper",
+                    x=0.5,
+                    y=0.5,
+                )
+            ],
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+        )
     )
     return fig
 
