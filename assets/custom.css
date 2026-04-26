@@ -57,6 +57,11 @@
     --text-2xl: 28px;
     --text-3xl: 36px;
 
+    /* Fluid display size — clamps between --text-xl (20px) and --text-2xl
+     * (28px), interpolated by viewport. Replaces the abrupt stepwise jump
+     * at the 1440px breakpoint with a smooth scale across 1280–1920px. */
+    --text-display: clamp(20px, 1.6vw + 12px, 28px);
+
     --leading-tight: 1.25;
     --leading-base: 1.5;
     --leading-relaxed: 1.65;
@@ -118,6 +123,11 @@
 }
 
 /* ── Base ──────────────────────────────────────────────── */
+/* Inter stylistic alternates:
+ *   cv11 — single-storey 'a' (the "Linear feel")
+ *   ss01 — simplified 'g'
+ *   ss03 — refined 'l' with curved corner (disambiguates from 1, I)
+ * font-optical-sizing lets variable Inter pick its display vs text axis. */
 body {
     background-color: var(--bg-base) !important;
     color: var(--text-secondary);
@@ -126,6 +136,8 @@ body {
     line-height: var(--leading-base);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    font-optical-sizing: auto;
 }
 
 /* ── Header ────────────────────────────────────────────── */
@@ -144,7 +156,7 @@ body {
     font-size: var(--text-lg);
     font-weight: 600;
     margin: 0;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
 }
 
 .dashboard-subtitle {
@@ -241,7 +253,7 @@ body {
 
 .kpi-value {
     color: var(--text-primary);
-    font-size: var(--text-xl);
+    font-size: var(--text-display);
     font-weight: 600;
     line-height: var(--leading-tight);
     letter-spacing: -0.01em;
@@ -641,14 +653,17 @@ body {
 
 .skeleton-line {
     height: 12px;
+    /* Tighter gradient stops (30/50/70) narrow the highlight band so the
+     * shimmer reads as a single sweep rather than a wide gradient wash;
+     * 1.8s slows the cadence for a calmer, less jittery feel. */
     background: linear-gradient(90deg,
-        var(--bg-raised) 25%,
+        var(--bg-raised) 30%,
         var(--bg-elevated) 50%,
-        var(--bg-raised) 75%);
+        var(--bg-raised) 70%);
     background-size: 200% 100%;
     border-radius: var(--radius-sm);
     margin-bottom: var(--space-2);
-    animation: skeleton-shimmer 1.5s ease-in-out infinite;
+    animation: skeleton-shimmer 1.8s ease-in-out infinite;
 }
 
 .skeleton-line-long   { width: 90%; }
@@ -769,7 +784,8 @@ body {
 }
 
 @media (min-width: 1440px) {
-    .kpi-value { font-size: var(--text-2xl); }
+    /* .kpi-value font-size now scales fluidly via --text-display; the
+     * stepwise override at this breakpoint is no longer needed. */
     .chart-container { padding: var(--space-4); }
 }
 
