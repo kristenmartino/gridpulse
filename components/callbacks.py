@@ -108,6 +108,7 @@ def _layout(*, uirevision: str | None = None, **overrides) -> dict:
         layout["uirevision"] = uirevision
     return layout
 
+
 # Color palette (colorblind-safe — Wong 2011)
 from datetime import UTC  # noqa: E402
 
@@ -1134,9 +1135,7 @@ def _weather_tab_from_redis(region):
             marker_color=COLORS["ensemble"],
         )
     )
-    fig_importance.update_layout(
-        **_layout(uirevision=region, xaxis_title="Correlation Strength")
-    )
+    fig_importance.update_layout(**_layout(uirevision=region, xaxis_title="Correlation Strength"))
 
     # Seasonal decomposition
     s_ts = pd.to_datetime(seasonal.get("timestamps", []))
@@ -1320,9 +1319,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
                 marker_color=COLORS["xgboost"],
             )
         )
-        fig_shap.update_layout(
-            **_layout(uirevision=uirev, xaxis_title="Feature Importance")
-        )
+        fig_shap.update_layout(**_layout(uirevision=uirev, xaxis_title="Feature Importance"))
     else:
         fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
 
@@ -3052,9 +3049,7 @@ def register_callbacks(app):
             )
         fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
         fig_resid_pred.update_layout(
-            **_layout(
-                uirevision=uirev, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)"
-            )
+            **_layout(uirevision=uirev, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)")
         )
 
         hours_of_day = timestamps.dt.hour
@@ -3073,9 +3068,7 @@ def register_callbacks(app):
             )
         fig_heatmap.update_layout(**_layout(uirevision=uirev, barmode="group"))
         fig_heatmap.update_layout(
-            **_layout(
-                uirevision=uirev, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)"
-            )
+            **_layout(uirevision=uirev, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)")
         )
 
         if "xgboost" in selected:
