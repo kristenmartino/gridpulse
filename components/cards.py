@@ -266,3 +266,148 @@ def section_header(title: str, subtitle: str = "") -> html.Div:
     if subtitle:
         children.append(html.Span(subtitle, className="section-header__subtitle"))
     return html.Div(children, className="section-header")
+
+
+# ── v2-style components (R2 of shell-redesign-v2.md) ─────────────────
+#
+# These mirror the gridpulse-v2 dashboard rhythm: max-w-5xl content width,
+# space-y-8 between sections, p-5 card padding, borders (not shadows) for
+# separation, Geist-style 10px eyebrow / 13px body / 2xl hero typography.
+
+
+def build_page_title(
+    title: str,
+    subtitle: str | None = None,
+    freshness_chip: html.Span | None = None,
+) -> html.Div:
+    """Page-level title block: h1 + 1-line subtitle + optional freshness chip.
+
+    Mirrors gridpulse-v2 dashboard/page.tsx:148-155.
+
+    Args:
+        title: Region name or page title (e.g., "Florida Power & Light").
+        subtitle: 1-line descriptive context.
+        freshness_chip: Optional small chip rendered to the right of the title.
+    """
+    title_row: list = [html.H1(title, className="gp-page-title__heading")]
+    if freshness_chip is not None:
+        title_row.append(freshness_chip)
+    children: list = [html.Div(title_row, className="gp-page-title__row")]
+    if subtitle:
+        children.append(html.P(subtitle, className="gp-page-title__subtitle"))
+    return html.Div(children, className="gp-page-title")
+
+
+def build_metrics_bar(items: list[dict]) -> html.Div:
+    """5-up KPI bar with vertical dividers (gridpulse-v2 MetricsBar).
+
+    Each item: ``{"label": str, "value": str, "unit": str | None,
+                  "tone": "primary" | "secondary" | "positive" | "negative" | None,
+                  "hero": bool}``.
+
+    Mirrors gridpulse-v2 components/MetricsBar.tsx:34. Up to 5 cells.
+    Uses ``.tabular`` on values for aligned numerics.
+    """
+    cells = []
+    for item in items:
+        tone = item.get("tone", "primary")
+        hero = item.get("hero", False)
+        unit = item.get("unit")
+        value_classes = ["gp-metric-value", "tabular"]
+        if hero:
+            value_classes.append("gp-metric-value--hero")
+        if tone in ("positive", "negative"):
+            value_classes.append(f"gp-metric-value--{tone}")
+        elif tone == "secondary":
+            value_classes.append("gp-metric-value--secondary")
+        cell_children: list = [
+            html.Div(item.get("label", ""), className="gp-metric-label"),
+            html.Div(
+                [
+                    html.Span(item.get("value", "—"), className=" ".join(value_classes)),
+                    html.Span(unit, className="gp-metric-unit") if unit else None,
+                ],
+                className="gp-metric-value-row",
+            ),
+        ]
+        cells.append(html.Div(cell_children, className="gp-metric-cell"))
+    return html.Div(cells, className="gp-metrics-bar")
+
+
+def build_model_metrics_card(
+    model_name: str,
+    metrics: dict[str, str],
+    badge: str | None = None,
+) -> html.Div:
+    """Horizontal model-performance bar (top/bottom borders, no card chrome).
+
+    Mirrors gridpulse-v2 components/ModelMetricsCard.tsx:22.
+
+    Args:
+        model_name: Display name (e.g., "Ensemble").
+        metrics: Ordered dict of metric_label → formatted_value (e.g.,
+            ``{"MAPE": "1.9%", "RMSE": "340 MW", "MAE": "250 MW", "R²": "0.979"}``).
+            Insertion order is preserved — render order matches.
+        badge: Optional small badge text rendered next to model name
+            (e.g., "v3.2" or "trained").
+    """
+    left: list = [
+        html.Span("Model", className="gp-model-card__eyebrow"),
+        html.Span(model_name, className="gp-model-card__name"),
+    ]
+    if badge:
+        left.append(html.Span(badge, className="gp-model-card__badge"))
+
+    metric_cells = [
+        html.Div(
+            [
+                html.Span(label, className="gp-model-card__metric-label"),
+                html.Span(value, className="gp-model-card__metric-value tabular"),
+            ],
+            className="gp-model-card__metric",
+        )
+        for label, value in metrics.items()
+    ]
+
+    return html.Div(
+        [
+            html.Div(left, className="gp-model-card__left"),
+            html.Div(metric_cells, className="gp-model-card__metrics"),
+        ],
+        className="gp-model-card",
+    )
+
+
+def build_insight_card(
+    eyebrow: str,
+    body: list | str,
+) -> html.Div:
+    """Narrative summary block: small eyebrow caption + relaxed-leading body.
+
+    Mirrors gridpulse-v2 components/InsightCard.tsx:43.
+
+    Args:
+        eyebrow: Short uppercase label (e.g., "Summary", "Outlook").
+        body: Paragraph text or a list of inline children (Spans for
+            semantic colored deltas, plain text strings for the rest).
+    """
+    paragraph_children = body if isinstance(body, list) else [body]
+    return html.Div(
+        [
+            html.Div(eyebrow, className="gp-insight-card__eyebrow"),
+            html.P(paragraph_children, className="gp-insight-card__body"),
+        ],
+        className="gp-insight-card",
+    )
+
+
+def build_page_footer(
+    sources: list[str] | None = None,
+    note: str | None = None,
+) -> html.Div:
+    """Small attribution footer at the bottom of the linear stack."""
+    sources = sources or ["EIA", "Open-Meteo", "NOAA"]
+    parts: list = [html.Span(" · ".join(sources), className="gp-footer__sources")]
+    if note:
+        parts.append(html.Span(note, className="gp-footer__note"))
+    return html.Div(parts, className="gp-footer")

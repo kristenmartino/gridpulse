@@ -180,44 +180,30 @@ class TestBuildInsightCardLinks:
         assert link_span.n_clicks == 0
 
 
-# ── Quick-nav cards ─────────────────────────────────────────────────
+# ── Quick-nav cards (removed in R2 of shell-redesign-v2.md) ─────────
+#
+# The 4-card quick-nav row on Overview was deleted as part of the
+# v2-style linear-stack rebuild — the tab strip is the canonical
+# navigation. The assertions below pin the removal so they don't
+# silently re-appear.
 
 
-class TestQuickNavClickable:
-    def test_quick_nav_cards_have_pattern_ids(self):
-        from components.tab_overview import layout
-
-        result = layout()
-        ids = _collect_all_ids(result)
-        # Should have quick-nav-btn type IDs
-        quick_nav_ids = [i for i in ids if isinstance(i, dict) and i.get("type") == "quick-nav-btn"]
-        assert len(quick_nav_ids) == 4
-
-    def test_quick_nav_tab_ids(self):
+class TestQuickNavRemoved:
+    def test_quick_nav_cards_absent_from_overview(self):
         from components.tab_overview import layout
 
         result = layout()
         ids = _collect_all_ids(result)
         quick_nav_ids = [i for i in ids if isinstance(i, dict) and i.get("type") == "quick-nav-btn"]
-        tab_ids = {i["index"] for i in quick_nav_ids}
-        assert tab_ids == {"tab-outlook", "tab-alerts", "tab-generation", "tab-simulator"}
+        assert quick_nav_ids == [], (
+            "Quick-nav cards were removed in R2; tab strip handles navigation."
+        )
 
-    def test_quick_nav_cards_have_pointer_cursor(self):
+    def test_quick_nav_cards_not_findable(self):
         from components.tab_overview import layout
 
-        result = layout()
-        nav_cards = _find_quick_nav_cards(result)
-        for card in nav_cards:
-            assert card.style.get("cursor") == "pointer"
-
-    def test_quick_nav_cards_have_n_clicks(self):
-        from components.tab_overview import layout
-
-        result = layout()
-        nav_cards = _find_quick_nav_cards(result)
-        assert len(nav_cards) == 4
-        for card in nav_cards:
-            assert card.n_clicks == 0
+        nav_cards = _find_quick_nav_cards(layout())
+        assert nav_cards == []
 
 
 # ── Feature flag ────────────────────────────────────────────────────
