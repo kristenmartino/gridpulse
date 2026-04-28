@@ -17,6 +17,10 @@ shap>=0.45.0
 # Visualization
 plotly>=5.22.0
 
+# Brand assets (one-off rendering via scripts/generate_brand_assets.py;
+# also pulled transitively by shap/prophet for plotting)
+Pillow>=10.0.0
+
 # API & networking
 requests>=2.31.0
 defusedxml>=0.7.1

@@ -73,7 +73,10 @@ app.index_string = """<!DOCTYPE html>
     </script>
     {%metas%}
     <title>{%title%}</title>
-    {%favicon%}
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+    <link rel="mask-icon" href="/assets/favicon.svg" color="#38D0FF">
     {%css%}
   </head>
   <body>
