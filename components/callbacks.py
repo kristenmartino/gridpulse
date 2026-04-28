@@ -78,7 +78,7 @@ PLOT_LAYOUT = dict(
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(
-        color="#C9D0DB",
+        color="#a1a1aa",  # --text-secondary (v2 palette)
         size=11,
         family="Inter, 'Segoe UI', system-ui, sans-serif",
     ),
@@ -1807,7 +1807,7 @@ def _outlook_tab_from_redis(
             y=[min_val],
             mode="markers+text",
             name="Min",
-            marker=dict(color="#38D0FF", size=10, symbol="triangle-down"),
+            marker=dict(color="#3b82f6", size=10, symbol="triangle-down"),
             text=[f"Min: {min_val:,.0f} MW"],
             textposition="bottom center",
             showlegend=False,
@@ -4481,7 +4481,7 @@ def register_callbacks(app):
                 y=[min_val],
                 mode="markers+text",
                 name="Min",
-                marker=dict(color="#38D0FF", size=10, symbol="triangle-down"),
+                marker=dict(color="#3b82f6", size=10, symbol="triangle-down"),
                 text=[f"Min: {min_val:,.0f} MW"],
                 textposition="bottom center",
                 showlegend=False,

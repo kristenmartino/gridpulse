@@ -150,11 +150,11 @@ def error_state(
             html.Pre(
                 error_detail[:200],
                 style={
-                    "color": "#A8B3C7",
+                    "color": "#a1a1aa",
                     "fontSize": "0.7rem",
                     "marginTop": "12px",
                     "padding": "8px",
-                    "background": "#0B1020",
+                    "background": "#0a0a0b",
                     "borderRadius": "4px",
                     "maxWidth": "400px",
                     "overflow": "hidden",
