@@ -343,38 +343,111 @@ def _build_future_feature_frame(featured: pd.DataFrame, horizon: int) -> pd.Data
     return future_df
 
 
-def predict_and_write_forecast(data: RegionData, xgb_model: dict | None) -> PhaseResult:
-    """Run the XGBoost forward forecast and write ``wattcast:forecast:{region}:1h``."""
+def _predict_one(
+    model_name: str,
+    model: Any,
+    featured: pd.DataFrame,
+    future_df: pd.DataFrame,
+    horizon: int,
+) -> np.ndarray | None:
+    """Dispatch a single model to its predict function and return point forecasts.
+
+    XGBoost takes the engineered future-feature frame directly. Prophet builds
+    its own future frame internally from the training data + a periods arg —
+    so we hand it the training ``featured`` DataFrame instead.
+
+    Returns ``None`` on a per-model failure so the caller can degrade gracefully
+    (other models in the dispatch dict still get their predictions written).
+    """
+    try:
+        if model_name == "xgboost":
+            from models.xgboost_model import predict_xgboost
+
+            return np.asarray(predict_xgboost(model, future_df), dtype=float)
+        if model_name == "prophet":
+            from models.prophet_model import predict_prophet
+
+            result = predict_prophet(model, featured, periods=horizon)
+            preds = result.get("forecast")
+            return np.asarray(preds, dtype=float) if preds is not None else None
+    except Exception as exc:  # pragma: no cover — defensive; per-model isolation
+        log.warning(
+            "scoring_predict_failed",
+            model=model_name,
+            error=str(exc),
+        )
+        return None
+    return None
+
+
+def predict_and_write_forecast(data: RegionData, models: dict[str, Any] | None) -> PhaseResult:
+    """Run all loaded forward forecasters and write ``wattcast:forecast:{region}:1h``.
+
+    Each model in ``models`` (e.g. ``{"xgboost": <model>, "prophet": <model>}``)
+    is dispatched through ``_predict_one``. The per-row Redis payload now
+    carries every model that produced a finite prediction under its name
+    (``row["xgboost"]``, ``row["prophet"]``, …) plus a ``predicted_demand_mw``
+    key set to the primary forecast (XGBoost when available, else first
+    successful model). Missing or failing models are skipped silently —
+    the phase only fails when **every** model failed.
+
+    Stage 1 of plans/scoring-job-multi-model.md (option B). Stages 2 and 3
+    add ARIMA and Ensemble dispatch.
+    """
     from data.redis_client import redis_set
-    from models.xgboost_model import predict_xgboost
 
     region = data.region
-    if xgb_model is None:
-        return PhaseResult(region=region, ok=False, error="no_xgboost_model")
+    if not models:
+        return PhaseResult(region=region, ok=False, error="no_models")
     if data.featured_df is None:
         return PhaseResult(region=region, ok=False, error="no_features")
 
     try:
         featured = data.featured_df
         future_df = _build_future_feature_frame(featured, FORECAST_HORIZON_HOURS)
-        preds = predict_xgboost(xgb_model, future_df)
-
         future_ts = future_df["timestamp"]
+
+        # Run every model defensively — a single per-model failure can't
+        # abort the phase. Preserves XGBoost-only behavior when Prophet
+        # isn't loaded (e.g. training job hasn't produced a Prophet pickle
+        # for this region yet).
+        predictions_by_model: dict[str, np.ndarray] = {}
+        for name, model in models.items():
+            preds = _predict_one(name, model, featured, future_df, FORECAST_HORIZON_HOURS)
+            if preds is None or len(preds) < FORECAST_HORIZON_HOURS:
+                continue
+            predictions_by_model[name] = preds[:FORECAST_HORIZON_HOURS]
+
+        if not predictions_by_model:
+            return PhaseResult(region=region, ok=False, error="all_models_failed")
+
+        # Pick the primary that powers ``predicted_demand_mw`` for back-compat.
+        # XGBoost when available; otherwise the first successful model.
+        primary_name = (
+            "xgboost"
+            if "xgboost" in predictions_by_model
+            else next(iter(predictions_by_model.keys()))
+        )
+        primary = predictions_by_model[primary_name]
+
         scored_at = datetime.now(UTC).isoformat()
-        fl = [
-            {
+        fl: list[dict[str, Any]] = []
+        for i in range(FORECAST_HORIZON_HOURS):
+            row: dict[str, Any] = {
                 "timestamp": future_ts.iloc[i].isoformat(),
-                "predicted_demand_mw": float(preds[i]),
-                "xgboost": float(preds[i]),
+                "predicted_demand_mw": float(primary[i]),
             }
-            for i in range(len(preds))
-        ]
+            for name, preds in predictions_by_model.items():
+                row[name] = float(preds[i])
+            fl.append(row)
+
         redis_set(
             f"wattcast:forecast:{region}:1h",
             {
                 "region": region,
                 "scored_at": scored_at,
                 "granularity": "1h",
+                "primary_model": primary_name,
                 "forecasts": fl,
             },
             ttl=REDIS_TTL,
@@ -382,7 +455,11 @@ def predict_and_write_forecast(data: RegionData, xgb_model: dict | None) -> Phas
         return PhaseResult(
             region=region,
             ok=True,
-            details={"horizon": FORECAST_HORIZON_HOURS, "points": len(preds)},
+            details={
+                "horizon": FORECAST_HORIZON_HOURS,
+                "points": FORECAST_HORIZON_HOURS,
+                "models": sorted(predictions_by_model.keys()),
+            },
         )
     except Exception as e:
         log.warning("job_forecast_write_failed", region=region, error=str(e))
