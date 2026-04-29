@@ -4184,6 +4184,25 @@ def register_callbacks(app):
         return _build_drivers_panel(weather_json)
 
     @app.callback(
+        Output("forecast-generation-content", "children"),
+        [
+            Input("forecast-panel-generation-collapse", "is_open"),
+            Input("region-selector", "value"),
+            Input("demand-store", "data"),
+        ],
+        State("dashboard-tabs", "active_tab"),
+    )
+    def update_forecast_generation_panel(is_open, region, demand_json, active_tab):
+        """Render the stacked-area fuel mix + 3-up sub-MetricsBar.
+
+        Lazy: only computes when the collapse is open and the user is
+        on the Forecast tab.
+        """
+        if active_tab != "tab-outlook" or not is_open:
+            return no_update
+        return _build_generation_panel(region, demand_json)
+
+    @app.callback(
         Output("outlook-title", "children"),
         [
             Input("region-selector", "value"),
@@ -5326,6 +5345,200 @@ def _driver_cell_empty(label: str) -> html.Div:
             html.Div("No weather data", className="gp-metric-sub"),
         ],
         className="gp-driver-cell",
+    )
+
+
+# Fuel ordering: heaviest emissions at the bottom of the stack, zero-carbon
+# on top. Within each bucket: dispatchable before intermittent.
+_FUEL_STACK_ORDER: tuple[str, ...] = (
+    "coal",
+    "oil",
+    "gas",
+    "biomass",
+    "other",
+    "nuclear",
+    "hydro",
+    "wind",
+    "solar",
+)
+
+_FUEL_DISPLAY: dict[str, dict[str, str]] = {
+    "coal": {"label": "Coal", "color": "#71717a", "fill": "rgba(113, 113, 122, 0.85)"},
+    "oil": {"label": "Oil", "color": "#52525b", "fill": "rgba(82, 82, 91, 0.85)"},
+    "gas": {"label": "Gas", "color": "#f97316", "fill": "rgba(249, 115, 22, 0.85)"},
+    "biomass": {"label": "Biomass", "color": "#a16207", "fill": "rgba(161, 98, 7, 0.85)"},
+    "other": {"label": "Other", "color": "#a1a1aa", "fill": "rgba(161, 161, 170, 0.85)"},
+    "nuclear": {"label": "Nuclear", "color": "#a855f7", "fill": "rgba(168, 85, 247, 0.85)"},
+    "hydro": {"label": "Hydro", "color": "#3b82f6", "fill": "rgba(59, 130, 246, 0.85)"},
+    "wind": {"label": "Wind", "color": "#34d399", "fill": "rgba(52, 211, 153, 0.85)"},
+    "solar": {"label": "Solar", "color": "#fbbf24", "fill": "rgba(251, 191, 36, 0.85)"},
+}
+
+
+def _build_generation_panel(region: str | None, demand_json: str | None) -> html.Div:
+    """Stacked-area fuel mix + 3-up sub-MetricsBar (Net Load / Renewable / Largest)."""
+    region = region or "FPL"
+
+    try:
+        gen_df = _fetch_generation_cached(region)
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("forecast_generation_fetch_failed", region=region, error=str(exc))
+        return _generation_empty()
+
+    if gen_df is None or gen_df.empty:
+        return _generation_empty()
+
+    df = gen_df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp")
+
+    # Window: latest 24 hours
+    cutoff = df["timestamp"].max() - pd.Timedelta(hours=24)
+    df = df[df["timestamp"] >= cutoff]
+    if df.empty:
+        return _generation_empty()
+
+    pivot = (
+        df.pivot_table(
+            index="timestamp",
+            columns="fuel_type",
+            values="generation_mw",
+            aggfunc="sum",
+        )
+        .fillna(0)
+        .clip(lower=0)
+    )
+
+    # Sort columns by emissions order (any unknown fuels go to the end)
+    ordered_fuels = [f for f in _FUEL_STACK_ORDER if f in pivot.columns]
+    extras = [f for f in pivot.columns if f not in _FUEL_STACK_ORDER]
+    pivot = pivot[ordered_fuels + extras]
+
+    # ── KPIs ───────────────────────────────────────────────────
+    total_per_ts = pivot.sum(axis=1)
+    avg_total = float(total_per_ts.mean()) if not total_per_ts.empty else 0.0
+
+    fuel_avg = pivot.mean(axis=0).sort_values(ascending=False)
+    largest_fuel = fuel_avg.index[0] if len(fuel_avg) else None
+    largest_label = _FUEL_DISPLAY.get(str(largest_fuel), {}).get(
+        "label", str(largest_fuel).title() if largest_fuel else "—"
+    )
+    largest_share_pct = (
+        float(fuel_avg.iloc[0] / fuel_avg.sum() * 100.0)
+        if len(fuel_avg) and fuel_avg.sum() > 0
+        else 0.0
+    )
+
+    renewable_cols = [c for c in ("wind", "solar", "hydro") if c in pivot.columns]
+    if renewable_cols and avg_total > 0:
+        renewable_pct = float((pivot[renewable_cols].sum(axis=1) / total_per_ts * 100.0).mean())
+    else:
+        renewable_pct = 0.0
+
+    # Net load (Demand - Wind - Solar) if demand available
+    net_load_avg = avg_total
+    if demand_json:
+        try:
+            ddf = pd.read_json(io.StringIO(demand_json))
+            ddf["timestamp"] = pd.to_datetime(ddf["timestamp"])
+            ddf = ddf.sort_values("timestamp")
+            common = pivot.index.intersection(ddf.set_index("timestamp").index)
+            if len(common) >= 2:
+                d_aligned = ddf.set_index("timestamp").loc[common, "demand_mw"]
+                wind_aligned = pivot.loc[common].get("wind", pd.Series(0.0, index=common))
+                solar_aligned = pivot.loc[common].get("solar", pd.Series(0.0, index=common))
+                net_load_series = d_aligned - wind_aligned - solar_aligned
+                net_load_avg = float(net_load_series.mean())
+        except Exception as exc:  # pragma: no cover
+            log.warning("forecast_generation_netload_failed", region=region, error=str(exc))
+
+    sub_metrics = build_metrics_bar(
+        [
+            {
+                "label": "Net Load (avg)",
+                "value": f"{net_load_avg:,.0f}",
+                "unit": "MW",
+                "hero": True,
+            },
+            {
+                "label": "Renewable Share",
+                "value": f"{renewable_pct:.1f}%",
+                "tone": "positive" if renewable_pct >= 25 else "secondary",
+            },
+            {
+                "label": "Largest Source",
+                "value": largest_label,
+                "unit": f"{largest_share_pct:.0f}%",
+                "tone": "secondary",
+            },
+        ]
+    )
+    # Override the default 5-up class for a 3-up grid.
+    sub_metrics.className = "gp-metrics-bar gp-metrics-bar--3up"
+
+    # ── Stacked-area chart ─────────────────────────────────────
+    fig = go.Figure()
+    for fuel in pivot.columns:
+        cfg = _FUEL_DISPLAY.get(
+            str(fuel),
+            {
+                "label": str(fuel).title(),
+                "color": "#a1a1aa",
+                "fill": "rgba(161,161,170,0.7)",
+            },
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=pivot.index,
+                y=pivot[fuel],
+                mode="lines",
+                stackgroup="gen",
+                name=cfg["label"],
+                line=dict(width=0, color=cfg["color"]),
+                fillcolor=cfg["fill"],
+                hovertemplate=(
+                    f"<b>{cfg['label']}</b><br>%{{x|%H:%M}}<br>%{{y:,.0f}} MW<extra></extra>"
+                ),
+            )
+        )
+    fig.update_layout(
+        **_layout(
+            uirevision=f"gen-{region}",
+            showlegend=True,
+            xaxis=dict(
+                showgrid=False,
+                linecolor="rgba(255,255,255,0.04)",
+                tickfont=dict(color="#71717a", size=10),
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="rgba(255,255,255,0.04)",
+                zeroline=False,
+                tickformat=",.0f",
+                tickfont=dict(color="#71717a", size=10),
+                title=None,
+            ),
+            margin=dict(l=48, r=16, t=16, b=64),
+        ),
+    )
+
+    return html.Div(
+        [
+            sub_metrics,
+            dcc.Graph(
+                figure=fig,
+                config={"displayModeBar": False, "responsive": True},
+                style={"height": "320px"},
+            ),
+        ],
+        className="gp-generation-stack",
+    )
+
+
+def _generation_empty() -> html.Div:
+    return html.Div(
+        "No generation data available for this region.",
+        className="gp-panel__placeholder",
     )
 
 

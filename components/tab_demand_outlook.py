@@ -291,18 +291,21 @@ def _drivers_skeleton() -> list:
     return cells
 
 
-def _panel_generation_stub() -> dbc.Collapse:
-    """Generation inline panel — content lands in R4a-3."""
+def _panel_generation() -> dbc.Collapse:
+    """Generation panel: stacked-area fuel mix + renewable share sub-MetricsBar."""
     return dbc.Collapse(
         html.Div(
             [
-                _panel_header("Generation", "Fuel mix and renewable share"),
-                html.P(
-                    "Generation panel content lands in R4a-3 — stacked-area "
-                    "fuel mix sorted by emissions intensity, plus a renewable-share "
-                    "trend line and a 3-up sub-MetricsBar (Net Load / Renewable Share / "
-                    "Largest Source).",
-                    className="gp-panel__placeholder",
+                _panel_header(
+                    "Generation",
+                    "Fuel mix sorted by emissions intensity",
+                ),
+                html.Div(
+                    id="forecast-generation-content",
+                    children=html.Div(
+                        "Loading generation data…",
+                        className="gp-panel__placeholder",
+                    ),
                 ),
             ],
             className="gp-panel",
@@ -386,8 +389,8 @@ def layout() -> html.Div:
                     _panel_toggle_strip(),
                     # 7a. Drivers panel (R4a-2 — working)
                     _panel_drivers(),
-                    # 7b. Generation panel (R4a-3 placeholder)
-                    _panel_generation_stub(),
+                    # 7b. Generation panel (R4a-3 — working)
+                    _panel_generation(),
                     # 7c. Scenarios panel (R4a-4 placeholder)
                     _panel_scenarios_stub(),
                     # 8. Footer
