@@ -3200,7 +3200,45 @@ def register_callbacks(app):
             insight_card,
         )
 
-    # ── 8. TAB 5: ALERTS ─────────────────────────────────────
+    # ── 8. TAB 5: RISK (R4b — v2 linear stack) ──────────────────
+    # Existing 8-output update_alerts_tab callback below is preserved.
+    # Two small new callbacks fill the v2 title block and InsightCard.
+
+    @app.callback(
+        Output("risk-title", "children"),
+        [
+            Input("region-selector", "value"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+    )
+    def update_risk_title(region, active_tab):
+        """Page-title block for the Risk tab."""
+        if active_tab != "tab-alerts":
+            return no_update
+        from config import REGION_NAMES
+
+        region = region or "FPL"
+        region_name = REGION_NAMES.get(region, region)
+        return build_page_title(
+            "Risk",
+            f"Active alerts, demand anomalies, and grid stress · {region_name}",
+        )
+
+    @app.callback(
+        Output("risk-insight-card", "children"),
+        [
+            Input("dashboard-tabs", "active_tab"),
+            Input("region-selector", "value"),
+            Input("demand-store", "data"),
+            Input("weather-store", "data"),
+        ],
+    )
+    def update_risk_insight(active_tab, region, demand_json, weather_json):
+        """Narrative summary for the Risk tab — 'all systems nominal' or
+        a 1-sentence elevated-risk note."""
+        if active_tab != "tab-alerts":
+            return no_update
+        return _build_risk_insight(region, demand_json, weather_json)
 
     @app.callback(
         [
@@ -5604,6 +5642,67 @@ def _generation_empty() -> html.Div:
         "No generation data available for this region.",
         className="gp-panel__placeholder",
     )
+
+
+def _build_risk_insight(
+    region: str | None,
+    demand_json: str | None,
+    weather_json: str | None,
+) -> html.Div:
+    """3-sentence narrative for the Risk tab — composes the same fragments
+    the alerts/stress callback already computes, just rendered as prose."""
+    region = region or "FPL"
+
+    # Demand-anomaly stat: pct of last-24h hours outside ±3σ
+    anomaly_clause = "Demand sits within normal bounds."
+    try:
+        if demand_json:
+            ddf = pd.read_json(io.StringIO(demand_json))
+            ddf["timestamp"] = pd.to_datetime(ddf["timestamp"])
+            ddf = ddf.sort_values("timestamp")
+            last_24 = ddf.tail(24)["demand_mw"].dropna()
+            if len(last_24) >= 6:
+                m = float(last_24.mean())
+                s = float(last_24.std()) or 1.0
+                outliers = int(((last_24 - m).abs() > 2.5 * s).sum())
+                if outliers > 0:
+                    anomaly_clause = (
+                        f"{outliers} hour{'s' if outliers > 1 else ''} of demand sat "
+                        "outside ±2.5σ in the last 24h."
+                    )
+    except Exception as exc:  # pragma: no cover
+        log.warning("risk_insight_anomaly_failed", region=region, error=str(exc))
+
+    # Weather-severity stat: |temperature_2m − 65| ≥ 25 (peak heat / cold band)
+    weather_clause = "Weather is in a comfortable band."
+    try:
+        if weather_json:
+            wdf = pd.read_json(io.StringIO(weather_json))
+            wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
+            wdf = wdf.sort_values("timestamp")
+            recent = wdf.tail(24)
+            if "temperature_2m" in recent.columns and not recent["temperature_2m"].isna().all():
+                temps = recent["temperature_2m"].dropna()
+                t_max = float(temps.max())
+                t_min = float(temps.min())
+                if t_max >= 90:
+                    weather_clause = f"Heat-driven demand risk is elevated (peak {t_max:.0f} °F)."
+                elif t_min <= 30:
+                    weather_clause = f"Cold-driven demand risk is elevated (low {t_min:.0f} °F)."
+                elif t_max >= 80:
+                    weather_clause = f"Temperatures trending warm (peak {t_max:.0f} °F)."
+                elif t_min <= 40:
+                    weather_clause = f"Temperatures trending cool (low {t_min:.0f} °F)."
+    except Exception as exc:  # pragma: no cover
+        log.warning("risk_insight_weather_failed", region=region, error=str(exc))
+
+    body = [
+        anomaly_clause,
+        " ",
+        weather_clause,
+        " Check the timeline above for active NOAA alerts.",
+    ]
+    return build_insight_card("Risk summary", body)
 
 
 def _build_scenarios_panel(

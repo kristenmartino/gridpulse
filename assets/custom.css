@@ -453,6 +453,84 @@ body::before {
     gap: var(--space-4);
 }
 
+/* ── Risk tab (R4b) ──────────────────────────────────────────────── */
+
+/* Risk MetricsBar uses 1-narrow + 1-wide layout: hero stress score on
+ * the left, components breakdown on the right. */
+.gp-metrics-bar--risk {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+}
+
+.gp-metric-cell--wide {
+    /* Wide cell holds the components breakdown (badges or short rows) */
+    align-items: stretch;
+}
+
+/* Severity timeline list — vertical stack of alert rows with border-left
+ * thickness driving severity weight (4px critical, 2px warning, 1px info). */
+.gp-severity-timeline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding-right: var(--space-2);
+}
+
+.gp-severity-timeline .alert-card {
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-left-width: 2px;
+    border-radius: var(--radius-md);
+    padding: var(--space-3) var(--space-4);
+}
+
+.gp-severity-timeline .alert-card.critical {
+    border-left-color: var(--danger);
+    border-left-width: 4px;
+}
+
+.gp-severity-timeline .alert-card.warning {
+    border-left-color: var(--warning);
+    border-left-width: 3px;
+}
+
+.gp-severity-timeline .alert-card.info {
+    border-left-color: var(--info);
+    border-left-width: 2px;
+}
+
+/* 2-up secondary chart grid (temp exceedance + historical timeline) */
+.gp-risk-secondary {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    gap: var(--space-4);
+}
+
+@media (max-width: 768px) {
+    .gp-metrics-bar--risk {
+        grid-template-columns: 1fr;
+    }
+
+    .gp-risk-secondary {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Stress breakdown badges layout — slightly looser than the standard
+ * MetricsBar so the per-component labels read clearly. */
+.gp-metric-stress-breakdown {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    padding-top: var(--space-1);
+}
+
+/* Weather strip — compact horizontal row populated by callback */
+.gp-weather-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+}
+
 /* ── Scenarios panel (R4a-4) ──────────────────────────────────────── */
 
 .gp-preset-chips {
