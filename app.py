@@ -77,6 +77,18 @@ app.index_string = """<!DOCTYPE html>
     <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
     <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
+    <meta name="description" content="Forecast demand, monitor reserve margin, and audit model accuracy across U.S. balancing authorities.">
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="GridPulse — Energy Intelligence Platform">
+    <meta property="og:description" content="Forecast demand, monitor reserve margin, and audit model accuracy across U.S. balancing authorities.">
+    <meta property="og:image" content="/assets/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="GridPulse — Energy Intelligence Platform">
+    <meta name="twitter:description" content="Forecast demand, monitor reserve margin, and audit model accuracy across U.S. balancing authorities.">
+    <meta name="twitter:image" content="/assets/og-image.png">
     {%css%}
   </head>
   <body>
