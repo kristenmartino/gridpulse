@@ -392,21 +392,33 @@ def _predict_one(
     return None
 
 
-def predict_and_write_forecast(data: RegionData, models: dict[str, Any] | None) -> PhaseResult:
+def predict_and_write_forecast(
+    data: RegionData,
+    models: dict[str, Any] | None,
+    model_mapes: dict[str, float | None] | None = None,
+) -> PhaseResult:
     """Run all loaded forward forecasters and write ``wattcast:forecast:{region}:1h``.
 
-    Each model in ``models`` (e.g. ``{"xgboost": <model>, "prophet": <model>}``)
-    is dispatched through ``_predict_one``. The per-row Redis payload now
-    carries every model that produced a finite prediction under its name
-    (``row["xgboost"]``, ``row["prophet"]``, …) plus a ``predicted_demand_mw``
-    key set to the primary forecast (XGBoost when available, else first
-    successful model). Missing or failing models are skipped silently —
-    the phase only fails when **every** model failed.
+    Each model in ``models`` (e.g. ``{"xgboost": <m>, "prophet": <m>,
+    "arima": <m>}``) is dispatched through ``_predict_one``. The per-row
+    Redis payload carries every model that produced a finite prediction
+    under its name (``row["xgboost"]`` / ``row["prophet"]`` / ``row["arima"]``)
+    plus a ``predicted_demand_mw`` key set to the primary forecast (XGBoost
+    when available, else first successful model).
 
-    Stage 1 of plans/scoring-job-multi-model.md (option B). Stages 2 and 3
-    add ARIMA and Ensemble dispatch.
+    Stage 3 of plans/scoring-job-multi-model.md adds a weighted ``ensemble``
+    key to each row when at least 2 models produced finite predictions.
+    Weights come from inverse MAPE (``compute_ensemble_weights``) over
+    ``model_mapes``; missing MAPE values fall back to equal weighting.
+
+    Args:
+        data: Per-region payload with ``featured_df`` populated.
+        models: Mapping of model name → loaded model object.
+        model_mapes: Optional mapping of model name → recent MAPE (%). Drives
+            ensemble weighting when present.
     """
     from data.redis_client import redis_set
+    from models.ensemble import compute_ensemble_weights, ensemble_combine
 
     region = data.region
     if not models:
@@ -420,9 +432,8 @@ def predict_and_write_forecast(data: RegionData, models: dict[str, Any] | None) 
         future_ts = future_df["timestamp"]
 
         # Run every model defensively — a single per-model failure can't
-        # abort the phase. Preserves XGBoost-only behavior when Prophet
-        # isn't loaded (e.g. training job hasn't produced a Prophet pickle
-        # for this region yet).
+        # abort the phase. Preserves single-model behavior when others
+        # aren't loaded (e.g. training job hasn't produced their pickle yet).
         predictions_by_model: dict[str, np.ndarray] = {}
         for name, model in models.items():
             preds = _predict_one(name, model, featured, future_df, FORECAST_HORIZON_HOURS)
@@ -432,6 +443,32 @@ def predict_and_write_forecast(data: RegionData, models: dict[str, Any] | None) 
 
         if not predictions_by_model:
             return PhaseResult(region=region, ok=False, error="all_models_failed")
+
+        # Stage 3: weighted ensemble of every model that succeeded.
+        # Skip when only one model survived — its "ensemble" would equal
+        # the model itself and just add noise to the Redis row.
+        ensemble_preds: np.ndarray | None = None
+        ensemble_weights: dict[str, float] | None = None
+        if len(predictions_by_model) >= 2:
+            mape_input: dict[str, float] = {}
+            for name in predictions_by_model:
+                m = (model_mapes or {}).get(name)
+                if m is not None and m > 0 and np.isfinite(m):
+                    mape_input[name] = float(m)
+            try:
+                if mape_input:
+                    ensemble_weights = compute_ensemble_weights(mape_input)
+                    # Renormalize over models that actually produced output —
+                    # some models in mape_input may have been dropped already.
+                    ensemble_weights = {
+                        k: v for k, v in ensemble_weights.items() if k in predictions_by_model
+                    }
+                    total = sum(ensemble_weights.values()) or 1.0
+                    ensemble_weights = {k: v / total for k, v in ensemble_weights.items()}
+                ensemble_preds = ensemble_combine(predictions_by_model, ensemble_weights)
+            except Exception as exc:  # pragma: no cover — defensive
+                log.warning("scoring_ensemble_failed", region=region, error=str(exc))
+                ensemble_preds = None
 
         # Pick the primary that powers ``predicted_demand_mw`` for back-compat.
         # XGBoost when available; otherwise the first successful model.
@@ -451,26 +488,37 @@ def predict_and_write_forecast(data: RegionData, models: dict[str, Any] | None) 
             }
             for name, preds in predictions_by_model.items():
                 row[name] = float(preds[i])
+            if ensemble_preds is not None:
+                row["ensemble"] = float(ensemble_preds[i])
             fl.append(row)
+
+        redis_payload: dict[str, Any] = {
+            "region": region,
+            "scored_at": scored_at,
+            "granularity": "1h",
+            "primary_model": primary_name,
+            "forecasts": fl,
+        }
+        if ensemble_weights is not None:
+            redis_payload["ensemble_weights"] = {
+                k: round(v, 4) for k, v in ensemble_weights.items()
+            }
 
         redis_set(
             f"wattcast:forecast:{region}:1h",
-            {
-                "region": region,
-                "scored_at": scored_at,
-                "granularity": "1h",
-                "primary_model": primary_name,
-                "forecasts": fl,
-            },
+            redis_payload,
             ttl=REDIS_TTL,
         )
+        models_in_row = sorted(predictions_by_model.keys())
+        if ensemble_preds is not None:
+            models_in_row.append("ensemble")
         return PhaseResult(
             region=region,
             ok=True,
             details={
                 "horizon": FORECAST_HORIZON_HOURS,
                 "points": FORECAST_HORIZON_HOURS,
-                "models": sorted(predictions_by_model.keys()),
+                "models": models_in_row,
             },
         )
     except Exception as e:
