@@ -446,6 +446,16 @@ body::before {
     grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+/* MetricsBar 5-up variant (Models leaderboard) */
+.gp-metrics-bar--5up {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+/* MetricsBar 2-up variant (e.g. minimal-content states) */
+.gp-metrics-bar--2up {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 /* Generation stack — sub-MetricsBar above stacked-area chart */
 .gp-generation-stack {
     display: flex;
@@ -529,6 +539,75 @@ body::before {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-3);
+}
+
+/* ── Models tab (R4c) ──────────────────────────────────────────────── */
+
+/* Multi-select segmented (dbc.Checklist) — same look as RadioItems */
+.gp-segmented--multi .form-check-input:checked + .form-check-label {
+    background: var(--accent-dim);
+    color: var(--accent-base);
+}
+
+/* Metrics-table slot — give the existing tab3-metrics-table HTML some
+ * v2-aligned breathing room without breaking the existing markup. */
+.gp-metrics-table-slot table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.gp-metrics-table-slot th {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.gp-metrics-table-slot td {
+    color: var(--text-secondary);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+    font-variant-numeric: tabular-nums;
+}
+
+.gp-metrics-table-slot tr:hover td {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.gp-metrics-table-slot td:first-child {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* Residuals 3-up grid */
+.gp-residual-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+/* Models error+SHAP 2-up grid */
+.gp-models-secondary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+@media (max-width: 768px) {
+    .gp-residual-grid,
+    .gp-models-secondary {
+        grid-template-columns: 1fr;
+    }
+
+    .gp-metrics-bar--5up {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 /* ── Scenarios panel (R4a-4) ──────────────────────────────────────── */
