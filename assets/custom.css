@@ -251,6 +251,30 @@ body::before {
 .gp-stress-row__icon--warning  { color: var(--warning); }
 .gp-stress-row__icon--info     { color: var(--info); }
 
+/* Fallback banner rows (degraded data sources) */
+.gp-fallback-row {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.gp-fallback-row__icon--critical { color: var(--danger); }
+.gp-fallback-row__icon--warning  { color: var(--warning); }
+.gp-fallback-row__icon--info     { color: var(--info); }
+
+/* Confidence badge inline icon (replaces emoji glyph) */
+.gp-confidence-badge__icon {
+    margin-right: 4px;
+    color: inherit;
+}
+
+/* Warming-state hero icon — small bounce-free pulse to suggest activity */
+.gp-warming-icon {
+    color: var(--info);
+}
+
 .alert-card__header {
     display: flex;
     align-items: center;

@@ -3842,34 +3842,45 @@ def register_callbacks(app):
         """G2: Show warning banner when data sources are serving stale/fallback data."""
         import json
 
+        from components.icons import icon as _icon
+
         if not freshness_json:
             return no_update
 
         freshness = json.loads(freshness_json)
-        warnings = []
-        icons = {"stale": "⚠️", "error": "🔴", "demo": "🧪"}
+        # Map degraded-source state → (icon name, semantic class, message tail)
+        states = {
+            "stale": ("alert-circle", "warning", "serving cached data (API unavailable)"),
+            "error": ("alert-triangle", "critical", "data load failed — using fallback"),
+            "demo": ("flask", "info", "demo data (no API key configured)"),
+        }
 
+        rows: list = []
         for source in ("demand", "weather", "alerts"):
             status = freshness.get(source, "fresh")
-            if status == "stale":
-                warnings.append(
-                    f"{icons['stale']} {source.title()}: serving cached data (API unavailable)"
+            entry = states.get(status)
+            if entry is None:
+                continue
+            icon_name, severity, tail = entry
+            rows.append(
+                html.Div(
+                    [
+                        _icon(
+                            icon_name,
+                            size="xs",
+                            className=f"gp-fallback-row__icon gp-fallback-row__icon--{severity}",
+                        ),
+                        html.Span(f"{source.title()}: {tail}"),
+                    ],
+                    className=f"gp-fallback-row gp-fallback-row--{severity}",
                 )
-            elif status == "error":
-                warnings.append(
-                    f"{icons['error']} {source.title()}: data load failed — using fallback"
-                )
-            elif status == "demo":
-                warnings.append(
-                    f"{icons['demo']} {source.title()}: demo data (no API key configured)"
-                )
+            )
 
-        if not warnings:
+        if not rows:
             return html.Div()
 
         return dbc.Alert(
-            [html.Strong("Data Source Status"), html.Br()]
-            + [html.Span(w, style={"display": "block", "fontSize": "0.85rem"}) for w in warnings],
+            [html.Strong("Data Source Status"), html.Br(), *rows],
             color="warning" if "error" not in freshness_json else "danger",
             dismissable=True,
             className="mb-2 mt-1",
