@@ -292,7 +292,8 @@ class TestDataConfidence:
 
         assert set(CONFIDENCE_LEVELS.keys()) == {"high", "medium", "low", "demo", "warming"}
         for level in CONFIDENCE_LEVELS.values():
-            assert "emoji" in level
+            # R7 of shell-redesign-v2 swapped "emoji" → "icon" (Lucide name).
+            assert "icon" in level
             assert "label" in level
             assert "color" in level
             assert "description" in level

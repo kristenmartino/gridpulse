@@ -258,36 +258,36 @@ def format_last_updated(dt: datetime | None) -> str:
 # Confidence levels map data source status to a user-visible reliability tier
 CONFIDENCE_LEVELS = {
     "high": {
-        "emoji": "🟢",
+        "icon": "check-circle",
         "label": "High",
-        "color": "#4caf50",
+        "color": "#34d399",
         "description": "Live data from verified source",
     },
     "medium": {
-        "emoji": "🟡",
+        "icon": "alert-circle",
         "label": "Medium",
-        "color": "#ffb74d",
+        "color": "#fbbf24",
         "description": "Data may be stale or partially unavailable",
     },
     "low": {
-        "emoji": "🔴",
+        "icon": "alert-triangle",
         "label": "Low",
-        "color": "#FF5C7A",
+        "color": "#f87171",
         "description": "Using fallback data — verify before decisions",
     },
     "demo": {
-        "emoji": "🧪",
+        "icon": "flask",
         "label": "Demo",
-        "color": "#A8B3C7",
+        "color": "#a1a1aa",
         "description": "Synthetic demo data — not real",
     },
     # "warming" is surfaced in Redis-only deployments when the scheduled
     # scoring / training jobs haven't produced results yet (e.g. first
     # deploy, Redis eviction, or a scheduler outage).
     "warming": {
-        "emoji": "⏳",
+        "icon": "clock",
         "label": "Warming",
-        "color": "#7aa8ff",
+        "color": "#60a5fa",
         "description": "Pipeline is refreshing — data will appear shortly",
     },
 }
@@ -337,11 +337,16 @@ def warming_state(
     scheduler outage). Intentionally low-alarm — this is expected behavior
     during the first few minutes of a new container, not an error.
     """
+    from components.icons import icon as _icon
+
     return html.Div(
         [
-            html.Div("⏳", style={"fontSize": "2.25rem", "marginBottom": "12px"}),
-            html.H5(title, style={"color": "#DDE6F2", "marginBottom": "6px"}),
-            html.P(message, style={"color": "#A8B3C7", "fontSize": "0.85rem"}),
+            html.Div(
+                _icon("clock", size="xl", className="gp-warming-icon"),
+                style={"marginBottom": "12px"},
+            ),
+            html.H5(title, style={"color": "var(--text-secondary)", "marginBottom": "6px"}),
+            html.P(message, style={"color": "var(--text-tertiary)", "fontSize": "0.85rem"}),
         ],
         style={
             "display": "flex",
@@ -383,9 +388,15 @@ def confidence_badge(
     Returns:
         Colored badge element: "🟢 Demand · 4m ago"
     """
+    from components.icons import icon as _icon
+
     level = CONFIDENCE_LEVELS.get(confidence, CONFIDENCE_LEVELS["low"])
     parts = [
-        html.Span(level["emoji"], style={"marginRight": "4px"}),
+        _icon(
+            level["icon"],
+            size="xs",
+            className="gp-confidence-badge__icon",
+        ),
         html.Span(
             widget_name,
             style={
