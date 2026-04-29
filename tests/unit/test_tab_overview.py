@@ -25,29 +25,29 @@ class TestOverviewLayout:
         assert isinstance(result, html.Div)
 
     def test_layout_has_required_ids(self):
+        """R2 v2-linear-stack layout exposes 5 dynamic IDs + the chart ID."""
         from components.tab_overview import layout
 
         result = layout()
         ids = _collect_ids(result)
         required = [
-            "overview-greeting",
-            "overview-briefing",
-            "overview-changes",
-            "overview-data-health",
+            "overview-title",
+            "overview-metrics-bar",
             "overview-spotlight-chart",
-            "overview-insight-digest",
-            "overview-news-feed",
+            "overview-model-card",
+            "overview-insight-card",
         ]
         for rid in required:
             assert rid in ids, f"Missing component ID: {rid}"
 
     def test_layout_no_legacy_ids(self):
-        """Old IDs from v1 overview should not exist."""
+        """IDs removed in R2 should not exist in the new linear-stack layout."""
         from components.tab_overview import layout
 
         result = layout()
         ids = _collect_ids(result)
-        for legacy in [
+        legacy_ids = [
+            # Pre-R2 v1 IDs
             "overview-demand-sparkline",
             "overview-alerts-count",
             "overview-alerts-breakdown",
@@ -55,22 +55,16 @@ class TestOverviewLayout:
             "overview-kpi-row",
             "overview-freshness-badges",
             "overview-last-updated",
-        ]:
+            # Cards removed by R2 (shell-redesign-v2.md)
+            "overview-greeting",
+            "overview-briefing",
+            "overview-changes",
+            "overview-data-health",
+            "overview-insight-digest",
+            "overview-news-feed",
+        ]
+        for legacy in legacy_ids:
             assert legacy not in ids, f"Legacy ID still present: {legacy}"
-
-    def test_layout_has_skeleton_placeholder(self):
-        """Briefing section should start with skeleton loading."""
-        from components.tab_overview import layout
-
-        result = layout()
-        # Find the briefing div
-        briefing_div = None
-        for child in result.children:
-            if hasattr(child, "id") and child.id == "overview-briefing":
-                briefing_div = child
-                break
-        assert briefing_div is not None
-        assert briefing_div.children is not None
 
 
 class TestOverviewConfig:

@@ -180,6 +180,283 @@ body::before {
     font-variant-numeric: tabular-nums;
 }
 
+/* ── v2 Linear Stack Components (R2 of shell-redesign-v2.md) ───────────
+ *
+ * Mirrors gridpulse-v2's dashboard rhythm:
+ *   max-w-5xl content (--content-max-width: 64rem)
+ *   space-y-8 between sections (--section-gap: 32px)
+ *   p-5 inside cards (--card-padding: 20px)
+ *   Borders, not shadows, define separation
+ *   10px UPPERCASE eyebrow / 13px body / text-2xl hero
+ */
+
+/* Page wrapper — centered, max-width 1024px, gutter 24px */
+.gp-page {
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    padding: var(--space-6) var(--content-gutter);
+    position: relative;
+    z-index: 1;  /* above the body::before noise overlay */
+}
+
+.gp-section-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--section-gap);
+}
+
+/* Page title block (region name + subtitle + optional freshness chip) */
+.gp-page-title__row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-1);
+}
+
+.gp-page-title__heading {
+    color: var(--text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--text-xl);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0;
+}
+
+.gp-page-title__subtitle {
+    color: var(--text-tertiary);
+    font-size: var(--text-base);
+    margin: 0;
+}
+
+/* MetricsBar — 5-up grid with vertical dividers */
+.gp-metrics-bar {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-4) 0;
+}
+
+.gp-metric-cell {
+    padding: 0 var(--space-5);
+    border-right: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+}
+
+.gp-metric-cell:last-child {
+    border-right: 0;
+}
+
+.gp-metric-cell:first-child {
+    padding-left: 0;
+}
+
+.gp-metric-label {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+}
+
+.gp-metric-value-row {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.gp-metric-value {
+    color: var(--text-primary);
+    font-size: var(--text-lg);
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.gp-metric-value--hero {
+    font-size: var(--text-2xl);
+    font-weight: 600;
+}
+
+.gp-metric-value--secondary {
+    color: var(--text-secondary);
+}
+
+.gp-metric-value--positive {
+    color: var(--success);
+}
+
+.gp-metric-value--negative {
+    color: var(--danger);
+}
+
+.gp-metric-unit {
+    color: var(--text-disabled);
+    font-size: 10px;
+    line-height: 1.2;
+}
+
+/* Chart card — single primary chart wrapper, border + p-5 */
+.gp-chart-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: var(--card-padding);
+    box-shadow: var(--edge-highlight);  /* selective top-edge sheen */
+}
+
+/* Model metrics card — horizontal flex with top/bottom borders only */
+.gp-model-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-5);
+    border-top: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--border-subtle);
+    padding: var(--space-3) 0;
+    flex-wrap: wrap;
+}
+
+.gp-model-card__left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+.gp-model-card__eyebrow {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gp-model-card__name {
+    color: var(--text-primary);
+    font-size: var(--text-base);
+    font-weight: 500;
+}
+
+.gp-model-card__badge {
+    color: var(--text-secondary);
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-sm);
+    padding: 2px var(--space-2);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.gp-model-card__metrics {
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    flex-wrap: wrap;
+}
+
+.gp-model-card__metric {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+}
+
+.gp-model-card__metric-label {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gp-model-card__metric-value {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+/* Insight card — eyebrow + relaxed-leading paragraph, no container chrome */
+.gp-insight-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+.gp-insight-card__eyebrow {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gp-insight-card__body {
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: var(--leading-relaxed);
+    margin: 0;
+}
+
+.gp-insight-card__delta--positive {
+    color: var(--success);
+    font-weight: 500;
+}
+
+.gp-insight-card__delta--negative {
+    color: var(--danger);
+    font-weight: 500;
+}
+
+.gp-insight-card__strong {
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* Page footer — small attribution row */
+.gp-footer {
+    color: var(--text-disabled);
+    font-size: 10px;
+    line-height: 1.4;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-subtle);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.gp-footer__sources {
+    letter-spacing: 0.04em;
+}
+
+/* Mobile: stack the 5 metric cells into 2 rows of 2-3 */
+@media (max-width: 768px) {
+    .gp-metrics-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .gp-metric-cell {
+        padding: var(--space-3);
+        border-right: 1px solid var(--border-subtle);
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .gp-metric-cell:nth-child(2n) {
+        border-right: 0;
+    }
+
+    .gp-metric-cell:nth-last-child(-n+2) {
+        border-bottom: 0;
+    }
+}
+
 /* ── Header ────────────────────────────────────────────── */
 .dashboard-header {
     background: var(--bg-overlay);

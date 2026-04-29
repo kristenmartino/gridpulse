@@ -1,168 +1,62 @@
-"""
-Tab 0: Overview — mission-control screen for the GridPulse platform.
+"""Tab 0: Overview — mission-control linear stack.
 
-Sections:
-A. Greeting + AI Executive Briefing (persona-specific)
-B. Data Health (per-source freshness badges)
-C. Quick Navigation — pathways into Forecast, Risk, and Scenarios
-D. Spotlight Chart (persona-relevant metric) + Insight Digest (cross-tab)
-E. Grid Signals / Energy News Feed
+R2 of shell-redesign-v2.md. Replaces the prior 8-card sprawl (greeting /
+briefing / what-changed / data-health / quick-nav / spotlight / insight-digest /
+news-feed) with the gridpulse-v2 dashboard rhythm: a single-column space-y-8
+stack of seven sections.
+
+Structure (top → bottom):
+1. Page title block (region name + 1-line subtitle)
+2. MetricsBar — 5-up KPI row (Now / 7d Peak / 7d Low / Average / 24h Trend)
+3. Hero demand chart — full-width forecast with confidence band
+4. ModelMetricsCard — horizontal model-performance bar (MAPE / RMSE / MAE / R²)
+5. InsightCard — single narrative paragraph (eyebrow + body)
+6. Footer — static attribution
+
+Dynamic content (1–5) is filled by ``update_overview_tab`` in
+``components/callbacks.py``; the footer is rendered statically.
 """
 
-import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from components.cards import section_header
+from components.cards import build_page_footer
 
 
 def layout() -> html.Div:
-    """Build Overview (mission-control) layout."""
+    """Build the v2-style Overview linear stack."""
     return html.Div(
         [
-            # ── Section A: Greeting + AI Executive Briefing ───────
-            dbc.Row(
-                dbc.Col(
-                    html.Div(id="overview-greeting"),
-                    md=12,
-                ),
-                className="g-2 mb-2",
-            ),
             html.Div(
-                id="overview-briefing",
-                children=_skeleton_briefing(),
-                className="briefing-card",
-            ),
-            # ── Section A.5: What Changed Since Last Visit (NEXD-8) ──
-            html.Div(id="overview-changes", className="mt-2"),
-            # ── Section B: Data Health ────────────────────────────
-            html.Div(id="overview-data-health", className="mt-2"),
-            # ── Section C: Quick Navigation ───────────────────────
-            _quick_nav(),
-            # ── Section D: Spotlight Chart + Insight Digest ───────
-            _section_header("Spotlight", "Persona-relevant metric at a glance"),
-            dbc.Row(
                 [
-                    dbc.Col(
-                        html.Div(
-                            dcc.Loading(
-                                dcc.Graph(
-                                    id="overview-spotlight-chart",
-                                    style={"height": "280px"},
-                                    config={
-                                        "displayModeBar": False,
-                                        "responsive": True,
-                                    },
-                                ),
-                                type="circle",
-                                color="#3b82f6",
+                    # 1. Title block (callback fills overview-title)
+                    html.Div(id="overview-title"),
+                    # 2. MetricsBar (5-up KPI row)
+                    html.Div(id="overview-metrics-bar"),
+                    # 3. Hero demand chart (full-width with confidence band)
+                    html.Div(
+                        dcc.Loading(
+                            dcc.Graph(
+                                id="overview-spotlight-chart",
+                                style={"height": "380px"},
+                                config={
+                                    "displayModeBar": False,
+                                    "responsive": True,
+                                },
                             ),
-                            className="chart-container",
+                            type="circle",
+                            color="#3b82f6",
                         ),
-                        md=8,
+                        className="gp-chart-card",
                     ),
-                    dbc.Col(
-                        html.Div(
-                            id="overview-insight-digest",
-                            className="insight-digest",
-                        ),
-                        md=4,
-                    ),
+                    # 4. ModelMetricsCard (horizontal model performance bar)
+                    html.Div(id="overview-model-card"),
+                    # 5. InsightCard (narrative summary)
+                    html.Div(id="overview-insight-card"),
+                    # 6. Footer (static)
+                    build_page_footer(),
                 ],
-                className="g-2",
+                className="gp-section-stack",
             ),
-            # ── Section E: Grid Signals ───────────────────────────
-            _section_header("Grid Signals", "Energy news and market context"),
-            html.Div(id="overview-news-feed"),
-        ]
-    )
-
-
-def _section_header(title: str, subtitle: str) -> html.Div:
-    """Delegate to the shared ``section_header`` helper."""
-    return section_header(title, subtitle)
-
-
-def _quick_nav() -> html.Div:
-    """Render quick-navigation cards linking to Forecast, Risk, and Scenarios."""
-    nav_items = [
-        {
-            "label": "Forecast",
-            "tab_id": "tab-outlook",
-            "icon": "trending_up",
-            "desc": "Demand predictions & confidence",
-            "color": "#3b82f6",
-        },
-        {
-            "label": "Risk",
-            "tab_id": "tab-alerts",
-            "icon": "warning",
-            "desc": "Alerts & extreme conditions",
-            "color": "#FF5C7A",
-        },
-        {
-            "label": "Grid",
-            "tab_id": "tab-generation",
-            "icon": "bolt",
-            "desc": "Generation mix & net load",
-            "color": "#2DE2C4",
-        },
-        {
-            "label": "Scenarios",
-            "tab_id": "tab-simulator",
-            "icon": "tune",
-            "desc": "What-if analysis & presets",
-            "color": "#4A7BFF",
-        },
-    ]
-    cards = []
-    for item in nav_items:
-        cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.Div(
-                            item["label"],
-                            style={
-                                "color": item["color"],
-                                "fontWeight": "600",
-                                "fontSize": "0.85rem",
-                            },
-                        ),
-                        html.Div(
-                            item["desc"],
-                            style={
-                                "color": "#A8B3C7",
-                                "fontSize": "0.72rem",
-                                "marginTop": "2px",
-                            },
-                        ),
-                    ],
-                    id={"type": "quick-nav-btn", "index": item["tab_id"]},
-                    className="overview-quick-nav-card",
-                    n_clicks=0,
-                    style={
-                        "background": "#11182D",
-                        "border": "1px solid #263556",
-                        "borderTop": f"2px solid {item['color']}",
-                        "borderRadius": "6px",
-                        "padding": "10px 14px",
-                        "cursor": "pointer",
-                    },
-                ),
-                md=3,
-                sm=6,
-            )
-        )
-    return dbc.Row(cards, className="g-2 mt-2")
-
-
-def _skeleton_briefing() -> html.Div:
-    """Pulsing skeleton placeholder while briefing loads."""
-    return html.Div(
-        [
-            html.Div(className="skeleton-line skeleton-line-long"),
-            html.Div(className="skeleton-line skeleton-line-long"),
-            html.Div(className="skeleton-line skeleton-line-medium"),
         ],
-        className="skeleton-pulse",
+        className="gp-page",
     )

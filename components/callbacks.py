@@ -27,7 +27,16 @@ import structlog
 from dash import ALL, Input, Output, State, ctx, html, no_update
 from plotly.subplots import make_subplots
 
-from components.cards import build_alert_card, build_kpi_row, build_news_feed, build_welcome_card
+from components.cards import (
+    build_alert_card,
+    build_insight_card,
+    build_kpi_row,
+    build_metrics_bar,
+    build_model_metrics_card,
+    build_news_feed,
+    build_page_title,
+    build_welcome_card,
+)
 from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
@@ -2307,18 +2316,19 @@ def register_callbacks(app):
     # "disabled" toggling via callbacks.  Persona-based tab prioritisation
     # is handled by default_tab selection in the persona switcher above.
 
-    # ── 3. OVERVIEW TAB ───────────────────────────────────────
-    # Split into 3 callbacks for fast initial render:
-    #   a) Fast: greeting, data health, spotlight, digest (pure computation)
-    #   b) Briefing: AI/rule-based — separate so it doesn't block render
-    #   c) News: HTTP fetch on interval — never blocks tab switch
+    # ── 3. OVERVIEW TAB (R2 — v2 linear stack) ────────────────
+    # Single callback drives the 5 dynamic regions of the 7-section
+    # mission-control stack. The footer is rendered statically in the
+    # tab_overview layout. Persona affects only the InsightCard tone;
+    # all charts and KPIs are persona-independent (matches v2 dashboard).
 
     @app.callback(
         [
-            Output("overview-greeting", "children"),
-            Output("overview-data-health", "children"),
+            Output("overview-title", "children"),
+            Output("overview-metrics-bar", "children"),
             Output("overview-spotlight-chart", "figure"),
-            Output("overview-insight-digest", "children"),
+            Output("overview-model-card", "children"),
+            Output("overview-insight-card", "children"),
         ],
         [
             Input("demand-store", "data"),
@@ -2334,113 +2344,49 @@ def register_callbacks(app):
     def update_overview_tab(
         demand_json, active_tab, persona_id, weather_json, region, freshness_data
     ):
-        """Fast overview render: greeting, data health, spotlight, digest."""
+        """Render the v2 linear-stack Overview: title, metrics, chart, model, insight."""
         if active_tab != "tab-overview":
-            return [no_update] * 4
+            return [no_update] * 5
 
-        # Guard against None values during initial load
         persona_id = persona_id or "grid_ops"
         region = region or "FPL"
 
         try:
-            # Parse data
             demand_df = None
-            weather_df = None
             if demand_json:
                 demand_df = pd.read_json(io.StringIO(demand_json))
-            if weather_json:
-                weather_df = pd.read_json(io.StringIO(weather_json))
+            # weather_json + freshness_data reserved for future inline drivers panel
+            del weather_json, freshness_data
 
-            # 1. Greeting
-            card_data = get_welcome_card(persona_id)
-            from personas.welcome import generate_welcome_message
+            # 1. Title block (region name + subtitle)
+            title = _build_overview_title(region)
 
-            message = generate_welcome_message(persona_id, region, demand_df, weather_df)
-            greeting = build_welcome_card(
-                title=card_data["title"],
-                message=message,
-                avatar=card_data["avatar"],
-                color=card_data["color"],
-            )
+            # 2. MetricsBar (5-up KPI row)
+            metrics_bar = build_metrics_bar(_build_overview_metrics_items(demand_df))
 
-            # 2. Data Health (store holds JSON string, not dict)
-            import json
+            # 3. Hero forecast chart (actual + dashed forecast + confidence band)
+            chart = _build_overview_hero_chart(region, demand_df)
 
-            freshness = None
-            if freshness_data:
-                freshness = (
-                    json.loads(freshness_data)
-                    if isinstance(freshness_data, str)
-                    else freshness_data
-                )
-            data_health = _build_overview_data_health(freshness)
+            # 4. ModelMetricsCard
+            model_card = _build_overview_model_card(region)
 
-            # 3. Spotlight chart (persona-specific)
-            spotlight = _build_overview_spotlight(persona_id, region, demand_df, weather_df)
+            # 5. InsightCard
+            insight = _build_overview_insight(region, demand_df, persona_id)
 
-            # 4. Insight digest (cross-tab)
-            digest = _build_overview_digest(persona_id, region, demand_df, weather_df)
-
-            return (greeting, data_health, spotlight, digest)
+            return (title, metrics_bar, chart, model_card, insight)
         except Exception as exc:
             log.exception("update_overview_tab_failed")
             err_msg = f"{type(exc).__name__}: {exc}"
-            return (
-                html.Div(
-                    err_msg,
-                    style={"color": "#FF5C7A", "fontSize": "0.8rem", "padding": "8px"},
-                ),
-                html.Div(),
-                _empty_figure(err_msg),
-                html.Div(
-                    err_msg,
-                    style={"color": "#FF5C7A", "fontSize": "0.8rem", "padding": "8px"},
-                ),
+            err_div = html.Div(
+                err_msg,
+                style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
             )
-
-    @app.callback(
-        Output("overview-briefing", "children"),
-        [
-            Input("demand-store", "data"),
-            Input("dashboard-tabs", "active_tab"),
-            Input("persona-selector", "value"),
-        ],
-        [
-            State("weather-store", "data"),
-            State("region-selector", "value"),
-        ],
-        prevent_initial_call=True,
-    )
-    def update_overview_briefing(demand_json, active_tab, persona_id, weather_json, region):
-        """AI briefing — separate callback so HTTP call doesn't block render."""
-        if active_tab != "tab-overview":
-            return no_update
-
-        persona_id = persona_id or "grid_ops"
-        region = region or "FPL"
-
-        demand_df = None
-        weather_df = None
-        if demand_json:
-            demand_df = pd.read_json(io.StringIO(demand_json))
-        if weather_json:
-            weather_df = pd.read_json(io.StringIO(weather_json))
-
-        return _build_overview_briefing(persona_id, region, demand_df, weather_df)
-
-    @app.callback(
-        Output("overview-news-feed", "children"),
-        Input("refresh-interval", "n_intervals"),
-        State("dashboard-tabs", "active_tab"),
-        prevent_initial_call=False,
-    )
-    def update_overview_news(_n, active_tab):
-        """News feed on interval — never blocks tab switch."""
-        if active_tab != "tab-overview":
-            return no_update
-        return _build_overview_news()
+            return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div)
 
     # ── 3b. NEXD-8: SESSION CHANGE DETECTION ──────────────────
+    # Snapshot store kept around even though the "What Changed" card is gone
+    # in R2 — reserved for future R-phase reuse (R4a Forecast may wire it
+    # into the Drivers panel as "what changed since last visit").
 
     @app.callback(
         [
@@ -2512,31 +2458,6 @@ def register_callbacks(app):
         }
 
         return snapshots, _json.dumps(changes)
-
-    @app.callback(
-        Output("overview-changes", "children"),
-        [
-            Input("changes-store", "data"),
-            Input("dashboard-tabs", "active_tab"),
-        ],
-        [
-            State("persona-selector", "value"),
-            State("region-selector", "value"),
-            State("session-snapshot-store", "data"),
-        ],
-        prevent_initial_call=True,
-    )
-    def render_changes_card(changes_json, active_tab, persona, region, snapshots):
-        """Render 'What Changed' card on Overview tab."""
-        if active_tab != "tab-overview":
-            return no_update
-
-        from config import feature_enabled
-
-        if not feature_enabled("what_changed"):
-            return html.Div()
-
-        return _build_changes_card(changes_json, persona or "grid_ops", region or "FPL", snapshots)
 
     # ── 4. TAB 1: DEMAND FORECAST ─────────────────────────────
 
@@ -4960,6 +4881,285 @@ def register_callbacks(app):
 
 
 # ── HELPER FUNCTIONS ──────────────────────────────────────────
+
+
+# ── Overview helpers (R2 — v2 linear stack) ─────────────────────────
+
+
+def _build_overview_title(region: str) -> html.Div:
+    """Page-title block: region name + 1-line subtitle."""
+    from config import REGION_NAMES
+
+    region_name = REGION_NAMES.get(region, region)
+    subtitle = f"Demand forecast and grid intelligence · {region}"
+    return build_page_title(region_name, subtitle)
+
+
+def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
+    """Compose the 5-up MetricsBar cells (Now / 7d Peak / 7d Low / Average / 24h Trend)."""
+    placeholder_labels = ["Now", "7d Peak", "7d Low", "Average", "24h Trend"]
+    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+        items = [
+            {"label": label, "value": "—", "unit": None, "tone": "secondary"}
+            for label in placeholder_labels
+        ]
+        items[0]["hero"] = True
+        items[0]["tone"] = "primary"
+        return items
+
+    df = demand_df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp")
+
+    # Strip spurious zero-demand rows (EIA's missing-observation marker)
+    nonzero = df[df["demand_mw"] > 0]
+    last_7d = nonzero.tail(168)
+
+    now_value = float(df["demand_mw"].iloc[-1]) if not df.empty else 0.0
+    peak_7d = float(last_7d["demand_mw"].max()) if not last_7d.empty else 0.0
+    low_7d = float(last_7d["demand_mw"].min()) if not last_7d.empty else 0.0
+    avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
+
+    # 24h trend (now vs 24 hours ago)
+    ago_24h = float(df["demand_mw"].iloc[-25]) if len(df) >= 25 else now_value
+    trend_pct = ((now_value - ago_24h) / ago_24h * 100.0) if ago_24h else 0.0
+    # Inverted semantic: rising demand reads as "warning" (negative tone),
+    # falling demand reads as "positive" — matches v2 MetricsBar.tsx:64.
+    trend_tone = (
+        "negative" if trend_pct > 0.5 else ("positive" if trend_pct < -0.5 else "secondary")
+    )
+
+    return [
+        {"label": "Now", "value": f"{now_value:,.0f}", "unit": "MW", "hero": True},
+        {"label": "7d Peak", "value": f"{peak_7d:,.0f}", "unit": "MW", "tone": "secondary"},
+        {"label": "7d Low", "value": f"{low_7d:,.0f}", "unit": "MW", "tone": "secondary"},
+        {"label": "Average", "value": f"{avg_7d:,.0f}", "unit": "MW", "tone": "secondary"},
+        {"label": "24h Trend", "value": f"{trend_pct:+.1f}%", "unit": None, "tone": trend_tone},
+    ]
+
+
+def _build_overview_hero_chart(
+    region: str,
+    demand_df: pd.DataFrame | None,
+) -> go.Figure:
+    """7d actual demand + 24h forecast bridge with confidence band.
+
+    Mirrors gridpulse-v2 components/DemandChart.tsx — blue solid actual with
+    a faint area fill, orange dashed forecast bridged from the last actual
+    point, and an orange-tinted confidence ribbon under the forecast.
+    """
+    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+        return _empty_figure("No demand data")
+
+    df = demand_df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp")
+    actual = df.tail(168)
+    if actual.empty:
+        return _empty_figure("No recent demand")
+
+    last_ts = actual["timestamp"].iloc[-1]
+    last_mw = float(actual["demand_mw"].iloc[-1])
+
+    fig = go.Figure()
+
+    # Actual demand: blue solid + faint area fill below
+    fig.add_trace(
+        go.Scatter(
+            x=actual["timestamp"],
+            y=actual["demand_mw"].where(actual["demand_mw"] > 0),
+            mode="lines",
+            name="Actual",
+            line=dict(color="#3b82f6", width=1.75),
+            fill="tozeroy",
+            fillcolor="rgba(59, 130, 246, 0.08)",
+            hovertemplate="<b>%{x|%b %d, %H:%M}</b><br>%{y:,.0f} MW<extra></extra>",
+        )
+    )
+
+    # 24h forecast bridge (orange dashed) + confidence band
+    try:
+        from models.model_service import get_forecasts
+
+        forecasts = get_forecasts(region, df, models_shown=["ensemble"])
+        ensemble = forecasts.get("ensemble")
+        upper_80 = forecasts.get("upper_80")
+        lower_80 = forecasts.get("lower_80")
+        if ensemble is not None and len(ensemble) > 0:
+            horizon = min(24, len(ensemble))
+            forecast_ts = pd.date_range(
+                start=last_ts + pd.Timedelta(hours=1),
+                periods=horizon,
+                freq="h",
+            )
+            ensemble_y = list(ensemble[:horizon])
+
+            # Confidence band — drawn first so it sits behind the line
+            if upper_80 is not None and lower_80 is not None and len(upper_80) >= horizon:
+                upper_y = list(upper_80[:horizon])
+                lower_y = list(lower_80[:horizon])
+                fig.add_trace(
+                    go.Scatter(
+                        x=list(forecast_ts) + list(forecast_ts[::-1]),
+                        y=upper_y + lower_y[::-1],
+                        fill="toself",
+                        fillcolor="rgba(249, 115, 22, 0.12)",
+                        line=dict(width=0),
+                        hoverinfo="skip",
+                        showlegend=False,
+                        name="80% confidence",
+                    )
+                )
+
+            # Forecast line (bridged from last actual point — no gap)
+            bridge_x = [last_ts, *forecast_ts]
+            bridge_y = [last_mw, *ensemble_y]
+            fig.add_trace(
+                go.Scatter(
+                    x=bridge_x,
+                    y=bridge_y,
+                    mode="lines",
+                    name="Forecast (24h)",
+                    line=dict(color="#f97316", width=1.75, dash="dash"),
+                    hovertemplate=(
+                        "<b>%{x|%b %d, %H:%M}</b><br>%{y:,.0f} MW · forecast<extra></extra>"
+                    ),
+                )
+            )
+    except Exception as exc:  # pragma: no cover — fall back to actual-only chart
+        log.warning("overview_hero_forecast_failed", region=region, error=str(exc))
+
+    fig.update_layout(
+        **_layout(uirevision=region, showlegend=False),
+        xaxis=dict(
+            showgrid=False,
+            linecolor="rgba(255,255,255,0.04)",
+            tickfont=dict(color="#71717a", size=10),
+        ),
+        yaxis=dict(
+            showgrid=True,
+            gridcolor="rgba(255,255,255,0.04)",
+            zeroline=False,
+            tickformat=",.0f",
+            tickfont=dict(color="#71717a", size=10),
+            title=None,
+        ),
+    )
+    return fig
+
+
+def _build_overview_model_card(region: str) -> html.Div:
+    """Horizontal model-performance bar (top/bottom borders only)."""
+    try:
+        from models.model_service import get_model_metrics, is_trained
+    except ImportError:  # pragma: no cover — defensive
+        return html.Div()
+
+    metrics_dict = get_model_metrics(region)
+    if not metrics_dict:
+        return html.Div()
+
+    # Prefer ensemble; fall back to xgboost; finally first available
+    if "ensemble" in metrics_dict:
+        primary_key = "ensemble"
+    elif "xgboost" in metrics_dict:
+        primary_key = "xgboost"
+    else:
+        primary_key = next(iter(metrics_dict.keys()), None)
+    if primary_key is None:
+        return html.Div()
+
+    m = metrics_dict[primary_key]
+    formatted = {
+        "MAPE": f"{m.get('mape', 0.0):.1f}%",
+        "RMSE": f"{m.get('rmse', 0.0):,.0f} MW",
+        "MAE": f"{m.get('mae', 0.0):,.0f} MW",
+        "R²": f"{m.get('r2', 0.0):.3f}",
+    }
+    name = "XGBoost" if primary_key == "xgboost" else primary_key.title()
+    badge = "trained" if is_trained(region) else "simulated"
+    return build_model_metrics_card(model_name=name, metrics=formatted, badge=badge)
+
+
+def _build_overview_insight(
+    region: str,
+    demand_df: pd.DataFrame | None,
+    persona_id: str,
+) -> html.Div:
+    """3-sentence narrative paragraph with semantic-color delta spans."""
+    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+        return build_insight_card(
+            "Summary",
+            (
+                "Awaiting demand data for this region. The forecast will populate once "
+                "the next pipeline cycle completes."
+            ),
+        )
+
+    df = demand_df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp")
+    nonzero = df[df["demand_mw"] > 0]
+    last_7d = nonzero.tail(168)
+
+    now_value = float(df["demand_mw"].iloc[-1])
+    avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
+    delta_pct = ((now_value - avg_7d) / avg_7d * 100.0) if avg_7d else 0.0
+    direction = "above" if delta_pct >= 0 else "below"
+    # Inverted semantic: rising demand reads as warning (matches v2)
+    delta_class = (
+        "gp-insight-card__delta--negative" if delta_pct >= 0 else "gp-insight-card__delta--positive"
+    )
+
+    last_24h = df.tail(24)
+    if not last_24h.empty:
+        peak_idx = last_24h["demand_mw"].idxmax()
+        peak_mw = float(last_24h.loc[peak_idx, "demand_mw"])
+        peak_ts = pd.to_datetime(last_24h.loc[peak_idx, "timestamp"])
+        peak_str = f"{peak_mw:,.0f} MW at {peak_ts.strftime('%H:%M')}"
+    else:
+        peak_str = "—"
+
+    forecast_clause = "Next-cycle forecast confidence is updating."
+    try:
+        from models.model_service import get_forecasts
+
+        forecasts = get_forecasts(region, df, models_shown=["ensemble"])
+        ensemble = forecasts.get("ensemble")
+        if ensemble is not None and len(ensemble) > 0:
+            horizon = min(24, len(ensemble))
+            f_arr = np.asarray(ensemble[:horizon])
+            f_peak = float(f_arr.max())
+            f_peak_idx = int(f_arr.argmax())
+            f_peak_ts = df["timestamp"].iloc[-1] + pd.Timedelta(hours=f_peak_idx + 1)
+            metrics_dict = forecasts.get("metrics") or {}
+            ens_metrics = metrics_dict.get("ensemble") or metrics_dict.get("xgboost") or {}
+            mape = float(ens_metrics.get("mape", 0.0))
+            forecast_clause = (
+                f"Next-24h forecast peaks at {f_peak:,.0f} MW around "
+                f"{f_peak_ts.strftime('%H:%M')} (MAPE {mape:.1f}%)."
+            )
+    except Exception as exc:  # pragma: no cover
+        log.warning("overview_insight_forecast_failed", region=region, error=str(exc))
+
+    body = [
+        "Demand is ",
+        html.Span(f"{abs(delta_pct):.1f}% {direction}", className=delta_class),
+        " the 7-day average. ",
+        "Recent peak: ",
+        html.Span(peak_str, className="gp-insight-card__strong"),
+        ". ",
+        forecast_clause,
+    ]
+    # Persona influences eyebrow only — keeps the card tonally consistent
+    eyebrow_map = {
+        "grid_ops": "Operating summary",
+        "renewables": "Renewables outlook",
+        "trader": "Market signal",
+        "data_scientist": "Model summary",
+    }
+    eyebrow = eyebrow_map.get(persona_id, "Summary")
+    return build_insight_card(eyebrow, body)
 
 
 def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
