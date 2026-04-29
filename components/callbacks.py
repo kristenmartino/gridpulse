@@ -4147,7 +4147,68 @@ def register_callbacks(app):
 
         return new_mode, header_class, confidence_style, banner_style
 
-    # ── DEMAND OUTLOOK TAB ──────────────────────────────────────
+    # ── FORECAST TAB (R4a-1 — v2 linear stack) ───────────────────
+    # The hero chart + 4-up MetricsBar + InsightCard are still driven by
+    # ``update_demand_outlook`` below (existing 9-output callback,
+    # preserved). Two small new callbacks fill the v2 title block and
+    # the new ModelMetricsCard slot.
+
+    @app.callback(
+        Output("outlook-title", "children"),
+        [
+            Input("region-selector", "value"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+    )
+    def update_outlook_title(region, active_tab):
+        """Page-title block for the Forecast tab."""
+        if active_tab != "tab-outlook":
+            return no_update
+        from config import REGION_NAMES
+
+        region = region or "FPL"
+        region_name = REGION_NAMES.get(region, region)
+        return build_page_title(
+            "Forecast",
+            f"24h–30d demand outlook with confidence bands · {region_name}",
+        )
+
+    @app.callback(
+        Output("outlook-model-card", "children"),
+        [
+            Input("region-selector", "value"),
+            Input("outlook-model", "value"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+    )
+    def update_outlook_model_card(region, model_name, active_tab):
+        """Render the horizontal MAPE/RMSE/MAE/R² bar for the active model."""
+        if active_tab != "tab-outlook":
+            return no_update
+
+        try:
+            from models.model_service import get_model_metrics, is_trained
+        except ImportError:
+            return html.Div()
+
+        region = region or "FPL"
+        metrics_dict = get_model_metrics(region) or {}
+        if model_name not in metrics_dict:
+            # Fall back to any available model
+            if not metrics_dict:
+                return html.Div()
+            model_name = next(iter(metrics_dict.keys()))
+
+        m = metrics_dict[model_name]
+        formatted = {
+            "MAPE": f"{m.get('mape', 0.0):.1f}%",
+            "RMSE": f"{m.get('rmse', 0.0):,.0f} MW",
+            "MAE": f"{m.get('mae', 0.0):,.0f} MW",
+            "R²": f"{m.get('r2', 0.0):.3f}",
+        }
+        name = "XGBoost" if model_name == "xgboost" else model_name.title()
+        badge = "trained" if is_trained(region) else "simulated"
+        return build_model_metrics_card(model_name=name, metrics=formatted, badge=badge)
 
     @app.callback(
         [
