@@ -71,6 +71,7 @@ def _score_region(region: str) -> dict:
     # training-quality evaluation lives in the daily training job.
     xgb_loaded = load_model(region, "xgboost")
     prophet_loaded = load_model(region, "prophet")
+    arima_loaded = load_model(region, "arima")
 
     loaded_models: dict[str, object] = {}
     if xgb_loaded is not None:
@@ -81,6 +82,10 @@ def _score_region(region: str) -> dict:
         prophet_model, prophet_meta = prophet_loaded
         loaded_models["prophet"] = prophet_model
         summary["prophet_version"] = prophet_meta.version
+    if arima_loaded is not None:
+        arima_model, arima_meta = arima_loaded
+        loaded_models["arima"] = arima_model
+        summary["arima_version"] = arima_meta.version
 
     has_features = phases.engineer_region_features(region_data) is not None
 

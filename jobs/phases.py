@@ -370,6 +370,18 @@ def _predict_one(
             result = predict_prophet(model, featured, periods=horizon)
             preds = result.get("forecast")
             return np.asarray(preds, dtype=float) if preds is not None else None
+        if model_name == "arima":
+            from models.arima_model import predict_arima
+
+            # SARIMAX takes the future-feature frame as a DataFrame; it extracts
+            # its own exog columns (ARIMA_EXOG_COLS) via _get_exog internally.
+            preds = predict_arima(model, future_df, periods=horizon)
+            arr = np.asarray(preds, dtype=float)
+            # train_arima returns NaN-filled forecast on failure; treat that as
+            # a per-model failure so the row layer skips ARIMA cleanly.
+            if arr.size == 0 or not np.isfinite(arr).all():
+                return None
+            return arr
     except Exception as exc:  # pragma: no cover — defensive; per-model isolation
         log.warning(
             "scoring_predict_failed",
