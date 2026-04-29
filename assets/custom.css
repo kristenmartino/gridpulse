@@ -457,7 +457,164 @@ body::before {
     }
 }
 
-/* ── Header ────────────────────────────────────────────── */
+/* ── Header (R3 — v2 alignment) ────────────────────────────────
+ *
+ * Mirrors gridpulse-v2/dashboard/page.tsx:84-125 — fixed h-14, full-width
+ * border-bottom, max-w-5xl inner content. Hosts the brand monogram +
+ * wordmark on the left and region/persona/mode controls on the right.
+ */
+
+.gp-header {
+    background: var(--bg-base);
+    border-bottom: 1px solid var(--border-subtle);
+    height: 56px;
+    margin: 0;
+    padding: 0;
+    position: relative;
+    z-index: 2;  /* over the body::before noise overlay */
+}
+
+.gp-header__inner {
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    padding: 0 var(--content-gutter);
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+}
+
+.gp-header__brand {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-shrink: 0;
+}
+
+.gp-header__monogram {
+    width: 24px;
+    height: 24px;
+    display: block;
+    flex-shrink: 0;
+}
+
+.gp-header__wordmark {
+    color: var(--text-primary);
+    font-family: var(--font-display);
+    font-size: var(--text-lg);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    margin: 0;
+}
+
+.gp-header__wordmark-grid {
+    color: var(--text-primary);
+}
+
+.gp-header__wordmark-pulse {
+    color: var(--accent-base);
+}
+
+/* Right-aligned cluster of controls */
+.gp-header__controls {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    flex-shrink: 0;
+}
+
+/* Compact select used inside the header (replaces the prior
+   "Balancing Authority" / "View" labeled column layout). */
+.gp-header__select {
+    background-color: var(--bg-raised);
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    height: 32px;
+    padding: 0 var(--space-3);
+    transition: border-color var(--duration-fast) var(--ease),
+                background-color var(--duration-fast) var(--ease);
+}
+
+.gp-header__select:hover {
+    background-color: var(--bg-hover);
+    border-color: var(--border-default);
+}
+
+.gp-header__select:focus,
+.gp-header__select:focus-visible {
+    outline: none;
+    border-color: var(--accent-base);
+    box-shadow: var(--shadow-focus);
+}
+
+/* Persona chip — discreet pill, smaller and quieter than the region picker */
+.gp-header__chip {
+    max-width: 200px;
+    background-color: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    font-size: 12px;
+    font-weight: 500;
+    height: 28px;
+    padding: 0 var(--space-3);
+}
+
+.gp-header__chip:hover {
+    background-color: var(--bg-raised);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
+/* Text-only header link (Briefing Mode, Save View) — quieter than a button */
+.gp-header__link {
+    color: var(--text-tertiary);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    background: transparent;
+    border: 0;
+    padding: var(--space-1) var(--space-2);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: color var(--duration-fast) var(--ease),
+                background-color var(--duration-fast) var(--ease);
+}
+
+.gp-header__link:hover {
+    color: var(--text-primary);
+    background: var(--bg-raised);
+}
+
+.gp-header__link:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+}
+
+/* Tab strip below the header — also bounded to max-w-5xl for visual balance */
+.dashboard-tabs,
+.gp-tabs-shell {
+    max-width: var(--content-max-width);
+    margin: 0 auto;
+    padding: 0 var(--content-gutter);
+}
+
+@media (max-width: 768px) {
+    .gp-header__inner {
+        gap: var(--space-2);
+    }
+
+    .gp-header__chip,
+    .gp-header__link {
+        display: none;  /* keep only brand + region selector on phones */
+    }
+}
+
+/* ── Legacy header (kept for callbacks toggling .meeting-mode) ─── */
 .dashboard-header {
     background: var(--bg-overlay);
     backdrop-filter: blur(8px);

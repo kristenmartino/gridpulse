@@ -1,27 +1,27 @@
 /* Keyboard shortcuts and accessibility enhancements */
 
-// Alt+1-8: Switch tabs
+// Alt+1..4: Switch between the four visible tabs.
+// R3 reduced 9 → 4 (Overview / Forecast / Risk / Models). Hidden tabs
+// stay rendered for callback safety but aren't surfaced via shortcuts.
 document.addEventListener('keydown', function(e) {
     if (!e.altKey) return;
 
     const tabMap = {
-        '1': 'tab-forecast',
+        '1': 'tab-overview',
         '2': 'tab-outlook',
-        '3': 'tab-backtest',
-        '4': 'tab-generation',
-        '5': 'tab-weather',
-        '6': 'tab-models',
-        '7': 'tab-alerts',
-        '8': 'tab-simulator',
+        '3': 'tab-alerts',
+        '4': 'tab-models',
     };
 
     if (tabMap[e.key]) {
         e.preventDefault();
-        // Find the tab link and click it
-        const tabLinks = document.querySelectorAll('.nav-tabs .nav-link');
+        // Click only visible tab pills — skip any hidden via .d-none.
+        const visibleLinks = Array.from(
+            document.querySelectorAll('.nav-tabs .nav-item:not(.d-none) .nav-link')
+        );
         const tabIndex = parseInt(e.key) - 1;
-        if (tabLinks[tabIndex]) {
-            tabLinks[tabIndex].click();
+        if (visibleLinks[tabIndex]) {
+            visibleLinks[tabIndex].click();
         }
     }
 
