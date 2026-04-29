@@ -61,7 +61,14 @@ def _model_segmented() -> html.Div:
     from config import REQUIRE_REDIS
 
     if REQUIRE_REDIS:
-        options = [{"label": "XGBoost", "value": "xgboost"}]
+        # Stage 1 of scoring-job-multi-model: Prophet now lands in Redis
+        # alongside XGBoost (jobs/phases.py predict_and_write_forecast +
+        # jobs/scoring_job.py loads both pickles). ARIMA + Ensemble follow
+        # in Stages 2 & 3 — until then they stay dev-only.
+        options = [
+            {"label": "XGBoost", "value": "xgboost"},
+            {"label": "Prophet", "value": "prophet"},
+        ]
     else:
         options = [
             {"label": "XGBoost", "value": "xgboost"},

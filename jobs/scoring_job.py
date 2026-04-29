@@ -64,20 +64,44 @@ def _score_region(region: str) -> dict:
     # Feature engineering + model load are only needed for the forecast
     # and diagnostics phases. If the model is missing (first deploy before
     # training job has run) we still emit actuals + weather + generation.
+    #
+    # Stage 1 of scoring-job-multi-model: load Prophet alongside XGBoost
+    # and pass both to the forecast phase as a dict so every available
+    # model gets a Redis row. Diagnostics still uses XGBoost only —
+    # training-quality evaluation lives in the daily training job.
     xgb_loaded = load_model(region, "xgboost")
-    if phases.engineer_region_features(region_data) is not None and xgb_loaded is not None:
-        xgb_model, meta = xgb_loaded
-        summary["model_version"] = meta.version
-        fc_res = phases.predict_and_write_forecast(region_data, xgb_model)
+    prophet_loaded = load_model(region, "prophet")
+
+    loaded_models: dict[str, object] = {}
+    if xgb_loaded is not None:
+        xgb_model, xgb_meta = xgb_loaded
+        loaded_models["xgboost"] = xgb_model
+        summary["model_version"] = xgb_meta.version
+    if prophet_loaded is not None:
+        prophet_model, prophet_meta = prophet_loaded
+        loaded_models["prophet"] = prophet_model
+        summary["prophet_version"] = prophet_meta.version
+
+    has_features = phases.engineer_region_features(region_data) is not None
+
+    if has_features and loaded_models:
+        fc_res = phases.predict_and_write_forecast(region_data, loaded_models)
         summary["phases"]["forecast"] = {
             "ok": fc_res.ok,
             **(fc_res.details if fc_res.ok else {"error": fc_res.error}),
         }
-        diag_res = phases.write_diagnostics(region_data, xgb_model)
-        summary["phases"]["diagnostics"] = {
-            "ok": diag_res.ok,
-            **(diag_res.details if diag_res.ok else {"error": diag_res.error}),
-        }
+        # Diagnostics needs XGBoost specifically (SHAP + per-residual).
+        if "xgboost" in loaded_models:
+            diag_res = phases.write_diagnostics(region_data, loaded_models["xgboost"])
+            summary["phases"]["diagnostics"] = {
+                "ok": diag_res.ok,
+                **(diag_res.details if diag_res.ok else {"error": diag_res.error}),
+            }
+        else:
+            summary["phases"]["diagnostics"] = {
+                "ok": False,
+                "error": "no_xgboost_for_diagnostics",
+            }
     else:
         log.info(
             "scoring_job_no_model_yet",
