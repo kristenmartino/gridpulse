@@ -453,6 +453,129 @@ body::before {
     gap: var(--space-4);
 }
 
+/* ── Scenarios panel (R4a-4) ──────────────────────────────────────── */
+
+.gp-preset-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.gp-preset-chip {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 8px 14px;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background-color var(--duration-fast) var(--ease),
+                border-color var(--duration-fast) var(--ease),
+                color var(--duration-fast) var(--ease);
+}
+
+.gp-preset-chip:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
+.gp-preset-chip:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+}
+
+.gp-preset-chip__label {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.gp-preset-chip__sub {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    line-height: 1.3;
+}
+
+/* 3 sliders in a column */
+.gp-scenario-sliders {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    padding: var(--space-2) 0;
+}
+
+.gp-slider-row {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.gp-slider__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+
+.gp-slider__label {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gp-slider__readout {
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 500;
+    font-family: var(--font-mono);
+}
+
+/* dcc.Slider style overrides — match the v2 palette */
+.gp-slider .rc-slider-rail {
+    background-color: var(--bg-base);
+}
+
+.gp-slider .rc-slider-track {
+    background-color: var(--accent-base);
+}
+
+.gp-slider .rc-slider-handle {
+    background-color: var(--bg-raised);
+    border: 2px solid var(--accent-base);
+    box-shadow: none;
+}
+
+.gp-slider .rc-slider-handle:hover,
+.gp-slider .rc-slider-handle:focus {
+    border-color: var(--accent-hover);
+    box-shadow: var(--shadow-focus);
+}
+
+.gp-slider .rc-slider-mark-text {
+    color: var(--text-disabled);
+    font-size: 10px;
+}
+
+.gp-slider .rc-slider-mark-text-active {
+    color: var(--text-secondary);
+}
+
+.gp-slider .rc-slider-dot {
+    background-color: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+}
+
+.gp-slider .rc-slider-dot-active {
+    border-color: var(--accent-base);
+}
+
 /* Sub-line under a metric value (e.g., timestamp under Peak) */
 .gp-metric-sub {
     color: var(--text-disabled);
