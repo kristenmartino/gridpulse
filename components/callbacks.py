@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import structlog
-from dash import ALL, Input, Output, State, ctx, html, no_update
+from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 from plotly.subplots import make_subplots
 
 from components.cards import (
@@ -4147,11 +4147,41 @@ def register_callbacks(app):
 
         return new_mode, header_class, confidence_style, banner_style
 
-    # ── FORECAST TAB (R4a-1 — v2 linear stack) ───────────────────
-    # The hero chart + 4-up MetricsBar + InsightCard are still driven by
+    # ── FORECAST TAB (R4a — v2 linear stack + inline panels) ────
+    # Hero chart + 4-up MetricsBar + InsightCard are still driven by
     # ``update_demand_outlook`` below (existing 9-output callback,
-    # preserved). Two small new callbacks fill the v2 title block and
-    # the new ModelMetricsCard slot.
+    # preserved). Small new callbacks fill the v2 title block, the
+    # ModelMetricsCard slot, and (R4a-2) the inline Drivers panel
+    # rendered when its collapse opens.
+
+    # 3 clientside toggles — flip is_open on each panel collapse.
+    # Generic JS could pattern-match, but explicit is clearer.
+    for _panel_key in ("drivers", "generation", "scenarios"):
+        app.clientside_callback(
+            "function(n, is_open) { return n ? !is_open : is_open; }",
+            Output(f"forecast-panel-{_panel_key}-collapse", "is_open"),
+            Input(f"forecast-panel-toggle-{_panel_key}", "n_clicks"),
+            State(f"forecast-panel-{_panel_key}-collapse", "is_open"),
+            prevent_initial_call=True,
+        )
+
+    @app.callback(
+        Output("forecast-drivers-content", "children"),
+        [
+            Input("forecast-panel-drivers-collapse", "is_open"),
+            Input("weather-store", "data"),
+        ],
+        State("dashboard-tabs", "active_tab"),
+    )
+    def update_forecast_drivers_panel(is_open, weather_json, active_tab):
+        """Render the 3-up Drivers KPI grid (Temperature / Wind / Solar).
+
+        Lazy: only computes when the collapse is open and the user is
+        on the Forecast tab (avoid spending render cost while collapsed).
+        """
+        if active_tab != "tab-outlook" or not is_open:
+            return no_update
+        return _build_drivers_panel(weather_json)
 
     @app.callback(
         Output("outlook-title", "children"),
@@ -5175,6 +5205,152 @@ def _build_overview_insight(
     }
     eyebrow = eyebrow_map.get(persona_id, "Summary")
     return build_insight_card(eyebrow, body)
+
+
+# ── Forecast tab helpers (R4a) ───────────────────────────────────────
+
+
+def _build_drivers_panel(weather_json: str | None) -> list:
+    """3-up KPI cells (Temperature / Wind / Solar) with current value + 24h sparkline.
+
+    The Forecast tab's Drivers inline panel calls this when its collapse
+    opens. Each cell is a .gp-driver-cell with eyebrow / value / unit /
+    sparkline. Sparkline reuses the same v2 minimal-axis style as
+    _build_overview_sparkline.
+    """
+    if not weather_json:
+        return _drivers_empty()
+
+    try:
+        wdf = pd.read_json(io.StringIO(weather_json))
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("forecast_drivers_parse_failed", error=str(exc))
+        return _drivers_empty()
+
+    if wdf.empty or "timestamp" not in wdf.columns:
+        return _drivers_empty()
+
+    wdf = wdf.copy()
+    wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
+    wdf = wdf.sort_values("timestamp")
+    # Window: latest 24 rows (assume hourly cadence)
+    horizon = wdf.tail(24)
+
+    drivers = [
+        {
+            "label": "Temperature",
+            "column": "temperature_2m",
+            "unit": "°F",
+            "color": "#3b82f6",
+            "fillcolor": "rgba(59, 130, 246, 0.10)",
+            "fmt": lambda v: f"{v:.0f}",
+        },
+        {
+            "label": "Wind",
+            "column": "wind_speed_80m",
+            "unit": "mph",
+            "color": "#34d399",
+            "fillcolor": "rgba(52, 211, 153, 0.10)",
+            "fmt": lambda v: f"{v:.1f}",
+        },
+        {
+            "label": "Solar",
+            "column": "shortwave_radiation",
+            "unit": "W/m²",
+            "color": "#f97316",
+            "fillcolor": "rgba(249, 115, 22, 0.10)",
+            "fmt": lambda v: f"{v:.0f}",
+        },
+    ]
+
+    cells: list = []
+    for d in drivers:
+        col = d["column"]
+        if col not in horizon.columns or horizon[col].isna().all():
+            cells.append(_driver_cell_empty(d["label"]))
+            continue
+        latest = float(horizon[col].iloc[-1])
+        avg = float(horizon[col].mean())
+        delta = latest - avg
+        delta_class = (
+            "gp-metric-value--negative"
+            if delta > 0.5
+            else ("gp-metric-value--positive" if delta < -0.5 else "")
+        )
+        cells.append(
+            html.Div(
+                [
+                    html.Div(d["label"], className="gp-metric-label"),
+                    html.Div(
+                        [
+                            html.Span(
+                                d["fmt"](latest),
+                                className="gp-metric-value gp-metric-value--hero tabular",
+                            ),
+                            html.Span(d["unit"], className="gp-metric-unit"),
+                        ],
+                        className="gp-metric-value-row",
+                    ),
+                    html.Div(
+                        [
+                            html.Span(
+                                f"{delta:+.1f} vs 24h avg",
+                                className=f"gp-metric-sub {delta_class}",
+                            ),
+                        ],
+                    ),
+                    dcc.Graph(
+                        figure=_driver_sparkline(horizon, col, d["color"], d["fillcolor"]),
+                        config={"displayModeBar": False, "responsive": True},
+                        style={"height": "60px"},
+                    ),
+                ],
+                className="gp-driver-cell",
+            )
+        )
+    return cells
+
+
+def _drivers_empty() -> list:
+    cells = []
+    for label in ("Temperature", "Wind", "Solar"):
+        cells.append(_driver_cell_empty(label))
+    return cells
+
+
+def _driver_cell_empty(label: str) -> html.Div:
+    return html.Div(
+        [
+            html.Div(label, className="gp-metric-label"),
+            html.Span("—", className="gp-metric-value tabular"),
+            html.Div("No weather data", className="gp-metric-sub"),
+        ],
+        className="gp-driver-cell",
+    )
+
+
+def _driver_sparkline(df: pd.DataFrame, column: str, color: str, fillcolor: str) -> go.Figure:
+    """60px sparkline matching the v2 minimal-axes treatment."""
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["timestamp"],
+            y=df[column],
+            mode="lines",
+            line=dict(color=color, width=1.5),
+            fill="tozeroy",
+            fillcolor=fillcolor,
+            hovertemplate="%{x|%H:%M}<br>%{y:,.1f}<extra></extra>",
+            showlegend=False,
+        )
+    )
+    fig.update_layout(
+        **_layout(uirevision=column),
+        xaxis=dict(visible=False),
+        yaxis=dict(visible=False),
+        margin=dict(l=0, r=0, t=4, b=4),
+    )
+    return fig
 
 
 def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
