@@ -1,6 +1,9 @@
 /* GridPulse — Energy Intelligence Platform
  * Design tokens + chrome. All class names preserved; values live in :root.
- * Inspired by Linear, Vercel, Stripe, Notion.
+ *
+ * Visual reference: gridpulse-v2 (Next.js + Tailwind) — single-region linear
+ * stack, 3-tier surfaces, 4-tier neutrals, blue/orange accents, borders (not
+ * shadows) define separation. See ~/.claude/plans/shell-redesign-v2.md.
  */
 
 /* ── Typography ───────────────────────────────────────── */
@@ -8,40 +11,47 @@
 
 /* ── Design Tokens ────────────────────────────────────── */
 :root {
-    /* Background ladder — neutral slate, warmer than blue-violet */
-    --bg-base: #0a0d14;
-    --bg-raised: #11141c;
-    --bg-elevated: #161a24;
-    --bg-hover: #1c2130;
-    --bg-overlay: rgba(10, 13, 20, 0.72);
+    /* Surfaces — 3 tiers (was 5). Neutral, no blue cast. */
+    --bg-base: #0a0a0b;       /* page background, deepest */
+    --bg-raised: #111113;     /* cards, dropdowns, badges */
+    --bg-hover: #18181b;      /* interactive hover state */
+    /* Back-compat aliases for rules still referencing the old 5-tier system. */
+    --bg-elevated: var(--bg-raised);
+    --bg-overlay: rgba(10, 10, 11, 0.72);
 
-    /* Borders — translucent white ramp (replaces blue-tinted #263556) */
+    /* Borders — translucent white ramp; tightened to 0.06 / 0.12 / 0.18 */
     --border-subtle: rgba(255, 255, 255, 0.06);
-    --border-default: rgba(255, 255, 255, 0.10);
-    --border-strong: rgba(255, 255, 255, 0.16);
-    --border-accent: #38D0FF;
+    --border-default: rgba(255, 255, 255, 0.12);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --border-accent: #3b82f6;
 
-    /* Text */
-    --text-primary: #F5F7FA;
-    --text-secondary: #C9D0DB;
-    --text-tertiary: #8892A5;
-    --text-disabled: #5A6378;
+    /* Text — neutral 4-tier ramp (warmer than the prior cool slate) */
+    --text-primary: #e4e4e7;
+    --text-secondary: #a1a1aa;
+    --text-tertiary: #71717a;
+    --text-disabled: #52525b;
+    /* Back-compat alias */
+    --text-muted: var(--text-disabled);
 
-    /* Accent (preserved brand cyan) */
-    --accent-base: #38D0FF;
-    --accent-hover: #5AD9FF;
-    --accent-dim: rgba(56, 208, 255, 0.12);
-    --accent-ring: rgba(56, 208, 255, 0.25);
+    /* Accent — v2 blue (replaces brand cyan #38D0FF) */
+    --accent-base: #3b82f6;
+    --accent-hover: #5b9aff;
+    --accent-dim: rgba(59, 130, 246, 0.15);
+    --accent-ring: rgba(59, 130, 246, 0.30);
 
-    /* Semantic */
-    --success: #2BD67B;
-    --success-dim: rgba(43, 214, 123, 0.12);
-    --warning: #FFB84D;
-    --warning-dim: rgba(255, 184, 77, 0.12);
-    --danger: #FF5C7A;
-    --danger-dim: rgba(255, 92, 122, 0.12);
-    --info: #7AA8FF;
-    --info-dim: rgba(122, 168, 255, 0.12);
+    /* Forecast — v2 orange (new; was implicit in --warning previously) */
+    --forecast: #f97316;
+    --forecast-dim: rgba(249, 115, 22, 0.12);
+
+    /* Semantic — tonal updates to match v2 palette */
+    --success: #34d399;
+    --success-dim: rgba(52, 211, 153, 0.12);
+    --warning: #fbbf24;
+    --warning-dim: rgba(251, 191, 36, 0.12);
+    --danger: #f87171;
+    --danger-dim: rgba(248, 113, 113, 0.12);
+    --info: #60a5fa;
+    --info-dim: rgba(96, 165, 250, 0.12);
 
     /* Typography */
     --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -84,11 +94,19 @@
     --radius-xl: 12px;
     --radius-full: 9999px;
 
-    /* Shadows */
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.24);
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.32), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.40), 0 0 0 1px rgba(255, 255, 255, 0.06) inset;
+    /* Shadows — v2 uses borders, not drop shadows. Keep only :focus-visible.
+     * Card surfaces opt into the top-edge highlight via --edge-highlight. */
+    --shadow-xs: none;
+    --shadow-sm: none;
+    --shadow-md: none;
     --shadow-focus: 0 0 0 3px var(--accent-ring);
+    --edge-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+
+    /* Layout — v2 dashboard uses max-w-5xl (1024px) with 24-32px gutters */
+    --content-max-width: 64rem;
+    --content-gutter: 1.5rem;
+    --section-gap: 2rem;            /* space-y-8 between major sections */
+    --card-padding: 1.25rem;        /* p-5 inside cards */
 
     /* Motion — durations */
     --duration-fast: 120ms;
@@ -138,6 +156,28 @@ body {
     -moz-osx-font-smoothing: grayscale;
     font-feature-settings: 'cv11', 'ss01', 'ss03';
     font-optical-sizing: auto;
+    position: relative;
+}
+
+/* Subtle noise overlay (1.5% opacity) defeats OLED banding on large dark
+ * surfaces — same pattern v2 uses (globals.css:48-56). Inline data-URI SVG,
+ * fixed full-screen, mix-blend-mode overlay so it sits in front of bg only. */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='200' height='200' filter='url(%23n)' opacity='0.5'/></svg>");
+    opacity: 0.025;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+    z-index: 9999;
+}
+
+/* Tabular numerics — apply to KPI values, table cells, time labels.
+ *   <span class="tabular">28,450</span>
+ * Aligns decimal places and digit widths across rows. */
+.tabular {
+    font-variant-numeric: tabular-nums;
 }
 
 /* ── Header ────────────────────────────────────────────── */

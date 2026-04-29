@@ -23,12 +23,13 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-# ── Brand constants (must match assets/custom.css + brand spec) ──────
-OBSIDIAN = (10, 13, 20)  # #0a0d14
-MIDNIGHT = (17, 20, 28)  # #11141c
-PULSE_CYAN = (56, 208, 255)  # #38D0FF
-TEXT_PRIMARY = (247, 250, 252)  # #F7FAFC
-TEXT_SECONDARY = (168, 179, 199)  # #A8B3C7
+# ── Brand constants (must match assets/custom.css :root tokens) ──────
+# Palette aligned to gridpulse-v2 (R1 of shell-redesign-v2.md).
+OBSIDIAN = (10, 10, 11)  # #0a0a0b — --bg-base
+MIDNIGHT = (17, 17, 19)  # #111113 — --bg-raised
+ACCENT_BLUE = (59, 130, 246)  # #3b82f6 — --accent-base (was cyan #38D0FF in G1)
+TEXT_PRIMARY = (228, 228, 231)  # #e4e4e7
+TEXT_SECONDARY = (161, 161, 170)  # #a1a1aa
 
 # ── Pulse path in unit coordinates [0..1] × [0..1] ───────────────────
 # Matches the SVG path in assets/favicon.svg exactly.
@@ -65,12 +66,12 @@ def _rounded_bg(size: int, radius: int, color) -> Image.Image:
 
 
 def _render_icon(size: int, oversample: int = 4) -> Image.Image:
-    """Render a single-size icon (rounded obsidian + cyan pulse) at ``size``×``size``."""
+    """Render a single-size icon (rounded obsidian + blue pulse) at ``size``×``size``."""
     ss = size * oversample
     img = _rounded_bg(ss, radius=int(ss * 6 / 32), color=OBSIDIAN)
     d = ImageDraw.Draw(img)
     stroke = max(2, int(round(ss * 2.25 / 32)))
-    _draw_pulse(d, ss, stroke=stroke, color=PULSE_CYAN)
+    _draw_pulse(d, ss, stroke=stroke, color=ACCENT_BLUE)
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -78,9 +79,9 @@ def make_favicon_svg(out_path: Path) -> None:
     """Write the SVG monogram. Hardcoded path matches PULSE_PATH_UNIT × 32."""
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">\n'
-        '  <rect width="32" height="32" rx="6" fill="#0a0d14"/>\n'
+        '  <rect width="32" height="32" rx="6" fill="#0a0a0b"/>\n'
         '  <path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16"\n'
-        '        stroke="#38D0FF" stroke-width="2.25"\n'
+        '        stroke="#3b82f6" stroke-width="2.25"\n'
         '        stroke-linecap="round" stroke-linejoin="round" fill="none"/>\n'
         "</svg>\n"
     )
@@ -100,7 +101,7 @@ def make_apple_touch_icon(out_path: Path) -> None:
     ss = size * 4
     img = _rounded_bg(ss, radius=int(ss * 24 / 180), color=OBSIDIAN)
     d = ImageDraw.Draw(img)
-    _draw_pulse(d, ss, stroke=int(ss * 5 / 180), color=PULSE_CYAN)
+    _draw_pulse(d, ss, stroke=int(ss * 5 / 180), color=ACCENT_BLUE)
     img.resize((size, size), Image.LANCZOS).save(out_path, format="PNG", optimize=True)
 
 
@@ -166,7 +167,7 @@ def make_og_image(out_path: Path) -> None:
     grid_y = (height // 2) - 80
     draw.text((text_x, grid_y), "Grid", font=font_display, fill=TEXT_PRIMARY)
     grid_w = draw.textlength("Grid", font=font_display)
-    draw.text((text_x + grid_w, grid_y), "Pulse", font=font_display, fill=PULSE_CYAN)
+    draw.text((text_x + grid_w, grid_y), "Pulse", font=font_display, fill=ACCENT_BLUE)
 
     # Tagline beneath
     draw.text(

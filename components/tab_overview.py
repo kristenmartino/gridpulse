@@ -54,7 +54,7 @@ def layout() -> html.Div:
                                     },
                                 ),
                                 type="circle",
-                                color="#38D0FF",
+                                color="#3b82f6",
                             ),
                             className="chart-container",
                         ),
@@ -90,7 +90,7 @@ def _quick_nav() -> html.Div:
             "tab_id": "tab-outlook",
             "icon": "trending_up",
             "desc": "Demand predictions & confidence",
-            "color": "#38D0FF",
+            "color": "#3b82f6",
         },
         {
             "label": "Risk",
