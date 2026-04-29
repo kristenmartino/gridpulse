@@ -3337,24 +3337,54 @@ def register_callbacks(app):
         stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
         stress_color = "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
 
+        from components.icons import icon as _icon
+
         breakdown_items = []
         if n_crit:
             breakdown_items.append(
                 html.Div(
-                    f"🔴 Critical: {n_crit}", style={"fontSize": "0.75rem", "color": "#FF5C7A"}
+                    [
+                        _icon(
+                            "alert-triangle",
+                            size="xs",
+                            className="gp-stress-row__icon gp-stress-row__icon--critical",
+                        ),
+                        html.Span(f"Critical: {n_crit}"),
+                    ],
+                    className="gp-stress-row gp-stress-row--critical",
                 )
             )
         if n_warn:
             breakdown_items.append(
-                html.Div(f"🟡 Warning: {n_warn}", style={"fontSize": "0.75rem", "color": "#FFB84D"})
+                html.Div(
+                    [
+                        _icon(
+                            "alert-circle",
+                            size="xs",
+                            className="gp-stress-row__icon gp-stress-row__icon--warning",
+                        ),
+                        html.Span(f"Warning: {n_warn}"),
+                    ],
+                    className="gp-stress-row gp-stress-row--warning",
+                )
             )
         if n_info:
             breakdown_items.append(
-                html.Div(f"🔵 Info: {n_info}", style={"fontSize": "0.75rem", "color": "#56B4E9"})
+                html.Div(
+                    [
+                        _icon(
+                            "info",
+                            size="xs",
+                            className="gp-stress-row__icon gp-stress-row__icon--info",
+                        ),
+                        html.Span(f"Info: {n_info}"),
+                    ],
+                    className="gp-stress-row gp-stress-row--info",
+                )
             )
         if not alerts:
             breakdown_items.append(
-                html.Div("No active alerts", style={"fontSize": "0.75rem", "color": "#A8B3C7"})
+                html.Div("No active alerts", className="gp-stress-row gp-stress-row--empty")
             )
         breakdown = html.Div(breakdown_items)
 

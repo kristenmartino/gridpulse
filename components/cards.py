@@ -107,20 +107,29 @@ def build_alert_card(
         severity: "critical", "warning", or "info".
         expires: Optional expiry time string.
     """
-    icon = {"critical": "🔴", "warning": "🟡", "info": "🔵"}.get(severity, "ℹ️")
+    from components.icons import icon
+
+    icon_name = {
+        "critical": "alert-triangle",
+        "warning": "alert-circle",
+        "info": "info",
+    }.get(severity, "info")
 
     return html.Div(
         [
             html.Div(
                 [
-                    html.Span(f"{icon} ", style={"fontSize": "1rem"}),
-                    html.Strong(event, style={"color": "#ffffff"}),
+                    icon(
+                        icon_name,
+                        size="sm",
+                        className=f"alert-card__icon alert-card__icon--{severity}",
+                    ),
+                    html.Strong(event, className="alert-card__title"),
                 ],
+                className="alert-card__header",
             ),
-            html.P(
-                headline, style={"margin": "4px 0 0 0", "fontSize": "0.8rem", "color": "#A8B3C7"}
-            ),
-            html.Small(f"Expires: {expires}", style={"color": "#A8B3C7"}) if expires else None,
+            html.P(headline, className="alert-card__body"),
+            html.Small(f"Expires: {expires}", className="alert-card__expires") if expires else None,
         ],
         className=f"alert-card {severity}",
     )

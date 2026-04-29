@@ -159,21 +159,29 @@ def build_layout() -> dbc.Container:
             # Per-Widget confidence badges (A4 + E3) — hidden carrier element
             html.Div(id="widget-confidence-bar", style={"display": "none"}),
             # Tab strip (4 visible: Overview / Forecast / Risk / Models)
-            dbc.Tabs(
-                id="dashboard-tabs",
-                active_tab="tab-overview",
-                children=[
-                    _tab("tab-overview", tab_overview.layout),
-                    _tab("tab-outlook", tab_demand_outlook.layout),
-                    _tab("tab-alerts", tab_alerts.layout),
-                    _tab("tab-models", tab_models.layout),
-                    # ── Hidden tabs (DOM resident; folded into visible tabs in R4) ──
-                    _tab("tab-forecast", tab_forecast.layout),
-                    _tab("tab-backtest", tab_backtest.layout),
-                    _tab("tab-generation", tab_generation.layout),
-                    _tab("tab-weather", tab_weather.layout),
-                    _tab("tab-simulator", tab_simulator.layout),
-                ],
+            # R5b: wrapped in <main role="main"> so the skip-to-content
+            # link lands here and screen readers announce the page's
+            # main content region. The dbc.Tabs strip itself is the
+            # primary navigation control.
+            html.Main(
+                dbc.Tabs(
+                    id="dashboard-tabs",
+                    active_tab="tab-overview",
+                    children=[
+                        _tab("tab-overview", tab_overview.layout),
+                        _tab("tab-outlook", tab_demand_outlook.layout),
+                        _tab("tab-alerts", tab_alerts.layout),
+                        _tab("tab-models", tab_models.layout),
+                        # ── Hidden tabs (DOM resident; absorbed in R4) ──
+                        _tab("tab-forecast", tab_forecast.layout),
+                        _tab("tab-backtest", tab_backtest.layout),
+                        _tab("tab-generation", tab_generation.layout),
+                        _tab("tab-weather", tab_weather.layout),
+                        _tab("tab-simulator", tab_simulator.layout),
+                    ],
+                ),
+                id="main-content",
+                role="main",
             ),
             # Data Stores
             dcc.Store(id="news-store"),

@@ -85,7 +85,9 @@ if (document.readyState === 'loading') {
 // Skip-to-content link (screen readers)
 (function() {
     const skip = document.createElement('a');
-    skip.href = '#tab-content';
+    // R5b: <main id="main-content"> now wraps the tab strip so the
+    // skip-link lands the user past the header on activation.
+    skip.href = '#main-content';
     skip.textContent = 'Skip to main content';
     skip.className = 'sr-only sr-only-focusable';
     skip.style.cssText = 'position:absolute;top:-40px;left:0;background:#3b82f6;color:#0a0a0b;' +
