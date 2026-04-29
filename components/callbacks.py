@@ -4202,6 +4202,70 @@ def register_callbacks(app):
             return no_update
         return _build_generation_panel(region, demand_json)
 
+    # Scenarios panel — preset chip click writes deltas into the 3 sliders.
+    @app.callback(
+        [
+            Output("forecast-scn-temp", "value"),
+            Output("forecast-scn-wind", "value"),
+            Output("forecast-scn-solar", "value"),
+        ],
+        Input({"type": "scenario-preset", "index": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def apply_scenario_preset(_clicks):
+        """Apply a preset's temperature/wind/solar deltas to the three sliders."""
+        from components.tab_demand_outlook import _SCENARIO_PRESETS
+
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict) or "index" not in triggered:
+            return no_update, no_update, no_update
+        # Ignore noop dispatches with all-zero clicks
+        if not any(c for c in (_clicks or []) if c):
+            return no_update, no_update, no_update
+        preset = _SCENARIO_PRESETS.get(triggered["index"])
+        if not preset:
+            return no_update, no_update, no_update
+        deltas = preset["deltas"]
+        return deltas["temp"], deltas["wind"], deltas["solar"]
+
+    # Slider readouts (clientside — instant, no Python round-trip)
+    for _key, _unit in (("temp", "°F"), ("wind", "mph"), ("solar", "W/m²")):
+        app.clientside_callback(
+            f"function(v) {{ if (v === null || v === undefined) return '0 {_unit}'; "
+            f"const sign = v > 0 ? '+' : ''; return sign + v + ' {_unit}'; }}",
+            Output(f"forecast-scn-{_key}-readout", "children"),
+            Input(f"forecast-scn-{_key}", "value"),
+        )
+
+    @app.callback(
+        [
+            Output("forecast-scenarios-kpis", "children"),
+            Output("forecast-scenarios-chart", "figure"),
+        ],
+        [
+            Input("forecast-panel-scenarios-collapse", "is_open"),
+            Input("forecast-scn-temp", "value"),
+            Input("forecast-scn-wind", "value"),
+            Input("forecast-scn-solar", "value"),
+            Input("region-selector", "value"),
+            Input("demand-store", "data"),
+        ],
+        State("dashboard-tabs", "active_tab"),
+    )
+    def update_forecast_scenarios_panel(
+        is_open, temp_d, wind_d, solar_d, region, demand_json, active_tab
+    ):
+        """Render the 4-up delta MetricsBar + baseline-vs-scenario chart.
+
+        Lazy: only fires when the collapse is open and the user is on the
+        Forecast tab. Uses a heuristic impact model (no full ensemble re-run)
+        so the slider feels instant; the existing Scenarios tab still hosts
+        the trained-model simulation for full-fidelity what-ifs.
+        """
+        if active_tab != "tab-outlook" or not is_open:
+            return no_update, no_update
+        return _build_scenarios_panel(temp_d, wind_d, solar_d, region, demand_json)
+
     @app.callback(
         Output("outlook-title", "children"),
         [
@@ -5540,6 +5604,186 @@ def _generation_empty() -> html.Div:
         "No generation data available for this region.",
         className="gp-panel__placeholder",
     )
+
+
+def _build_scenarios_panel(
+    temp_delta: int | float | None,
+    wind_delta: int | float | None,
+    solar_delta: int | float | None,
+    region: str | None,
+    demand_json: str | None,
+) -> tuple[html.Div, go.Figure]:
+    """Heuristic scenario impact + baseline-vs-scenario comparison chart.
+
+    Returns ``(kpi_bar, figure)``. The math is a deliberate simplification:
+    no model re-run, just a linear demand-sensitivity factor against the
+    current 24h forecast. Real ensemble simulation lives in the (now hidden)
+    Scenarios tab and the simulation/scenario_engine module — exposing
+    full-fidelity here would need model loading on every slider drag.
+
+    Sensitivities (calibrated against typical residential cooling/heating
+    response in U.S. balancing authorities):
+      * temp_delta: ±2.5 % demand per +5 °F above 65 °F (cooling) and per
+        −5 °F below 65 °F (heating). Symmetric for simplicity.
+      * wind_delta: ±0.6 % renewable share per +1 mph (caps at 30 % share).
+      * solar_delta: ±0.05 % renewable share per +1 W/m² (caps similarly).
+    """
+    region = region or "FPL"
+    temp_delta = float(temp_delta or 0)
+    wind_delta = float(wind_delta or 0)
+    solar_delta = float(solar_delta or 0)
+
+    # Base forecast (next 24h ensemble)
+    horizon = 24
+    base_y: np.ndarray | None = None
+    last_actual_ts: pd.Timestamp | None = None
+
+    if demand_json:
+        try:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+            demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
+            demand_df = demand_df.sort_values("timestamp")
+            from models.model_service import get_forecasts
+
+            forecasts = get_forecasts(region, demand_df, models_shown=["ensemble"])
+            ens = forecasts.get("ensemble")
+            if ens is not None and len(ens) >= horizon:
+                base_y = np.asarray(ens[:horizon], dtype=float)
+                last_actual_ts = demand_df["timestamp"].iloc[-1]
+        except Exception as exc:  # pragma: no cover
+            log.warning("forecast_scenario_baseline_failed", region=region, error=str(exc))
+
+    if base_y is None or last_actual_ts is None:
+        kpi_empty = build_metrics_bar(
+            [
+                {"label": "Δ Peak", "value": "—", "tone": "secondary", "hero": True},
+                {"label": "Δ Reserve", "value": "—", "tone": "secondary"},
+                {"label": "Δ Renewable", "value": "—", "tone": "secondary"},
+                {"label": "Δ Confidence", "value": "—", "tone": "secondary"},
+            ]
+        )
+        kpi_empty.className = "gp-metrics-bar gp-metrics-bar--4up"
+        return (kpi_empty, _empty_figure("Awaiting baseline forecast"))
+
+    # ── Heuristic scenario forecast ────────────────────────────
+    # Demand response is dominated by temperature; wind/solar shift the
+    # renewable share (which we surface separately) but barely move demand.
+    demand_factor = 1.0 + (temp_delta / 5.0) * 0.025  # ±2.5% per 5°F
+    scenario_y = base_y * demand_factor
+
+    base_peak = float(np.max(base_y))
+    scenario_peak = float(np.max(scenario_y))
+    delta_peak_mw = scenario_peak - base_peak
+    delta_peak_pct = (delta_peak_mw / base_peak * 100.0) if base_peak > 0 else 0.0
+
+    capacity = REGION_CAPACITY_MW.get(region, 100_000)
+    base_reserve = (capacity - base_peak) / capacity * 100.0
+    scenario_reserve = (capacity - scenario_peak) / capacity * 100.0
+    delta_reserve_pp = scenario_reserve - base_reserve
+
+    # Renewable share heuristic — wind: 0.6 %/mph; solar: 0.05 %/(W/m²)
+    delta_renewable_pp = wind_delta * 0.6 + solar_delta * 0.05
+    delta_renewable_pp = max(min(delta_renewable_pp, 30.0), -30.0)
+
+    # Confidence delta: bigger temp swings widen the band roughly linearly
+    # (forecast residuals grow with abs(temp_delta) outside ±10°F band).
+    delta_confidence_pp = -min(abs(temp_delta) / 5.0, 10.0)  # negative pp
+
+    # ── KPI bar ────────────────────────────────────────────────
+    peak_tone = (
+        "negative"
+        if delta_peak_pct > 0.5
+        else ("positive" if delta_peak_pct < -0.5 else "secondary")
+    )
+    reserve_tone = (
+        "positive"
+        if delta_reserve_pp > 0.1
+        else ("negative" if delta_reserve_pp < -0.1 else "secondary")
+    )
+    renewable_tone = (
+        "positive"
+        if delta_renewable_pp > 0.5
+        else ("negative" if delta_renewable_pp < -0.5 else "secondary")
+    )
+    kpis = build_metrics_bar(
+        [
+            {
+                "label": "Δ Peak",
+                "value": f"{delta_peak_mw:+,.0f}",
+                "unit": f"MW ({delta_peak_pct:+.1f}%)",
+                "tone": peak_tone,
+                "hero": True,
+            },
+            {
+                "label": "Δ Reserve",
+                "value": f"{delta_reserve_pp:+.1f}",
+                "unit": "pp",
+                "tone": reserve_tone,
+            },
+            {
+                "label": "Δ Renewable",
+                "value": f"{delta_renewable_pp:+.1f}",
+                "unit": "pp",
+                "tone": renewable_tone,
+            },
+            {
+                "label": "Δ Confidence",
+                "value": f"{delta_confidence_pp:+.1f}",
+                "unit": "pp",
+                "tone": "secondary",
+            },
+        ]
+    )
+    kpis.className = "gp-metrics-bar gp-metrics-bar--4up"
+
+    # ── Baseline vs scenario chart ─────────────────────────────
+    forecast_ts = pd.date_range(
+        start=last_actual_ts + pd.Timedelta(hours=1),
+        periods=horizon,
+        freq="h",
+    )
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=forecast_ts,
+            y=base_y,
+            mode="lines",
+            name="Baseline",
+            line=dict(color="#3b82f6", width=1.75),
+            hovertemplate="<b>Baseline</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast_ts,
+            y=scenario_y,
+            mode="lines",
+            name="Scenario",
+            line=dict(color="#f97316", width=1.75, dash="dash"),
+            hovertemplate="<b>Scenario</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        **_layout(
+            uirevision=f"scn-{region}",
+            xaxis=dict(
+                showgrid=False,
+                linecolor="rgba(255,255,255,0.04)",
+                tickfont=dict(color="#71717a", size=10),
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="rgba(255,255,255,0.04)",
+                zeroline=False,
+                tickformat=",.0f",
+                tickfont=dict(color="#71717a", size=10),
+                title=None,
+            ),
+            margin=dict(l=48, r=16, t=16, b=36),
+            showlegend=True,
+        ),
+    )
+    return kpis, fig
 
 
 def _driver_sparkline(df: pd.DataFrame, column: str, color: str, fillcolor: str) -> go.Figure:

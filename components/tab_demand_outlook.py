@@ -316,19 +316,110 @@ def _panel_generation() -> dbc.Collapse:
     )
 
 
-def _panel_scenarios_stub() -> dbc.Collapse:
-    """Scenarios inline panel — content lands in R4a-4."""
+_SCENARIO_PRESETS: dict[str, dict] = {
+    # 5 preset chips — heuristic deltas vs the current baseline (not absolute
+    # weather targets). Translated from simulation/presets.py historical
+    # scenarios into "delta from typical conditions".
+    "heat_dome": {
+        "label": "Heat Dome",
+        "sub": "+25°F · clear sky",
+        "deltas": {"temp": 25, "wind": -5, "solar": 200},
+    },
+    "polar_vortex": {
+        "label": "Polar Vortex",
+        "sub": "−30°F · windy",
+        "deltas": {"temp": -30, "wind": 10, "solar": -100},
+    },
+    "calm_overcast": {
+        "label": "Calm Overcast",
+        "sub": "Δ0°F · still / cloudy",
+        "deltas": {"temp": 0, "wind": -8, "solar": -150},
+    },
+    "windy_cool": {
+        "label": "Windy Cool",
+        "sub": "−10°F · 20 mph",
+        "deltas": {"temp": -10, "wind": 8, "solar": -50},
+    },
+    "eclipse": {
+        "label": "Solar Eclipse",
+        "sub": "Δ0°F · solar zero",
+        "deltas": {"temp": 0, "wind": 0, "solar": -200},
+    },
+}
+
+
+def _scenario_preset_chips() -> list:
+    """Five preset buttons — clicking each writes deltas into the slider store."""
+    return [
+        html.Button(
+            [
+                html.Span(info["label"], className="gp-preset-chip__label"),
+                html.Span(info["sub"], className="gp-preset-chip__sub"),
+            ],
+            id={"type": "scenario-preset", "index": key},
+            n_clicks=0,
+            type="button",
+            className="gp-preset-chip",
+        )
+        for key, info in _SCENARIO_PRESETS.items()
+    ]
+
+
+def _scenario_slider(slider_id: str, label: str, lo: int, hi: int, unit: str) -> html.Div:
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Span(label, className="gp-slider__label"),
+                    html.Span(
+                        id=f"forecast-scn-{slider_id}-readout",
+                        children=f"0 {unit}",
+                        className="gp-slider__readout tabular",
+                    ),
+                ],
+                className="gp-slider__header",
+            ),
+            dcc.Slider(
+                id=f"forecast-scn-{slider_id}",
+                min=lo,
+                max=hi,
+                step=1,
+                value=0,
+                marks={lo: f"{lo}", 0: "0", hi: f"+{hi}"},
+                updatemode="mouseup",
+                tooltip={"placement": "bottom", "always_visible": False},
+                className="gp-slider",
+            ),
+        ],
+        className="gp-slider-row",
+    )
+
+
+def _panel_scenarios() -> dbc.Collapse:
+    """Scenarios panel: preset chips + 3 sliders + delta KPIs + comparison chart."""
     return dbc.Collapse(
         html.Div(
             [
-                _panel_header("Scenarios", "What-if assumptions"),
-                html.P(
-                    "Scenarios panel content lands in R4a-4 — five preset chips "
-                    "(keyboard arrow-cycle + Enter-apply), debounced sliders for "
-                    "temperature/wind/solar deltas, side-by-side baseline-vs-scenario "
-                    "chart, and 4-up delta KPIs (ΔPeak / ΔReserve / ΔConfidence / "
-                    "ΔRenewable).",
-                    className="gp-panel__placeholder",
+                _panel_header(
+                    "Scenarios",
+                    "Stress-test demand against weather shifts",
+                ),
+                html.Div(_scenario_preset_chips(), className="gp-preset-chips"),
+                html.Div(
+                    [
+                        _scenario_slider("temp", "Temperature Δ", -20, 20, "°F"),
+                        _scenario_slider("wind", "Wind Δ", -10, 10, "mph"),
+                        _scenario_slider("solar", "Solar Δ", -200, 200, "W/m²"),
+                    ],
+                    className="gp-scenario-sliders",
+                ),
+                # 4-up delta KPI bar (callback fills)
+                html.Div(id="forecast-scenarios-kpis"),
+                # Baseline vs scenario chart (callback fills)
+                dcc.Graph(
+                    id="forecast-scenarios-chart",
+                    style={"height": "240px"},
+                    config={"displayModeBar": False, "responsive": True},
                 ),
             ],
             className="gp-panel",
@@ -391,8 +482,8 @@ def layout() -> html.Div:
                     _panel_drivers(),
                     # 7b. Generation panel (R4a-3 — working)
                     _panel_generation(),
-                    # 7c. Scenarios panel (R4a-4 placeholder)
-                    _panel_scenarios_stub(),
+                    # 7c. Scenarios panel (R4a-4 — working)
+                    _panel_scenarios(),
                     # 8. Footer
                     build_page_footer(),
                 ],
