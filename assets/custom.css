@@ -565,6 +565,123 @@ body::before {
     gap: var(--space-2);
 }
 
+/* ── Inline panel toggles + collapsing panels (R4a-2) ─────────────── */
+
+.gp-panel-toggles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.gp-panel-toggle {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-1);
+    padding: 6px 12px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    cursor: pointer;
+    transition: background-color var(--duration-fast) var(--ease),
+                border-color var(--duration-fast) var(--ease),
+                color var(--duration-fast) var(--ease);
+}
+
+.gp-panel-toggle:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-default);
+    color: var(--text-primary);
+}
+
+.gp-panel-toggle:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+}
+
+.gp-panel-toggle__sigil {
+    color: var(--accent-base);
+    font-weight: 600;
+}
+
+.gp-panel-toggle__label {
+    color: inherit;
+}
+
+.gp-panel-toggle__hint {
+    color: var(--text-disabled);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-left: var(--space-1);
+}
+
+/* Inline panel container (the body inside dbc.Collapse) */
+.gp-panel {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding: var(--card-padding);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    box-shadow: var(--edge-highlight);
+}
+
+.gp-panel__header {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+}
+
+.gp-panel__eyebrow {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gp-panel__hint {
+    color: var(--text-tertiary);
+    font-size: 12px;
+}
+
+.gp-panel__placeholder {
+    color: var(--text-tertiary);
+    font-size: 13px;
+    line-height: var(--leading-relaxed);
+    margin: 0;
+}
+
+/* 3-up grid for the Drivers panel (Temperature / Wind / Solar) */
+.gp-drivers-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4);
+}
+
+.gp-driver-cell {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    min-width: 0;
+}
+
+@media (max-width: 768px) {
+    .gp-drivers-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* Mobile: stack the 5 metric cells into 2 rows of 2-3 */
 @media (max-width: 768px) {
     .gp-metrics-bar {

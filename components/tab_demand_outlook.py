@@ -203,6 +203,139 @@ def _metrics_bar() -> html.Div:
     return html.Div(cells, className="gp-metrics-bar gp-metrics-bar--4up")
 
 
+def _panel_toggle_strip() -> html.Div:
+    """Three chip-buttons that expand inline panels under the Forecast tab.
+
+    Each toggle drives a ``dbc.Collapse`` whose ``is_open`` is toggled by
+    a tiny clientside callback. Lazy server-side rendering populates the
+    panel content only when it opens (saves render cost when closed).
+    """
+    return html.Div(
+        [
+            html.Div("Expand", className="gp-control-eyebrow"),
+            html.Div(
+                [
+                    _panel_toggle("drivers", "Drivers", "Weather"),
+                    _panel_toggle("generation", "Generation", "Fuel mix"),
+                    _panel_toggle("scenarios", "Scenarios", "What-if"),
+                ],
+                className="gp-panel-toggles",
+            ),
+        ],
+        className="gp-control",
+    )
+
+
+def _panel_toggle(key: str, label: str, hint: str) -> html.Button:
+    """Single toggle chip. Click flips the collapse panel's ``is_open``."""
+    return html.Button(
+        [
+            html.Span("+ ", className="gp-panel-toggle__sigil"),
+            html.Span(label, className="gp-panel-toggle__label"),
+            html.Span(hint, className="gp-panel-toggle__hint"),
+        ],
+        id=f"forecast-panel-toggle-{key}",
+        n_clicks=0,
+        type="button",
+        className="gp-panel-toggle",
+        **{"aria-expanded": "false", "aria-controls": f"forecast-panel-{key}"},
+    )
+
+
+def _panel_header(eyebrow: str, hint: str | None = None) -> html.Div:
+    children: list = [html.Div(eyebrow, className="gp-panel__eyebrow")]
+    if hint:
+        children.append(html.Span(hint, className="gp-panel__hint"))
+    return html.Div(children, className="gp-panel__header")
+
+
+def _panel_drivers() -> dbc.Collapse:
+    """Drivers panel: 3-up KPI mini-bar (Temperature / Wind / Solar)."""
+    return dbc.Collapse(
+        html.Div(
+            [
+                _panel_header(
+                    "Drivers",
+                    "Weather signals shaping the next-24h forecast",
+                ),
+                # Filled by the update_forecast_drivers_panel callback when
+                # the collapse opens. Initial children are skeleton cells.
+                html.Div(
+                    id="forecast-drivers-content",
+                    children=_drivers_skeleton(),
+                    className="gp-drivers-grid",
+                ),
+            ],
+            className="gp-panel",
+            id="forecast-panel-drivers",
+        ),
+        id="forecast-panel-drivers-collapse",
+        is_open=False,
+    )
+
+
+def _drivers_skeleton() -> list:
+    """3 placeholder cells while the Drivers callback computes."""
+    cells = []
+    for label in ("Temperature", "Wind", "Solar"):
+        cells.append(
+            html.Div(
+                [
+                    html.Div(label, className="gp-metric-label"),
+                    html.Span("—", className="gp-metric-value tabular"),
+                    html.Div("Loading…", className="gp-metric-sub"),
+                ],
+                className="gp-driver-cell",
+            )
+        )
+    return cells
+
+
+def _panel_generation_stub() -> dbc.Collapse:
+    """Generation inline panel — content lands in R4a-3."""
+    return dbc.Collapse(
+        html.Div(
+            [
+                _panel_header("Generation", "Fuel mix and renewable share"),
+                html.P(
+                    "Generation panel content lands in R4a-3 — stacked-area "
+                    "fuel mix sorted by emissions intensity, plus a renewable-share "
+                    "trend line and a 3-up sub-MetricsBar (Net Load / Renewable Share / "
+                    "Largest Source).",
+                    className="gp-panel__placeholder",
+                ),
+            ],
+            className="gp-panel",
+            id="forecast-panel-generation",
+        ),
+        id="forecast-panel-generation-collapse",
+        is_open=False,
+    )
+
+
+def _panel_scenarios_stub() -> dbc.Collapse:
+    """Scenarios inline panel — content lands in R4a-4."""
+    return dbc.Collapse(
+        html.Div(
+            [
+                _panel_header("Scenarios", "What-if assumptions"),
+                html.P(
+                    "Scenarios panel content lands in R4a-4 — five preset chips "
+                    "(keyboard arrow-cycle + Enter-apply), debounced sliders for "
+                    "temperature/wind/solar deltas, side-by-side baseline-vs-scenario "
+                    "chart, and 4-up delta KPIs (ΔPeak / ΔReserve / ΔConfidence / "
+                    "ΔRenewable).",
+                    className="gp-panel__placeholder",
+                ),
+            ],
+            className="gp-panel",
+            id="forecast-panel-scenarios",
+        ),
+        id="forecast-panel-scenarios-collapse",
+        is_open=False,
+    )
+
+
 def layout() -> html.Div:
     """Build the v2 linear-stack Forecast tab layout."""
     return html.Div(
@@ -249,7 +382,15 @@ def layout() -> html.Div:
                     html.Div(id="outlook-model-card"),
                     # 6. InsightCard (existing id; styled by the wrapper)
                     html.Div(id="tab2-insight-card", className="gp-insight-card-slot"),
-                    # 7. Footer
+                    # 7. Inline panel toggle strip (R4a-2)
+                    _panel_toggle_strip(),
+                    # 7a. Drivers panel (R4a-2 — working)
+                    _panel_drivers(),
+                    # 7b. Generation panel (R4a-3 placeholder)
+                    _panel_generation_stub(),
+                    # 7c. Scenarios panel (R4a-4 placeholder)
+                    _panel_scenarios_stub(),
+                    # 8. Footer
                     build_page_footer(),
                 ],
                 className="gp-section-stack",
