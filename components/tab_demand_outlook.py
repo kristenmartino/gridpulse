@@ -43,18 +43,39 @@ def _horizon_segmented() -> html.Div:
 
 
 def _model_segmented() -> html.Div:
-    """v2-style segmented control for active model."""
+    """v2-style segmented control for active model.
+
+    Production data path only carries XGBoost predictions: the scheduled
+    scoring job at ``jobs/phases.py:364`` writes only XGBoost output to
+    ``wattcast:forecast:{region}:1h``, and the v1 inline-compute fallback
+    in ``_run_forecast_outlook`` is gated by ``REQUIRE_REDIS`` (returns a
+    warming state instead of training Prophet / ARIMA on the request
+    thread). Surface only the option the data path can actually fulfill —
+    in dev (``REQUIRE_REDIS=False``) all four are still trainable inline,
+    so we keep the full segmented set there.
+
+    Plan: lift the single-option restriction once the scoring job is
+    extended to write Prophet + ARIMA + Ensemble predictions to Redis
+    alongside XGBoost (option B in the post-redesign discussion).
+    """
+    from config import REQUIRE_REDIS
+
+    if REQUIRE_REDIS:
+        options = [{"label": "XGBoost", "value": "xgboost"}]
+    else:
+        options = [
+            {"label": "XGBoost", "value": "xgboost"},
+            {"label": "Prophet", "value": "prophet"},
+            {"label": "ARIMA", "value": "arima"},
+            {"label": "Ensemble", "value": "ensemble"},
+        ]
+
     return html.Div(
         [
             html.Div("Model", className="gp-control-eyebrow"),
             dbc.RadioItems(
                 id="outlook-model",
-                options=[
-                    {"label": "XGBoost", "value": "xgboost"},
-                    {"label": "Prophet", "value": "prophet"},
-                    {"label": "ARIMA", "value": "arima"},
-                    {"label": "Ensemble", "value": "ensemble"},
-                ],
+                options=options,
                 value="xgboost",
                 inline=True,
                 className="gp-segmented",
