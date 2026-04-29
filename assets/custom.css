@@ -436,9 +436,142 @@ body::before {
     letter-spacing: 0.04em;
 }
 
+/* MetricsBar 4-up variant (Forecast tab) */
+.gp-metrics-bar--4up {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Sub-line under a metric value (e.g., timestamp under Peak) */
+.gp-metric-sub {
+    color: var(--text-disabled);
+    font-size: 10px;
+    line-height: 1.3;
+}
+
+/* ── Controls row (segmented horizon + model — Forecast tab) ───── */
+
+.gp-controls-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-6);
+    align-items: flex-end;
+}
+
+.gp-control {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.gp-control-eyebrow {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+}
+
+/* Segmented control — restyles dbc.RadioItems(inline=True) into a
+ * v2-style pill with an active-state background. The native radio
+ * is hidden; the label takes all interaction. */
+.gp-segmented {
+    display: inline-flex;
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: 2px;
+    gap: 0;
+    flex-wrap: nowrap;
+}
+
+.gp-segmented .form-check {
+    margin: 0;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+}
+
+.gp-segmented .form-check-input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.gp-segmented .form-check-label {
+    display: inline-block;
+    cursor: pointer;
+    padding: 5px 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    line-height: 1.2;
+    transition: color var(--duration-fast) var(--ease),
+                background-color var(--duration-fast) var(--ease);
+    margin: 0;
+    user-select: none;
+}
+
+.gp-segmented .form-check-label:hover {
+    color: var(--text-secondary);
+}
+
+.gp-segmented .form-check-input:checked + .form-check-label {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.gp-segmented .form-check-input:focus-visible + .form-check-label {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+}
+
+/* "Forecast as of" chip — small mono timestamp under the chart */
+.gp-as-of-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 4px 10px;
+    background: transparent;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-full);
+    align-self: flex-start;
+    margin-top: calc(-1 * var(--space-4));  /* tuck up under the chart card */
+}
+
+.gp-chip-label {
+    color: var(--text-disabled);
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.gp-chip-value {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-family: var(--font-mono);
+}
+
+/* InsightCard slot — when the children are populated by a callback that
+ * doesn't wrap them in .gp-insight-card itself, the slot div applies
+ * the shared eyebrow + paragraph rhythm. */
+.gp-insight-card-slot {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
 /* Mobile: stack the 5 metric cells into 2 rows of 2-3 */
 @media (max-width: 768px) {
     .gp-metrics-bar {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .gp-metrics-bar--4up {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
