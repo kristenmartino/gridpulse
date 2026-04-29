@@ -58,24 +58,17 @@ def _model_segmented() -> html.Div:
     extended to write Prophet + ARIMA + Ensemble predictions to Redis
     alongside XGBoost (option B in the post-redesign discussion).
     """
-    from config import REQUIRE_REDIS
-
-    if REQUIRE_REDIS:
-        # Stages 1+2 of scoring-job-multi-model: XGBoost / Prophet / ARIMA
-        # now all land in Redis (jobs/phases.py predict_and_write_forecast
-        # dispatches every loaded pickle). Ensemble follows in Stage 3.
-        options = [
-            {"label": "XGBoost", "value": "xgboost"},
-            {"label": "Prophet", "value": "prophet"},
-            {"label": "ARIMA", "value": "arima"},
-        ]
-    else:
-        options = [
-            {"label": "XGBoost", "value": "xgboost"},
-            {"label": "Prophet", "value": "prophet"},
-            {"label": "ARIMA", "value": "arima"},
-            {"label": "Ensemble", "value": "ensemble"},
-        ]
+    # All four models now land in Redis via jobs/phases.py
+    # predict_and_write_forecast (Stages 1–3 of scoring-job-multi-model.md).
+    # The dev/prod gate collapses now that Ensemble is computed in the
+    # scoring phase via inverse-MAPE weighting over each region's loaded
+    # models — same options either way.
+    options = [
+        {"label": "XGBoost", "value": "xgboost"},
+        {"label": "Prophet", "value": "prophet"},
+        {"label": "ARIMA", "value": "arima"},
+        {"label": "Ensemble", "value": "ensemble"},
+    ]
 
     return html.Div(
         [

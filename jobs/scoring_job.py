@@ -74,23 +74,30 @@ def _score_region(region: str) -> dict:
     arima_loaded = load_model(region, "arima")
 
     loaded_models: dict[str, object] = {}
+    # Stage 3: per-model MAPE harvested from each pickle's metadata, used
+    # to weight the ensemble inversely (lower MAPE → higher weight).
+    # None values fall back to equal weights inside compute_ensemble_weights.
+    model_mapes: dict[str, float | None] = {}
     if xgb_loaded is not None:
         xgb_model, xgb_meta = xgb_loaded
         loaded_models["xgboost"] = xgb_model
+        model_mapes["xgboost"] = xgb_meta.mape
         summary["model_version"] = xgb_meta.version
     if prophet_loaded is not None:
         prophet_model, prophet_meta = prophet_loaded
         loaded_models["prophet"] = prophet_model
+        model_mapes["prophet"] = prophet_meta.mape
         summary["prophet_version"] = prophet_meta.version
     if arima_loaded is not None:
         arima_model, arima_meta = arima_loaded
         loaded_models["arima"] = arima_model
+        model_mapes["arima"] = arima_meta.mape
         summary["arima_version"] = arima_meta.version
 
     has_features = phases.engineer_region_features(region_data) is not None
 
     if has_features and loaded_models:
-        fc_res = phases.predict_and_write_forecast(region_data, loaded_models)
+        fc_res = phases.predict_and_write_forecast(region_data, loaded_models, model_mapes)
         summary["phases"]["forecast"] = {
             "ok": fc_res.ok,
             **(fc_res.details if fc_res.ok else {"error": fc_res.error}),
