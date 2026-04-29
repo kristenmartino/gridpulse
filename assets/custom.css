@@ -334,6 +334,120 @@ select:disabled,
     opacity: 0.6;
 }
 
+/* ── Briefing Mode (R5c — projection / meeting-ready chrome) ───── */
+/*
+ * Toggled via body.briefing (clientside mirror of meeting-mode-store).
+ * Strips navigation, scales hero KPI + page title, hides the noise
+ * overlay (reads as banding on projector LCDs), and stamps a watermark
+ * in the lower-right of the header.
+ */
+
+body.briefing::before {
+    display: none;
+}
+
+body.briefing .nav-tabs {
+    display: none;
+}
+
+/* Hide secondary controls and toggle strips in projection */
+body.briefing .gp-panel-toggles,
+body.briefing .gp-controls-row,
+body.briefing .gp-as-of-chip,
+body.briefing .freshness-badge,
+body.briefing .modebar,
+body.briefing .modebar-container {
+    display: none !important;
+}
+
+/* Bigger breathing room between sections in projection */
+body.briefing .gp-section-stack {
+    gap: var(--space-12);
+}
+
+/* Page title scales up */
+body.briefing .gp-page-title__heading {
+    font-size: 36px;
+    letter-spacing: -0.025em;
+}
+
+body.briefing .gp-page-title__subtitle {
+    font-size: var(--text-md);
+}
+
+/* Hero KPI scales dramatically so it reads from across a room */
+body.briefing .gp-metric-value--hero {
+    font-size: 56px;
+    line-height: 1.05;
+}
+
+body.briefing .gp-metric-value {
+    font-size: 24px;
+}
+
+body.briefing .gp-metric-label {
+    font-size: 12px;
+}
+
+body.briefing .gp-chart-card {
+    padding: var(--space-8);
+}
+
+/* Insight card reads as the meeting-room subtitle */
+body.briefing .gp-insight-card__body {
+    font-size: 18px;
+    line-height: 1.6;
+}
+
+body.briefing .gp-insight-card__eyebrow {
+    font-size: 12px;
+}
+
+/* Header — keep the brand visible, hide the persona chip, slightly
+ * taller for breathing room. Region selector + Save View + Exit
+ * Briefing button stay accessible. */
+body.briefing .gp-header__chip {
+    display: none;
+}
+
+body.briefing .gp-header {
+    height: 64px;
+}
+
+body.briefing .gp-header__wordmark {
+    font-size: var(--text-xl);
+}
+
+/* Watermark — soft "GridPulse" stamp in the lower-right of the header,
+ * visually anchoring the projection screen even when nav is gone. */
+body.briefing .dashboard-header {
+    position: relative;
+}
+
+body.briefing .dashboard-header::after {
+    content: "GridPulse";
+    position: absolute;
+    right: var(--content-gutter);
+    bottom: -28px;
+    color: var(--text-tertiary);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    letter-spacing: 0.06em;
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+/* Exit-briefing button — emphasize so users can find it again */
+body.briefing #meeting-mode-btn.gp-header__link {
+    color: var(--accent-base);
+    background: var(--accent-dim);
+}
+
+body.briefing #meeting-mode-btn.gp-header__link:hover {
+    color: var(--text-primary);
+    background: var(--accent-base);
+}
+
 /* ── v2 Linear Stack Components (R2 of shell-redesign-v2.md) ───────────
  *
  * Mirrors gridpulse-v2's dashboard rhythm:

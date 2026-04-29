@@ -4216,7 +4216,23 @@ def register_callbacks(app):
 
         return widget_confidence_bar(freshness, age_seconds).children
 
-    # ── SPRINT 5: C9 — MEETING-READY MODE ─────────────────────
+    # ── SPRINT 5: C9 — BRIEFING MODE (R5c) ─────────────────────
+    # Clientside mirror — observes meeting-mode-store and toggles
+    # `body.briefing` so the CSS rules in assets/custom.css can hide
+    # the tab strip, scale type, and stamp the watermark. Also
+    # rewrites the toggle button's label between "Briefing Mode" and
+    # "Exit Briefing" so the user has a clear way out.
+    app.clientside_callback(
+        """
+        function(mode) {
+            const isOn = mode === 'true';
+            document.body.classList.toggle('briefing', isOn);
+            return isOn ? 'Exit Briefing' : 'Briefing Mode';
+        }
+        """,
+        Output("meeting-mode-btn", "children"),
+        Input("meeting-mode-store", "data"),
+    )
 
     @app.callback(
         [
@@ -4233,8 +4249,8 @@ def register_callbacks(app):
         """C9: Toggle meeting-ready (Briefing Mode) projection chrome.
 
         Strips navigation, freshness banner, and confidence-bar carriers.
-        Charts and narrative remain. R5c will add the body.briefing class
-        + watermark for the full v2-style projection treatment.
+        Charts and narrative remain. The clientside callback above mirrors
+        meeting-mode-store onto body.briefing for the v2 projection CSS.
         """
         is_meeting = current_mode != "true"
         new_mode = "true" if is_meeting else "false"
