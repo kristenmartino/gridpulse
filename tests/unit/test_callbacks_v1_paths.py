@@ -750,47 +750,34 @@ class TestLoadDataV1:
 
 
 class TestSwitchPersona:
-    """Tests for the switch_persona callback (lines 1698-1734)."""
+    """Tests for the persona-tab redirect callback.
 
-    def test_basic_persona_switch(self, callbacks):
-        """Basic persona switch returns welcome card, KPIs, and tab."""
-        mock_ctx = MagicMock()
-        mock_ctx.triggered_id = "persona-selector"
+    R3 of shell-redesign-v2.md trimmed the prior 3-output ``switch_persona``
+    (welcome / KPIs / active_tab) down to the single tab-redirect callback
+    ``switch_persona_default_tab``, since R3 deleted the standalone
+    ``welcome-card`` / ``kpi-cards`` divs that lived between the header and
+    the tab strip. Region changes no longer redirect the active tab — only
+    the persona selector does.
+    """
 
-        with patch("components.callbacks.ctx", mock_ctx):
-            # 5th arg = current_tab (State)
-            result = callbacks["switch_persona"]("grid_ops", "FPL", None, None, "tab-forecast")
+    def test_persona_change_redirects_to_default_tab(self, callbacks):
+        """Switching persona returns the persona's default_tab."""
+        result = callbacks["switch_persona_default_tab"]("grid_ops")
+        # grid_ops persona defaults to tab-overview
+        assert result == "tab-overview"
 
-        assert len(result) == 3
-        welcome, kpis, active_tab = result
-        assert welcome is not None
-        assert kpis is not None
-        # persona-selector triggered, so active_tab should be set
-        assert active_tab is not no_update
+    def test_renewables_persona_returns_its_default_tab(self, callbacks):
+        """Each persona has its own default_tab; the callback echoes it."""
+        result = callbacks["switch_persona_default_tab"]("renewables")
+        # default_tab for renewables persona — verify against config
+        from personas.config import get_persona
 
-    def test_region_change_does_not_switch_tab(self, callbacks):
-        """When region-selector triggers, active_tab should be no_update."""
-        mock_ctx = MagicMock()
-        mock_ctx.triggered_id = "region-selector"
+        assert result == get_persona("renewables").default_tab
 
-        with patch("components.callbacks.ctx", mock_ctx):
-            result = callbacks["switch_persona"]("grid_ops", "FPL", None, None, "tab-forecast")
-
-        welcome, kpis, active_tab = result
-        assert active_tab is no_update
-
-    def test_with_demand_data(self, callbacks):
-        """When demand_json is provided, switch_persona parses and builds KPIs."""
-        mock_ctx = MagicMock()
-        mock_ctx.triggered_id = "region-selector"
-
-        with patch("components.callbacks.ctx", mock_ctx):
-            result = callbacks["switch_persona"](
-                "renewables", "FPL", _demand_json(), _weather_json(), "tab-forecast"
-            )
-
-        assert len(result) == 3
-        assert result[0] is not None
+    def test_empty_persona_returns_no_update(self, callbacks):
+        """Falsy persona id should be a no-op (no_update)."""
+        result = callbacks["switch_persona_default_tab"](None)
+        assert result is no_update
 
 
 # ===================================================================

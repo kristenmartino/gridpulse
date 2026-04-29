@@ -1,15 +1,22 @@
-"""
-Main dashboard layout — header, persona switcher, region selector, KPI bar, tabs.
+"""Main dashboard layout — header, tab strip, data stores.
 
-CRITICAL: All 9 tab layouts are rendered statically inside dbc.Tab(children=...).
-This ensures every component ID always exists in the DOM. Dash Bootstrap handles
-showing/hiding tabs — we do NOT dynamically render tab content via callbacks.
+R3 of shell-redesign-v2.md. Header rebuilt to mirror gridpulse-v2's
+56px h-14 strip with monogram + Grid|Pulse wordmark on the left and
+region/persona/mode controls on the right. Tab strip reduced to 4
+visible tabs (Overview, Forecast, Risk, Models); five other tabs are
+still rendered into the DOM via ``tab_class_name="d-none"`` so their
+component IDs exist for callback safety. R4 will fold their content
+into the four visible tabs and remove the hidden tabs entirely.
+
+CRITICAL: All 9 tab layouts are still rendered statically inside
+``dbc.Tab(children=...)``. Hiding the tab strip button via Bootstrap's
+``d-none`` class keeps the panel content in the DOM (callbacks resolve)
+without exposing the navigation pill.
 """
 
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-# Import all tab layouts
 from components import (
     tab_alerts,
     tab_backtest,
@@ -24,195 +31,166 @@ from components import (
 from config import REGION_NAMES, TAB_LABELS
 from personas.config import list_personas
 
+# R3 visible-tab whitelist. Other tabs render but their pill is hidden.
+_VISIBLE_TABS = {"tab-overview", "tab-outlook", "tab-alerts", "tab-models"}
+
+# R3 surface the four visible tabs under v2-aligned labels regardless of
+# whatever name a hidden tab happens to use today.
+_VISIBLE_LABEL_OVERRIDES = {
+    "tab-overview": "Overview",
+    "tab-outlook": "Forecast",
+    "tab-alerts": "Risk",
+    "tab-models": "Models",
+}
+
+
+def _monogram() -> html.Span:
+    """Inline 24×24 SVG monogram. Same path data as ``assets/favicon.svg``."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" '
+        'class="gp-header__monogram" aria-hidden="true">'
+        '<rect width="32" height="32" rx="6" fill="#0a0a0b"/>'
+        '<path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16" '
+        'stroke="#3b82f6" stroke-width="2.25" '
+        'stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
+        "</svg>"
+    )
+    return html.Span(
+        dcc.Markdown(svg, dangerously_allow_html=True),
+        className="gp-header__monogram-wrap",
+    )
+
+
+def _build_header() -> html.Header:
+    """v2-aligned header: monogram + wordmark + region/persona/mode controls."""
+    persona_options = [
+        {"label": f"{p['avatar']} {p['title']}", "value": p["id"]} for p in list_personas()
+    ]
+    region_options = [{"label": name, "value": code} for code, name in REGION_NAMES.items()]
+
+    brand = html.Div(
+        [
+            _monogram(),
+            html.H1(
+                [
+                    html.Span("Grid", className="gp-header__wordmark-grid"),
+                    html.Span("Pulse", className="gp-header__wordmark-pulse"),
+                ],
+                className="gp-header__wordmark dashboard-title",
+            ),
+        ],
+        className="gp-header__brand",
+    )
+
+    controls = html.Div(
+        [
+            dbc.Select(
+                id="region-selector",
+                options=region_options,
+                value="FPL",
+                className="gp-header__select region-selector",
+            ),
+            dbc.Select(
+                id="persona-selector",
+                options=persona_options,
+                value="grid_ops",
+                className="gp-header__chip persona-switcher",
+            ),
+            html.Button(
+                "Briefing Mode",
+                id="meeting-mode-btn",
+                n_clicks=0,
+                className="gp-header__link",
+            ),
+            html.Button(
+                "Save View",
+                id="bookmark-btn",
+                n_clicks=0,
+                className="gp-header__link",
+            ),
+            # Hidden — kept for the freshness callback that writes here.
+            html.Div(id="header-freshness", style={"display": "none"}),
+        ],
+        className="gp-header__controls",
+    )
+
+    return html.Header(
+        html.Div([brand, controls], className="gp-header__inner"),
+        className="dashboard-header gp-header",
+        id="dashboard-header",
+    )
+
+
+def _tab(tab_id: str, layout_fn) -> dbc.Tab:
+    """Wrap a tab module's layout in ``dbc.Tab``. Hidden tabs use ``d-none``
+    on the pill so the panel renders without surfacing in the strip."""
+    label = _VISIBLE_LABEL_OVERRIDES.get(tab_id, TAB_LABELS.get(tab_id, tab_id))
+    is_visible = tab_id in _VISIBLE_TABS
+    return dbc.Tab(
+        layout_fn(),
+        label=label,
+        tab_id=tab_id,
+        tab_class_name="" if is_visible else "d-none",
+    )
+
 
 def build_layout() -> dbc.Container:
-    """Build the full dashboard layout with all 8 tabs pre-rendered."""
+    """Build the full dashboard layout (R3 — 4 visible tabs)."""
     return dbc.Container(
         [
-            # ── URL state for bookmarks (C2) ──────────────────────
+            # URL state for bookmarks (C2)
             dcc.Location(id="url", refresh=False),
-            # ── Interval for auto-refresh ──────────────────────────
+            # Auto-refresh interval
             dcc.Interval(id="refresh-interval", interval=300_000, n_intervals=0),
-            # ── Header ─────────────────────────────────────────────
-            html.Div(
-                [
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                [
-                                    html.H1("GridPulse", className="dashboard-title"),
-                                    html.P(
-                                        "Energy Intelligence Platform",
-                                        className="dashboard-subtitle",
-                                    ),
-                                ],
-                                md=4,
-                                className="d-flex flex-column justify-content-center",
-                            ),
-                            dbc.Col(
-                                [
-                                    html.Label(
-                                        "Balancing Authority",
-                                        style={"color": "#A8B3C7", "fontSize": "0.7rem"},
-                                    ),
-                                    dbc.Select(
-                                        id="region-selector",
-                                        options=[
-                                            {"label": name, "value": code}
-                                            for code, name in REGION_NAMES.items()
-                                        ],
-                                        value="FPL",
-                                        className="region-selector",
-                                    ),
-                                ],
-                                md=3,
-                                className="d-flex flex-column justify-content-center",
-                            ),
-                            dbc.Col(
-                                [
-                                    html.Label(
-                                        "View", style={"color": "#A8B3C7", "fontSize": "0.7rem"}
-                                    ),
-                                    dbc.Select(
-                                        id="persona-selector",
-                                        options=[
-                                            {
-                                                "label": f"{p['avatar']} {p['title']}",
-                                                "value": p["id"],
-                                            }
-                                            for p in list_personas()
-                                        ],
-                                        value="grid_ops",
-                                        className="persona-switcher",
-                                    ),
-                                ],
-                                md=2,
-                                className="d-flex flex-column justify-content-center",
-                            ),
-                            dbc.Col(
-                                [
-                                    html.Div(
-                                        [
-                                            dbc.Button(
-                                                "Briefing Mode",
-                                                id="meeting-mode-btn",
-                                                size="sm",
-                                                color="info",
-                                                outline=True,
-                                                className="me-2",
-                                                style={"fontSize": "0.75rem"},
-                                            ),
-                                            dbc.Button(
-                                                "Save View",
-                                                id="bookmark-btn",
-                                                size="sm",
-                                                color="secondary",
-                                                outline=True,
-                                                className="me-2",
-                                                style={"fontSize": "0.75rem"},
-                                            ),
-                                            html.Div(
-                                                id="header-freshness", style={"display": "none"}
-                                            ),
-                                        ],
-                                        className="d-flex flex-column align-items-end justify-content-center h-100",
-                                    ),
-                                ],
-                                md=3,
-                            ),
-                        ],
-                        align="center",
-                    ),
-                ],
-                className="dashboard-header",
-                id="dashboard-header",
-            ),
-            # ── Bookmark notification ──────────────────────────────
+            # Header
+            _build_header(),
+            # Bookmark / save-view toast
             html.Div(
                 id="bookmark-toast",
-                style={"position": "fixed", "top": "10px", "right": "10px", "zIndex": 9999},
+                style={
+                    "position": "fixed",
+                    "top": "10px",
+                    "right": "10px",
+                    "zIndex": 9999,
+                },
             ),
-            # ── Data Freshness Banner (G2) ─────────────────────────
+            # Data freshness banner (G2 — visible only when degraded)
             html.Div(id="fallback-banner"),
-            # ── Per-Widget Confidence Badges (A4 + E3) — hidden, moved to overview data health
+            # Per-Widget confidence badges (A4 + E3) — hidden carrier element
             html.Div(id="widget-confidence-bar", style={"display": "none"}),
-            # ── Welcome Card ───────────────────────────────────────
-            html.Div(id="welcome-card"),
-            # ── KPI Row ────────────────────────────────────────────
-            html.Div(id="kpi-cards"),
-            # ── Tabs (full width) ─────────────────────────────────
+            # Tab strip (4 visible: Overview / Forecast / Risk / Models)
             dbc.Tabs(
                 id="dashboard-tabs",
                 active_tab="tab-overview",
                 children=[
-                    dbc.Tab(
-                        tab_overview.layout(),
-                        label=TAB_LABELS["tab-overview"],
-                        tab_id="tab-overview",
-                    ),
-                    dbc.Tab(
-                        tab_forecast.layout(),
-                        label=TAB_LABELS["tab-forecast"],
-                        tab_id="tab-forecast",
-                    ),
-                    dbc.Tab(
-                        tab_demand_outlook.layout(),
-                        label=TAB_LABELS["tab-outlook"],
-                        tab_id="tab-outlook",
-                    ),
-                    dbc.Tab(
-                        tab_models.layout(),
-                        label=TAB_LABELS["tab-models"],
-                        tab_id="tab-models",
-                    ),
-                    dbc.Tab(
-                        tab_backtest.layout(),
-                        label=TAB_LABELS["tab-backtest"],
-                        tab_id="tab-backtest",
-                    ),
-                    dbc.Tab(
-                        tab_generation.layout(),
-                        label=TAB_LABELS["tab-generation"],
-                        tab_id="tab-generation",
-                    ),
-                    dbc.Tab(
-                        tab_weather.layout(),
-                        label=TAB_LABELS["tab-weather"],
-                        tab_id="tab-weather",
-                    ),
-                    dbc.Tab(
-                        tab_alerts.layout(),
-                        label=TAB_LABELS["tab-alerts"],
-                        tab_id="tab-alerts",
-                    ),
-                    dbc.Tab(
-                        tab_simulator.layout(),
-                        label=TAB_LABELS["tab-simulator"],
-                        tab_id="tab-simulator",
-                    ),
+                    _tab("tab-overview", tab_overview.layout),
+                    _tab("tab-outlook", tab_demand_outlook.layout),
+                    _tab("tab-alerts", tab_alerts.layout),
+                    _tab("tab-models", tab_models.layout),
+                    # ── Hidden tabs (DOM resident; folded into visible tabs in R4) ──
+                    _tab("tab-forecast", tab_forecast.layout),
+                    _tab("tab-backtest", tab_backtest.layout),
+                    _tab("tab-generation", tab_generation.layout),
+                    _tab("tab-weather", tab_weather.layout),
+                    _tab("tab-simulator", tab_simulator.layout),
                 ],
             ),
-            # ── Data Stores ────────────────────────────────────────
+            # Data Stores
             dcc.Store(id="news-store"),
             dcc.Store(id="demand-store"),
             dcc.Store(id="weather-store"),
             dcc.Store(id="features-store"),
             dcc.Store(id="models-store"),
             dcc.Store(id="alerts-store"),
-            # G2: Track whether each data source served fresh or stale data
             dcc.Store(id="data-freshness-store"),
-            # C9: Meeting-ready mode state (True/False)
             dcc.Store(id="meeting-mode-store", data="false"),
-            # D2: Latest audit record for display
             dcc.Store(id="audit-store"),
-            # I1: Latest pipeline log for diagnostics
             dcc.Store(id="pipeline-log-store"),
-            # AI briefing cache for Overview tab
             dcc.Store(id="briefing-store"),
-            # NEXD-8: Session snapshot for "What Changed" (persisted in localStorage)
+            # NEXD-8: Session snapshot for "What Changed" (R4a-reserved)
             dcc.Store(id="session-snapshot-store", storage_type="local"),
             dcc.Store(id="changes-store"),
-            # NEXD-9: User preferences (persisted in localStorage)
+            # NEXD-9: User preferences
             dcc.Store(id="user-prefs-store", storage_type="local"),
         ],
         fluid=True,

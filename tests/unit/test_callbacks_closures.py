@@ -422,30 +422,35 @@ class TestUpdateWidgetConfidence:
 
 
 class TestToggleMeetingMode:
-    """C9: Meeting-ready mode toggle callback (lines 3072-3088)."""
+    """C9: Briefing Mode (meeting-mode) toggle callback.
+
+    R3 trimmed the welcome-card style output (the underlying div was
+    deleted). Surviving outputs: meeting-mode-store, dashboard-header
+    className, widget-confidence-bar style, fallback-banner style.
+    """
 
     def test_toggle_on_from_false(self, callbacks):
         fn = callbacks["toggle_meeting_mode"]
-        mode, header_cls, welcome_style, conf_style, banner_style = fn(1, "false")
+        mode, header_cls, conf_style, banner_style = fn(1, "false")
         assert mode == "true"
         assert "meeting-mode" in header_cls
-        assert welcome_style == {"display": "none"}
         assert conf_style == {"display": "none"}
         assert banner_style == {"display": "none"}
 
     def test_toggle_off_from_true(self, callbacks):
         fn = callbacks["toggle_meeting_mode"]
-        mode, header_cls, welcome_style, conf_style, banner_style = fn(2, "true")
+        mode, header_cls, conf_style, banner_style = fn(2, "true")
         assert mode == "false"
-        assert header_cls == "dashboard-header"
-        assert welcome_style == {}
+        # R3: header className includes both dashboard-header + gp-header
+        assert "meeting-mode" not in header_cls
+        assert "dashboard-header" in header_cls
         assert conf_style == {}
         assert banner_style == {}
 
     def test_toggle_on_from_none(self, callbacks):
         fn = callbacks["toggle_meeting_mode"]
         # None != "true" => is_meeting = True
-        mode, header_cls, welcome_style, conf_style, banner_style = fn(1, None)
+        mode, header_cls, _conf_style, _banner_style = fn(1, None)
         assert mode == "true"
         assert "meeting-mode" in header_cls
 

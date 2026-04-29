@@ -35,7 +35,6 @@ from components.cards import (
     build_model_metrics_card,
     build_news_feed,
     build_page_title,
-    build_welcome_card,
 )
 from config import (
     CACHE_TTL_SECONDS,
@@ -46,7 +45,7 @@ from config import (
 )
 from data.redis_client import redis_get
 from hash_utils import stable_int_seed
-from personas.config import get_persona, get_welcome_card
+from personas.config import get_persona
 
 log = structlog.get_logger()
 
@@ -2249,67 +2248,27 @@ def register_callbacks(app):
                 json.dumps(pipeline_summary, default=str),
             )
 
-    # ── 2. PERSONA SWITCHING ──────────────────────────────────
+    # ── 2. PERSONA SWITCHING (R3) ─────────────────────────────
+    # R3 deleted the standalone ``welcome-card`` and ``kpi-cards`` divs that
+    # used to render between the header and the tab strip. Every visible
+    # tab now ships its own page-title block + KPI bar; persona switching
+    # only redirects the user to the persona's preferred default tab.
 
     @app.callback(
-        [
-            Output("welcome-card", "children"),
-            Output("kpi-cards", "children"),
-            Output("dashboard-tabs", "active_tab"),
-        ],
-        [
-            Input("persona-selector", "value"),
-            Input("region-selector", "value"),
-        ],
-        [
-            State("demand-store", "data"),
-            State("weather-store", "data"),
-            State("dashboard-tabs", "active_tab"),
-        ],
+        Output("dashboard-tabs", "active_tab"),
+        Input("persona-selector", "value"),
+        prevent_initial_call=True,
     )
-    def switch_persona(persona_id, region, demand_json, weather_json, current_tab):
-        """Reconfigure dashboard for selected persona with live data.
+    def switch_persona_default_tab(persona_id):
+        """Land the user on the persona's default tab when the persona changes.
 
-        Fires on persona change AND region change (immediate, no API wait).
-        Only switches active tab when the persona selector triggered the callback.
-        Hides standalone welcome/KPI cards when on overview tab (overview has its own).
+        Region changes no longer trigger a tab redirect — it's a noisy UX
+        when the user is mid-task in a non-default tab.
         """
+        if not persona_id:
+            return no_update
         persona = get_persona(persona_id)
-
-        # Only switch active tab when persona changed (not on region/data change)
-        triggered = ctx.triggered_id
-        active_tab = persona.default_tab if triggered == "persona-selector" else no_update
-
-        # Determine which tab we'll land on
-        landing_tab = active_tab if active_tab is not no_update else current_tab
-
-        # On overview tab, hide standalone welcome/KPI (overview has its own inline versions)
-        if landing_tab == "tab-overview":
-            return html.Div(), html.Div(), active_tab
-
-        card_data = get_welcome_card(persona_id)
-
-        from personas.welcome import generate_welcome_message
-
-        # Parse from the demand-store; Redis fast path has already populated it.
-        demand_df = None
-        weather_df = None
-        if demand_json:
-            demand_df = pd.read_json(io.StringIO(demand_json))
-            if weather_json:
-                weather_df = pd.read_json(io.StringIO(weather_json))
-
-        message = generate_welcome_message(persona_id, region, demand_df, weather_df)
-
-        welcome = build_welcome_card(
-            title=card_data["title"],
-            message=message,
-            avatar=card_data["avatar"],
-            color=card_data["color"],
-        )
-        kpis = _build_persona_kpis(persona_id, region, demand_df, weather_df)
-
-        return welcome, kpis, active_tab
+        return persona.default_tab
 
     # ── 2b. PERSONA TAB VISIBILITY (AC-7.5) ──────────────────
     # NOTE: dbc.Tab uses tab_id (not id) and does not support dynamic
@@ -4160,7 +4119,6 @@ def register_callbacks(app):
         [
             Output("meeting-mode-store", "data"),
             Output("dashboard-header", "className"),
-            Output("welcome-card", "style"),
             Output("widget-confidence-bar", "style"),
             Output("fallback-banner", "style"),
         ],
@@ -4169,29 +4127,25 @@ def register_callbacks(app):
         prevent_initial_call=True,
     )
     def toggle_meeting_mode(n_clicks, current_mode):
-        """C9: Toggle meeting-ready mode.
+        """C9: Toggle meeting-ready (Briefing Mode) projection chrome.
 
-        Meeting mode strips navigation chrome, filters, and sidebars.
-        Reformats for projection/PDF: charts expand, narrative becomes
-        slide title, annotations remain.
+        Strips navigation, freshness banner, and confidence-bar carriers.
+        Charts and narrative remain. R5c will add the body.briefing class
+        + watermark for the full v2-style projection treatment.
         """
         is_meeting = current_mode != "true"
         new_mode = "true" if is_meeting else "false"
 
         if is_meeting:
-            # Hide non-essential UI elements
-            header_class = "dashboard-header meeting-mode"
-            welcome_style = {"display": "none"}
+            header_class = "dashboard-header gp-header meeting-mode"
             confidence_style = {"display": "none"}
             banner_style = {"display": "none"}
         else:
-            # Restore normal mode
-            header_class = "dashboard-header"
-            welcome_style = {}
+            header_class = "dashboard-header gp-header"
             confidence_style = {}
             banner_style = {}
 
-        return new_mode, header_class, welcome_style, confidence_style, banner_style
+        return new_mode, header_class, confidence_style, banner_style
 
     # ── DEMAND OUTLOOK TAB ──────────────────────────────────────
 
