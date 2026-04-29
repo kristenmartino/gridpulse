@@ -76,8 +76,10 @@ def layout() -> html.Div:
                 "Forecast vs Actual Demand",
                 height="450px",
             ),
-            # AI insight card
-            html.Div(id="tab3-insight-card"),
+            # AI insight card — R4c moved tab3-insight-card to the visible
+            # Models tab; Backtest is hidden post-R3 so we keep an inert
+            # placeholder div here (no callback Output targets it).
+            html.Div(id="backtest-insight-card", style={"display": "none"}),
             # ── Accuracy Metrics ─────────────────────────
             _section_header("Accuracy Metrics", "Trust indicators from holdout evaluation"),
             # Metrics row
