@@ -2762,7 +2762,42 @@ def register_callbacks(app):
 
         return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
 
-    # ── 6. MODELS TAB: COMPARISON & DIAGNOSTICS ────────────────────────────
+    # ── 6. MODELS TAB (R4c — v2 linear stack) ──────────────────────────
+    # Existing 6-output update_models_tab callback below is preserved.
+    # Two small new callbacks fill the v2 title block + leaderboard.
+
+    @app.callback(
+        Output("models-title", "children"),
+        [
+            Input("region-selector", "value"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+    )
+    def update_models_title(region, active_tab):
+        """Page title for the Models tab."""
+        if active_tab != "tab-models":
+            return no_update
+        from config import REGION_NAMES
+
+        region = region or "FPL"
+        region_name = REGION_NAMES.get(region, region)
+        return build_page_title(
+            "Models",
+            f"Forecast accuracy, residuals, and feature importance · {region_name}",
+        )
+
+    @app.callback(
+        Output("models-leaderboard", "children"),
+        [
+            Input("region-selector", "value"),
+            Input("dashboard-tabs", "active_tab"),
+        ],
+    )
+    def update_models_leaderboard(region, active_tab):
+        """5-up MetricsBar leaderboard — one column per model with MAPE."""
+        if active_tab != "tab-models":
+            return no_update
+        return _build_models_leaderboard(region)
 
     @app.callback(
         [
@@ -5642,6 +5677,71 @@ def _generation_empty() -> html.Div:
         "No generation data available for this region.",
         className="gp-panel__placeholder",
     )
+
+
+def _build_models_leaderboard(region: str | None) -> html.Div:
+    """5-up MetricsBar leaderboard — Prophet / SARIMAX / XGBoost / Ensemble / EIA.
+
+    Hero highlight goes to the model with the lowest MAPE. Sub-line shows
+    MAE; tone reflects the MAPE grade band (positive ≤ 2.5%, secondary
+    ≤ 5%, negative > 5%).
+    """
+    region = region or "FPL"
+    try:
+        from models.model_service import get_model_metrics
+    except ImportError:  # pragma: no cover
+        return html.Div()
+
+    metrics_dict = get_model_metrics(region) or {}
+    if not metrics_dict:
+        return html.Div(
+            "Model metrics not yet available for this region.",
+            className="gp-panel__placeholder",
+        )
+
+    order = ("prophet", "arima", "xgboost", "ensemble", "eia")
+    display_names = {
+        "prophet": "Prophet",
+        "arima": "SARIMAX",
+        "xgboost": "XGBoost",
+        "ensemble": "Ensemble",
+        "eia": "EIA Reference",
+    }
+
+    # Hero pick: model with lowest mape
+    valid = [(k, v) for k, v in metrics_dict.items() if isinstance(v, dict) and "mape" in v]
+    hero_key = min(valid, key=lambda kv: float(kv[1].get("mape", 999)))[0] if valid else None
+
+    items: list[dict] = []
+    for key in order:
+        if key not in metrics_dict:
+            continue
+        m = metrics_dict[key]
+        mape = float(m.get("mape", 0.0))
+        mae = float(m.get("mae", 0.0))
+        if mape <= 2.5:
+            tone = "positive"
+        elif mape <= 5.0:
+            tone = "secondary"
+        else:
+            tone = "negative"
+        items.append(
+            {
+                "label": display_names.get(key, key.title()),
+                "value": f"{mape:.1f}%",
+                "unit": f"MAE {mae:,.0f}",
+                "tone": tone,
+                "hero": key == hero_key,
+            }
+        )
+    if not items:
+        return html.Div(
+            "Model metrics not yet available for this region.",
+            className="gp-panel__placeholder",
+        )
+    bar = build_metrics_bar(items)
+    bar.className = f"gp-metrics-bar gp-metrics-bar--{len(items)}up"
+    return bar
 
 
 def _build_risk_insight(
