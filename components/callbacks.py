@@ -4545,15 +4545,26 @@ def register_callbacks(app):
         result = _run_forecast_outlook(demand_df, weather_df, horizon_hours, model_name, region)
 
         if "error" in result:
+            # Soften the warming case (pipeline still populating Redis after
+            # a deploy / cache eviction) — that's an expected transient state,
+            # not a hard failure. Keep the loud message for genuine errors.
+            is_warming = result["error"] == "warming"
+            text = (
+                "Pipeline is warming up — forecast will appear shortly"
+                if is_warming
+                else f"Forecast failed: {result['error']}"
+            )
+            color = "#71717a" if is_warming else "#f87171"  # tertiary | danger
             fig = go.Figure()
             fig.update_layout(**_layout(uirevision=uirev))
             fig.add_annotation(
-                text=f"Forecast failed: {result['error']}",
+                text=text,
                 xref="paper",
                 yref="paper",
                 x=0.5,
                 y=0.5,
                 showarrow=False,
+                font=dict(color=color, size=14),
             )
             return (
                 fig,
