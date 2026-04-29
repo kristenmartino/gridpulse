@@ -402,7 +402,11 @@ FEATURE_FLAGS: dict[str, bool] = {
     "smart_defaults": True,  # NEXD-9: remember last filter state in localStorage
     "cross_tab_links": True,  # NEXD-11: contextual links between tabs
     "inline_tooltips": True,  # NEXD-13: SHAP-based per-point forecast tooltips
-    "forecast_replay": True,  # NEXD-14: time-scrub replay for historical forecasts
+    # NEXD-14 / shell-redesign post-R6: replay surfaces stale snapshots and
+    # competes with the v2 Forecast tab's hero rhythm. Re-enable once the
+    # snapshot pipeline is producing fresh data; backtesting belongs in the
+    # Models tab in the meantime.
+    "forecast_replay": False,
 }
 
 

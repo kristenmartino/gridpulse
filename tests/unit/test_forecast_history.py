@@ -710,7 +710,10 @@ class TestFeatureFlag:
 
         assert "forecast_replay" in FEATURE_FLAGS
 
-    def test_forecast_replay_flag_enabled(self):
+    def test_forecast_replay_flag_disabled(self):
+        """Replay was retired post-redesign (PR #51) — surfaces stale snapshots
+        and competes with the v2 hero rhythm. The flag still exists so it can
+        be re-enabled once the snapshot pipeline produces fresh data."""
         from config import feature_enabled
 
-        assert feature_enabled("forecast_replay") is True
+        assert feature_enabled("forecast_replay") is False
