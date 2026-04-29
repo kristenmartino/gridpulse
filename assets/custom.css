@@ -441,6 +441,18 @@ body::before {
     grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+/* MetricsBar 3-up variant (Generation panel sub-bar) */
+.gp-metrics-bar--3up {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* Generation stack — sub-MetricsBar above stacked-area chart */
+.gp-generation-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
 /* Sub-line under a metric value (e.g., timestamp under Peak) */
 .gp-metric-sub {
     color: var(--text-disabled);
