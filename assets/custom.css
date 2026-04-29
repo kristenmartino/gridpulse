@@ -180,6 +180,160 @@ body::before {
     font-variant-numeric: tabular-nums;
 }
 
+/* ── Inline Lucide icons (R5b) ─────────────────────────────────── */
+
+:root {
+    --icon-xs: 12px;
+    --icon-sm: 14px;
+    --icon-md: 16px;
+    --icon-lg: 20px;
+    --icon-xl: 24px;
+}
+
+.icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: -0.125em;
+    flex-shrink: 0;
+    line-height: 0;
+    color: currentColor;
+}
+
+.icon svg {
+    display: block;
+    stroke: currentColor;
+    fill: none;
+    flex-shrink: 0;
+}
+
+.icon--xs svg { width: var(--icon-xs); height: var(--icon-xs); }
+.icon--sm svg { width: var(--icon-sm); height: var(--icon-sm); }
+.icon--md svg { width: var(--icon-md); height: var(--icon-md); }
+.icon--lg svg { width: var(--icon-lg); height: var(--icon-lg); }
+.icon--xl svg { width: var(--icon-xl); height: var(--icon-xl); }
+
+/* dcc.Markdown wraps the SVG in a <p> — collapse that wrapping. */
+.icon p {
+    margin: 0;
+    padding: 0;
+    line-height: 0;
+}
+
+/* Severity tinting for alert-card icons */
+.alert-card__icon {
+    margin-right: var(--space-2);
+}
+
+.alert-card__icon--critical { color: var(--danger); }
+.alert-card__icon--warning  { color: var(--warning); }
+.alert-card__icon--info     { color: var(--info); }
+
+/* Risk MetricsBar stress-breakdown rows */
+.gp-stress-row {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    font-size: 11px;
+    font-weight: 500;
+    background: var(--bg-base);
+    border: 1px solid var(--border-subtle);
+}
+
+.gp-stress-row--critical { color: var(--danger); border-color: var(--danger-dim); }
+.gp-stress-row--warning  { color: var(--warning); border-color: var(--warning-dim); }
+.gp-stress-row--info     { color: var(--info); border-color: var(--info-dim); }
+.gp-stress-row--empty    { color: var(--text-tertiary); }
+
+.gp-stress-row__icon--critical { color: var(--danger); }
+.gp-stress-row__icon--warning  { color: var(--warning); }
+.gp-stress-row__icon--info     { color: var(--info); }
+
+.alert-card__header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.alert-card__title {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.alert-card__body {
+    margin: var(--space-1) 0 0 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.alert-card__expires {
+    color: var(--text-tertiary);
+    font-size: 10px;
+}
+
+/* ── Micro-craft: selection / scrollbar / caret / cursor (R5b) ──── */
+
+::selection {
+    background: var(--accent-dim);
+    color: var(--text-primary);
+}
+
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-base);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bg-elevated);
+    border-radius: var(--radius-full);
+    border: 2px solid var(--bg-base);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--bg-hover);
+}
+
+/* Firefox uses scrollbar-color (different model) */
+* {
+    scrollbar-color: var(--bg-elevated) var(--bg-base);
+    scrollbar-width: thin;
+}
+
+:root {
+    caret-color: var(--accent-base);
+}
+
+/* Cursor states — pointer on every truly interactive surface */
+button,
+[role="button"],
+.nav-link,
+.preset-btn,
+.gp-panel-toggle,
+.gp-preset-chip,
+.gp-header__link,
+.gp-segmented .form-check-label,
+.cross-tab-link,
+.overview-quick-nav-card {
+    cursor: pointer;
+}
+
+button:disabled,
+[role="button"][aria-disabled="true"],
+input:disabled,
+select:disabled,
+.disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
 /* ── v2 Linear Stack Components (R2 of shell-redesign-v2.md) ───────────
  *
  * Mirrors gridpulse-v2's dashboard rhythm:
