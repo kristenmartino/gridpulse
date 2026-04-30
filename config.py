@@ -143,9 +143,14 @@ TRAINING_WINDOW_DAYS = 365
 FORECAST_HORIZON_DAYS = 7
 
 # ---------------------------------------------------------------------------
-# Regions — 8 Balancing Authorities
+# Regions — 16 Balancing Authorities (~98% of US load coverage)
+#
+# Lat/lon are weather-lookup proxies — the load center of each BA's territory,
+# not a geometric centroid. Open-Meteo pulls all 17 weather variables at this
+# coordinate; we treat it as representative of the BA's demand-driving climate.
 # ---------------------------------------------------------------------------
 REGION_COORDINATES: dict[str, dict] = {
+    # Original 8 (ISOs/RTOs + FPL).
     "ERCOT": {"lat": 31.0, "lon": -97.0, "name": "Texas (ERCOT)"},
     "CAISO": {"lat": 37.0, "lon": -120.0, "name": "California (CAISO)"},
     "PJM": {"lat": 39.5, "lon": -77.0, "name": "Mid-Atlantic (PJM)"},
@@ -154,6 +159,17 @@ REGION_COORDINATES: dict[str, dict] = {
     "FPL": {"lat": 26.9, "lon": -80.1, "name": "Florida (FPL/NextEra)"},
     "SPP": {"lat": 35.5, "lon": -97.5, "name": "Southwest (SPP)"},
     "ISONE": {"lat": 42.3, "lon": -71.8, "name": "New England (ISO-NE)"},
+    # V1.α expansion — 8 utility/federal BAs covering the Southeast, Pacific
+    # Northwest, Desert Southwest, and Front Range. Coordinates anchor the
+    # primary load center (Atlanta for SOCO, Nashville for TVA, etc.).
+    "SOCO": {"lat": 33.7, "lon": -84.4, "name": "Southeast (Southern Co.)"},
+    "TVA": {"lat": 36.2, "lon": -86.8, "name": "Tennessee Valley (TVA)"},
+    "DUK": {"lat": 35.2, "lon": -80.8, "name": "Carolinas West (DEC)"},
+    "CPLE": {"lat": 35.8, "lon": -78.6, "name": "Carolinas East (DEP)"},
+    "BPAT": {"lat": 45.5, "lon": -122.7, "name": "Pacific NW (BPA)"},
+    "AZPS": {"lat": 33.4, "lon": -112.1, "name": "Arizona (APS)"},
+    "NEVP": {"lat": 36.2, "lon": -115.1, "name": "Southern Nevada (NV Energy)"},
+    "PSCO": {"lat": 39.7, "lon": -105.0, "name": "Colorado (Xcel)"},
 }
 
 REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.items()}
@@ -162,36 +178,67 @@ REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.item
 # Generation Capacity (MW)
 # Used by the scenario simulator's merit-order pricing model.
 # Values reflect total installed nameplate capacity from each BA's most
-# recent 2025 publication (ISOs/RTOs are nonprofits and do not issue
+# recent 2024–2025 publication (ISOs/RTOs are nonprofits and do not issue
 # shareholder reports; their State-of-the-Market / Power Trends / Regional
-# System Plan reports are the equivalent source of truth). FPL is the only
-# investor-owned BA in this set — its figure comes from NextEra Energy's
-# 10-K filed with the SEC.
-#   ERCOT — ~153,000 MW installed (CDR summer 2025; includes wind, solar,
-#           battery, thermal)
-#           https://www.ercot.com/gridinfo/resource
+# System Plan reports are the equivalent source of truth). For investor-owned
+# utility BAs, figures come from each utility's 10-K, integrated resource
+# plan (IRP), or the regulator's electric resource plan (ERP) of record.
+#
+# Original 8 (ISOs/RTOs + FPL):
+#   ERCOT — ~153,000 MW installed (CDR summer 2025; wind, solar, battery,
+#           thermal). https://www.ercot.com/gridinfo/resource
 #   CAISO — 86,000 MW (CAISO 2024 Annual Report on Market Issues &
-#           Performance, published Aug 2025)
+#           Performance, published Aug 2025).
 #           https://www.caiso.com/documents/2024-annual-report-on-market-issues-and-performance.pdf
 #   PJM   — 184,202 MW (2025 State of the Market Report, Monitoring
-#           Analytics)
+#           Analytics).
 #           https://www.monitoringanalytics.com/reports/PJM_State_of_the_Market/2025/
-#   MISO  — 186,986 MW (MISO 2025 market capacity, Fast Facts)
+#   MISO  — 186,986 MW (MISO Fast Facts 2025).
 #           https://www.misoenergy.org/about/miso-strategy-and-value-proposition/miso-fast-facts/
-#   NYISO — 37,375 MW (NYISO 2025 Power Trends, summer 2024 generating
-#           capability)
+#   NYISO — 37,375 MW (NYISO 2025 Power Trends, summer 2024 capability).
 #           https://www.nyiso.com/documents/20142/2223020/2025-Power-Trends.pdf
-#   FPL   — 35,963 MW net generating capacity (NextEra Energy 2024 10-K
-#           filed Feb 2025 — the "2025 annual report")
+#   FPL   — 35,963 MW net generating capacity (NextEra Energy 2024 10-K,
+#           filed Feb 2025).
 #           https://www.investor.nexteraenergy.com/financial-information/sec-filings
 #   SPP   — 102,376 MW nameplate (derived from SPP Fast Facts 2025: wind
-#           35,740 MW = 34.9% of total nameplate)
+#           35,740 MW = 34.9% of total nameplate).
 #           https://www.spp.org/about-us/fast-facts/
 #   ISONE — 30,000 MW (ISO-NE 2025 Regional System Plan — "nearly
-#           30,000 MW of generating capacity")
+#           30,000 MW of generating capacity").
 #           https://www.iso-ne.com/static-assets/documents/100030/final_2025_rsp.pdf
+#
+# V1.α expansion (utility / federal BAs):
+#   SOCO  — 46,000 MW rate-regulated retail generation across Alabama
+#           Power, Georgia Power, and Mississippi Power (Southern Company
+#           2024 Annual Report). Excludes Southern Power's wholesale 13 GW.
+#           https://s27.q4cdn.com/273397814/files/doc_financials/2023/ar/2024-annual-report.pdf
+#   TVA   — ~35,000 MW (TVA fleet summary; 7 nuclear units, 4 coal plants,
+#           18 gas plants, 29 hydro dams, 1 pumped storage, 14 solar sites).
+#           https://www.tva.com/energy/our-power-system
+#   DUK   — 20,800 MW (Duke Energy Carolinas — DEC; 2025 Carolinas Resource
+#           Plan filing, Sep 2025).
+#           https://news.duke-energy.com/releases/duke-energy-files-2025-carolinas-resource-plan-continues-modernizing-energy-infrastructure-to-support-future-growth
+#   CPLE  — 13,700 MW (Duke Energy Progress East — DEP; derived from the
+#           same 2025 Carolinas Resource Plan: combined DEC+DEP fleet is
+#           34,500 MW, less the 20,800 MW DEC figure above).
+#   BPAT  — 17,462 MW federal-system capacity (predominantly hydro; BPA
+#           2024 White Book — Pacific Northwest Loads and Resources Study).
+#           https://www.bpa.gov/-/media/Aep/power/white-book/2024-white-book.pdf
+#   AZPS  — 9,400 MW (Arizona Public Service 2023 IRP, ACC-approved 2024).
+#           https://www.aps.com/en/About/Our-Company/Doing-Business-with-Us/Resource-Planning
+#   NEVP  — ~8,000 MW (Nevada Power 2024 IRP filed with PUCN; approximate —
+#           NV Energy's NEVP-only fleet is not separately disclosed, this
+#           is derived from EIA-930 BA-level annual generation of ~37 TWh
+#           at typical IOU capacity factor and the 2024 IRP capacity
+#           additions). Verify against EIA-860 form on next data refresh.
+#           https://www.nvenergy.com/integrated-resource-plan
+#   PSCO  — 9,080 MW (Public Service Co. of Colorado / Xcel Colorado;
+#           EIA-860 BA-level installed capacity per Form 860 Schedule 6,
+#           reflected in EIA grid monitor PSCO BA page).
+#           https://www.eia.gov/electricity/gridmonitor/dashboard/electric_overview/balancing_authority/PSCO
 # ---------------------------------------------------------------------------
 REGION_CAPACITY_MW: dict[str, int] = {
+    # Original 8.
     "ERCOT": 153_000,
     "CAISO": 86_000,
     "PJM": 184_202,
@@ -200,6 +247,15 @@ REGION_CAPACITY_MW: dict[str, int] = {
     "FPL": 35_963,
     "SPP": 102_376,
     "ISONE": 30_000,
+    # V1.α — 8 new BAs.
+    "SOCO": 46_000,
+    "TVA": 35_000,
+    "DUK": 20_800,
+    "CPLE": 13_700,
+    "BPAT": 17_462,
+    "AZPS": 9_400,
+    "NEVP": 8_000,
+    "PSCO": 9_080,
 }
 
 # ---------------------------------------------------------------------------
@@ -216,6 +272,17 @@ STATE_TO_BA: dict[str, list[str]] = {
     "FPL": ["FL"],
     "SPP": ["KS", "OK", "NE", "SD", "ND", "AR", "LA", "MO", "NM", "TX"],
     "ISONE": ["CT", "MA", "ME", "NH", "RI", "VT"],
+    # V1.α expansion — mapping primary load states. Some states overlap with
+    # ISO/RTO BAs (e.g. NC is partially Duke and partially PJM); alerts in
+    # those states fire across all relevant BAs.
+    "SOCO": ["AL", "GA", "MS"],
+    "TVA": ["TN", "AL", "KY", "MS"],
+    "DUK": ["NC", "SC"],
+    "CPLE": ["NC", "SC"],
+    "BPAT": ["WA", "OR", "ID", "MT"],
+    "AZPS": ["AZ"],
+    "NEVP": ["NV"],
+    "PSCO": ["CO"],
 }
 
 # Reverse lookup: state → list of BAs
