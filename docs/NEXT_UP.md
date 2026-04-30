@@ -8,26 +8,18 @@ Each item below has explicit **acceptance criteria** and a **rough effort estima
 
 Both option-B PRs are merged. Verification is the only thing left between the user-visible Forecast tab being honest end-to-end. **Until V0 closes, don't ship V1+.**
 
-### V0.1 — Redeploy scoring Cloud Run Job
+### V0.1 — Trigger scoring run + verify
 
-The Cloud Run **service** (`gridpulse`) auto-deploys from `main`. The Cloud Run **Job** (`gridpulse-scoring-job`) does **not** — it needs an explicit image push. This caught us once with Stage 1 ([context](https://github.com/kristenmartino/gridpulse/pull/53#issuecomment)); easy to miss again.
+`.github/workflows/deploy-prod.yml` auto-deploys both the Cloud Run **service** (`gridpulse`) and the Cloud Run **Jobs** (`gridpulse-scoring-job`, `gridpulse-training-job`) on every push to `main` — see `docs/SCHEDULED_JOBS.md`. The only user-driven step is to trigger a manual scoring run instead of waiting for the next hourly tick, then confirm all four models land in the logs.
 
 ```bash
-# 1. Build + push image
-gcloud builds submit --tag gcr.io/<project>/gridpulse:multi-model
+# 1. Confirm the CI deploy succeeded for the latest main commit
+gh run list --workflow deploy-prod.yml --branch main --limit 1
 
-# 2. Update the Cloud Run Job
-gcloud run jobs update gridpulse-scoring-job \
-  --image=gcr.io/<project>/gridpulse:multi-model \
-  --region=<region>
+# 2. Manual run — don't wait for the hourly tick
+gcloud run jobs execute gridpulse-scoring-job --region=us-east1 --wait
 
-# 3. Memory bump if needed (loaded models grow ~3× since Stage 3)
-gcloud run jobs update gridpulse-scoring-job --memory=1Gi --region=<region>
-
-# 4. Manual run — don't wait for hourly tick
-gcloud run jobs execute gridpulse-scoring-job --region=<region>
-
-# 5. Watch logs for per-region phase results
+# 3. Read recent logs for per-region phase results
 gcloud logging read 'resource.labels.job_name="gridpulse-scoring-job"' \
   --limit=30 --format='value(textPayload, jsonPayload)'
 ```
@@ -200,7 +192,7 @@ Captured for future planning sessions, not actionable today:
 
 | Item | Status | PR / Doc |
 |---|---|---|
-| V0.1 Redeploy scoring Cloud Run Job | open | n/a |
+| V0.1 Trigger scoring run + verify | open | n/a |
 | V0.2 Verify Redis carries 4 model keys | open | n/a |
 | V0.3 UI walkthrough | open | n/a |
 | V1.α Region expansion (16 BAs) | scoped | [`scoring-job-multi-model.md`](../.claude/plans/us-grid-expansion.md) |
