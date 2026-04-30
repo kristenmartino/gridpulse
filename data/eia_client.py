@@ -37,6 +37,7 @@ INITIAL_BACKOFF_SECONDS = 2.0
 # Map internal region names to EIA API respondent codes
 # EIA uses abbreviated codes that differ from common names
 EIA_REGION_CODES = {
+    # Original 8.
     "ERCOT": "ERCO",
     "FPL": "FPL",
     "CAISO": "CISO",
@@ -45,6 +46,17 @@ EIA_REGION_CODES = {
     "NYISO": "NYIS",
     "ISONE": "ISNE",
     "SPP": "SWPP",
+    # V1.α — 8 new BAs. Internal name == EIA-930 respondent code for all
+    # of these; listed explicitly to keep the mapping comprehensive rather
+    # than relying on the identity fallback in `_get_eia_code`.
+    "SOCO": "SOCO",
+    "TVA": "TVA",
+    "DUK": "DUK",
+    "CPLE": "CPLE",
+    "BPAT": "BPAT",
+    "AZPS": "AZPS",
+    "NEVP": "NEVP",
+    "PSCO": "PSCO",
 }
 
 
