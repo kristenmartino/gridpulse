@@ -24,7 +24,12 @@ gcloud logging read 'resource.labels.job_name="gridpulse-scoring-job"' \
   --limit=30 --format='value(textPayload, jsonPayload)'
 ```
 
-**Acceptance**: log line `forecast {ok=True, models=['arima', 'ensemble', 'prophet', 'xgboost']}` for each region. **Effort**: 5 min.
+**Acceptance** (all from the `gcloud logging read` output above):
+- `scoring_job_complete ok_count=8 fail_count=0 failed_regions=[]` — every region's pipeline finished cleanly.
+- Three `model_loaded` lines per region (one each for `xgboost`, `prophet`, `arima`) — 24 total. Ensemble is computed in-process and never loaded from disk.
+- One `scoring_ensemble_*` line per region confirms the ensemble path executed. Until the first training tick after [afd6a49](https://github.com/kristenmartino/gridpulse/commit/afd6a49) writes prophet/arima holdout MAPEs into the trained-model `.meta.json`, expect `scoring_ensemble_equal_weights_fallback`; afterward, expect MAPE-derived weights with no fallback log.
+
+**Effort**: 5 min.
 
 ### V0.2 — Verify Redis carries all four model keys
 
