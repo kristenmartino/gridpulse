@@ -456,19 +456,29 @@ def predict_and_write_forecast(
                 if m is not None and m > 0 and np.isfinite(m):
                     mape_input[name] = float(m)
             try:
-                if mape_input:
+                # Only inverse-MAPE-weight when EVERY predicting model has a
+                # valid MAPE. Partial coverage silently degrades the ensemble
+                # to whichever model happens to have its MAPE recorded — fall
+                # back to equal weights so each predicting model contributes.
+                if mape_input and len(mape_input) == len(predictions_by_model):
                     ensemble_weights = compute_ensemble_weights(mape_input)
-                    # Renormalize over models that actually produced output —
-                    # some models in mape_input may have been dropped already.
-                    ensemble_weights = {
-                        k: v for k, v in ensemble_weights.items() if k in predictions_by_model
-                    }
                     total = sum(ensemble_weights.values()) or 1.0
                     ensemble_weights = {k: v / total for k, v in ensemble_weights.items()}
+                else:
+                    n = len(predictions_by_model)
+                    ensemble_weights = {name: 1.0 / n for name in predictions_by_model}
+                    if mape_input:
+                        log.info(
+                            "scoring_ensemble_equal_weights_fallback",
+                            region=region,
+                            have_mape=sorted(mape_input.keys()),
+                            missing_mape=sorted(set(predictions_by_model) - set(mape_input)),
+                        )
                 ensemble_preds = ensemble_combine(predictions_by_model, ensemble_weights)
             except Exception as exc:  # pragma: no cover — defensive
                 log.warning("scoring_ensemble_failed", region=region, error=str(exc))
                 ensemble_preds = None
+                ensemble_weights = None
 
         # Pick the primary that powers ``predicted_demand_mw`` for back-compat.
         # XGBoost when available; otherwise the first successful model.
