@@ -68,12 +68,81 @@ def _train_xgboost(region_data: phases.RegionData) -> str | None:
     )
 
 
+_HOLDOUT_HOURS = 168
+_MIN_TRAIN_HOURS = 720  # need at least 30 days of training before a 7-day holdout
+
+
+def _holdout_mape_prophet(featured_df, region: str) -> float | None:
+    """Compute Prophet's MAPE on the last ``_HOLDOUT_HOURS`` of ``featured_df``.
+
+    Returns ``None`` when the window is too short or the holdout train/predict
+    fails for any reason — the caller still trains a production model on the
+    full data; only the saved MAPE is missing in that case.
+    """
+    import numpy as np
+
+    from models.evaluation import compute_mape
+    from models.prophet_model import predict_prophet, train_prophet
+
+    if len(featured_df) <= _HOLDOUT_HOURS + _MIN_TRAIN_HOURS:
+        return None
+    train_df = featured_df.iloc[:-_HOLDOUT_HOURS]
+    val_df = featured_df.iloc[-_HOLDOUT_HOURS:]
+    try:
+        holdout_model = train_prophet(train_df)
+        pred = predict_prophet(holdout_model, val_df, periods=len(val_df))
+        forecast = np.asarray(pred["forecast"], dtype=float)[: len(val_df)]
+        y_val = np.asarray(val_df["demand_mw"].values, dtype=float)
+        mape = float(compute_mape(y_val, forecast))
+        if not np.isfinite(mape) or mape <= 0:
+            return None
+        log.info("training_prophet_holdout_mape", region=region, mape=round(mape, 3))
+        return mape
+    except Exception as e:
+        log.warning("training_prophet_holdout_failed", region=region, error=str(e))
+        return None
+
+
+def _holdout_mape_arima(featured_df, region: str) -> float | None:
+    """Compute SARIMAX's MAPE on the last ``_HOLDOUT_HOURS`` of ``featured_df``."""
+    import numpy as np
+
+    from models.arima_model import predict_arima, train_arima
+    from models.evaluation import compute_mape
+
+    if len(featured_df) <= _HOLDOUT_HOURS + _MIN_TRAIN_HOURS:
+        return None
+    train_df = featured_df.iloc[:-_HOLDOUT_HOURS]
+    val_df = featured_df.iloc[-_HOLDOUT_HOURS:]
+    try:
+        holdout_model = train_arima(train_df)
+        forecast = np.asarray(
+            predict_arima(holdout_model, val_df, periods=len(val_df)),
+            dtype=float,
+        )[: len(val_df)]
+        y_val = np.asarray(val_df["demand_mw"].values, dtype=float)
+        mape = float(compute_mape(y_val, forecast))
+        if not np.isfinite(mape) or mape <= 0:
+            return None
+        log.info("training_arima_holdout_mape", region=region, mape=round(mape, 3))
+        return mape
+    except Exception as e:
+        log.warning("training_arima_holdout_failed", region=region, error=str(e))
+        return None
+
+
 def _train_prophet(region_data: phases.RegionData) -> str | None:
-    """Best-effort Prophet training. Returns the saved version or ``None``."""
+    """Best-effort Prophet training. Returns the saved version or ``None``.
+
+    Trains twice: once on the train portion to score a holdout MAPE that
+    drives ensemble weighting at scoring time, and once on the full window
+    for the production model that gets persisted to GCS.
+    """
     from models.prophet_model import train_prophet
 
     region = region_data.region
     assert region_data.featured_df is not None
+    mape = _holdout_mape_prophet(region_data.featured_df, region)
     try:
         prophet_obj = train_prophet(region_data.featured_df)
     except Exception as e:
@@ -86,16 +155,20 @@ def _train_prophet(region_data: phases.RegionData) -> str | None:
         model_obj=prophet_obj,
         data_hash=_compute_data_hash(region_data),
         train_rows=len(region_data.featured_df),
-        mape=None,
+        mape=mape,
     )
 
 
 def _train_arima(region_data: phases.RegionData) -> str | None:
-    """Best-effort SARIMAX training. Returns the saved version or ``None``."""
+    """Best-effort SARIMAX training. Returns the saved version or ``None``.
+
+    Holdout-MAPE computation mirrors :func:`_train_prophet`.
+    """
     from models.arima_model import train_arima
 
     region = region_data.region
     assert region_data.featured_df is not None
+    mape = _holdout_mape_arima(region_data.featured_df, region)
     try:
         arima_dict = train_arima(region_data.featured_df)
     except Exception as e:
@@ -108,7 +181,7 @@ def _train_arima(region_data: phases.RegionData) -> str | None:
         model_obj=arima_dict,
         data_hash=_compute_data_hash(region_data),
         train_rows=len(region_data.featured_df),
-        mape=None,
+        mape=mape,
     )
 
 
