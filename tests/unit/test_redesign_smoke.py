@@ -50,18 +50,25 @@ def _layout_ids() -> set[str]:
 
 
 class TestTabStructure:
-    """V2.1 final state: 4 visible tabs, 0 hidden, 5 removed."""
+    """V1.β on top of V2.1: 5 visible tabs, 0 hidden, 5 removed."""
 
-    def test_visible_tab_count_is_four(self):
+    def test_visible_tab_count_is_five(self):
         from components.layout import _VISIBLE_TABS
 
-        assert len(_VISIBLE_TABS) == 4
-        assert {"tab-overview", "tab-outlook", "tab-alerts", "tab-models"} == _VISIBLE_TABS
+        assert len(_VISIBLE_TABS) == 5
+        assert {
+            "tab-overview",
+            "tab-us-grid",
+            "tab-outlook",
+            "tab-alerts",
+            "tab-models",
+        } == _VISIBLE_TABS
 
     def test_visible_tab_labels_match_v2_naming(self):
         from components.layout import _VISIBLE_LABEL_OVERRIDES
 
         assert _VISIBLE_LABEL_OVERRIDES["tab-overview"] == "Overview"
+        assert _VISIBLE_LABEL_OVERRIDES["tab-us-grid"] == "US Grid"
         assert _VISIBLE_LABEL_OVERRIDES["tab-outlook"] == "Forecast"
         assert _VISIBLE_LABEL_OVERRIDES["tab-alerts"] == "Risk"
         assert _VISIBLE_LABEL_OVERRIDES["tab-models"] == "Models"

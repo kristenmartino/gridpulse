@@ -40,6 +40,8 @@ from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
     REGION_CAPACITY_MW,
+    REGION_COORDINATES,
+    REGION_NAMES,
     REQUIRE_REDIS,
     WEATHER_VARIABLES,
 )
@@ -2340,6 +2342,103 @@ def register_callbacks(app):
                 style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
             )
             return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div)
+
+    # ── 3a-bis. V1.β + V1.γ: US GRID SMALL-MULTIPLES TAB ──────
+    # Bird's-eye view of all 16 BAs as a card grid OR a Plotly scatter_geo
+    # of BA centroids (Cards | Map toggle). Each card / map point click
+    # drills down into the Forecast tab for that region. Reads per-region
+    # actuals from Redis (warming/cold regions render an "—" placeholder
+    # in cards view; map view drops them).
+
+    @app.callback(
+        [
+            Output("us-grid-title", "children"),
+            Output("us-grid-metrics-bar", "children"),
+            Output("us-grid-region-grid", "children"),
+        ],
+        [
+            Input("dashboard-tabs", "active_tab"),
+            Input("refresh-interval", "n_intervals"),
+            Input("us-grid-view-toggle", "value"),
+        ],
+    )
+    def update_us_grid_snapshot(active_tab, _n_intervals, view):
+        """Render the US Grid tab's title, MetricsBar, and body (cards or map)."""
+        if active_tab != "tab-us-grid":
+            return [no_update] * 3
+
+        view = view or "cards"
+
+        try:
+            region_data = _collect_us_grid_region_data()
+            title = _build_us_grid_title(region_data)
+            metrics_items = _build_us_grid_metrics_items(region_data)
+            metrics_bar = build_metrics_bar(metrics_items)
+            metrics_bar.className = f"gp-metrics-bar gp-metrics-bar--{len(metrics_items)}up"
+
+            if view == "map":
+                body = _build_us_grid_map(region_data)
+            else:
+                cards = [
+                    _build_us_grid_region_card(region, region_data.get(region, {}))
+                    for region in REGION_NAMES
+                ]
+                body = html.Div(cards, className="gp-region-grid")
+
+            return (title, metrics_bar, body)
+        except Exception as exc:
+            log.exception("update_us_grid_snapshot_failed")
+            err_msg = f"{type(exc).__name__}: {exc}"
+            err_div = html.Div(
+                err_msg,
+                style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
+            )
+            return (err_div, html.Div(), err_div)
+
+    @app.callback(
+        [
+            Output("region-selector", "value", allow_duplicate=True),
+            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        ],
+        Input({"type": "us-grid-region-card", "region": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def drilldown_from_us_grid(n_clicks_list):
+        """Click a region card → open Forecast tab pre-set to that region."""
+        if not n_clicks_list or not any(n for n in n_clicks_list if n):
+            return no_update, no_update
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict) or triggered.get("type") != "us-grid-region-card":
+            return no_update, no_update
+        region = triggered.get("region")
+        if not region:
+            return no_update, no_update
+        return region, "tab-outlook"
+
+    @app.callback(
+        [
+            Output("region-selector", "value", allow_duplicate=True),
+            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        ],
+        Input("us-grid-map", "clickData"),
+        prevent_initial_call=True,
+    )
+    def drilldown_from_us_grid_map(click_data):
+        """Click a map point → open Forecast tab pre-set to that region.
+
+        Mirrors ``drilldown_from_us_grid`` (cards). Same outputs, same
+        downstream effect; the map hands the region code through
+        ``customdata`` instead of a pattern-matching component ID.
+        """
+        if not click_data:
+            return no_update, no_update
+        points = click_data.get("points") or []
+        if not points:
+            return no_update, no_update
+        region = points[0].get("customdata")
+        if not region:
+            return no_update, no_update
+        return region, "tab-outlook"
 
     # ── 3b. NEXD-8: SESSION CHANGE DETECTION ──────────────────
     # Snapshot store kept around even though the "What Changed" card is gone
@@ -6242,3 +6341,330 @@ def _run_backtest_for_horizon(
         log.debug("backtest_sqlite_write_failed", error=str(e))
 
     return result
+
+
+# ── V1.β: US GRID TAB HELPERS ────────────────────────────────
+
+
+def _collect_us_grid_region_data() -> dict[str, dict]:
+    """Pull per-region snapshots from Redis for the US Grid card grid.
+
+    Returns ``{region_code: {"current_mw", "prev_mw", "today_mw"}}`` for every
+    region in ``REGION_NAMES``. Regions without a Redis entry (cold pipeline,
+    new BAs awaiting their first scoring run) get an empty dict so the caller
+    can render an "—" placeholder card.
+    """
+    out: dict[str, dict] = {}
+    for region in REGION_NAMES:
+        actuals = redis_get(f"wattcast:actuals:{region}")
+        demand = (actuals or {}).get("demand_mw") or []
+        if not demand:
+            out[region] = {}
+            continue
+        out[region] = {
+            "current_mw": demand[-1],
+            "prev_mw": demand[-2] if len(demand) >= 2 else None,
+            "today_mw": demand[-24:],
+        }
+    return out
+
+
+def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
+    """Page title block: 'US Grid' + '<N> BAs · X.X GW total demand'."""
+    n_regions = len(REGION_NAMES)
+    n_with_data = sum(1 for d in region_data.values() if d.get("current_mw"))
+    total_mw = sum(d.get("current_mw") or 0 for d in region_data.values())
+    if total_mw > 0:
+        subtitle = (
+            f"{n_with_data} of {n_regions} balancing authorities reporting · "
+            f"{total_mw / 1000:.1f} GW total demand"
+        )
+    else:
+        subtitle = f"{n_regions} balancing authorities · pipeline warming up"
+    return build_page_title(title="US Grid", subtitle=subtitle)
+
+
+def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
+    """4-up MetricsBar items: Total Demand · Peak Today · Top-Stress BA · Lowest Reserve."""
+    populated = {r: d for r, d in region_data.items() if d.get("current_mw")}
+    if not populated:
+        return [
+            {"label": "Total Demand", "value": "—", "tone": "primary", "hero": True},
+            {"label": "National Peak (24h)", "value": "—"},
+            {"label": "Highest-Stress Region", "value": "—"},
+            {"label": "Lowest Reserve", "value": "—"},
+        ]
+
+    total_mw = sum(d["current_mw"] for d in populated.values())
+    peak_24h_mw = max(max(d.get("today_mw") or [0]) for d in populated.values())
+
+    stress_by_region = {
+        region: d["current_mw"] / cap
+        for region, d in populated.items()
+        if (cap := REGION_CAPACITY_MW.get(region, 0)) > 0
+    }
+    if stress_by_region:
+        top_region = max(stress_by_region, key=stress_by_region.get)
+        top_stress_pct = stress_by_region[top_region] * 100
+        lowest_reserve_pct = (1 - max(stress_by_region.values())) * 100
+        top_tone = "negative" if top_stress_pct >= 85 else "secondary"
+        reserve_tone = "negative" if lowest_reserve_pct < 15 else "secondary"
+        top_value = f"{top_region} · {top_stress_pct:.0f}%"
+        reserve_value = f"{lowest_reserve_pct:.0f}%"
+    else:
+        top_value = "—"
+        reserve_value = "—"
+        top_tone = "secondary"
+        reserve_tone = "secondary"
+
+    return [
+        {
+            "label": "Total Demand",
+            "value": f"{total_mw / 1000:.1f}",
+            "unit": "GW",
+            "tone": "primary",
+            "hero": True,
+        },
+        {"label": "National Peak (24h)", "value": f"{peak_24h_mw / 1000:.1f}", "unit": "GW"},
+        {"label": "Highest-Stress Region", "value": top_value, "tone": top_tone},
+        {"label": "Lowest Reserve", "value": reserve_value, "tone": reserve_tone},
+    ]
+
+
+def _build_us_grid_sparkline(values: list[float]) -> html.Div:
+    """Inline-SVG sparkline for the last ~24h of a region's demand."""
+    if not values or len(values) < 2:
+        return html.Div("", className="gp-region-card__sparkline gp-region-card__sparkline--empty")
+
+    width, height = 100.0, 28.0
+    vmin = min(values)
+    vmax = max(values)
+    vrange = max(vmax - vmin, 1.0)
+    n = len(values)
+    points = " ".join(
+        f"{i * width / (n - 1):.1f},{height - (v - vmin) / vrange * height:.1f}"
+        for i, v in enumerate(values)
+    )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:g} {height:g}" '
+        f'class="gp-region-card__sparkline-svg" preserveAspectRatio="none" '
+        f'aria-hidden="true">'
+        f'<polyline points="{points}" fill="none" stroke="currentColor" '
+        f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />'
+        f"</svg>"
+    )
+    return html.Div(
+        dcc.Markdown(svg, dangerously_allow_html=True),
+        className="gp-region-card__sparkline",
+    )
+
+
+def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
+    """One region card for the US Grid small-multiples grid.
+
+    Empty ``data`` (no Redis row yet) renders an "—" placeholder card that's
+    still clickable — drilling down lands on the Forecast tab so the user
+    can see the warming state per region rather than guessing.
+    """
+    name = REGION_NAMES.get(region, region)
+    card_id = {"type": "us-grid-region-card", "region": region}
+
+    if not data or data.get("current_mw") is None:
+        return html.Div(
+            [
+                html.Div(
+                    [html.Span(name, className="gp-region-card__name")],
+                    className="gp-region-card__header",
+                ),
+                html.Div("—", className="gp-region-card__demand-empty"),
+            ],
+            id=card_id,
+            n_clicks=0,
+            className="gp-region-card gp-region-card--empty",
+            title=f"{name} · pipeline warming up",
+        )
+
+    current_mw = data["current_mw"]
+    prev_mw = data.get("prev_mw")
+    today_mw = data.get("today_mw") or []
+    capacity_mw = REGION_CAPACITY_MW.get(region, 0)
+
+    delta_chip = None
+    if prev_mw and prev_mw > 0:
+        delta_pct = (current_mw - prev_mw) / prev_mw * 100
+        sign = "+" if delta_pct >= 0 else ""
+        direction = "up" if delta_pct >= 0 else "down"
+        delta_chip = html.Span(
+            f"{sign}{delta_pct:.1f}%",
+            className=f"gp-region-card__delta gp-region-card__delta--{direction}",
+        )
+
+    stress_chip = None
+    if capacity_mw > 0:
+        stress_pct = current_mw / capacity_mw * 100
+        if stress_pct >= 85:
+            tone = "high"
+        elif stress_pct >= 70:
+            tone = "mid"
+        else:
+            tone = "low"
+        stress_chip = html.Span(
+            f"{stress_pct:.0f}%",
+            className=f"gp-region-card__stress gp-region-card__stress--{tone}",
+            title=(f"Demand vs. capacity: {current_mw:,.0f} / {capacity_mw:,.0f} MW"),
+        )
+
+    demand_row_children: list = [
+        html.Span(
+            f"{current_mw / 1000:.1f}",
+            className="gp-region-card__demand-value tabular",
+        ),
+        html.Span("GW", className="gp-region-card__demand-unit"),
+    ]
+    if delta_chip is not None:
+        demand_row_children.append(delta_chip)
+
+    return html.Div(
+        [
+            html.Div(
+                [html.Span(name, className="gp-region-card__name"), stress_chip],
+                className="gp-region-card__header",
+            ),
+            html.Div(demand_row_children, className="gp-region-card__demand"),
+            _build_us_grid_sparkline(today_mw),
+        ],
+        id=card_id,
+        n_clicks=0,
+        className="gp-region-card",
+    )
+
+
+# ── V1.γ: US GRID MAP HELPERS ────────────────────────────────
+
+
+# Hex equivalents of the v2 design tokens that Plotly figures need inline
+# (Plotly doesn't read CSS custom properties). Keep in sync with the values
+# in :root in assets/custom.css.
+_MAP_LAND_COLOR = "#111113"  # --bg-raised
+_MAP_COASTLINE_COLOR = "#27272a"
+_MAP_SUBUNIT_COLOR = "#1f1f23"
+_MAP_AXIS_FONT_COLOR = "#71717a"  # --text-tertiary
+_MAP_BORDER_COLOR = "#1f1f23"
+_MAP_COLORSCALE = [
+    [0.0, "#34d399"],  # --success — comfortable margin
+    [0.7, "#fbbf24"],  # --warning — getting tight
+    [1.0, "#f87171"],  # --danger — peak utilization
+]
+
+
+def _build_us_grid_map(region_data: dict) -> html.Div:
+    """Plotly ``scatter_geo`` of BA centroids — sized by demand, colored by stress.
+
+    Cold or empty regions are dropped from the figure (rather than rendering
+    as zero-size markers). When every region is cold the function returns an
+    empty-state div — the page already has the warming language in the title.
+    """
+    populated = {r: d for r, d in region_data.items() if d.get("current_mw")}
+
+    if not populated:
+        return html.Div(
+            html.Div(
+                "All regions warming up — switch to Cards view to see per-region status.",
+                className="gp-region-map__empty-message",
+            ),
+            className="gp-region-map gp-region-map--empty",
+        )
+
+    regions = list(populated.keys())
+    lats = [REGION_COORDINATES[r]["lat"] for r in regions]
+    lons = [REGION_COORDINATES[r]["lon"] for r in regions]
+    names = [REGION_NAMES.get(r, r) for r in regions]
+    demand_gw = [populated[r]["current_mw"] / 1000 for r in regions]
+
+    # Stress = demand / capacity (0..>1). Cap at 100% for the colorscale.
+    stress_pct: list[float] = []
+    for r in regions:
+        cap = REGION_CAPACITY_MW.get(r, 0)
+        if cap > 0:
+            stress_pct.append(min(populated[r]["current_mw"] / cap * 100, 100.0))
+        else:
+            stress_pct.append(0.0)
+
+    # Marker size: 10–40 px, scaled by demand. Linear is fine for 16 points.
+    max_demand = max(demand_gw)
+    sizes = [10 + (d / max_demand) * 30 for d in demand_gw]
+
+    hover_text = [
+        f"<b>{name}</b><br>Demand: {d:.1f} GW<br>Utilization: {s:.0f}%"
+        for name, d, s in zip(names, demand_gw, stress_pct, strict=False)
+    ]
+
+    fig = go.Figure(
+        go.Scattergeo(
+            lat=lats,
+            lon=lons,
+            mode="markers",
+            marker={
+                "size": sizes,
+                "color": stress_pct,
+                "colorscale": _MAP_COLORSCALE,
+                "cmin": 0,
+                "cmax": 100,
+                "colorbar": {
+                    "title": {
+                        "text": "Utilization %",
+                        "font": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
+                    },
+                    "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
+                    "thickness": 10,
+                    "len": 0.6,
+                    "bgcolor": "rgba(0,0,0,0)",
+                    "bordercolor": _MAP_BORDER_COLOR,
+                    "borderwidth": 1,
+                    "x": 1.0,
+                },
+                "line": {"color": _MAP_BORDER_COLOR, "width": 1},
+            },
+            customdata=regions,
+            hovertext=hover_text,
+            hoverinfo="text",
+        )
+    )
+
+    fig.update_geos(
+        scope="usa",
+        projection_type="albers usa",
+        showland=True,
+        landcolor=_MAP_LAND_COLOR,
+        showcoastlines=True,
+        coastlinecolor=_MAP_COASTLINE_COLOR,
+        showsubunits=True,
+        subunitcolor=_MAP_SUBUNIT_COLOR,
+        showcountries=False,
+        showlakes=False,
+        bgcolor="rgba(0,0,0,0)",
+    )
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin={"l": 0, "r": 0, "t": 8, "b": 0},
+        font={"family": "Inter, system-ui, sans-serif", "color": _MAP_AXIS_FONT_COLOR, "size": 11},
+        height=480,
+        showlegend=False,
+        hoverlabel={
+            "bgcolor": _MAP_LAND_COLOR,
+            "bordercolor": _MAP_COASTLINE_COLOR,
+            "font": {"color": "#e4e4e7", "family": "Inter, system-ui, sans-serif", "size": 12},
+        },
+    )
+
+    return html.Div(
+        dcc.Graph(
+            id="us-grid-map",
+            figure=fig,
+            config={"displayModeBar": False, "responsive": True},
+            style={"height": "480px"},
+        ),
+        className="gp-region-map",
+    )

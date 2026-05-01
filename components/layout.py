@@ -1,10 +1,10 @@
 """Main dashboard layout — header, tab strip, data stores.
 
-V2.1 closes out the redesign cleanup begun in R3. The four visible tabs
-(Overview, Forecast, Risk, Models) are the entire surface — the five
-hidden modules R3 kept DOM-resident (Historical / Backtest / Generation
-/ Weather / Simulator) were absorbed into the visible tabs in R4 and
-have now been removed entirely along with their dedicated callbacks.
+V1.β adds US Grid as the fifth visible tab on top of the V2.1 shell.
+After V2.1 there are no hidden tabs — the five DOM-resident modules R3
+once kept around (Historical / Backtest / Generation / Weather /
+Simulator) were absorbed into the visible tabs in R4 and removed
+entirely. Visible tabs now: Overview, US Grid, Forecast, Risk, Models.
 """
 
 import dash_bootstrap_components as dbc
@@ -15,18 +15,20 @@ from components import (
     tab_demand_outlook,
     tab_models,
     tab_overview,
+    tab_us_grid,
 )
 from config import REGION_NAMES, TAB_LABELS
 from personas.config import list_personas
 
-# Visible tab IDs — all tabs are visible after V2.1; this constant is kept
-# as the source of truth for the smoke test that locks in the v2 shell.
-_VISIBLE_TABS = {"tab-overview", "tab-outlook", "tab-alerts", "tab-models"}
+# All five tabs in the strip are visible. ``_VISIBLE_TABS`` is kept as a
+# constant so the smoke test can lock in the v2 shell composition.
+_VISIBLE_TABS = {"tab-overview", "tab-us-grid", "tab-outlook", "tab-alerts", "tab-models"}
 
-# Display labels for the four visible tabs (overrides whatever TAB_LABELS
+# Display labels for the visible tabs (overrides whatever TAB_LABELS
 # says) — kept so the v2 naming is enforced regardless of config drift.
 _VISIBLE_LABEL_OVERRIDES = {
     "tab-overview": "Overview",
+    "tab-us-grid": "US Grid",
     "tab-outlook": "Forecast",
     "tab-alerts": "Risk",
     "tab-models": "Models",
@@ -151,6 +153,7 @@ def build_layout() -> dbc.Container:
                     active_tab="tab-overview",
                     children=[
                         _tab("tab-overview", tab_overview.layout),
+                        _tab("tab-us-grid", tab_us_grid.layout),
                         _tab("tab-outlook", tab_demand_outlook.layout),
                         _tab("tab-alerts", tab_alerts.layout),
                         _tab("tab-models", tab_models.layout),
