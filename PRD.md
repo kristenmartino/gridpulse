@@ -89,6 +89,14 @@ The current product is implemented as a multi-tab application. Conceptually, Gri
 
 This structure is both a product framing model and a guide for future IA cleanup.
 
+> **Addendum (2026-05-01) — implementation IA.** The conceptual product areas above were never a 1:1 mapping to the implementation. The shipping app went through three IA passes:
+>
+> - **R3 / R4** ([PR #38](https://github.com/kristenmartino/gridpulse/pull/38)) reduced the original nine implementation tabs to **four visible** (Overview / Forecast / Risk / Models) and absorbed the rest (Historical, Backtest, Generation, Weather, Simulator) into those four, while keeping their layouts DOM-resident under `tab_class_name="d-none"` for callback safety.
+> - **V2.1** ([PR #63](https://github.com/kristenmartino/gridpulse/pull/63)) deleted the five hidden modules and their dedicated callbacks; the surface stayed at four visible tabs.
+> - **V1.β / V1.γ** ([PR #64](https://github.com/kristenmartino/gridpulse/pull/64)) added **US Grid** as a fifth visible tab — a small-multiples + map view across all balancing authorities.
+>
+> Current visible tabs: **Overview · US Grid · Forecast · Risk · Models** (5 total, 0 hidden). Generation, Weather, and Scenarios live as inline content / panels inside Overview and Forecast; Briefings ships as the **Briefing Mode** header toggle rather than a tab.
+
 ---
 
 ## 6. Requirements
@@ -97,7 +105,7 @@ This structure is both a product framing model and a guide for future IA cleanup
 
 | ID | Requirement | Priority |
 |---|---|---|
-| R1.1 | Hourly demand from EIA API v2 for 8 balancing authorities (ERCOT, CAISO, PJM, MISO, NYISO, FPL, SPP, ISONE) | Must Have |
+| R1.1 | Hourly demand from EIA API v2 for 16 balancing authorities — original 8 (ERCOT, CAISO, PJM, MISO, NYISO, FPL, SPP, ISONE) plus the V1.α expansion (SOCO, TVA, DUK, CPLE, BPAT, AZPS, NEVP, PSCO) covering ~98% of US load ([PR #61](https://github.com/kristenmartino/gridpulse/pull/61)) | Must Have |
 | R1.2 | Hourly weather variables from Open-Meteo including temperature, wind, radiation, humidity, precipitation, and related signals | Must Have |
 | R1.3 | Severe weather / alert context from NOAA/NWS mapped to regions | Must Have |
 | R1.4 | Cache-backed data access with stale-data fallback for degraded conditions | Must Have |

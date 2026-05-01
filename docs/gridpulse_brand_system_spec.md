@@ -1,6 +1,8 @@
 # GridPulse Brand System Spec
 _Last updated: 2026-04-09_
 
+> **Addendum (2026-05-01) — production palette swap.** The cyan / Grid Blue / Aurora Teal accent palette proposed in §11 of this spec was superseded by R1 of the v2 shell redesign ([PR #36](https://github.com/kristenmartino/gridpulse/pull/36), Apr 2026). The shipping product uses **`#3b82f6` (blue)** as the primary accent and **`#f97316` (orange)** as the forecast/divergence accent. Treat the cyan/teal references in §§11–14 below as historical strategy notes; the v2 token swap is the source of truth in `assets/custom.css` (`--accent-base`, `--accent-hover`, `--accent-dim`, `--forecast`). The "red is reserved for risk states" guidance still holds.
+
 ## 1) Executive recommendation
 
 GridPulse should be repositioned from **“energy demand forecasting dashboard”** to an **energy intelligence operating layer** for utilities, IPPs, traders, and grid-adjacent analytics teams.

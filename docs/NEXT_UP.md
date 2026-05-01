@@ -185,15 +185,26 @@ Captured for future planning sessions, not actionable today:
 
 ## Status board (updated when items complete)
 
+_All V0–V2 items shipped as of 2026-05-01. Verified live: the 2026-05-01 04:00 UTC training run wrote real holdout MAPEs for prophet (FPL: 7.88, PJM: 11.04) and ARIMA (FPL: 5.55, PJM: 5.19); the 2026-05-01 09:00 UTC scoring run produced skill-weighted ensembles like `{xgboost: 0.578, prophet: 0.293, arima: 0.130}` instead of the equal-weights fallback._
+
 | Item | Status | PR / Doc |
 |---|---|---|
-| V0.1 Trigger scoring run + verify | shipped (caveat trim pending scheduled agent) | [#59](https://github.com/kristenmartino/gridpulse/pull/59) [#60](https://github.com/kristenmartino/gridpulse/pull/60) |
-| V0.2 Verify Redis carries 4 model keys | open (needs VPC access) | n/a |
-| V0.3 UI walkthrough | open (needs browser) | n/a |
-| V1.α Region expansion (16 BAs) | shipped | [#61](https://github.com/kristenmartino/gridpulse/pull/61) |
-| V1.β US Grid small-multiples tab | ready | [`us-grid-expansion.md`](../.claude/plans/us-grid-expansion.md) |
-| V1.γ US Grid map overlay | scoped | [`us-grid-expansion.md`](../.claude/plans/us-grid-expansion.md) |
-| V2.1 Hidden-tab deletion | open | n/a |
-| V2.2 Brand spec addendum | open | n/a |
-| V2.3 PRD tab-list addendum | open | n/a |
-| V2.4 PJM scoring investigation | blocked on V0 | n/a |
+| V0.1 Trigger scoring run + verify | ✅ shipped + verified live | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) [#59](https://github.com/kristenmartino/gridpulse/pull/59) [#60](https://github.com/kristenmartino/gridpulse/pull/60) |
+| V0.2 Verify Redis carries 4 model keys | ✅ shipped + verified via scoring logs | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
+| V0.3 UI walkthrough | ✅ shipped + manual walkthrough confirmed | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
+| V1.α Region expansion (16 BAs) | ✅ shipped | [#61](https://github.com/kristenmartino/gridpulse/pull/61) |
+| V1.β US Grid small-multiples tab | ✅ shipped | [#64](https://github.com/kristenmartino/gridpulse/pull/64) |
+| V1.γ US Grid map overlay | ✅ shipped | [#64](https://github.com/kristenmartino/gridpulse/pull/64) |
+| V2.1 Hidden-tab deletion | ✅ shipped | [#63](https://github.com/kristenmartino/gridpulse/pull/63) |
+| V2.2 Brand spec addendum | ✅ shipped | [`docs/gridpulse_brand_system_spec.md`](./gridpulse_brand_system_spec.md) |
+| V2.3 PRD tab-list addendum | ✅ shipped | [`PRD.md`](../PRD.md) |
+| V2.4 PJM scoring investigation | ✅ auto-resolved by V0 — PJM now loads all 3 models hourly | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
+
+## Next: V3 candidates
+
+Captured in §V3 above. Not yet scoped — pick one to take to a planning session if/when ready:
+
+- **BA-to-BA flow analysis** — interconnection-level data via FERC 714 / OASIS. New data dependency.
+- **Real BA-polygon choropleth** — replace V1.γ's centroid scatter with actual service-territory polygons. ~2 days of GeoJSON cleanup.
+- **Hawaii / Alaska coverage** — EIA-930 doesn't report HEI / Alaska at meaningful resolution; needs a different data path.
+- **Multi-tenant / per-user views** — currently single-deployment, no auth. Needs user accounts + per-tenant Redis namespace.
