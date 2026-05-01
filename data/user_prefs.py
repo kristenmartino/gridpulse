@@ -21,65 +21,39 @@ log = structlog.get_logger()
 
 # ── Tracked filter IDs and their defaults ────────────────────────────
 
+# V2.1 dropped tab1-timerange, backtest-horizon, gen-date-range, and
+# sim-duration — those controls lived only in the hidden tabs that have
+# been removed. SIM_SLIDERS were similarly tied to the hidden simulator
+# and have been emptied; the constants are kept so callers that still
+# import them don't break (they iterate over an empty list).
 TRACKED_FILTERS: list[str] = [
-    "tab1-timerange",
     "outlook-horizon",
     "outlook-model",
-    "backtest-horizon",
-    "gen-date-range",
     "tab3-model-selector",
-    "sim-duration",
 ]
 
 FILTER_DEFAULTS: dict[str, str | list[str]] = {
-    "tab1-timerange": "168",
     "outlook-horizon": "168",
     "outlook-model": "xgboost",
-    "backtest-horizon": "24",
-    "gen-date-range": "168",
     "tab3-model-selector": ["prophet", "arima", "xgboost", "ensemble"],
-    "sim-duration": 24,
 }
 
 # ── Valid option sets for per-filter validation ──────────────────────
 
 _FILTER_OPTIONS: dict[str, set[str] | None] = {
-    "tab1-timerange": {"24", "168", "720", "2160"},
     "outlook-horizon": {"24", "168", "720"},
     "outlook-model": {"xgboost", "prophet", "arima", "ensemble"},
-    "backtest-horizon": {"24", "168", "720"},
-    "gen-date-range": {"24", "168", "720", "2160"},
     "tab3-model-selector": {"prophet", "arima", "xgboost", "ensemble"},
-    "sim-duration": None,  # numeric, validated separately
 }
 
-# ── Scenario simulator slider IDs, defaults, ranges ──────────────────
+# ── Scenario simulator slider IDs (V2.1: emptied; simulator removed) ──
 
-SIM_SLIDERS: list[str] = [
-    "sim-temp",
-    "sim-wind",
-    "sim-cloud",
-    "sim-humidity",
-    "sim-solar",
-]
+SIM_SLIDERS: list[str] = []
+SIM_SLIDER_DEFAULTS: dict[str, float] = {}
+SIM_SLIDER_RANGES: dict[str, tuple[float, float]] = {}
 
-SIM_SLIDER_DEFAULTS: dict[str, float] = {
-    "sim-temp": 75,
-    "sim-wind": 15,
-    "sim-cloud": 50,
-    "sim-humidity": 60,
-    "sim-solar": 500,
-}
-
-SIM_SLIDER_RANGES: dict[str, tuple[float, float]] = {
-    "sim-temp": (-10, 120),
-    "sim-wind": (0, 80),
-    "sim-cloud": (0, 100),
-    "sim-humidity": (0, 100),
-    "sim-solar": (0, 1000),
-}
-
-# Default sim-duration (tracked as a filter, not a slider)
+# Kept as a constant for tests that import it; no longer referenced from
+# any tracked-filter machinery now that sim-duration is gone.
 SIM_DURATION_DEFAULT: int = 24
 
 

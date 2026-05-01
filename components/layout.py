@@ -1,17 +1,10 @@
 """Main dashboard layout — header, tab strip, data stores.
 
-R3 of shell-redesign-v2.md. Header rebuilt to mirror gridpulse-v2's
-56px h-14 strip with monogram + Grid|Pulse wordmark on the left and
-region/persona/mode controls on the right. Tab strip reduced to 4
-visible tabs (Overview, Forecast, Risk, Models); five other tabs are
-still rendered into the DOM via ``tab_class_name="d-none"`` so their
-component IDs exist for callback safety. R4 will fold their content
-into the four visible tabs and remove the hidden tabs entirely.
-
-CRITICAL: All 9 tab layouts are still rendered statically inside
-``dbc.Tab(children=...)``. Hiding the tab strip button via Bootstrap's
-``d-none`` class keeps the panel content in the DOM (callbacks resolve)
-without exposing the navigation pill.
+V2.1 closes out the redesign cleanup begun in R3. The four visible tabs
+(Overview, Forecast, Risk, Models) are the entire surface — the five
+hidden modules R3 kept DOM-resident (Historical / Backtest / Generation
+/ Weather / Simulator) were absorbed into the visible tabs in R4 and
+have now been removed entirely along with their dedicated callbacks.
 """
 
 import dash_bootstrap_components as dbc
@@ -19,23 +12,19 @@ from dash import dcc, html
 
 from components import (
     tab_alerts,
-    tab_backtest,
     tab_demand_outlook,
-    tab_forecast,
-    tab_generation,
     tab_models,
     tab_overview,
-    tab_simulator,
-    tab_weather,
 )
 from config import REGION_NAMES, TAB_LABELS
 from personas.config import list_personas
 
-# R3 visible-tab whitelist. Other tabs render but their pill is hidden.
+# Visible tab IDs — all tabs are visible after V2.1; this constant is kept
+# as the source of truth for the smoke test that locks in the v2 shell.
 _VISIBLE_TABS = {"tab-overview", "tab-outlook", "tab-alerts", "tab-models"}
 
-# R3 surface the four visible tabs under v2-aligned labels regardless of
-# whatever name a hidden tab happens to use today.
+# Display labels for the four visible tabs (overrides whatever TAB_LABELS
+# says) — kept so the v2 naming is enforced regardless of config drift.
 _VISIBLE_LABEL_OVERRIDES = {
     "tab-overview": "Overview",
     "tab-outlook": "Forecast",
@@ -122,16 +111,9 @@ def _build_header() -> html.Header:
 
 
 def _tab(tab_id: str, layout_fn) -> dbc.Tab:
-    """Wrap a tab module's layout in ``dbc.Tab``. Hidden tabs use ``d-none``
-    on the pill so the panel renders without surfacing in the strip."""
+    """Wrap a tab module's layout in ``dbc.Tab``."""
     label = _VISIBLE_LABEL_OVERRIDES.get(tab_id, TAB_LABELS.get(tab_id, tab_id))
-    is_visible = tab_id in _VISIBLE_TABS
-    return dbc.Tab(
-        layout_fn(),
-        label=label,
-        tab_id=tab_id,
-        tab_class_name="" if is_visible else "d-none",
-    )
+    return dbc.Tab(layout_fn(), label=label, tab_id=tab_id)
 
 
 def build_layout() -> dbc.Container:
@@ -172,12 +154,6 @@ def build_layout() -> dbc.Container:
                         _tab("tab-outlook", tab_demand_outlook.layout),
                         _tab("tab-alerts", tab_alerts.layout),
                         _tab("tab-models", tab_models.layout),
-                        # ── Hidden tabs (DOM resident; absorbed in R4) ──
-                        _tab("tab-forecast", tab_forecast.layout),
-                        _tab("tab-backtest", tab_backtest.layout),
-                        _tab("tab-generation", tab_generation.layout),
-                        _tab("tab-weather", tab_weather.layout),
-                        _tab("tab-simulator", tab_simulator.layout),
                     ],
                 ),
                 id="main-content",
