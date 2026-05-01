@@ -1,37 +1,30 @@
 """
 E2E tests for dashboard rendering.
 
-Tests that all 3 active tabs render without callback errors for all 8 regions,
-persona switching produces correct KPIs and welcome cards, and the
-scenario simulator responds to slider inputs and preset clicks.
+Tests that the 4 visible tabs (V2.1: Overview / Forecast / Risk / Models)
+render without errors, persona switching produces correct KPIs and welcome
+cards, and scenario presets are well-formed.
 
 These tests use Dash's built-in testing utilities (no browser needed).
 """
 
 
 class TestTabRendering:
-    """Test that all tab layouts can be instantiated without errors."""
+    """Test that all visible tab layouts can be instantiated without errors.
 
-    def test_tab_forecast_renders(self):
-        from components.tab_forecast import layout
+    V2.1 dropped tab_forecast (Historical), tab_backtest, tab_generation,
+    tab_weather, and tab_simulator — their content was absorbed into the
+    four visible tabs in R4.
+    """
 
-        result = layout()
-        assert result is not None
-
-    def test_tab_weather_renders(self):
-        from components.tab_weather import layout
-
-        result = layout()
-        assert result is not None
-
-    def test_tab_models_renders(self):
-        from components.tab_models import layout
+    def test_tab_overview_renders(self):
+        from components.tab_overview import layout
 
         result = layout()
         assert result is not None
 
-    def test_tab_generation_renders(self):
-        from components.tab_generation import layout
+    def test_tab_demand_outlook_renders(self):
+        from components.tab_demand_outlook import layout
 
         result = layout()
         assert result is not None
@@ -42,8 +35,8 @@ class TestTabRendering:
         result = layout()
         assert result is not None
 
-    def test_tab_simulator_renders(self):
-        from components.tab_simulator import layout
+    def test_tab_models_renders(self):
+        from components.tab_models import layout
 
         result = layout()
         assert result is not None
