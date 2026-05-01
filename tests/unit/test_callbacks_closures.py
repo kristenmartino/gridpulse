@@ -27,7 +27,6 @@ from datetime import UTC, datetime
 import dash
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import pytest
 from dash import html, no_update
 
@@ -264,17 +263,24 @@ class TestUpdateHeaderFreshness:
 
 
 class TestRestoreBookmark:
-    """C2+NEXD-12: URL bookmark restore callback (15 outputs)."""
+    """C2+NEXD-12: URL bookmark restore callback.
+
+    V2.1 reduced the output set from 15 (3 core + 7 filters + 5 sliders)
+    to 6 (3 core + 3 filters) — the dropped filters/sliders belonged to
+    the now-removed hidden tabs (Historical / Backtest / Generation /
+    Simulator). Output indexing: 0=region, 1=persona, 2=tab,
+    3=outlook-horizon, 4=outlook-model, 5=tab3-model-selector.
+    """
 
     def test_empty_search_returns_no_update(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("")
-        assert result == [no_update] * 15
+        assert result == [no_update] * 6
 
     def test_none_search_returns_no_update(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn(None)
-        assert result == [no_update] * 15
+        assert result == [no_update] * 6
 
     def test_valid_region_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
@@ -291,8 +297,8 @@ class TestRestoreBookmark:
 
     def test_valid_tab_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
-        result = fn("?tab=tab-forecast")
-        assert result[2] == "tab-forecast"
+        result = fn("?tab=tab-outlook")
+        assert result[2] == "tab-outlook"
 
     def test_all_params_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
@@ -318,15 +324,9 @@ class TestRestoreBookmark:
 
     def test_filter_params_restored(self, callbacks):
         fn = callbacks["restore_bookmark"]
-        result = fn("?region=FPL&f.tab1-timerange=168")
-        # Index 3 = tab1-timerange (first filter output)
+        result = fn("?region=FPL&f.outlook-horizon=168")
+        # Index 3 = outlook-horizon (first surviving filter output)
         assert result[3] == "168"
-
-    def test_slider_params_restored(self, callbacks):
-        fn = callbacks["restore_bookmark"]
-        result = fn("?region=FPL&s.temp=5")
-        # Index 10 = sim-temp (first slider output)
-        assert result[10] == 5.0
 
 
 # ===========================================================================
@@ -335,27 +335,32 @@ class TestRestoreBookmark:
 
 
 class TestCreateBookmark:
-    """C2+NEXD-12: URL bookmark creation callback (full state)."""
+    """C2+NEXD-12: URL bookmark creation callback.
 
-    # 12 extra state values: 7 filters + 5 sim sliders (all None = no filter/slider state)
-    _defaults = (None,) * 12
+    V2.1 reduced the State set to 3 filters (was 7) and dropped the
+    5 sim sliders entirely. Filter order (matches TRACKED_FILTERS):
+    outlook-horizon, outlook-model, tab3-model-selector.
+    """
+
+    # 3 surviving filter states (None = no filter set).
+    _defaults = (None,) * 3
 
     def test_no_clicks_returns_no_update(self, callbacks):
         fn = callbacks["create_bookmark"]
-        result = fn(0, "FPL", "grid_ops", "tab-forecast", *self._defaults)
+        result = fn(0, "FPL", "grid_ops", "tab-outlook", *self._defaults)
         assert result == (no_update, no_update)
 
     def test_none_clicks_returns_no_update(self, callbacks):
         fn = callbacks["create_bookmark"]
-        result = fn(None, "FPL", "grid_ops", "tab-forecast", *self._defaults)
+        result = fn(None, "FPL", "grid_ops", "tab-outlook", *self._defaults)
         assert result == (no_update, no_update)
 
     def test_creates_bookmark_url(self, callbacks):
         fn = callbacks["create_bookmark"]
-        search, toast = fn(1, "FPL", "grid_ops", "tab-forecast", *self._defaults)
+        search, toast = fn(1, "FPL", "grid_ops", "tab-outlook", *self._defaults)
         assert "region=FPL" in search
         assert "persona=grid_ops" in search
-        assert "tab=tab-forecast" in search
+        assert "tab=tab-outlook" in search
 
     def test_creates_toast_component(self, callbacks):
         import dash_bootstrap_components as dbc
@@ -367,17 +372,10 @@ class TestCreateBookmark:
 
     def test_includes_filter_params(self, callbacks):
         fn = callbacks["create_bookmark"]
-        # First filter state = tab1-timerange = "720"
-        state_values = ("720",) + (None,) * 11
-        search, toast = fn(1, "FPL", "grid_ops", "tab-forecast", *state_values)
-        assert "f.tab1-timerange=720" in search
-
-    def test_includes_slider_params(self, callbacks):
-        fn = callbacks["create_bookmark"]
-        # 7 filter Nones + sim-temp=5
-        state_values = (None,) * 7 + (5,) + (None,) * 4
-        search, toast = fn(1, "FPL", "grid_ops", "tab-simulator", *state_values)
-        assert "s.temp=5" in search
+        # First filter state = outlook-horizon = "720"
+        state_values = ("720", None, None)
+        search, toast = fn(1, "FPL", "grid_ops", "tab-outlook", *state_values)
+        assert "f.outlook-horizon=720" in search
 
 
 # ===========================================================================
@@ -457,177 +455,3 @@ class TestToggleMeetingMode:
 
 # ===========================================================================
 # 7. update_forecast_chart
-# ===========================================================================
-
-
-class TestUpdateForecastChart:
-    """Historical demand chart callback (lines 1765-1823)."""
-
-    def test_no_demand_returns_empty_figure(self, callbacks):
-        fn = callbacks["update_forecast_chart"]
-        result = fn(None, None, [], "168", [], "FPL")
-        assert isinstance(result, go.Figure)
-        # Empty figure should have the "No demand data loaded" annotation
-        annotations = result.layout.annotations
-        assert len(annotations) == 1
-        assert "No demand data" in annotations[0].text
-
-    def test_basic_demand_chart(self, callbacks):
-        fn = callbacks["update_forecast_chart"]
-        demand = _demand_json(n=200)
-        result = fn(demand, None, [], "168", [], "FPL")
-        assert isinstance(result, go.Figure)
-        # Should have at least one trace (actual demand)
-        assert len(result.data) >= 1
-        assert result.data[0].name == "Actual Demand"
-
-    def test_timerange_truncation(self, callbacks):
-        fn = callbacks["update_forecast_chart"]
-        demand = _demand_json(n=500)
-        result = fn(demand, None, [], "168", [], "FPL")
-        assert isinstance(result, go.Figure)
-        # Should truncate to 168 hours
-        assert len(result.data[0].x) == 168
-
-    def test_weather_overlay_with_temp(self, callbacks):
-        fn = callbacks["update_forecast_chart"]
-        demand = _demand_json(n=168)
-        weather = _weather_json(n=168)
-        result = fn(demand, weather, ["temp"], "168", [], "FPL")
-        assert isinstance(result, go.Figure)
-        # Should have 2 traces: demand + temperature
-        assert len(result.data) >= 2
-        assert result.data[1].name == "Temperature (\u00b0F)"
-
-    def test_weather_overlay_no_temp(self, callbacks):
-        fn = callbacks["update_forecast_chart"]
-        demand = _demand_json(n=168)
-        weather = _weather_json(n=168)
-        # overlay does not include 'temp'
-        result = fn(demand, weather, ["wind"], "168", [], "FPL")
-        assert isinstance(result, go.Figure)
-        # Should have only demand trace
-        assert len(result.data) == 1
-
-    def test_chart_title_includes_region(self, callbacks):
-        fn = callbacks["update_forecast_chart"]
-        demand = _demand_json(n=100)
-        result = fn(demand, None, [], "168", [], "ERCOT")
-        assert "ERCOT" in result.layout.title.text
-
-    def test_empty_demand_json_string(self, callbacks):
-        fn = callbacks["update_forecast_chart"]
-        result = fn("", None, [], "168", [], "FPL")
-        assert isinstance(result, go.Figure)
-        # Empty string is falsy, should return empty figure
-        annotations = result.layout.annotations
-        assert len(annotations) == 1
-
-
-# ===========================================================================
-# 8. update_tab1_kpis
-# ===========================================================================
-
-
-class TestUpdateTab1Kpis:
-    """Tab 1 KPI cards callback (lines 1843-1881)."""
-
-    def test_no_demand_returns_placeholders(self, callbacks):
-        fn = callbacks["update_tab1_kpis"]
-        result = fn(None, None, "FPL")
-        assert len(result) == 7
-        assert result[0] == "No data"
-
-    def test_empty_demand_returns_placeholders(self, callbacks):
-        fn = callbacks["update_tab1_kpis"]
-        result = fn("", None, "FPL")
-        assert result[0] == "No data"
-
-    def test_valid_demand_returns_kpis(self, callbacks):
-        fn = callbacks["update_tab1_kpis"]
-        demand = _demand_json(n=168, base_mw=30000)
-        result = fn(demand, None, "FPL")
-        peak_str, peak_time, avg_str, min_str, min_time, data_str, days_span = result
-        # Peak should be formatted with commas and "MW"
-        assert "MW" in peak_str
-        assert "," in peak_str  # thousands separator
-        # Peak time should be UTC formatted
-        assert "UTC" in peak_time
-        # Average and min
-        assert "MW" in avg_str
-        assert "MW" in min_str
-        assert "UTC" in min_time
-        # Data count
-        assert data_str == "168"
-        # Days span
-        assert isinstance(days_span, html.Span)
-
-    def test_nan_demand_values_handled(self, callbacks):
-        fn = callbacks["update_tab1_kpis"]
-        # Create demand with all NaN demand_mw
-        start = datetime(2024, 6, 1, tzinfo=UTC)
-        ts = pd.date_range(start, periods=10, freq="h", tz="UTC")
-        df = pd.DataFrame(
-            {
-                "timestamp": ts,
-                "demand_mw": [float("nan")] * 10,
-                "region": "FPL",
-            }
-        )
-        result = fn(df.to_json(), None, "FPL")
-        # All NaN => empty valid_data => placeholders
-        assert result[0] == "No data"
-
-
-# ===========================================================================
-# 9. update_tab1_insights
-# ===========================================================================
-
-
-class TestUpdateTab1Insights:
-    """Tab 1 insight card callback (lines 1898-1914)."""
-
-    def test_no_demand_returns_empty_div(self, callbacks):
-        fn = callbacks["update_tab1_insights"]
-        result = fn(None, None, "168", "grid_ops", "FPL")
-        assert isinstance(result, html.Div)
-        # Empty Div has no children or empty children
-        assert not result.children
-
-    def test_with_demand_returns_insight_card(self, callbacks):
-        fn = callbacks["update_tab1_insights"]
-        demand = _demand_json(n=168)
-        result = fn(demand, None, "168", "grid_ops", "FPL")
-        # Should return a Div (the insight card)
-        assert isinstance(result, html.Div)
-
-    def test_with_weather_data(self, callbacks):
-        fn = callbacks["update_tab1_insights"]
-        demand = _demand_json(n=168)
-        weather = _weather_json(n=168)
-        result = fn(demand, weather, "168", "grid_ops", "FPL")
-        assert isinstance(result, html.Div)
-
-    def test_default_persona_used_when_none(self, callbacks):
-        fn = callbacks["update_tab1_insights"]
-        demand = _demand_json(n=168)
-        result = fn(demand, None, "168", None, "FPL")
-        # persona defaults to "grid_ops" when None
-        assert isinstance(result, html.Div)
-
-    def test_default_timerange_when_none(self, callbacks):
-        fn = callbacks["update_tab1_insights"]
-        demand = _demand_json(n=168)
-        result = fn(demand, None, None, "grid_ops", "FPL")
-        # timerange defaults to 168 when None
-        assert isinstance(result, html.Div)
-
-    def test_default_region_when_none(self, callbacks):
-        fn = callbacks["update_tab1_insights"]
-        demand = _demand_json(n=168)
-        result = fn(demand, None, "168", "grid_ops", None)
-        # region defaults to "FPL" when None
-        assert isinstance(result, html.Div)
-
-
-# Note: update_news_feed callback was removed — news moved into overview tab.

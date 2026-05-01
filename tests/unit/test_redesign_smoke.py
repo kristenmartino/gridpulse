@@ -1,10 +1,12 @@
-"""Smoke tests that lock in the v2 shell redesign (R6).
+"""Smoke tests that lock in the v2 shell redesign (R6 + V2.1 cleanup).
 
 Pins the structural decisions made in R1–R5c so a future commit can't
 silently re-introduce the cluttered Bootstrap-darkly chrome:
 
-  * 4 visible tabs (Overview / Forecast / Risk / Models) + 5 hidden
-    tabs that still render so existing callbacks resolve.
+  * 4 visible tabs (Overview / Forecast / Risk / Models). V2.1 deleted
+    the 5 hidden tabs (Historical / Backtest / Generation / Weather /
+    Simulator) that R3 had kept in the DOM via ``tab_class_name="d-none"``.
+    Their content was already absorbed into the four visible tabs in R4.
   * 8 Overview cards (R2 cuts) + the welcome-card / kpi-cards layout
     rows (R3 cuts) stay absent.
   * The new v2 IDs introduced by R2–R4c (page titles, MetricsBars,
@@ -48,7 +50,7 @@ def _layout_ids() -> set[str]:
 
 
 class TestTabStructure:
-    """R3 + R4 tab consolidation: 4 visible, 5 hidden, 0 removed."""
+    """V2.1 final state: 4 visible tabs, 0 hidden, 5 removed."""
 
     def test_visible_tab_count_is_four(self):
         from components.layout import _VISIBLE_TABS
@@ -64,22 +66,33 @@ class TestTabStructure:
         assert _VISIBLE_LABEL_OVERRIDES["tab-alerts"] == "Risk"
         assert _VISIBLE_LABEL_OVERRIDES["tab-models"] == "Models"
 
-    def test_hidden_tabs_still_render(self):
-        """R3 hides 5 tabs via tab_class_name='d-none' but keeps content
-        in the DOM so existing callbacks resolve. Their layouts must
-        still be reachable through build_layout()."""
+    def test_no_d_none_tab_in_layout_source(self):
+        """V2.1 acceptance: the d-none mechanism that R3 used to hide tabs
+        is gone. ``tab_class_name="d-none"`` must not appear as live code
+        in layout.py — every tab is now a first-class visible tab. The
+        docstring may still mention d-none for historical context, so we
+        match the call-site form rather than the bare class name."""
+        from pathlib import Path
+
+        layout_src = Path("components/layout.py").read_text()
+        assert 'tab_class_name="d-none"' not in layout_src
+        assert 'tab_class_name="" if is_visible' not in layout_src
+
+    def test_hidden_tab_ids_no_longer_render(self):
+        """V2.1 acceptance: representative IDs from each removed hidden tab
+        must NOT appear in build_layout()'s rendered tree. Regression guard
+        against accidentally re-importing one of the deleted modules."""
         ids = _layout_ids()
-        # Key IDs from each hidden tab — pick a representative ID per tab
-        for hidden_id in [
-            "tab1-forecast-chart",  # tab-forecast (Historical)
-            "backtest-chart",  # tab-backtest
-            "tab4-fuel-mix-chart",  # tab-generation
-            "tab2-weather-chart",  # tab-weather
-            "sim-baseline-chart",  # tab-simulator
+        for removed_id in [
+            "tab1-forecast-chart",  # was tab-forecast (Historical)
+            "backtest-chart",  # was tab-backtest
+            "tab4-fuel-mix-chart",  # was tab-generation
+            "tab2-scatter-temp",  # was tab-weather
+            "sim-run-btn",  # was tab-simulator
         ]:
-            assert (
-                hidden_id in ids or any(hidden_id in i for i in ids if isinstance(i, str)) or True
-            )  # tolerate naming drift; the absence test below is the strict guard
+            assert removed_id not in ids, (
+                f"{removed_id} reappeared — V2.1 hidden-tab cleanup regression"
+            )
 
 
 # ── Removed IDs (R2 / R3 regression guard) ───────────────────────────

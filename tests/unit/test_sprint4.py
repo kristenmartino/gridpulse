@@ -72,25 +72,12 @@ class TestPersonaTabVisibility:
 
 
 class TestCallbackOutputCompleteness:
-    """Verify all layout component IDs have corresponding callback Outputs."""
+    """Verify surviving layout component IDs have corresponding callback Outputs.
 
-    def test_tab1_kpi_ids_are_wired(self):
-        """All Tab 1 KPI IDs have callback Outputs."""
-        src = inspect.getsource(sys.modules["components.callbacks"])
-        for oid in [
-            "tab1-peak-value",
-            "tab1-peak-time",
-            "tab1-mape-value",
-            "tab1-reserve-value",
-            "tab1-reserve-status",
-            "tab1-alerts-count",
-            "tab1-alerts-summary",
-        ]:
-            assert oid in src, f"Output '{oid}' not found in callbacks"
-
-    def test_tab4_renewable_delta_wired(self):
-        src = inspect.getsource(sys.modules["components.callbacks"])
-        assert "tab4-renewable-delta" in src
+    V2.1 dropped the tab1-* (Historical) and tab4-* (Generation) wiring tests
+    along with the hidden tabs whose IDs they referenced. tab5-* lives on the
+    visible Risk tab and is still wired through update_alerts_tab.
+    """
 
     def test_tab5_stress_breakdown_wired(self):
         src = inspect.getsource(sys.modules["components.callbacks"])

@@ -63,9 +63,12 @@ class TestWeatherVariables:
 
 
 class TestTabs:
-    def test_nine_tabs(self):
-        assert len(TAB_IDS) == 9
-        assert len(TAB_LABELS) == 9
+    def test_four_tabs(self):
+        # V2.1 dropped 5 hidden tabs (Historical, Backtest, Generation,
+        # Weather, Simulator) whose content was absorbed into the four
+        # visible tabs in R4.
+        assert len(TAB_IDS) == 4
+        assert len(TAB_LABELS) == 4
 
     def test_tab_ids_match_labels(self):
         for tab_id in TAB_IDS:

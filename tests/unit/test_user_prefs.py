@@ -68,11 +68,15 @@ class TestUserPrefs:
 
 
 class TestValidateFilterValue:
+    # V2.1: tab1-timerange and sim-duration tests removed — those filters
+    # belonged to the hidden Historical / Simulator tabs and are no longer
+    # tracked. outlook-horizon shares the same radio-item shape and serves
+    # as the radio-validation test fixture.
     def test_valid_radio_item(self):
-        assert _validate_filter_value("tab1-timerange", "168") == "168"
+        assert _validate_filter_value("outlook-horizon", "168") == "168"
 
     def test_invalid_radio_item(self):
-        assert _validate_filter_value("tab1-timerange", "999") is None
+        assert _validate_filter_value("outlook-horizon", "999") is None
 
     def test_valid_checklist(self):
         result = _validate_filter_value("tab3-model-selector", ["prophet", "xgboost"])
@@ -85,18 +89,6 @@ class TestValidateFilterValue:
     def test_checklist_all_invalid(self):
         result = _validate_filter_value("tab3-model-selector", ["bad1", "bad2"])
         assert result is None
-
-    def test_valid_sim_duration(self):
-        assert _validate_filter_value("sim-duration", 48) == 48
-
-    def test_invalid_sim_duration(self):
-        assert _validate_filter_value("sim-duration", 99) is None
-
-    def test_sim_duration_string_coerced(self):
-        assert _validate_filter_value("sim-duration", "72") == 72
-
-    def test_sim_duration_none(self):
-        assert _validate_filter_value("sim-duration", None) is None
 
     def test_unknown_filter_id(self):
         assert _validate_filter_value("nonexistent-filter", "value") is None
@@ -117,14 +109,14 @@ class TestValidatePrefs:
             "region": "ERCOT",
             "persona": "trader",
             "tab": "tab-outlook",
-            "filters": {"tab1-timerange": "720", "outlook-horizon": "24"},
+            "filters": {"outlook-horizon": "24", "outlook-model": "ensemble"},
         }
         prefs = validate_prefs(data)
         assert prefs.region == "ERCOT"
         assert prefs.persona == "trader"
         assert prefs.tab == "tab-outlook"
-        assert prefs.filters["tab1-timerange"] == "720"
         assert prefs.filters["outlook-horizon"] == "24"
+        assert prefs.filters["outlook-model"] == "ensemble"
 
     def test_invalid_region_falls_back(self):
         prefs = validate_prefs({"region": "INVALID_BA"})
@@ -139,13 +131,13 @@ class TestValidatePrefs:
         assert prefs.tab == "tab-overview"
 
     def test_unknown_filter_stripped(self):
-        prefs = validate_prefs({"filters": {"unknown-filter": "value", "tab1-timerange": "24"}})
+        prefs = validate_prefs({"filters": {"unknown-filter": "value", "outlook-horizon": "24"}})
         assert "unknown-filter" not in prefs.filters
-        assert prefs.filters["tab1-timerange"] == "24"
+        assert prefs.filters["outlook-horizon"] == "24"
 
     def test_invalid_filter_value_stripped(self):
-        prefs = validate_prefs({"filters": {"tab1-timerange": "9999"}})
-        assert "tab1-timerange" not in prefs.filters
+        prefs = validate_prefs({"filters": {"outlook-horizon": "9999"}})
+        assert "outlook-horizon" not in prefs.filters
 
     def test_none_input(self):
         prefs = validate_prefs(None)
@@ -159,10 +151,6 @@ class TestValidatePrefs:
     def test_preserves_valid_checklist(self):
         prefs = validate_prefs({"filters": {"tab3-model-selector": ["prophet", "xgboost"]}})
         assert prefs.filters["tab3-model-selector"] == ["prophet", "xgboost"]
-
-    def test_sim_duration_preserved(self):
-        prefs = validate_prefs({"filters": {"sim-duration": 72}})
-        assert prefs.filters["sim-duration"] == 72
 
 
 # ── TRACKED_FILTERS / FILTER_DEFAULTS consistency ────────────────────
