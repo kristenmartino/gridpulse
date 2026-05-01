@@ -171,15 +171,146 @@ If `train_prophet` is failing for PJM specifically, the failure mode is usually 
 
 ---
 
-## V3 — Operator-flagged future ideas (not yet scoped)
+## V3 — Scoped backlog (post-V2)
 
-Captured for future planning sessions, not actionable today:
+_Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and effort so it can be picked up cold._
 
-- **BA-to-BA flow analysis** — interconnection-level data via FERC 714 / OASIS. Adds new data dependency.
-- **Real BA-polygon choropleth** — replace V1.γ's centroid scatter with actual service-territory polygons. Requires open-source GeoJSON cleanup (~2 days).
-- **Hawaii / Alaska coverage** — EIA-930 doesn't report HEI / Alaska at meaningful resolution. Different data path needed.
-- **Multi-tenant / per-user views** — currently single-deployment, no auth. Would need user accounts + per-tenant Redis namespace.
-- **NEVP capacity verification** — current value (8,000 MW in [config.py](../config.py)) is a first-pass estimate from V1.α since NV Energy bundles Nevada Power south + Sierra Pacific Power north in its IRP. Verify against the next EIA-860 Form Schedule 6 refresh and update.
+**Recommended order** (highest leverage first, lowest blast radius first):
+
+1. **V3.ε** NEVP capacity verification — 15 min, doc-only
+2. **V3.α** Interchange flow visualization — ~1.5 days, mostly UI (data already plumbed)
+3. **V3.β** Real BA-polygon choropleth — ~3 days, GeoJSON cleanup + map upgrade
+4. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
+5. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
+
+### V3.ε — NEVP capacity verification (15 min)
+
+**Why**: V1.α set `REGION_CAPACITY_MW["NEVP"] = 8_000` ([config.py](../config.py)) as a first-pass estimate because NV Energy bundles Nevada Power south + Sierra Pacific Power north in its IRP, and PUCN filings don't break out NEVP-only fleet. The flag is documented inline in the comment block.
+
+**Files**:
+- [`config.py`](../config.py) — `REGION_CAPACITY_MW["NEVP"]` value + comment
+
+**Acceptance**:
+- Replace 8,000 with the EIA-860 Form Schedule 6 BA-level installed capacity for NEVP (or NV Energy's most recent NEVP-specific IRP figure if they publish one).
+- Update the inline comment with the new source URL and date.
+- `pytest tests/unit/test_config.py` clean.
+
+**Risk**: None — config-only, tested.
+
+---
+
+### V3.α — Interchange flow visualization
+
+**Why**: GridPulse already pulls hourly tie-line interchanges via [`fetch_interchange`](../data/eia_client.py) (returns `[timestamp, from_ba, to_ba, interchange_mw]`), but nothing in the UI surfaces them. Operators in PJM/MISO/SPP routinely care about net imports/exports — currently a blind spot.
+
+**Goal**: Add an interchange overlay to the US Grid tab. For the active region (or all 16), show net import/export rate and the top 3 counterparty BAs.
+
+**Files**:
+- [`components/tab_us_grid.py`](../components/tab_us_grid.py) — new section + container IDs
+- [`components/callbacks.py`](../components/callbacks.py) — `update_us_grid_interchange` callback reading `wattcast:interchange:{region}:1h` (new Redis key)
+- [`jobs/phases.py`](../jobs/phases.py) — new phase `write_interchange` invoking `fetch_interchange` and serializing to Redis (mirror the existing `write_generation` shape)
+- [`jobs/scoring_job.py`](../jobs/scoring_job.py) — invoke the new phase per region
+- [`assets/custom.css`](../assets/custom.css) — interchange chip / panel styling
+- New `tests/unit/test_tab_us_grid_interchange.py` — fake Redis row, assert UI shape
+
+**Acceptance**:
+- Per-region net interchange (MW signed) renders on every region card.
+- Top 3 counterparties listed (e.g. PJM ↔ MISO −1,200 MW).
+- `wattcast:interchange:{region}:1h` populated by the next hourly scoring run.
+- New unit test green; existing 1377 tests still pass.
+
+**Effort**: ~1.5 days. Most work is UI + the new scoring phase; data plumbing already exists.
+
+**Risk**: EIA's interchange endpoint sometimes returns sparse data for smaller BAs (NEVP, AZPS). Handle empty payloads gracefully in the UI.
+
+**Open questions**:
+- Sankey across all 16 BAs vs per-region detail panel? Sankey is a stronger story but harder to read at 16 nodes; per-region detail is safer.
+- Show as a header chip on the US Grid card or as a separate full-width panel?
+
+---
+
+### V3.β — Real BA-polygon choropleth
+
+**Why**: V1.γ's map view ([deferral noted in `~/.claude/plans/us-grid-expansion.md:252-254`](../.claude/plans/us-grid-expansion.md)) renders centroid scatter because real BA territories don't follow state lines (PJM spans 13 states; SOCO is parts of AL/GA/MS). Centroids were "80% of the visual punch for 10% of the cost." V3.β closes the remaining 20%.
+
+**Goal**: Replace `scatter_geo` with `choropleth_mapbox` keyed on actual BA service-area polygons.
+
+**Files**:
+- New `assets/ba_polygons.geojson` — cleaned BA service-territory polygons (16 features)
+- [`components/tab_us_grid.py`](../components/tab_us_grid.py) — toggle wires to the polygon path
+- [`components/callbacks.py`](../components/callbacks.py) — `update_us_grid_map_choropleth` (replaces / extends current scatter callback)
+- New `scripts/build_ba_polygons.py` — one-shot GeoJSON ingest + simplification script
+- `tests/unit/test_tab_us_grid_map.py` — assert each polygon has a region code matching `REGION_COORDINATES` keys
+
+**Source**: HIFLD (Homeland Infrastructure Foundation-Level Data) electric retail service territory polygons + manual aggregation for multi-utility BAs (SOCO = Alabama Power + Georgia Power + Mississippi Power, BPAT = federal hydro service area, etc.). EIA Energy Atlas KMZ is an alternate source but heavier cleanup.
+
+**Acceptance**:
+- 16 polygons cover ~98% of US contiguous load (matching V1.α's coverage claim).
+- Map view defaults to choropleth; centroid scatter survives as a fallback toggle.
+- Polygon file <500 KB after `mapshaper -simplify 5%` to keep page-load fast.
+- Click on a polygon → same drill-down as the current centroid click.
+- `pytest tests/unit/test_tab_us_grid_map.py` clean.
+
+**Effort**: ~3 days. GeoJSON cleanup is the bulk; the Plotly swap is straightforward.
+
+**Risk**:
+- BA boundaries vs retail service territories don't always align cleanly. Document the aggregation methodology in the GeoJSON's `properties` field.
+- Page weight: if the simplified file lands above 500 KB, consider lazy-loading on toggle click rather than at initial render.
+
+**Open questions**:
+- HIFLD vs EIA Atlas as the primary source? HIFLD is structured for retail utilities; EIA Atlas is structured for BAs. EIA Atlas is the better fit if the cleanup is tractable.
+- Color the polygon by current demand, by stress, or by demand delta vs forecast? V1.γ's scatter colors by stress — keep that for consistency unless there's a reason to change.
+
+---
+
+### V3.γ — Hawaii / Alaska coverage
+
+**Why**: GridPulse claims "~98% of US load coverage" after V1.α, but contiguous-only. Adding HI/AK is the natural completion.
+
+**Data path challenges**:
+- **Hawaii**: EIA-930 reports HECO at hourly granularity, but data quality is inconsistent compared to ISO/RTO BAs (more gaps, occasional sentinel zeros). NOAA NWS has weather coverage for the islands.
+- **Alaska**: The major systems (Anchorage M&LP, Golden Valley, Chugach Electric) are NOT in EIA-930 hourly. EIA-861 reports them annually. Real-time data would need vendor-specific APIs or scraping. The Alaska Railbelt grid is also electrically isolated from the contiguous US — different operational context.
+
+**Goal**: Add HI to the dashboard via standard EIA path. Defer AK pending a viable hourly data source.
+
+**Files** (HI-only):
+- [`config.py`](../config.py) — `REGION_COORDINATES["HECO"]` + `REGION_CAPACITY_MW["HECO"]` + `STATE_TO_BA["HECO"] = ["HI"]`
+- [`data/eia_client.py`](../data/eia_client.py) — verify EIA-930 returns valid data for `HECO` respondent code
+- New `tests/unit/test_heco_data_quality.py` — assert recent HECO data has <10% gap rate
+
+**Acceptance**:
+- Region picker shows HECO; clicking it loads forecast/actuals/weather without errors.
+- HECO scoring run completes ok in the next hourly tick.
+- Data-quality gate: if HECO's gap rate exceeds threshold, log a warning but don't fail the scoring job for other regions.
+
+**Effort**: 3–5 days for HI alone (mostly data-quality QA + edge-case handling). AK is a separate planning effort; not in scope here.
+
+**Risk**:
+- HECO data may be too sparse to train a usable model. Worst case: the region appears in the picker but the forecast tab shows perpetual "warming" state. Add a feature flag to hide HECO if data quality is below threshold.
+- HECO peak demand is ~1,200 MW (vs ERCOT's 80,000+) — visualizations that scale by demand magnitude will under-represent it.
+
+**Open questions**:
+- Is the visual under-representation acceptable, or do we need a normalized view for small BAs?
+- Treat HI as a 17th region or as a separate "non-contiguous" category? Separate category protects the "98% US coverage" narrative for the existing 16.
+
+---
+
+### V3.δ — Multi-tenant / per-user views (deferred)
+
+**Why**: Currently single-deployment, no auth. Each browser sees the same data. For GridPulse to graduate from a portfolio piece to a real SaaS, this is required.
+
+**Defer rationale**: Weeks of architectural work without product-market validation. Don't build until there's evidence multiple operators want their own scoped views.
+
+**Sketch** (when revived):
+- Auth via Auth0 or Clerk fronting Cloud Run with IAP, or a Supabase auth path matching the existing Supabase MCP.
+- Per-tenant Redis namespace: `wattcast:{tenant_id}:forecast:{region}:1h` instead of `wattcast:forecast:{region}:1h`.
+- Tenant-scoped region access list (some operators may only want the BAs they cover).
+- User profile / preferences scoped to the (user_id, tenant_id) pair, replacing the current localStorage-only `user-prefs-store`.
+- Scoring/training jobs need to either run per-tenant or remain shared with tenant-scoped Redis writes.
+
+**Effort**: 2–4 weeks. Major architectural change. Affects every Redis-touching surface and the Cloud Run cost model (per-tenant min-instances vs shared min-instances).
+
+**Risk**: This change touches the entire pipeline. Don't take it on without a concrete tenant pipeline or paying user.
 
 ---
 
@@ -200,11 +331,12 @@ _All V0–V2 items shipped as of 2026-05-01. Verified live: the 2026-05-01 04:00
 | V2.3 PRD tab-list addendum | ✅ shipped | [`PRD.md`](../PRD.md) |
 | V2.4 PJM scoring investigation | ✅ auto-resolved by V0 — PJM now loads all 3 models hourly | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
 
-## Next: V3 candidates
+## Next: V3 backlog
 
-Captured in §V3 above. Not yet scoped — pick one to take to a planning session if/when ready:
+V3 was scoped on 2026-05-01. See §V3 above for the full plan per item. Recommended order:
 
-- **BA-to-BA flow analysis** — interconnection-level data via FERC 714 / OASIS. New data dependency.
-- **Real BA-polygon choropleth** — replace V1.γ's centroid scatter with actual service-territory polygons. ~2 days of GeoJSON cleanup.
-- **Hawaii / Alaska coverage** — EIA-930 doesn't report HEI / Alaska at meaningful resolution; needs a different data path.
-- **Multi-tenant / per-user views** — currently single-deployment, no auth. Needs user accounts + per-tenant Redis namespace.
+1. **V3.ε** NEVP capacity verification (15 min)
+2. **V3.α** Interchange flow visualization (~1.5 days)
+3. **V3.β** Real BA-polygon choropleth (~3 days)
+4. **V3.γ** Hawaii coverage (3–5 days)
+5. **V3.δ** Multi-tenant — deferred
