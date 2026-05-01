@@ -6,7 +6,7 @@ Each item below has explicit **acceptance criteria** and a **rough effort estima
 
 ## V0 — Production verification (do first, before everything else)
 
-Both option-B PRs are merged. Verification is the only thing left between the user-visible Forecast tab being honest end-to-end. **Until V0 closes, don't ship V1+.**
+Both option-B PRs are merged. Verification is the only thing left between the user-visible Forecast tab being honest end-to-end. **Don't ship UI-facing V1+ work (V1.β/γ) until V0.2/V0.3 close.** V1.α was config-only and shipped ahead in [#61](https://github.com/kristenmartino/gridpulse/pull/61) — see status board.
 
 ### V0.1 — Trigger scoring run + verify
 
@@ -24,9 +24,9 @@ gcloud logging read 'resource.labels.job_name="gridpulse-scoring-job"' \
   --limit=30 --format='value(textPayload, jsonPayload)'
 ```
 
-**Acceptance** (all from the `gcloud logging read` output above):
-- `scoring_job_complete ok_count=8 fail_count=0 failed_regions=[]` — every region's pipeline finished cleanly.
-- Three `model_loaded` lines per region (one each for `xgboost`, `prophet`, `arima`) — 24 total. Ensemble is computed in-process and never loaded from disk.
+**Acceptance** (all from the `gcloud logging read` output above, post-V1.α):
+- `scoring_job_complete ok_count=16 fail_count=0 failed_regions=[]` — every region's pipeline finished cleanly.
+- Three `model_loaded` lines per region (one each for `xgboost`, `prophet`, `arima`) — 48 total. Ensemble is computed in-process and never loaded from disk.
 - One `scoring_ensemble_*` line per region confirms the ensemble path executed. Until the first training tick after [afd6a49](https://github.com/kristenmartino/gridpulse/commit/afd6a49) writes prophet/arima holdout MAPEs into the trained-model `.meta.json`, expect `scoring_ensemble_equal_weights_fallback`; afterward, expect MAPE-derived weights with no fallback log.
 
 **Effort**: 5 min.
@@ -69,22 +69,11 @@ Open the deployed Forecast tab; click each of the four model options in the segm
 
 Plan: [`~/.claude/plans/us-grid-expansion.md`](../.claude/plans/us-grid-expansion.md). Three sequenced PRs (α / β / γ).
 
-### V1.α — Add 8 BAs to reach ~98% US load coverage
+### V1.α — Add 8 BAs to reach ~98% US load coverage (shipped)
 
-**Files**: `config.py` (`REGION_COORDINATES`, `REGION_CAPACITY_MW`), Cloud Run Job memory bump.
+Shipped in [#61](https://github.com/kristenmartino/gridpulse/pull/61). Adds `SOCO`, `TVA`, `DUK`, `CPLE`, `BPAT`, `AZPS`, `NEVP`, `PSCO` (8 → 16 total). The memory-bump step in the original spec was unnecessary — `deploy-prod.yml` already runs scoring at 4 Gi / training at 8 Gi. First 16-region training runs at 04:00 UTC on 2026-05-01.
 
-**Adds**: `SOCO`, `TVA`, `DUK`, `CPLE`, `BPAT`, `AZPS`, `NEVP`, `PSCO` (8 → 16 total).
-
-**Capacity numbers should come from authoritative sources** (each BA's most recent IRP / CDR / 10-K). The plan file proposes order-of-magnitude defaults; treat them as placeholders until verified.
-
-**Acceptance**:
-- Region picker in the header shows 16 entries
-- `python -m jobs scoring` completes for every region without OOM
-- 16 distinct `wattcast:forecast:{region}:1h` keys exist in Redis
-
-**Effort**: ~2 hr (mostly capacity-value research).
-
-**Risk**: Cloud Run memory. Bump to 1 GB scoring + 2 GB training in the same PR; rollback is reverting the config commit.
+**Open follow-up**: NEVP's 8,000 MW capacity is a first-pass estimate (NV Energy doesn't separately disclose Nevada Power's BA-specific fleet). See V3 for the verification follow-up.
 
 ### V1.β — US Grid tab (small-multiples)
 
@@ -110,7 +99,7 @@ US Grid tab
 
 **Effort**: 1–2 days. Reuses every v2 component already shipped.
 
-**Blocks on**: V1.α (cards for the new BAs need their Redis rows to populate).
+**Status**: ready to start. V1.α shipped in [#61](https://github.com/kristenmartino/gridpulse/pull/61); cards for the new BAs will populate as their Redis rows fill in over the first few post-V1.α scoring cycles.
 
 ### V1.γ — US Grid map overlay
 
@@ -190,6 +179,7 @@ Captured for future planning sessions, not actionable today:
 - **Real BA-polygon choropleth** — replace V1.γ's centroid scatter with actual service-territory polygons. Requires open-source GeoJSON cleanup (~2 days).
 - **Hawaii / Alaska coverage** — EIA-930 doesn't report HEI / Alaska at meaningful resolution. Different data path needed.
 - **Multi-tenant / per-user views** — currently single-deployment, no auth. Would need user accounts + per-tenant Redis namespace.
+- **NEVP capacity verification** — current value (8,000 MW in [config.py](../config.py)) is a first-pass estimate from V1.α since NV Energy bundles Nevada Power south + Sierra Pacific Power north in its IRP. Verify against the next EIA-860 Form Schedule 6 refresh and update.
 
 ---
 
@@ -197,11 +187,11 @@ Captured for future planning sessions, not actionable today:
 
 | Item | Status | PR / Doc |
 |---|---|---|
-| V0.1 Trigger scoring run + verify | open | n/a |
-| V0.2 Verify Redis carries 4 model keys | open | n/a |
-| V0.3 UI walkthrough | open | n/a |
-| V1.α Region expansion (16 BAs) | scoped | [`scoring-job-multi-model.md`](../.claude/plans/us-grid-expansion.md) |
-| V1.β US Grid small-multiples tab | scoped | [`us-grid-expansion.md`](../.claude/plans/us-grid-expansion.md) |
+| V0.1 Trigger scoring run + verify | shipped (caveat trim pending scheduled agent) | [#59](https://github.com/kristenmartino/gridpulse/pull/59) [#60](https://github.com/kristenmartino/gridpulse/pull/60) |
+| V0.2 Verify Redis carries 4 model keys | open (needs VPC access) | n/a |
+| V0.3 UI walkthrough | open (needs browser) | n/a |
+| V1.α Region expansion (16 BAs) | shipped | [#61](https://github.com/kristenmartino/gridpulse/pull/61) |
+| V1.β US Grid small-multiples tab | ready | [`us-grid-expansion.md`](../.claude/plans/us-grid-expansion.md) |
 | V1.γ US Grid map overlay | scoped | [`us-grid-expansion.md`](../.claude/plans/us-grid-expansion.md) |
 | V2.1 Hidden-tab deletion | open | n/a |
 | V2.2 Brand spec addendum | open | n/a |
