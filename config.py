@@ -339,6 +339,7 @@ EIA_ENDPOINTS = {
 # ---------------------------------------------------------------------------
 TAB_IDS: list[str] = [
     "tab-overview",
+    "tab-us-grid",
     "tab-outlook",
     "tab-alerts",
     "tab-models",
@@ -346,6 +347,7 @@ TAB_IDS: list[str] = [
 
 TAB_LABELS: dict[str, str] = {
     "tab-overview": "Overview",
+    "tab-us-grid": "US Grid",
     "tab-outlook": "Forecast",
     "tab-alerts": "Risk",
     "tab-models": "Models",

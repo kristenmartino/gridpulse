@@ -63,12 +63,12 @@ class TestWeatherVariables:
 
 
 class TestTabs:
-    def test_four_tabs(self):
+    def test_five_tabs(self):
         # V2.1 dropped 5 hidden tabs (Historical, Backtest, Generation,
-        # Weather, Simulator) whose content was absorbed into the four
-        # visible tabs in R4.
-        assert len(TAB_IDS) == 4
-        assert len(TAB_LABELS) == 4
+        # Weather, Simulator); V1.β added US Grid as a fifth visible tab.
+        # Visible set: Overview / US Grid / Forecast / Risk / Models.
+        assert len(TAB_IDS) == 5
+        assert len(TAB_LABELS) == 5
 
     def test_tab_ids_match_labels(self):
         for tab_id in TAB_IDS:
