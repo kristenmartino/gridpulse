@@ -2311,3 +2311,31 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
         grid-template-columns: 1fr;
     }
 }
+
+/* V1.γ: Cards | Map view toggle row + map container */
+.gp-us-grid-view-control {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    justify-content: flex-end;
+}
+
+.gp-region-map {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    overflow: hidden;
+}
+
+.gp-region-map--empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 240px;
+}
+
+.gp-region-map__empty-message {
+    color: var(--text-tertiary);
+    font-size: var(--text-sm);
+}

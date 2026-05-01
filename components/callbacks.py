@@ -40,6 +40,7 @@ from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
     REGION_CAPACITY_MW,
+    REGION_COORDINATES,
     REGION_NAMES,
     REQUIRE_REDIS,
     WEATHER_VARIABLES,
@@ -2342,10 +2343,12 @@ def register_callbacks(app):
             )
             return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div)
 
-    # ── 3a-bis. V1.β: US GRID SMALL-MULTIPLES TAB ─────────────
-    # Bird's-eye view of all 16 BAs as a card grid. Each card click
+    # ── 3a-bis. V1.β + V1.γ: US GRID SMALL-MULTIPLES TAB ──────
+    # Bird's-eye view of all 16 BAs as a card grid OR a Plotly scatter_geo
+    # of BA centroids (Cards | Map toggle). Each card / map point click
     # drills down into the Forecast tab for that region. Reads per-region
-    # actuals from Redis (warming/cold regions render an "—" placeholder).
+    # actuals from Redis (warming/cold regions render an "—" placeholder
+    # in cards view; map view drops them).
 
     @app.callback(
         [
@@ -2356,12 +2359,15 @@ def register_callbacks(app):
         [
             Input("dashboard-tabs", "active_tab"),
             Input("refresh-interval", "n_intervals"),
+            Input("us-grid-view-toggle", "value"),
         ],
     )
-    def update_us_grid_snapshot(active_tab, _n_intervals):
-        """Render the US Grid tab's title, MetricsBar, and 16 region cards."""
+    def update_us_grid_snapshot(active_tab, _n_intervals, view):
+        """Render the US Grid tab's title, MetricsBar, and body (cards or map)."""
         if active_tab != "tab-us-grid":
             return [no_update] * 3
+
+        view = view or "cards"
 
         try:
             region_data = _collect_us_grid_region_data()
@@ -2369,12 +2375,17 @@ def register_callbacks(app):
             metrics_items = _build_us_grid_metrics_items(region_data)
             metrics_bar = build_metrics_bar(metrics_items)
             metrics_bar.className = f"gp-metrics-bar gp-metrics-bar--{len(metrics_items)}up"
-            cards = [
-                _build_us_grid_region_card(region, region_data.get(region, {}))
-                for region in REGION_NAMES
-            ]
-            grid = html.Div(cards, className="gp-region-grid")
-            return (title, metrics_bar, grid)
+
+            if view == "map":
+                body = _build_us_grid_map(region_data)
+            else:
+                cards = [
+                    _build_us_grid_region_card(region, region_data.get(region, {}))
+                    for region in REGION_NAMES
+                ]
+                body = html.Div(cards, className="gp-region-grid")
+
+            return (title, metrics_bar, body)
         except Exception as exc:
             log.exception("update_us_grid_snapshot_failed")
             err_msg = f"{type(exc).__name__}: {exc}"
@@ -2400,6 +2411,31 @@ def register_callbacks(app):
         if not isinstance(triggered, dict) or triggered.get("type") != "us-grid-region-card":
             return no_update, no_update
         region = triggered.get("region")
+        if not region:
+            return no_update, no_update
+        return region, "tab-outlook"
+
+    @app.callback(
+        [
+            Output("region-selector", "value", allow_duplicate=True),
+            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        ],
+        Input("us-grid-map", "clickData"),
+        prevent_initial_call=True,
+    )
+    def drilldown_from_us_grid_map(click_data):
+        """Click a map point → open Forecast tab pre-set to that region.
+
+        Mirrors ``drilldown_from_us_grid`` (cards). Same outputs, same
+        downstream effect; the map hands the region code through
+        ``customdata`` instead of a pattern-matching component ID.
+        """
+        if not click_data:
+            return no_update, no_update
+        points = click_data.get("points") or []
+        if not points:
+            return no_update, no_update
+        region = points[0].get("customdata")
         if not region:
             return no_update, no_update
         return region, "tab-outlook"
@@ -6500,4 +6536,135 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
         id=card_id,
         n_clicks=0,
         className="gp-region-card",
+    )
+
+
+# ── V1.γ: US GRID MAP HELPERS ────────────────────────────────
+
+
+# Hex equivalents of the v2 design tokens that Plotly figures need inline
+# (Plotly doesn't read CSS custom properties). Keep in sync with the values
+# in :root in assets/custom.css.
+_MAP_LAND_COLOR = "#111113"  # --bg-raised
+_MAP_COASTLINE_COLOR = "#27272a"
+_MAP_SUBUNIT_COLOR = "#1f1f23"
+_MAP_AXIS_FONT_COLOR = "#71717a"  # --text-tertiary
+_MAP_BORDER_COLOR = "#1f1f23"
+_MAP_COLORSCALE = [
+    [0.0, "#34d399"],  # --success — comfortable margin
+    [0.7, "#fbbf24"],  # --warning — getting tight
+    [1.0, "#f87171"],  # --danger — peak utilization
+]
+
+
+def _build_us_grid_map(region_data: dict) -> html.Div:
+    """Plotly ``scatter_geo`` of BA centroids — sized by demand, colored by stress.
+
+    Cold or empty regions are dropped from the figure (rather than rendering
+    as zero-size markers). When every region is cold the function returns an
+    empty-state div — the page already has the warming language in the title.
+    """
+    populated = {r: d for r, d in region_data.items() if d.get("current_mw")}
+
+    if not populated:
+        return html.Div(
+            html.Div(
+                "All regions warming up — switch to Cards view to see per-region status.",
+                className="gp-region-map__empty-message",
+            ),
+            className="gp-region-map gp-region-map--empty",
+        )
+
+    regions = list(populated.keys())
+    lats = [REGION_COORDINATES[r]["lat"] for r in regions]
+    lons = [REGION_COORDINATES[r]["lon"] for r in regions]
+    names = [REGION_NAMES.get(r, r) for r in regions]
+    demand_gw = [populated[r]["current_mw"] / 1000 for r in regions]
+
+    # Stress = demand / capacity (0..>1). Cap at 100% for the colorscale.
+    stress_pct: list[float] = []
+    for r in regions:
+        cap = REGION_CAPACITY_MW.get(r, 0)
+        if cap > 0:
+            stress_pct.append(min(populated[r]["current_mw"] / cap * 100, 100.0))
+        else:
+            stress_pct.append(0.0)
+
+    # Marker size: 10–40 px, scaled by demand. Linear is fine for 16 points.
+    max_demand = max(demand_gw)
+    sizes = [10 + (d / max_demand) * 30 for d in demand_gw]
+
+    hover_text = [
+        f"<b>{name}</b><br>Demand: {d:.1f} GW<br>Utilization: {s:.0f}%"
+        for name, d, s in zip(names, demand_gw, stress_pct, strict=False)
+    ]
+
+    fig = go.Figure(
+        go.Scattergeo(
+            lat=lats,
+            lon=lons,
+            mode="markers",
+            marker={
+                "size": sizes,
+                "color": stress_pct,
+                "colorscale": _MAP_COLORSCALE,
+                "cmin": 0,
+                "cmax": 100,
+                "colorbar": {
+                    "title": {
+                        "text": "Utilization %",
+                        "font": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
+                    },
+                    "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
+                    "thickness": 10,
+                    "len": 0.6,
+                    "bgcolor": "rgba(0,0,0,0)",
+                    "bordercolor": _MAP_BORDER_COLOR,
+                    "borderwidth": 1,
+                    "x": 1.0,
+                },
+                "line": {"color": _MAP_BORDER_COLOR, "width": 1},
+            },
+            customdata=regions,
+            hovertext=hover_text,
+            hoverinfo="text",
+        )
+    )
+
+    fig.update_geos(
+        scope="usa",
+        projection_type="albers usa",
+        showland=True,
+        landcolor=_MAP_LAND_COLOR,
+        showcoastlines=True,
+        coastlinecolor=_MAP_COASTLINE_COLOR,
+        showsubunits=True,
+        subunitcolor=_MAP_SUBUNIT_COLOR,
+        showcountries=False,
+        showlakes=False,
+        bgcolor="rgba(0,0,0,0)",
+    )
+
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin={"l": 0, "r": 0, "t": 8, "b": 0},
+        font={"family": "Inter, system-ui, sans-serif", "color": _MAP_AXIS_FONT_COLOR, "size": 11},
+        height=480,
+        showlegend=False,
+        hoverlabel={
+            "bgcolor": _MAP_LAND_COLOR,
+            "bordercolor": _MAP_COASTLINE_COLOR,
+            "font": {"color": "#e4e4e7", "family": "Inter, system-ui, sans-serif", "size": 12},
+        },
+    )
+
+    return html.Div(
+        dcc.Graph(
+            id="us-grid-map",
+            figure=fig,
+            config={"displayModeBar": False, "responsive": True},
+            style={"height": "480px"},
+        ),
+        className="gp-region-map",
     )

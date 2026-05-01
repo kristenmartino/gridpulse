@@ -1,17 +1,21 @@
-"""Unit tests for the US Grid tab (V1.β).
+"""Unit tests for the US Grid tab (V1.β + V1.γ).
 
 Covers:
-- Layout returns html.Div with the expected dynamic-content IDs
-- Helper functions build the title, metrics-bar items, sparkline, and cards
+- Layout returns html.Div with the expected dynamic-content IDs and the
+  Cards | Map view toggle (V1.γ)
+- Helper functions build the title, metrics-bar items, sparkline, cards,
+  and the scatter_geo map figure
 - Region cards expose the pattern-matching ID shape that the drilldown
-  callback listens on
+  callback listens on; map markers carry ``customdata`` with the region
+  code so the map-click drilldown can read it
 - Empty / cold Redis state degrades gracefully (placeholder cards, "—"
-  metrics, empty sparkline)
+  metrics, empty sparkline, empty-state map div)
 """
 
 from unittest.mock import patch
 
-from dash import html
+import plotly.graph_objects as go
+from dash import dcc, html
 
 
 def _collect_ids(component, collected=None):
@@ -44,8 +48,22 @@ class TestUsGridLayout:
         from components.tab_us_grid import layout
 
         ids = _collect_ids(layout())
-        for rid in ("us-grid-title", "us-grid-metrics-bar", "us-grid-region-grid"):
+        for rid in (
+            "us-grid-title",
+            "us-grid-metrics-bar",
+            "us-grid-view-toggle",
+            "us-grid-region-grid",
+        ):
             assert rid in ids, f"Missing component ID: {rid}"
+
+    def test_view_toggle_defaults_to_cards(self):
+        from components.tab_us_grid import _view_toggle
+
+        toggle = _view_toggle()
+        radio = _find_by_id(toggle, "us-grid-view-toggle")
+        assert radio is not None
+        assert radio.value == "cards"
+        assert {opt["value"] for opt in radio.options} == {"cards", "map"}
 
     def test_layout_uses_section_stack(self):
         """Match the v2 page rhythm: gp-page > gp-section-stack."""
@@ -173,6 +191,81 @@ class TestRegionCard:
         )
         assert "gp-region-card--empty" not in card.className
         assert card.className == "gp-region-card"
+
+
+class TestMap:
+    """V1.γ: scatter_geo map view with click-through to Forecast."""
+
+    def test_empty_data_returns_empty_state_div(self):
+        from components.callbacks import _build_us_grid_map
+
+        result = _build_us_grid_map({})
+        assert isinstance(result, html.Div)
+        assert "gp-region-map--empty" in result.className
+
+    def test_populated_data_returns_dcc_graph(self):
+        from components.callbacks import _build_us_grid_map
+
+        data = {
+            "FPL": {"current_mw": 30000, "today_mw": [29000, 30000]},
+            "ERCOT": {"current_mw": 70000, "today_mw": [69000, 70000]},
+        }
+        wrapper = _build_us_grid_map(data)
+        assert isinstance(wrapper, html.Div)
+        assert wrapper.className == "gp-region-map"
+        graph = wrapper.children
+        assert isinstance(graph, dcc.Graph)
+        assert graph.id == "us-grid-map"
+        assert isinstance(graph.figure, go.Figure)
+
+    def test_map_marker_customdata_carries_region_codes(self):
+        """Click handler reads region from clickData.points[0].customdata."""
+        from components.callbacks import _build_us_grid_map
+
+        data = {
+            "PJM": {"current_mw": 100000, "today_mw": [99000, 100000]},
+            "MISO": {"current_mw": 80000, "today_mw": [79000, 80000]},
+        }
+        graph = _build_us_grid_map(data).children
+        scatter = graph.figure.data[0]
+        # customdata is the region list; map drilldown reads it on click
+        assert set(scatter.customdata) == {"PJM", "MISO"}
+
+    def test_map_drops_cold_regions(self):
+        """Regions without current_mw should not appear as zero-size markers."""
+        from components.callbacks import _build_us_grid_map
+
+        data = {
+            "FPL": {"current_mw": 30000, "today_mw": [30000]},
+            "SOCO": {},  # cold region — no model yet
+        }
+        scatter = _build_us_grid_map(data).children.figure.data[0]
+        assert set(scatter.customdata) == {"FPL"}
+
+    def test_map_uses_albers_usa_projection(self):
+        from components.callbacks import _build_us_grid_map
+
+        data = {"FPL": {"current_mw": 30000, "today_mw": [30000]}}
+        fig = _build_us_grid_map(data).children.figure
+        assert fig.layout.geo.projection.type == "albers usa"
+        assert fig.layout.geo.scope == "usa"
+
+    def test_map_theme_uses_transparent_paper_bg(self):
+        """V1.γ acceptance: paper bg = --bg-base equivalent (transparent here)."""
+        from components.callbacks import _build_us_grid_map
+
+        data = {"FPL": {"current_mw": 30000, "today_mw": [30000]}}
+        fig = _build_us_grid_map(data).children.figure
+        assert fig.layout.paper_bgcolor == "rgba(0,0,0,0)"
+        assert fig.layout.plot_bgcolor == "rgba(0,0,0,0)"
+
+    def test_map_disables_modebar(self):
+        """V1.γ acceptance: modebar trimmed via PLOT_CONFIG."""
+        from components.callbacks import _build_us_grid_map
+
+        data = {"FPL": {"current_mw": 30000, "today_mw": [30000]}}
+        graph = _build_us_grid_map(data).children
+        assert graph.config["displayModeBar"] is False
 
 
 class TestSparkline:
