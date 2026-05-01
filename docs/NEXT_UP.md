@@ -177,25 +177,21 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 **Recommended order** (highest leverage first, lowest blast radius first):
 
-1. **V3.ε** NEVP capacity verification — 15 min, doc-only
+1. ~~**V3.ε** NEVP capacity verification~~ — ✅ shipped 2026-05-01 ([config.py](../config.py); 8,000 → 15,445 MW per EIA-860M Feb 2026)
 2. **V3.α** Interchange flow visualization — ~1.5 days, mostly UI (data already plumbed)
 3. **V3.β** Real BA-polygon choropleth — ~3 days, GeoJSON cleanup + map upgrade
 4. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
 5. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
 
-### V3.ε — NEVP capacity verification (15 min)
+### V3.ε — NEVP capacity verification — ✅ shipped 2026-05-01
 
-**Why**: V1.α set `REGION_CAPACITY_MW["NEVP"] = 8_000` ([config.py](../config.py)) as a first-pass estimate because NV Energy bundles Nevada Power south + Sierra Pacific Power north in its IRP, and PUCN filings don't break out NEVP-only fleet. The flag is documented inline in the comment block.
+**What landed**: `REGION_CAPACITY_MW["NEVP"]` updated from 8,000 → **15,445 MW** in [config.py](../config.py).
 
-**Files**:
-- [`config.py`](../config.py) — `REGION_CAPACITY_MW["NEVP"]` value + comment
+**Source**: EIA-860M February 2026, retrieved via the EIA API v2 (`/electricity/operating-generator-capacity/data/`) on 2026-05-01: 261 generators in the NEVP balancing authority, summed at the `nameplate-capacity-mw` field, filtered to `statusDescription == "Operating"`.
 
-**Acceptance**:
-- Replace 8,000 with the EIA-860 Form Schedule 6 BA-level installed capacity for NEVP (or NV Energy's most recent NEVP-specific IRP figure if they publish one).
-- Update the inline comment with the new source URL and date.
-- `pytest tests/unit/test_config.py` clean.
+**Why the V1.α estimate was so wrong**: I conflated NV Energy's utility-owned fleet (~6–8 GW) with the BA-level total. EIA's BA capacity counts every generator in the territory — utility-owned + IPPs + wholesale sellers. The 15,445 MW figure aligns with NEVP's Las Vegas summer peak (~7 GW) at typical IOU reserve margins.
 
-**Risk**: None — config-only, tested.
+**Follow-up worth noting**: the other 7 V1.α BAs were sourced from utility 10-Ks / IRPs, not EIA-860M. A future cleanup could re-source all 16 against EIA-860M for uniformity; that's not in this scope but worth a one-line note in [config.py](../config.py) if it ever happens.
 
 ---
 
@@ -335,7 +331,7 @@ _All V0–V2 items shipped as of 2026-05-01. Verified live: the 2026-05-01 04:00
 
 V3 was scoped on 2026-05-01. See §V3 above for the full plan per item. Recommended order:
 
-1. **V3.ε** NEVP capacity verification (15 min)
+1. ~~**V3.ε** NEVP capacity verification~~ — ✅ shipped 2026-05-01
 2. **V3.α** Interchange flow visualization (~1.5 days)
 3. **V3.β** Real BA-polygon choropleth (~3 days)
 4. **V3.γ** Hawaii coverage (3–5 days)

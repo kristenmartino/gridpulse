@@ -226,12 +226,15 @@ REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.item
 #           https://www.bpa.gov/-/media/Aep/power/white-book/2024-white-book.pdf
 #   AZPS  — 9,400 MW (Arizona Public Service 2023 IRP, ACC-approved 2024).
 #           https://www.aps.com/en/About/Our-Company/Doing-Business-with-Us/Resource-Planning
-#   NEVP  — ~8,000 MW (Nevada Power 2024 IRP filed with PUCN; approximate —
-#           NV Energy's NEVP-only fleet is not separately disclosed, this
-#           is derived from EIA-930 BA-level annual generation of ~37 TWh
-#           at typical IOU capacity factor and the 2024 IRP capacity
-#           additions). Verify against EIA-860 form on next data refresh.
-#           https://www.nvenergy.com/integrated-resource-plan
+#   NEVP  — 15,445 MW operating (EIA-860M February 2026, retrieved via
+#           EIA API v2 on 2026-05-01: 261 generators in the NEVP BA
+#           summed at the nameplate-capacity-mw field, filtered to
+#           statusDescription="Operating"). This is the BA-level fleet
+#           total — every generator in the territory including IPPs and
+#           wholesale sellers, not just NV Energy's own fleet. Supersedes
+#           the 8,000 MW first-pass estimate from V1.α (which conflated
+#           NV Energy's utility-owned fleet with the BA total).
+#           https://api.eia.gov/v2/electricity/operating-generator-capacity/
 #   PSCO  — 9,080 MW (Public Service Co. of Colorado / Xcel Colorado;
 #           EIA-860 BA-level installed capacity per Form 860 Schedule 6,
 #           reflected in EIA grid monitor PSCO BA page).
@@ -254,7 +257,7 @@ REGION_CAPACITY_MW: dict[str, int] = {
     "CPLE": 13_700,
     "BPAT": 17_462,
     "AZPS": 9_400,
-    "NEVP": 8_000,
+    "NEVP": 15_445,
     "PSCO": 9_080,
 }
 
