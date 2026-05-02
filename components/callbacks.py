@@ -4028,6 +4028,55 @@ def register_callbacks(app):
 # ── HELPER FUNCTIONS ──────────────────────────────────────────
 
 
+# ── Defensive readers ──────────────────────────────────────────
+#
+# EIA-930 has a publishing lag for the most recent hour, especially for
+# newer / smaller BAs (PSCO, NEVP, AZPS observed 2026-05-02). Until the
+# row catches up the demand series ends with NaN — sometimes preceded by
+# zero (EIA's other "missing observation" marker). Anywhere we read the
+# most recent value off a demand list or Series we route through this
+# helper so downstream code never has to ``isnan`` or guard ``prev / 0``.
+#
+# Companion to the ``> 0`` filter in ``_build_overview_metrics_items`` —
+# this formalizes that pattern as the single source of truth, so future
+# tabs (US Grid, Risk, Models) can't accidentally re-introduce the bug.
+
+
+def _latest_real_demand(values, *, offset: int = 0):
+    """Return the most recent real demand reading from a list / Series.
+
+    Walks backward and returns the first value that is finite (not NaN
+    or inf) and strictly positive. ``offset=0`` finds "now"; ``offset=24``
+    finds "24 hours ago" while still skipping any NaN / zero rows that
+    fall on the chosen position — so a NaN spike doesn't silently shift
+    a trend baseline.
+
+    Returns ``None`` when no usable reading exists in the window — the
+    caller should render an ``"—"`` placeholder rather than a numeric.
+    """
+    if values is None:
+        return None
+    try:
+        n = len(values)
+    except TypeError:
+        return None
+    if n == 0:
+        return None
+    skipped = 0
+    for i in range(n - 1, -1, -1):
+        try:
+            v = float(values.iloc[i] if hasattr(values, "iloc") else values[i])
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(v) or v <= 0:
+            continue
+        if skipped < offset:
+            skipped += 1
+            continue
+        return v
+    return None
+
+
 # ── Overview helpers (R2 — v2 linear stack) ─────────────────────────
 
 
@@ -4117,8 +4166,15 @@ def _build_overview_hero_chart(
     if actual.empty:
         return _empty_figure("No recent demand")
 
-    last_ts = actual["timestamp"].iloc[-1]
-    last_mw = float(actual["demand_mw"].iloc[-1])
+    # ``last_mw`` is the bridge point between the actual line and the
+    # forecast trace. A NaN tail (EIA-930 publishing lag) would render
+    # the bridge as a gap; instead we walk back to the most recent real
+    # reading. ``last_ts`` matches that row so the bridge stays time-aligned.
+    real_actual = actual[actual["demand_mw"].notna() & (actual["demand_mw"] > 0)]
+    if real_actual.empty:
+        return _empty_figure("No recent demand")
+    last_ts = real_actual["timestamp"].iloc[-1]
+    last_mw = float(real_actual["demand_mw"].iloc[-1])
 
     fig = go.Figure()
 
@@ -4261,7 +4317,9 @@ def _build_overview_insight(
     nonzero = df[df["demand_mw"] > 0]
     last_7d = nonzero.tail(168)
 
-    now_value = float(df["demand_mw"].iloc[-1])
+    # Read from ``nonzero`` so a NaN tail (EIA-930 publishing lag) doesn't
+    # poison the narrative with literal "nan%" deltas.
+    now_value = _latest_real_demand(nonzero["demand_mw"]) or 0.0
     avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
     delta_pct = ((now_value - avg_7d) / avg_7d * 100.0) if avg_7d else 0.0
     direction = "above" if delta_pct >= 0 else "below"
@@ -6366,9 +6424,12 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
     Returns ``{region_code: {"current_mw", "prev_mw", "today_mw",
     "interchange"}}`` for every region in ``REGION_NAMES``. Regions
     without a Redis entry (cold pipeline, new BAs awaiting their first
-    scoring run) get an empty dict so the caller can render an "—"
-    placeholder card. ``interchange`` is the V3.α
-    ``wattcast:interchange:{region}:1h`` payload, or ``None`` if absent.
+    scoring run) — or whose demand tail is NaN / zero (EIA-930
+    publishing lag for the most recent hour) — get a dict with
+    ``current_mw=None`` so the caller can render an ``"—"`` placeholder
+    card without ever exposing a NaN to downstream sums or divisions.
+    ``interchange`` is the V3.α ``wattcast:interchange:{region}:1h``
+    payload, or ``None`` if absent.
     """
     out: dict[str, dict] = {}
     for region in REGION_NAMES:
@@ -6378,9 +6439,15 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
         if not demand:
             out[region] = {"interchange": interchange} if interchange else {}
             continue
+
+        current_mw = _latest_real_demand(demand)
+        prev_mw = _latest_real_demand(demand, offset=1) if current_mw is not None else None
+        # Sparkline is rendered tolerant of NaN (gp-region-card__sparkline
+        # uses raw values), so we keep the trailing-24h slice as-is — but
+        # the headline number paths read ``current_mw`` / ``prev_mw``.
         out[region] = {
-            "current_mw": demand[-1],
-            "prev_mw": demand[-2] if len(demand) >= 2 else None,
+            "current_mw": current_mw,
+            "prev_mw": prev_mw,
             "today_mw": demand[-24:],
             "interchange": interchange,
         }
@@ -6390,8 +6457,15 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
 def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
     """Page title block: 'US Grid' + '<N> BAs · X.X GW total demand'."""
     n_regions = len(REGION_NAMES)
-    n_with_data = sum(1 for d in region_data.values() if d.get("current_mw"))
-    total_mw = sum(d.get("current_mw") or 0 for d in region_data.values())
+    # Filter to finite, positive values only — ``_collect_us_grid_region_data``
+    # already returns ``None`` for regions whose demand tail is NaN, but
+    # the explicit ``np.isfinite`` here is a safety net so a future
+    # regression in the collector can't poison the sum with NaN.
+    real_demands = [
+        v for v in (d.get("current_mw") for d in region_data.values()) if _is_real_positive(v)
+    ]
+    n_with_data = len(real_demands)
+    total_mw = sum(real_demands)
     if total_mw > 0:
         subtitle = (
             f"{n_with_data} of {n_regions} balancing authorities reporting · "
@@ -6402,9 +6476,26 @@ def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
     return build_page_title(title="US Grid", subtitle=subtitle)
 
 
+def _is_real_positive(value) -> bool:
+    """Strict guard for downstream arithmetic: True only when ``value`` is
+    a finite (non-NaN, non-inf) strictly positive number. Used everywhere
+    that sums or divides by a region's ``current_mw``.
+
+    Rejects strings outright (no silent coercion) and normalizes numpy
+    bool returns to Python ``bool`` so callers can use ``is True / is False``.
+    """
+    if value is None or isinstance(value, (str, bytes)):
+        return False
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return False
+    return bool(np.isfinite(f) and f > 0)
+
+
 def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
     """4-up MetricsBar items: Total Demand · Peak Today · Top-Stress BA · Lowest Reserve."""
-    populated = {r: d for r, d in region_data.items() if d.get("current_mw")}
+    populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
     if not populated:
         return [
             {"label": "Total Demand", "value": "—", "tone": "primary", "hero": True},
@@ -6414,7 +6505,15 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
         ]
 
     total_mw = sum(d["current_mw"] for d in populated.values())
-    peak_24h_mw = max(max(d.get("today_mw") or [0]) for d in populated.values())
+    # ``today_mw`` is the raw sparkline window — strip NaN before max()
+    # so a single bad hour can't poison the National Peak metric.
+    peak_24h_mw = max(
+        (
+            max(filter(_is_real_positive, d.get("today_mw") or []), default=0)
+            for d in populated.values()
+        ),
+        default=0,
+    )
 
     stress_by_region = {
         region: d["current_mw"] / cap
@@ -6529,7 +6628,11 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
     name = REGION_NAMES.get(region, region)
     card_id = {"type": "us-grid-region-card", "region": region}
 
-    if not data or data.get("current_mw") is None:
+    # ``_collect_us_grid_region_data`` returns ``None`` for unreal demand
+    # (NaN / non-finite / non-positive). The strict ``_is_real_positive``
+    # check is redundant given that source — kept as a safety net so a
+    # future regression in the collector can't render literal "nan" here.
+    if not data or not _is_real_positive(data.get("current_mw")):
         return html.Div(
             [
                 html.Div(
@@ -6629,7 +6732,10 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     as zero-size markers). When every region is cold the function returns an
     empty-state div — the page already has the warming language in the title.
     """
-    populated = {r: d for r, d in region_data.items() if d.get("current_mw")}
+    # Drop NaN / non-finite / zero demand regions — they would render as
+    # zero-size markers and (worse) could push NaN into the colorscale
+    # via the stress percentage divide below.
+    populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
 
     if not populated:
         return html.Div(
