@@ -287,6 +287,93 @@ def write_generation(region: str) -> PhaseResult:
         return PhaseResult(region=region, ok=False, error=str(e))
 
 
+# ── Phase: interchange (V3.α) ────────────────────────────────
+
+
+def write_interchange(region: str) -> PhaseResult:
+    """Fetch BA-to-BA hourly interchange and write a per-region snapshot to Redis.
+
+    Output Redis key: ``wattcast:interchange:{region}:1h``. Schema::
+
+        {
+            "region": "PJM",
+            "scored_at": "<iso>",
+            "latest_hour": "<iso>",
+            "net_mw": -1234.5,            # signed: + export / - import
+            "counterparties": [
+                {"to_ba": "MISO", "mw": -1200.5},
+                {"to_ba": "NYISO", "mw": -800.0},
+                {"to_ba": "DUK",  "mw":  350.0},
+            ],
+        }
+
+    Counterparties are the top 3 by absolute interchange in the latest
+    available hour. Empty fetches (BA not in EIA-930 or sparse data)
+    write a placeholder with ``net_mw=None`` so the UI renders ``"—"``
+    instead of guessing.
+    """
+    from data.eia_client import fetch_interchange
+    from data.redis_client import redis_set
+
+    if not _has_eia_key():
+        return PhaseResult(region=region, ok=False, error="no_eia_api_key")
+
+    try:
+        flow_df = fetch_interchange(region)
+    except Exception as e:
+        log.warning("job_interchange_fetch_failed", region=region, error=str(e))
+        return PhaseResult(region=region, ok=False, error=str(e))
+
+    payload: dict[str, Any] = {
+        "region": region,
+        "scored_at": datetime.now(UTC).isoformat(),
+        "latest_hour": None,
+        "net_mw": None,
+        "counterparties": [],
+    }
+
+    if flow_df is None or flow_df.empty:
+        log.info("job_interchange_empty", region=region)
+        redis_set(f"wattcast:interchange:{region}:1h", payload, ttl=REDIS_TTL)
+        return PhaseResult(region=region, ok=True, details={"net_mw": None, "rows": 0})
+
+    flow_df = flow_df.dropna(subset=["interchange_mw"])
+    if flow_df.empty:
+        redis_set(f"wattcast:interchange:{region}:1h", payload, ttl=REDIS_TTL)
+        return PhaseResult(region=region, ok=True, details={"net_mw": None, "rows": 0})
+
+    latest_ts = flow_df["timestamp"].max()
+    latest = flow_df[flow_df["timestamp"] == latest_ts]
+    by_counterparty = (
+        latest.groupby("to_ba")["interchange_mw"].sum().sort_values(key=abs, ascending=False)
+    )
+    top3 = by_counterparty.head(3)
+    counterparties = [
+        {"to_ba": str(to_ba), "mw": round(float(mw), 2)} for to_ba, mw in top3.items()
+    ]
+    net_mw = round(float(by_counterparty.sum()), 2)
+
+    payload.update(
+        {
+            "latest_hour": latest_ts.isoformat() if hasattr(latest_ts, "isoformat") else None,
+            "net_mw": net_mw,
+            "counterparties": counterparties,
+        }
+    )
+    redis_set(f"wattcast:interchange:{region}:1h", payload, ttl=REDIS_TTL)
+    log.info(
+        "job_interchange_written",
+        region=region,
+        net_mw=net_mw,
+        n_counterparties=len(counterparties),
+    )
+    return PhaseResult(
+        region=region,
+        ok=True,
+        details={"net_mw": net_mw, "n_counterparties": len(counterparties)},
+    )
+
+
 # ── Phase: forecast (scoring) ────────────────────────────────
 
 
