@@ -57,8 +57,8 @@ class TestGetEiaCode:
         """Unknown region names pass through unchanged (used as EIA code directly)."""
         assert _get_eia_code("UNKNOWN_BA") == "UNKNOWN_BA"
 
-    def test_region_codes_dict_has_sixteen_entries(self):
-        assert len(EIA_REGION_CODES) == 16
+    def test_region_codes_dict_has_fifty_one_entries(self):
+        assert len(EIA_REGION_CODES) == 51
 
 
 # ---------------------------------------------------------------------------

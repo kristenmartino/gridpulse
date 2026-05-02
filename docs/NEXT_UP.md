@@ -178,10 +178,11 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 **Recommended order** (highest leverage first, lowest blast radius first):
 
 1. ~~**V3.ε** NEVP capacity verification~~ — ✅ shipped 2026-05-01 ([config.py](../config.py); 8,000 → 15,445 MW per EIA-860M Feb 2026)
-2. **V3.α** Interchange flow visualization — ~1.5 days, mostly UI (data already plumbed)
-3. **V3.β** Real BA-polygon choropleth — ~3 days, GeoJSON cleanup + map upgrade
-4. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
-5. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
+2. ~~**V3.α** Interchange flow visualization~~ — ✅ shipped 2026-05-01 ([#69](https://github.com/kristenmartino/gridpulse/pull/69))
+3. ~~**V3.ζ** Full-coverage BA expansion (16 → 51 BAs)~~ — ✅ shipped 2026-05-02 (~99% of US lower-48 demand vs ~85% before)
+4. **V3.β** Real BA-polygon choropleth — ~3 days, GeoJSON cleanup + map upgrade
+5. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
+6. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
 
 ### V3.ε — NEVP capacity verification — ✅ shipped 2026-05-01
 
@@ -222,6 +223,36 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 **Open questions**:
 - Sankey across all 16 BAs vs per-region detail panel? Sankey is a stronger story but harder to read at 16 nodes; per-region detail is safer.
 - Show as a header chip on the US Grid card or as a separate full-width panel?
+
+---
+
+### V3.ζ — Full-coverage BA expansion (16 → 51 BAs) — ✅ shipped 2026-05-02
+
+**Why**: A 2026-05-02 reality check on the "~98% US load" claim showed actual coverage was **~85% (358 GW out of 421 GW US48)** when SOCO was reporting normally; ~94% steady-state with all 16 healthy. The remaining 35 contiguous-US EIA-930 BAs accounted for the gap.
+
+**What landed**: All 35 missing BAs added across the four single-source-of-truth dicts (`REGION_COORDINATES`, `REGION_CAPACITY_MW`, `STATE_TO_BA`, `REGION_GROUPS`) plus `EIA_REGION_CODES`. New total: **51 BAs covering ~99% of US lower-48 demand**.
+
+**Method** (mirrors V3.ε's EIA-860M approach for uniformity):
+- BA list: enumerated from EIA-930 demand data (`/electricity/rto/region-data/`) by filtering out aggregate respondent codes (US48, MIDA, MIDW, etc.)
+- Capacity per BA: batch query of `/electricity/operating-generator-capacity/data/` (Feb 2026), summed at `nameplate-capacity-mw` filtered to `statusDescription="Operating"`. SCL fell back to Seattle City Light's 2024 annual report (~1,800 MW) since the API timed out for that one BA.
+- Coordinates: each BA's primary load center / utility HQ city (same convention as V1.α — Atlanta for SOCO, Las Vegas for NEVP, etc.). Imperfect for federal entities (WALC, SPA) where the HQ doesn't reflect the service-territory geographic centroid; documented as a known limitation in `config.py`.
+- State mapping: primary load states only (where the BA serves the bulk of its demand). Some states overlap with multiple BAs (e.g. FL has FPL, FPC, TEC, JEA, FMPP, TAL, GVL, SEC, HST) — alerts in those states fire across all relevant BAs.
+- Group assignment: extends the existing 4 groups (Central / Northeast / Southeast / West). Final distribution: Central 7, Northeast 3, Southeast 16, West 25.
+
+**Acceptance**:
+- `pytest tests/unit -q` clean ✓ (1419 pass — the existing 16-region count tests bumped to 51)
+- All 5 dicts (`REGION_COORDINATES`, `REGION_CAPACITY_MW`, `STATE_TO_BA`, `REGION_GROUPS`, `EIA_REGION_CODES`) have 51 entries with full cross-dict consistency ✓
+- Lint clean ✓
+- Post-merge: next training cron (04:00 UTC) trains all 51 BAs; first hourly scoring run after that populates Redis for the new 35. Some tiny BAs (CPLW=42 MW, HST=36 MW, GVL=600 MW, SPA=federal hydro marketer) may produce noisy forecasts — the existing PR #71 NaN guards handle this gracefully without crashing the UI.
+
+**Operational notes**:
+- Training time: ~30 min for 16 BAs → estimate ~95 min for 51. Within the 7,200s task timeout but tight.
+- Scoring time: ~90 sec for 16 BAs → estimate ~5 min for 51. Comfortable on the hourly cron.
+- Cloud Run training memory may need a bump from 8 → 16 GB if peak RSS spikes; monitor first run.
+
+**Follow-ups** (not in V3.ζ scope):
+- Forecast-quality gate that hides BAs whose backtest MAPE exceeds a threshold from the dropdown. Today they appear but render whatever the model produces.
+- Re-source the V1.α 8 BAs against EIA-860M so capacity methodology is uniform across all 51.
 
 ---
 
