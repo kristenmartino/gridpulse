@@ -6554,6 +6554,18 @@ def _is_real_positive(value) -> bool:
     return bool(np.isfinite(f) and f > 0)
 
 
+# ``REGION_CAPACITY_MW`` (sourced from EIA-860M Feb 2026) counts only
+# in-territory operating generators. For a handful of import-dominated
+# utility BAs (CPLW = Duke Energy Progress West NC mountains, HST =
+# City of Homestead, GVL = Gainesville, SPA = federal hydro marketer)
+# the actual served demand exceeds in-territory capacity many times
+# over because they import nearly all their power. A "demand /
+# capacity" stress ratio above this ceiling means the capacity figure
+# is wrong, not that the BA is genuinely stressed — drop those rows
+# from any stress ranking. Underlying-data fix is the V3.η follow-up.
+_STRESS_RELIABLE_CEILING = 2.0
+
+
 def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
     """4-up MetricsBar items: Total Demand · Peak Today · Top-Stress BA · Lowest Reserve."""
     populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
@@ -6581,10 +6593,24 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
         for region, d in populated.items()
         if (cap := REGION_CAPACITY_MW.get(region, 0)) > 0
     }
-    if stress_by_region:
-        top_region = max(stress_by_region, key=stress_by_region.get)
-        top_stress_pct = stress_by_region[top_region] * 100
-        lowest_reserve_pct = (1 - max(stress_by_region.values())) * 100
+    # Drop import-dominated BAs whose ``REGION_CAPACITY_MW`` (sourced
+    # from EIA-860M, counts only in-territory operating generators) is
+    # smaller than the BA's served demand. Observed in V3.ζ: CPLW had
+    # 449 MW served vs 42 MW of in-territory generation, producing a
+    # nonsensical "Highest-Stress: CPLW · 1071%". Anything above the
+    # ``_STRESS_RELIABLE_CEILING`` is structural (the BA imports most
+    # of its power), not real stress — exclude from the ranking. The
+    # underlying-data fix lives in the V3.η follow-up.
+    reliable_stress = {r: s for r, s in stress_by_region.items() if s <= _STRESS_RELIABLE_CEILING}
+    if reliable_stress:
+        top_region = max(reliable_stress, key=reliable_stress.get)
+        # Cap displayed stress at 100% so a tight-day reading of 110%
+        # doesn't render as e.g. "PJM · 110%". Matches the map's
+        # cap (``_build_us_grid_map`` line ~6821).
+        top_stress_pct = min(reliable_stress[top_region], 1.0) * 100
+        # Floor reserve at 0% — a BA running at or above its capacity
+        # has zero operator reserve, never negative.
+        lowest_reserve_pct = max(0.0, (1 - max(reliable_stress.values())) * 100)
         top_tone = "negative" if top_stress_pct >= 85 else "secondary"
         reserve_tone = "negative" if lowest_reserve_pct < 15 else "secondary"
         top_value = f"{top_region} · {top_stress_pct:.0f}%"
@@ -6725,18 +6751,36 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
 
     stress_chip = None
     if capacity_mw > 0:
-        stress_pct = current_mw / capacity_mw * 100
-        if stress_pct >= 85:
-            tone = "high"
-        elif stress_pct >= 70:
-            tone = "mid"
+        stress_ratio = current_mw / capacity_mw
+        if stress_ratio > _STRESS_RELIABLE_CEILING:
+            # Import-dominated BA — capacity figure is wrong for this
+            # purpose (counts only in-territory generators). Show a
+            # qualitative "imports" chip instead of a misleading
+            # "1071%" number. See ``_STRESS_RELIABLE_CEILING`` comment.
+            stress_chip = html.Span(
+                "imports",
+                className="gp-region-card__stress gp-region-card__stress--imports",
+                title=(
+                    f"Demand ({current_mw:,.0f} MW) far exceeds in-territory "
+                    f"generators ({capacity_mw:,.0f} MW). This BA imports nearly "
+                    f"all its power; stress ratio is not meaningful here."
+                ),
+            )
         else:
-            tone = "low"
-        stress_chip = html.Span(
-            f"{stress_pct:.0f}%",
-            className=f"gp-region-card__stress gp-region-card__stress--{tone}",
-            title=(f"Demand vs. capacity: {current_mw:,.0f} / {capacity_mw:,.0f} MW"),
-        )
+            # Cap displayed stress at 100% so a tight-day reading of
+            # 110% renders as "100%". Matches the choropleth and map.
+            stress_pct = min(stress_ratio, 1.0) * 100
+            if stress_pct >= 85:
+                tone = "high"
+            elif stress_pct >= 70:
+                tone = "mid"
+            else:
+                tone = "low"
+            stress_chip = html.Span(
+                f"{stress_pct:.0f}%",
+                className=f"gp-region-card__stress gp-region-card__stress--{tone}",
+                title=(f"Demand vs. capacity: {current_mw:,.0f} / {capacity_mw:,.0f} MW"),
+            )
 
     demand_row_children: list = [
         html.Span(

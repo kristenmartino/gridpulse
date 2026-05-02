@@ -286,6 +286,29 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 ---
 
+### V3.η — Capacity figure for import-dominated BAs
+
+**Why**: V3.ζ surfaced a class of bug where ``REGION_CAPACITY_MW`` (sourced from EIA-860M, counting in-territory operating generators) is wildly low for utility BAs that import nearly all their power. CPLW (Duke Energy Progress West, NC mountains) has 42 MW of in-territory generators serving ~449 MW of demand → stress ratio of 10.71×. Same pattern likely affects HST (36 MW capacity), GVL (600 MW), and SPA (federal hydro marketer redistributing power across multiple states).
+
+**User impact (pre-patch)**: "Highest-Stress Region: CPLW · 1071%" / "Lowest Reserve: -971%" on the deployed US Grid metrics bar (reported 2026-05-02). Stop-gap shipped under the same fix that introduced the ``_STRESS_RELIABLE_CEILING = 2.0`` defensive filter — V3.η is the proper data fix.
+
+**Goal**: Replace EIA-860M generator capacity with a "demand-serving capacity" denominator for import-dominated BAs — annual peak demand × 1.15 reserve margin, or N/A if the BA is purely an importer (don't show stress at all).
+
+**Files**:
+- [`config.py`](../config.py) — `REGION_CAPACITY_MW` for the ~5 affected BAs (CPLW, HST, GVL, SPA; verify TAL, TPWR, etc. as well)
+- New `scripts/derive_demand_serving_capacity.py` — one-shot script that pulls each BA's annual peak demand from EIA-930 and computes the corrected figure with reserve margin
+
+**Acceptance**:
+- For every BA with EIA-860M capacity < BA peak demand, replace with `peak_demand_mw * 1.15`. Document inline.
+- Optionally: add a `IS_IMPORT_DOMINATED: set[str]` tag for BAs where the stress metric is intrinsically meaningless (federal marketers); UI hides their stress chip.
+- The ``_STRESS_RELIABLE_CEILING`` filter becomes a defense-in-depth safety net rather than the primary mechanism.
+
+**Effort**: ~2 hours (script + verification + config update).
+
+**Risk**: Choosing the wrong reserve margin number could materially change downstream pricing/scenario results. Document the methodology clearly.
+
+---
+
 ### V3.γ — Hawaii / Alaska coverage
 
 **Why**: GridPulse claims "~98% of US load coverage" after V1.α, but contiguous-only. Adding HI/AK is the natural completion.

@@ -2300,6 +2300,17 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     background: var(--danger-dim);
 }
 
+/* V3.η stop-gap: BAs whose served demand exceeds in-territory
+   capacity by >2×. The capacity figure is wrong for ranking purposes
+   (utility BAs that import nearly all their power); display a neutral
+   "imports" label instead of a misleading multi-hundred-percent
+   number. See ``_STRESS_RELIABLE_CEILING`` in components/callbacks.py. */
+.gp-region-card__stress--imports {
+    color: var(--text-tertiary);
+    background: var(--bg-raised);
+    font-style: italic;
+}
+
 /* V3.α — net BA-to-BA interchange chip. Sign-coded:
    export (+ flow out) reads success-tone, import (- flow in) reads
    forecast/orange-tone (the same accent forecasts use), and a near-
