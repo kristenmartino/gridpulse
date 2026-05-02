@@ -18,10 +18,11 @@ from config import (
 
 
 class TestRegionConfig:
-    def test_sixteen_regions(self):
-        # 8 ISOs/RTOs + FPL (the original set) plus 8 utility/federal BAs
-        # added in the V1.α expansion (~98% of US load coverage).
-        assert len(REGION_COORDINATES) == 16
+    def test_fifty_one_regions(self):
+        # Original 8 (ISOs/RTOs + FPL) + V1.α's 8 utility/federal BAs +
+        # V3.ζ's 35 remaining EIA-930 BAs in the contiguous US.
+        # ~99% of US lower-48 demand coverage.
+        assert len(REGION_COORDINATES) == 51
 
     def test_all_regions_have_coordinates(self):
         for region, coords in REGION_COORDINATES.items():

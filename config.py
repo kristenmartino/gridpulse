@@ -170,6 +170,50 @@ REGION_COORDINATES: dict[str, dict] = {
     "AZPS": {"lat": 33.4, "lon": -112.1, "name": "Arizona (APS)"},
     "NEVP": {"lat": 36.2, "lon": -115.1, "name": "Southern Nevada (NV Energy)"},
     "PSCO": {"lat": 39.7, "lon": -105.0, "name": "Colorado (Xcel)"},
+    # V3.ζ expansion — adds the remaining 35 EIA-930 BAs in the contiguous
+    # US, bringing coverage to ~100% of US lower-48 demand. Coordinates
+    # anchor each BA's primary load center / utility HQ. Tiny BAs (CPLW
+    # 42 MW, HST 36 MW, GVL 600 MW, SPA federal hydro marketer) are
+    # included for completeness — they may produce noisy forecasts that
+    # downstream NaN guards (PR #71) handle gracefully.
+    # Southeast (11):
+    "FPC": {"lat": 27.95, "lon": -82.46, "name": "Florida (Duke FL)"},
+    "TEC": {"lat": 27.95, "lon": -82.46, "name": "Tampa Bay (TECO)"},
+    "FMPP": {"lat": 28.54, "lon": -81.38, "name": "Florida Muni Pool"},
+    "JEA": {"lat": 30.33, "lon": -81.66, "name": "Jacksonville (JEA)"},
+    "TAL": {"lat": 30.44, "lon": -84.28, "name": "Tallahassee"},
+    "GVL": {"lat": 29.65, "lon": -82.32, "name": "Gainesville (GRU)"},
+    "SEC": {"lat": 27.95, "lon": -82.46, "name": "Seminole Electric"},
+    "HST": {"lat": 25.47, "lon": -80.48, "name": "Homestead"},
+    "SC": {"lat": 33.20, "lon": -80.01, "name": "Santee Cooper"},
+    "SCEG": {"lat": 34.00, "lon": -81.03, "name": "Carolinas Mid (Dominion SC)"},
+    "CPLW": {"lat": 35.60, "lon": -82.55, "name": "DEP-West (NC mountains)"},
+    # Central (4 — all Mississippi-watershed / non-WECC interior):
+    "LGEE": {"lat": 38.25, "lon": -85.76, "name": "Kentucky (LG&E + KU)"},
+    "AECI": {"lat": 37.21, "lon": -93.30, "name": "Missouri (AECI)"},
+    "EPE": {"lat": 31.76, "lon": -106.49, "name": "El Paso (EPE)"},
+    "SPA": {"lat": 36.15, "lon": -95.99, "name": "SW Power Admin"},
+    # West (20 — Pacific NW, California, Mountain West, Desert SW):
+    "PACE": {"lat": 40.76, "lon": -111.89, "name": "Inland West (PacifiCorp E)"},
+    "PACW": {"lat": 45.51, "lon": -122.68, "name": "Pacific NW (PacifiCorp W)"},
+    "PGE": {"lat": 45.51, "lon": -122.68, "name": "Portland General"},
+    "PSEI": {"lat": 47.61, "lon": -122.20, "name": "Puget Sound Energy"},
+    "SCL": {"lat": 47.61, "lon": -122.33, "name": "Seattle (SCL)"},
+    "TPWR": {"lat": 47.25, "lon": -122.44, "name": "Tacoma Power"},
+    "AVA": {"lat": 47.66, "lon": -117.43, "name": "Spokane (Avista)"},
+    "IPCO": {"lat": 43.62, "lon": -116.20, "name": "Idaho (Idaho Power)"},
+    "NWMT": {"lat": 46.00, "lon": -112.53, "name": "Montana (NorthWestern)"},
+    "GCPD": {"lat": 47.32, "lon": -119.55, "name": "Grant County PUD"},
+    "CHPD": {"lat": 47.42, "lon": -120.31, "name": "Chelan County PUD"},
+    "DOPD": {"lat": 47.42, "lon": -120.30, "name": "Douglas County PUD"},
+    "BANC": {"lat": 38.58, "lon": -121.49, "name": "Sacramento (BANC)"},
+    "LDWP": {"lat": 34.05, "lon": -118.24, "name": "Los Angeles (LADWP)"},
+    "IID": {"lat": 32.79, "lon": -115.56, "name": "Imperial Valley (IID)"},
+    "TIDC": {"lat": 37.49, "lon": -120.85, "name": "Turlock ID"},
+    "SRP": {"lat": 33.45, "lon": -112.07, "name": "Phoenix (SRP)"},
+    "TEPC": {"lat": 32.22, "lon": -110.93, "name": "Tucson (TEP)"},
+    "PNM": {"lat": 35.08, "lon": -106.65, "name": "New Mexico (PNM)"},
+    "WALC": {"lat": 33.45, "lon": -112.07, "name": "Desert SW (WAPA-DSW)"},
 }
 
 REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.items()}
@@ -183,10 +227,53 @@ REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.item
 # orderings + total coverage of ``REGION_COORDINATES``).
 # ---------------------------------------------------------------------------
 REGION_GROUPS: dict[str, list[str]] = {
-    "Central": ["ERCOT", "MISO", "SPP"],
+    "Central": ["AECI", "EPE", "ERCOT", "LGEE", "MISO", "SPA", "SPP"],
     "Northeast": ["ISONE", "NYISO", "PJM"],
-    "Southeast": ["CPLE", "DUK", "FPL", "SOCO", "TVA"],
-    "West": ["AZPS", "BPAT", "CAISO", "NEVP", "PSCO"],
+    "Southeast": [
+        "CPLE",
+        "CPLW",
+        "DUK",
+        "FMPP",
+        "FPC",
+        "FPL",
+        "GVL",
+        "HST",
+        "JEA",
+        "SC",
+        "SCEG",
+        "SEC",
+        "SOCO",
+        "TAL",
+        "TEC",
+        "TVA",
+    ],
+    "West": [
+        "AVA",
+        "AZPS",
+        "BANC",
+        "BPAT",
+        "CAISO",
+        "CHPD",
+        "DOPD",
+        "GCPD",
+        "IID",
+        "IPCO",
+        "LDWP",
+        "NEVP",
+        "NWMT",
+        "PACE",
+        "PACW",
+        "PGE",
+        "PNM",
+        "PSCO",
+        "PSEI",
+        "SCL",
+        "SRP",
+        "TEPC",
+        "TIDC",
+        "TPWR",
+        "WALC",
+    ],
 }
 
 
@@ -283,6 +370,51 @@ REGION_CAPACITY_MW: dict[str, int] = {
     "AZPS": 9_400,
     "NEVP": 15_445,
     "PSCO": 9_080,
+    # V3.ζ — 35 remaining EIA-930 BAs in the contiguous US. Capacities
+    # all sourced from EIA-860M Feb 2026 (one batch query, methodology
+    # mirrors V3.ε for NEVP — sum nameplate-capacity-mw rows filtered
+    # to statusDescription="Operating" via the EIA API v2 endpoint
+    # /electricity/operating-generator-capacity/data/, retrieved on
+    # 2026-05-02). SCL fell back to Seattle City Light's 2024 annual
+    # report (~1,800 MW; the API timed out for that one BA).
+    # Southeast (11):
+    "FPC": 16_535,
+    "TEC": 8_747,
+    "FMPP": 3_908,
+    "JEA": 3_214,
+    "TAL": 1_024,
+    "GVL": 600,
+    "SEC": 2_826,
+    "HST": 36,
+    "SC": 5_968,
+    "SCEG": 8_122,
+    "CPLW": 42,
+    # Central (4):
+    "LGEE": 9_074,
+    "AECI": 6_650,
+    "EPE": 2_849,
+    "SPA": 2_559,
+    # West (20):
+    "PACE": 18_692,
+    "PACW": 2_628,
+    "PGE": 4_168,
+    "PSEI": 2_960,
+    "SCL": 1_800,
+    "TPWR": 725,
+    "AVA": 2_272,
+    "IPCO": 4_724,
+    "NWMT": 4_235,
+    "GCPD": 1_220,
+    "CHPD": 1_923,
+    "DOPD": 1_289,
+    "BANC": 5_583,
+    "LDWP": 9_808,
+    "IID": 2_196,
+    "TIDC": 808,
+    "SRP": 18_020,
+    "TEPC": 4_445,
+    "PNM": 7_544,
+    "WALC": 7_096,
 }
 
 # ---------------------------------------------------------------------------
@@ -310,6 +442,43 @@ STATE_TO_BA: dict[str, list[str]] = {
     "AZPS": ["AZ"],
     "NEVP": ["NV"],
     "PSCO": ["CO"],
+    # V3.ζ expansion — primary load states for the remaining 35 BAs.
+    # Florida muni / cooperative BAs are co-located with FPL territory.
+    "FPC": ["FL"],
+    "TEC": ["FL"],
+    "FMPP": ["FL"],
+    "JEA": ["FL"],
+    "TAL": ["FL"],
+    "GVL": ["FL"],
+    "SEC": ["FL"],
+    "HST": ["FL"],
+    "SC": ["SC"],
+    "SCEG": ["SC"],
+    "CPLW": ["NC"],
+    "LGEE": ["KY"],
+    "AECI": ["MO", "IA", "OK", "AR"],
+    "EPE": ["TX", "NM"],
+    "SPA": ["AR", "MO", "OK", "KS", "LA"],
+    "PACE": ["UT", "WY", "ID"],
+    "PACW": ["OR", "CA", "WA"],
+    "PGE": ["OR"],
+    "PSEI": ["WA"],
+    "SCL": ["WA"],
+    "TPWR": ["WA"],
+    "AVA": ["WA", "ID"],
+    "IPCO": ["ID", "OR"],
+    "NWMT": ["MT"],
+    "GCPD": ["WA"],
+    "CHPD": ["WA"],
+    "DOPD": ["WA"],
+    "BANC": ["CA"],
+    "LDWP": ["CA"],
+    "IID": ["CA"],
+    "TIDC": ["CA"],
+    "SRP": ["AZ"],
+    "TEPC": ["AZ"],
+    "PNM": ["NM"],
+    "WALC": ["AZ", "NV", "CA", "NM"],
 }
 
 # Reverse lookup: state → list of BAs

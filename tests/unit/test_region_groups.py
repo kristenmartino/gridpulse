@@ -54,14 +54,61 @@ class TestRegionGroupsOrdering:
     def test_groups_match_recommendation(self):
         """Lock in the exact regional grouping shipped — change with
         intent. If a future refactor wants to reshape the groups, the
-        test fail forces an explicit update + design review."""
+        test fail forces an explicit update + design review.
+
+        Updated 2026-05-02 for V3.ζ (full 51-BA coverage). Codes within
+        each group remain A-Z.
+        """
         from config import REGION_GROUPS
 
         assert REGION_GROUPS == {
-            "Central": ["ERCOT", "MISO", "SPP"],
+            "Central": ["AECI", "EPE", "ERCOT", "LGEE", "MISO", "SPA", "SPP"],
             "Northeast": ["ISONE", "NYISO", "PJM"],
-            "Southeast": ["CPLE", "DUK", "FPL", "SOCO", "TVA"],
-            "West": ["AZPS", "BPAT", "CAISO", "NEVP", "PSCO"],
+            "Southeast": [
+                "CPLE",
+                "CPLW",
+                "DUK",
+                "FMPP",
+                "FPC",
+                "FPL",
+                "GVL",
+                "HST",
+                "JEA",
+                "SC",
+                "SCEG",
+                "SEC",
+                "SOCO",
+                "TAL",
+                "TEC",
+                "TVA",
+            ],
+            "West": [
+                "AVA",
+                "AZPS",
+                "BANC",
+                "BPAT",
+                "CAISO",
+                "CHPD",
+                "DOPD",
+                "GCPD",
+                "IID",
+                "IPCO",
+                "LDWP",
+                "NEVP",
+                "NWMT",
+                "PACE",
+                "PACW",
+                "PGE",
+                "PNM",
+                "PSCO",
+                "PSEI",
+                "SCL",
+                "SRP",
+                "TEPC",
+                "TIDC",
+                "TPWR",
+                "WALC",
+            ],
         }
 
 
