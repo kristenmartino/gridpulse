@@ -2379,11 +2379,24 @@ def register_callbacks(app):
             if view == "map":
                 body = _build_us_grid_map(region_data)
             else:
-                cards = [
-                    _build_us_grid_region_card(region, region_data.get(region, {}))
-                    for region in REGION_NAMES
-                ]
-                body = html.Div(cards, className="gp-region-grid")
+                # Cards are grouped geographically. Section headers
+                # span the full grid row via ``grid-column: 1 / -1`` —
+                # see ``.gp-region-grid__section-header`` in custom.css.
+                from config import REGION_GROUPS
+
+                grid_children: list = []
+                for group_name, codes in REGION_GROUPS.items():
+                    grid_children.append(
+                        html.Div(
+                            group_name,
+                            className="gp-region-grid__section-header",
+                        )
+                    )
+                    grid_children.extend(
+                        _build_us_grid_region_card(code, region_data.get(code, {}))
+                        for code in codes
+                    )
+                body = html.Div(grid_children, className="gp-region-grid")
 
             return (title, metrics_bar, body)
         except Exception as exc:

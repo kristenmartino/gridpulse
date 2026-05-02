@@ -2169,6 +2169,27 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     gap: var(--space-4);
 }
 
+/* Geographic section headers inside the card grid. Span the full row
+   via ``grid-column: 1 / -1``; the bottom border under the label
+   creates the visual section break without needing a separate divider
+   element. The first header drops its top spacing so the grid hugs
+   the metrics bar above. */
+.gp-region-grid__section-header {
+    grid-column: 1 / -1;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    padding: var(--space-3) 0 var(--space-1);
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: calc(var(--space-1) * -1);
+}
+
+.gp-region-grid__section-header:first-child {
+    padding-top: 0;
+}
+
 .gp-region-card {
     display: flex;
     flex-direction: column;

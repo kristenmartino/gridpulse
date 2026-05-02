@@ -175,6 +175,30 @@ REGION_COORDINATES: dict[str, dict] = {
 REGION_NAMES: dict[str, str] = {k: v["name"] for k, v in REGION_COORDINATES.items()}
 
 # ---------------------------------------------------------------------------
+# Regional groupings — used by the header dropdown and the US Grid card
+# grid to surface geographic context. Groups are sorted A-Z by group
+# name; BA codes within each group are sorted A-Z by code (the
+# dictionary literal order below IS the render order — Python ≥3.7
+# preserves insertion order, and ``test_config.py`` guards both
+# orderings + total coverage of ``REGION_COORDINATES``).
+# ---------------------------------------------------------------------------
+REGION_GROUPS: dict[str, list[str]] = {
+    "Central": ["ERCOT", "MISO", "SPP"],
+    "Northeast": ["ISONE", "NYISO", "PJM"],
+    "Southeast": ["CPLE", "DUK", "FPL", "SOCO", "TVA"],
+    "West": ["AZPS", "BPAT", "CAISO", "NEVP", "PSCO"],
+}
+
+
+def grouped_regions() -> list[tuple[str, list[str]]]:
+    """Return ``REGION_GROUPS`` items as a list — convenience for callers
+    that iterate (group_name, codes) tuples without importing the dict
+    directly. Order matches ``REGION_GROUPS`` (groups A-Z, codes A-Z).
+    """
+    return list(REGION_GROUPS.items())
+
+
+# ---------------------------------------------------------------------------
 # Generation Capacity (MW)
 # Used by the scenario simulator's merit-order pricing model.
 # Values reflect total installed nameplate capacity from each BA's most
