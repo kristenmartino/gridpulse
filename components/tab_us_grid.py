@@ -23,7 +23,13 @@ from components.cards import build_page_footer
 
 
 def _view_toggle() -> html.Div:
-    """v2-style segmented control for the Cards | Map view switch."""
+    """v2-style segmented control for the Cards | Map | Polygons switch.
+
+    V3.β added the Polygons option — a Plotly Choropleth driven by
+    ``assets/ba_polygons.geojson`` (51 BA service-territory polygons
+    sourced from the MIT-licensed electricitymaps-contrib repo, ~165 KB
+    pre-simplified). Map (centroid scatter) is preserved as a fallback.
+    """
     return html.Div(
         [
             html.Div("View", className="gp-control-eyebrow"),
@@ -32,6 +38,7 @@ def _view_toggle() -> html.Div:
                 options=[
                     {"label": "Cards", "value": "cards"},
                     {"label": "Map", "value": "map"},
+                    {"label": "Polygons", "value": "polygons"},
                 ],
                 value="cards",
                 inline=True,
