@@ -103,6 +103,92 @@ def is_trained(region: str) -> bool:
     return os.path.exists(filepath)
 
 
+# ── Forecast quality gate (V3.ζ follow-up) ───────────────────────
+
+
+# Module-level cache so we don't read 51 meta.json blobs on every page
+# render. Keyed by region; refreshed every ``_QUALITY_GATE_TTL`` seconds.
+# Daily training cadence makes 10 min plenty fresh for production.
+_QUALITY_GATE_TTL = 600
+_quality_gate_cache: dict[str, tuple[float | None, float]] = {}
+
+
+def get_xgboost_holdout_mape(region: str) -> float | None:
+    """Return the latest XGBoost training-holdout MAPE for ``region``.
+
+    Reads from GCS via :func:`models.persistence.get_model_metadata`.
+    Returns ``None`` when the model hasn't been trained yet, the metadata
+    is missing, or the ``mape`` field is null. Callers should treat
+    ``None`` as "no signal, don't gate" rather than as a failure — that
+    preserves the legitimate "warming up" state for newly-added BAs.
+    """
+    import time
+
+    cached = _quality_gate_cache.get(region)
+    if cached is not None and time.time() - cached[1] < _QUALITY_GATE_TTL:
+        return cached[0]
+
+    from models.persistence import get_model_metadata
+
+    try:
+        meta = get_model_metadata(region, "xgboost")
+    except Exception:
+        meta = None
+    mape = meta.mape if meta is not None else None
+    _quality_gate_cache[region] = (mape, time.time())
+    return mape
+
+
+def is_forecast_quality_acceptable(region: str) -> bool:
+    """Return True when the region's primary-model forecast quality is
+    in the ``acceptable`` grade or better (per ``mape_grade()``) for the
+    7-day horizon. Returns True when no MAPE signal exists yet so the
+    gate doesn't hide newly-added BAs that haven't been trained.
+
+    Returns False only when the XGBoost holdout MAPE is in the
+    ``rollback`` grade (>22% per ``MAPE_BY_HORIZON["7d"]``) — by the
+    project's existing governance framework that means the model
+    should be disabled.
+
+    The ``forecast_quality_gate`` feature flag short-circuits the
+    check when False (default in dev, on in staging/prod).
+    """
+    from config import MAPE_BY_HORIZON, feature_enabled
+
+    if not feature_enabled("forecast_quality_gate"):
+        return True
+
+    mape = get_xgboost_holdout_mape(region)
+    if mape is None:
+        # No signal — don't hide the region. Preserves "warming up" UX
+        # for BAs whose first training run hasn't completed yet.
+        return True
+
+    return mape <= MAPE_BY_HORIZON["7d"]["rollback"]
+
+
+def stable_visible_regions(all_regions) -> list[str]:
+    """Return the subset of ``all_regions`` that pass the quality gate,
+    preserving input order. Convenience for the dropdown + US Grid
+    consumers that iterate over the full ``REGION_NAMES`` keyspace."""
+    return [r for r in all_regions if is_forecast_quality_acceptable(r)]
+
+
+def hidden_regions(all_regions) -> list[str]:
+    """Return the regions in ``all_regions`` that fail the quality gate.
+
+    Used by the UI to render a small "*N BAs hidden — forecast quality
+    below threshold*" note with a hover-list of affected codes.
+    """
+    return [r for r in all_regions if not is_forecast_quality_acceptable(r)]
+
+
+def _reset_quality_gate_cache() -> None:
+    """Test hook — clear the TTL cache so unit tests can vary the
+    underlying meta.json without waiting 10 minutes."""
+    _quality_gate_cache.clear()
+
+
 # ── Private helpers ──────────────────────────────────────────────
 
 

@@ -662,6 +662,13 @@ FEATURE_FLAGS: dict[str, bool] = {
     # snapshot pipeline is producing fresh data; backtesting belongs in the
     # Models tab in the meantime.
     "forecast_replay": False,
+    # V3.ζ follow-up: hide BAs whose XGBoost holdout MAPE exceeds the 7d
+    # rollback threshold (22% — see MAPE_BY_HORIZON["7d"]["rollback"]) from
+    # the dropdown + US Grid cards. Empirically generous: every healthy
+    # 16-BA primary model is below 5% MAPE, so the gate only fires when a
+    # tiny BA (CPLW=42 MW, HST=36 MW, SPA federal hydro marketer) produces
+    # nonsense forecasts. Disable in dev to debug noisy regions.
+    "forecast_quality_gate": True,
 }
 
 

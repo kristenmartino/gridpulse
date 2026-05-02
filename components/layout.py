@@ -63,10 +63,20 @@ def _build_header() -> html.Header:
     # visually distinct but unselectable. The empty value="" never
     # reaches a callback because Bootstrap honors the disabled attribute
     # on click + keyboard nav.
+    #
+    # V3.ζ follow-up: the forecast quality gate
+    # (``is_forecast_quality_acceptable``) hides BAs whose XGBoost
+    # holdout MAPE is in the ``rollback`` grade (>22% on 7d horizon).
+    # Empty groups (e.g. all members hidden) drop their separator too.
+    from models.model_service import is_forecast_quality_acceptable
+
     region_options: list[dict] = []
     for group_name, codes in REGION_GROUPS.items():
+        visible_codes = [c for c in codes if is_forecast_quality_acceptable(c)]
+        if not visible_codes:
+            continue
         region_options.append({"label": f"── {group_name} ──", "value": "", "disabled": True})
-        for code in codes:
+        for code in visible_codes:
             region_options.append({"label": REGION_NAMES.get(code, code), "value": code})
 
     brand = html.Div(
