@@ -6349,22 +6349,26 @@ def _run_backtest_for_horizon(
 def _collect_us_grid_region_data() -> dict[str, dict]:
     """Pull per-region snapshots from Redis for the US Grid card grid.
 
-    Returns ``{region_code: {"current_mw", "prev_mw", "today_mw"}}`` for every
-    region in ``REGION_NAMES``. Regions without a Redis entry (cold pipeline,
-    new BAs awaiting their first scoring run) get an empty dict so the caller
-    can render an "—" placeholder card.
+    Returns ``{region_code: {"current_mw", "prev_mw", "today_mw",
+    "interchange"}}`` for every region in ``REGION_NAMES``. Regions
+    without a Redis entry (cold pipeline, new BAs awaiting their first
+    scoring run) get an empty dict so the caller can render an "—"
+    placeholder card. ``interchange`` is the V3.α
+    ``wattcast:interchange:{region}:1h`` payload, or ``None`` if absent.
     """
     out: dict[str, dict] = {}
     for region in REGION_NAMES:
         actuals = redis_get(f"wattcast:actuals:{region}")
         demand = (actuals or {}).get("demand_mw") or []
+        interchange = redis_get(f"wattcast:interchange:{region}:1h")
         if not demand:
-            out[region] = {}
+            out[region] = {"interchange": interchange} if interchange else {}
             continue
         out[region] = {
             "current_mw": demand[-1],
             "prev_mw": demand[-2] if len(demand) >= 2 else None,
             "today_mw": demand[-24:],
+            "interchange": interchange,
         }
     return out
 
@@ -6459,6 +6463,48 @@ def _build_us_grid_sparkline(values: list[float]) -> html.Div:
     )
 
 
+def _build_interchange_chip(interchange: dict | None) -> html.Span | None:
+    """V3.α: net BA-to-BA interchange chip.
+
+    Renders ``+1.2 GW`` when exporting (positive net), ``-0.8 GW`` when
+    importing (negative net), or ``≈0`` when net is below the visual
+    threshold. Hover tooltip lists the top counterparty BAs and their
+    signed flows.
+    """
+    if not interchange or interchange.get("net_mw") is None:
+        return None
+
+    net_mw = float(interchange["net_mw"])
+    counterparties = interchange.get("counterparties") or []
+
+    # Below ±50 MW the sign isn't meaningful at GW resolution; render as ≈0
+    # to avoid noise. Real flows in the system are typically 100s–1000s MW.
+    if abs(net_mw) < 50:
+        label = "≈0"
+        tone = "neutral"
+    else:
+        gw = net_mw / 1000.0
+        sign = "+" if gw >= 0 else "−"
+        label = f"{sign}{abs(gw):.1f} GW"
+        tone = "export" if gw >= 0 else "import"
+
+    if counterparties:
+        parts = []
+        for cp in counterparties:
+            mw = float(cp["mw"])
+            cp_sign = "+" if mw >= 0 else "−"
+            parts.append(f"{cp_sign}{abs(mw):,.0f} MW → {cp['to_ba']}")
+        tooltip = "Top counterparties (last hour): " + " · ".join(parts)
+    else:
+        tooltip = f"Net interchange (last hour): {net_mw:+,.0f} MW"
+
+    return html.Span(
+        label,
+        className=f"gp-region-card__interchange gp-region-card__interchange--{tone}",
+        title=tooltip,
+    )
+
+
 def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
     """One region card for the US Grid small-multiples grid.
 
@@ -6524,12 +6570,17 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
     if delta_chip is not None:
         demand_row_children.append(delta_chip)
 
+    interchange_chip = _build_interchange_chip(data.get("interchange"))
+
+    header_children: list = [html.Span(name, className="gp-region-card__name")]
+    if stress_chip is not None:
+        header_children.append(stress_chip)
+    if interchange_chip is not None:
+        header_children.append(interchange_chip)
+
     return html.Div(
         [
-            html.Div(
-                [html.Span(name, className="gp-region-card__name"), stress_chip],
-                className="gp-region-card__header",
-            ),
+            html.Div(header_children, className="gp-region-card__header"),
             html.Div(demand_row_children, className="gp-region-card__demand"),
             _build_us_grid_sparkline(today_mw),
         ],

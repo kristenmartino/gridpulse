@@ -61,6 +61,15 @@ def _score_region(region: str) -> dict:
         **(gen_res.details if gen_res.ok else {"error": gen_res.error}),
     }
 
+    # V3.α: BA-to-BA interchange snapshot. Independent of generation —
+    # a sparse interchange fetch shouldn't fail the broader scoring run,
+    # so we ignore the PhaseResult's ok flag for the summary aggregate.
+    ix_res = phases.write_interchange(region)
+    summary["phases"]["interchange"] = {
+        "ok": ix_res.ok,
+        **(ix_res.details if ix_res.ok else {"error": ix_res.error}),
+    }
+
     # Feature engineering + model load are only needed for the forecast
     # and diagnostics phases. If the model is missing (first deploy before
     # training job has run) we still emit actuals + weather + generation.
