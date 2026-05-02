@@ -4057,29 +4057,43 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
     df = df.sort_values("timestamp")
 
     # Strip spurious zero-demand rows (EIA's missing-observation marker)
+    # AND NaN rows (EIA-930's publishing lag for the most recent hour,
+    # especially for newer / smaller BAs like PSCO / NEVP / AZPS — those
+    # rows arrive at the next hourly tick instead). The ``> 0`` check
+    # filters both: NaN > 0 is False.
     nonzero = df[df["demand_mw"] > 0]
     last_7d = nonzero.tail(168)
 
-    now_value = float(df["demand_mw"].iloc[-1]) if not df.empty else 0.0
+    # ``now_value`` reads from ``nonzero`` rather than ``df`` so the
+    # most recent NaN / zero hour doesn't surface as "nan" / "0" in the
+    # hero metric. Falls back to "—" when no usable reading exists.
+    now_value = float(nonzero["demand_mw"].iloc[-1]) if not nonzero.empty else None
     peak_7d = float(last_7d["demand_mw"].max()) if not last_7d.empty else 0.0
     low_7d = float(last_7d["demand_mw"].min()) if not last_7d.empty else 0.0
     avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
 
-    # 24h trend (now vs 24 hours ago)
-    ago_24h = float(df["demand_mw"].iloc[-25]) if len(df) >= 25 else now_value
-    trend_pct = ((now_value - ago_24h) / ago_24h * 100.0) if ago_24h else 0.0
+    # 24h trend uses the same NaN-aware source as ``now_value`` so a
+    # missing ago_24h hour doesn't poison the percentage with NaN.
+    if now_value is not None and len(nonzero) >= 25:
+        ago_24h = float(nonzero["demand_mw"].iloc[-25])
+        trend_pct = ((now_value - ago_24h) / ago_24h * 100.0) if ago_24h else 0.0
+    else:
+        trend_pct = 0.0
     # Inverted semantic: rising demand reads as "warning" (negative tone),
     # falling demand reads as "positive" — matches v2 MetricsBar.tsx:64.
     trend_tone = (
         "negative" if trend_pct > 0.5 else ("positive" if trend_pct < -0.5 else "secondary")
     )
 
+    now_display = f"{now_value:,.0f}" if now_value is not None else "—"
+    trend_display = f"{trend_pct:+.1f}%" if now_value is not None else "—"
+
     return [
-        {"label": "Now", "value": f"{now_value:,.0f}", "unit": "MW", "hero": True},
+        {"label": "Now", "value": now_display, "unit": "MW", "hero": True},
         {"label": "7d Peak", "value": f"{peak_7d:,.0f}", "unit": "MW", "tone": "secondary"},
         {"label": "7d Low", "value": f"{low_7d:,.0f}", "unit": "MW", "tone": "secondary"},
         {"label": "Average", "value": f"{avg_7d:,.0f}", "unit": "MW", "tone": "secondary"},
-        {"label": "24h Trend", "value": f"{trend_pct:+.1f}%", "unit": None, "tone": trend_tone},
+        {"label": "24h Trend", "value": trend_display, "unit": None, "tone": trend_tone},
     ]
 
 
