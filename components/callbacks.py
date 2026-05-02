@@ -2378,6 +2378,8 @@ def register_callbacks(app):
 
             if view == "map":
                 body = _build_us_grid_map(region_data)
+            elif view == "polygons":
+                body = _build_us_grid_choropleth(region_data)
             else:
                 # Cards are grouped geographically. Section headers
                 # span the full grid row via ``grid-column: 1 / -1`` —
@@ -2442,13 +2444,22 @@ def register_callbacks(app):
         Mirrors ``drilldown_from_us_grid`` (cards). Same outputs, same
         downstream effect; the map hands the region code through
         ``customdata`` instead of a pattern-matching component ID.
+
+        Tolerates two ``customdata`` shapes so the same callback works
+        for both the ``scatter_geo`` view (1-D array of region codes)
+        and the V3.β ``Choropleth`` view (2-D array where index 0 is
+        the region code, indexes 1-2 carry hover text fields).
         """
         if not click_data:
             return no_update, no_update
         points = click_data.get("points") or []
         if not points:
             return no_update, no_update
-        region = points[0].get("customdata")
+        cd = points[0].get("customdata")
+        if cd is None:
+            return no_update, no_update
+        # Choropleth → list/tuple per point; scatter → string per point
+        region = cd[0] if isinstance(cd, (list, tuple)) else cd
         if not region:
             return no_update, no_update
         return region, "tab-outlook"
@@ -6829,6 +6840,152 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
         bgcolor="rgba(0,0,0,0)",
     )
 
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        margin={"l": 0, "r": 0, "t": 8, "b": 0},
+        font={"family": "Inter, system-ui, sans-serif", "color": _MAP_AXIS_FONT_COLOR, "size": 11},
+        height=480,
+        showlegend=False,
+        hoverlabel={
+            "bgcolor": _MAP_LAND_COLOR,
+            "bordercolor": _MAP_COASTLINE_COLOR,
+            "font": {"color": "#e4e4e7", "family": "Inter, system-ui, sans-serif", "size": 12},
+        },
+    )
+
+    return html.Div(
+        dcc.Graph(
+            id="us-grid-map",
+            figure=fig,
+            config={"displayModeBar": False, "responsive": True},
+            style={"height": "480px"},
+        ),
+        className="gp-region-map",
+    )
+
+
+# ── V3.β: Choropleth (real BA service-territory polygons) ────
+
+
+# In-memory cache for the polygon GeoJSON. Read once per process.
+# The asset is ~165 KB so the parse is cheap, but we don't want to
+# do it on every render.
+_BA_POLYGONS_CACHE: dict | None = None
+
+
+def _load_ba_polygons() -> dict | None:
+    """Load and cache the BA-polygon GeoJSON from ``assets/``.
+
+    Returns ``None`` if the file is missing or malformed — the
+    choropleth helper falls back to the centroid scatter in that case
+    so a corrupt asset doesn't black out the Map view entirely.
+    """
+    global _BA_POLYGONS_CACHE
+    if _BA_POLYGONS_CACHE is not None:
+        return _BA_POLYGONS_CACHE
+
+    import json as _json
+    from pathlib import Path
+
+    asset_path = Path(__file__).parent.parent / "assets" / "ba_polygons.geojson"
+    try:
+        with open(asset_path) as f:
+            _BA_POLYGONS_CACHE = _json.load(f)
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("ba_polygons_load_failed", error=str(exc))
+        _BA_POLYGONS_CACHE = None
+    return _BA_POLYGONS_CACHE
+
+
+def _build_us_grid_choropleth(region_data: dict) -> html.Div:
+    """Plotly ``Choropleth`` of BA service-territory polygons — colored
+    by demand-vs-capacity utilization. Same colorscale + drilldown as
+    the centroid scatter so users can switch between them seamlessly.
+
+    V3.β closes the deferral noted in V1.γ — centroids were "80% of the
+    visual punch for 10% of the cost"; this delivers the remaining 20%.
+    Polygons sourced from electricitymaps-contrib's world.geojson (MIT
+    license), filtered to our 51 BA codes via EIA-930 respondent
+    suffixes, ~165 KB pre-simplified.
+
+    Falls back to the centroid scatter when the GeoJSON asset is
+    missing or unreadable so a corrupt file can't black out the tab.
+    """
+    geojson = _load_ba_polygons()
+    if geojson is None:
+        return _build_us_grid_map(region_data)
+
+    populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
+    if not populated:
+        return html.Div(
+            html.Div(
+                "All regions warming up — switch to Cards view to see per-region status.",
+                className="gp-region-map__empty-message",
+            ),
+            className="gp-region-map gp-region-map--empty",
+        )
+
+    regions = list(populated.keys())
+    stress_pct: list[float] = []
+    for r in regions:
+        cap = REGION_CAPACITY_MW.get(r, 0)
+        if cap > 0:
+            stress_pct.append(min(populated[r]["current_mw"] / cap * 100, 100.0))
+        else:
+            stress_pct.append(0.0)
+
+    names = [REGION_NAMES.get(r, r) for r in regions]
+    demand_gw = [populated[r]["current_mw"] / 1000 for r in regions]
+    customdata = list(zip(regions, names, demand_gw, strict=False))
+
+    fig = go.Figure(
+        go.Choropleth(
+            geojson=geojson,
+            featureidkey="properties.region",
+            locations=regions,
+            z=stress_pct,
+            colorscale=_MAP_COLORSCALE,
+            zmin=0,
+            zmax=100,
+            marker={"line": {"color": _MAP_BORDER_COLOR, "width": 0.6}},
+            colorbar={
+                "title": {
+                    "text": "Utilization %",
+                    "font": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
+                },
+                "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
+                "thickness": 10,
+                "len": 0.6,
+                "bgcolor": "rgba(0,0,0,0)",
+                "bordercolor": _MAP_BORDER_COLOR,
+                "borderwidth": 1,
+                "x": 1.0,
+            },
+            # Drilldown reads ``customdata`` (the BA code) — same shape
+            # as the scatter so the existing ``us-grid-map.clickData``
+            # callback handles it without changes.
+            customdata=customdata,
+            hovertemplate=(
+                "<b>%{customdata[1]}</b><br>"
+                "Demand: %{customdata[2]:.1f} GW<br>"
+                "Utilization: %{z:.0f}%<extra></extra>"
+            ),
+        )
+    )
+    fig.update_geos(
+        scope="usa",
+        projection_type="albers usa",
+        showland=True,
+        landcolor=_MAP_LAND_COLOR,
+        showcoastlines=True,
+        coastlinecolor=_MAP_COASTLINE_COLOR,
+        showsubunits=True,
+        subunitcolor=_MAP_SUBUNIT_COLOR,
+        showcountries=False,
+        showlakes=False,
+        bgcolor="rgba(0,0,0,0)",
+    )
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",

@@ -63,7 +63,9 @@ class TestUsGridLayout:
         radio = _find_by_id(toggle, "us-grid-view-toggle")
         assert radio is not None
         assert radio.value == "cards"
-        assert {opt["value"] for opt in radio.options} == {"cards", "map"}
+        # V3.β added the "polygons" option (real BA service-territory
+        # choropleth). "map" is the V1.γ scatter-geo fallback.
+        assert {opt["value"] for opt in radio.options} == {"cards", "map", "polygons"}
 
     def test_layout_uses_section_stack(self):
         """Match the v2 page rhythm: gp-page > gp-section-stack."""

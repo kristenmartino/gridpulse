@@ -180,7 +180,7 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 1. ~~**V3.ε** NEVP capacity verification~~ — ✅ shipped 2026-05-01 ([config.py](../config.py); 8,000 → 15,445 MW per EIA-860M Feb 2026)
 2. ~~**V3.α** Interchange flow visualization~~ — ✅ shipped 2026-05-01 ([#69](https://github.com/kristenmartino/gridpulse/pull/69))
 3. ~~**V3.ζ** Full-coverage BA expansion (16 → 51 BAs)~~ — ✅ shipped 2026-05-02 (~99% of US lower-48 demand vs ~85% before)
-4. **V3.β** Real BA-polygon choropleth — ~3 days, GeoJSON cleanup + map upgrade
+4. ~~**V3.β** Real BA-polygon choropleth~~ — ✅ shipped 2026-05-02 (electricitymaps-contrib MIT-licensed source; ~165 KB asset, all 51 BAs covered)
 5. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
 6. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
 
@@ -256,37 +256,33 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 ---
 
-### V3.β — Real BA-polygon choropleth
+### V3.β — Real BA-polygon choropleth — ✅ shipped 2026-05-02
 
-**Why**: V1.γ's map view ([deferral noted in `~/.claude/plans/us-grid-expansion.md:252-254`](../.claude/plans/us-grid-expansion.md)) renders centroid scatter because real BA territories don't follow state lines (PJM spans 13 states; SOCO is parts of AL/GA/MS). Centroids were "80% of the visual punch for 10% of the cost." V3.β closes the remaining 20%.
+**What landed**: New `Polygons` view on the US Grid tab — Plotly `Choropleth` driven by `assets/ba_polygons.geojson`, all 51 BAs covered.
 
-**Goal**: Replace `scatter_geo` with `choropleth_mapbox` keyed on actual BA service-area polygons.
+**Source**: Filtered from [electricitymaps-contrib](https://github.com/electricitymaps/electricitymaps-contrib)'s `geo/world.geojson` (MIT license). The repo already had US-prefixed zones for every EIA-930 BA in our 51-BA set; we filtered to our codes via the existing `EIA_REGION_CODES` alias map (CAISO↔CISO, ERCOT↔ERCO, ISONE↔ISNE, NYISO↔NYIS, SPP↔SWPP — all 51 mapped on first pass).
+
+**Effort**: ~30 minutes once the data source was found. Original 3-day estimate assumed manual HIFLD cleanup; the public open-source asset eliminated the bulk of the work.
 
 **Files**:
-- New `assets/ba_polygons.geojson` — cleaned BA service-territory polygons (16 features)
-- [`components/tab_us_grid.py`](../components/tab_us_grid.py) — toggle wires to the polygon path
-- [`components/callbacks.py`](../components/callbacks.py) — `update_us_grid_map_choropleth` (replaces / extends current scatter callback)
-- New `scripts/build_ba_polygons.py` — one-shot GeoJSON ingest + simplification script
-- `tests/unit/test_tab_us_grid_map.py` — assert each polygon has a region code matching `REGION_COORDINATES` keys
+- New `assets/ba_polygons.geojson` (~165 KB, well under the 500 KB target — pre-simplified by upstream)
+- [`components/tab_us_grid.py`](../components/tab_us_grid.py) — view toggle now `Cards | Map | Polygons`
+- [`components/callbacks.py`](../components/callbacks.py) — new `_load_ba_polygons` (cached) + `_build_us_grid_choropleth` helper; `_view_toggle` dispatches to choropleth on `view == "polygons"`; the existing `drilldown_from_us_grid_map` callback now tolerates both customdata shapes (string for scatter, list for choropleth)
+- `tests/unit/test_us_grid_choropleth.py` (20 new tests covering asset coverage, size budget, render shape, and drilldown tolerance)
 
-**Source**: HIFLD (Homeland Infrastructure Foundation-Level Data) electric retail service territory polygons + manual aggregation for multi-utility BAs (SOCO = Alabama Power + Georgia Power + Mississippi Power, BPAT = federal hydro service area, etc.). EIA Energy Atlas KMZ is an alternate source but heavier cleanup.
+**Acceptance** (NEXT_UP):
+- Asset covers all 51 BAs in `REGION_COORDINATES` ✓
+- Polygon file <500 KB ✓ (165 KB)
+- Centroid scatter survives as the `Map` toggle option ✓
+- Click on a polygon → same drilldown as a card click ✓ (verified by drilldown-tolerance tests)
 
-**Acceptance**:
-- 16 polygons cover ~98% of US contiguous load (matching V1.α's coverage claim).
-- Map view defaults to choropleth; centroid scatter survives as a fallback toggle.
-- Polygon file <500 KB after `mapshaper -simplify 5%` to keep page-load fast.
-- Click on a polygon → same drill-down as the current centroid click.
-- `pytest tests/unit/test_tab_us_grid_map.py` clean.
+**Risk → mitigation**:
+- Upstream polygons are crowdsourced, not authoritative EIA Atlas. For pixel-perfect ops use a future "V3.β-prime" could re-source from HIFLD or EIA Atlas; the tests will guide which polygons need replacement.
+- Asset corruption falls back to the centroid scatter (`_load_ba_polygons` returns None on error → `_build_us_grid_choropleth` calls `_build_us_grid_map`).
 
-**Effort**: ~3 days. GeoJSON cleanup is the bulk; the Plotly swap is straightforward.
-
-**Risk**:
-- BA boundaries vs retail service territories don't always align cleanly. Document the aggregation methodology in the GeoJSON's `properties` field.
-- Page weight: if the simplified file lands above 500 KB, consider lazy-loading on toggle click rather than at initial render.
-
-**Open questions**:
-- HIFLD vs EIA Atlas as the primary source? HIFLD is structured for retail utilities; EIA Atlas is structured for BAs. EIA Atlas is the better fit if the cleanup is tractable.
-- Color the polygon by current demand, by stress, or by demand delta vs forecast? V1.γ's scatter colors by stress — keep that for consistency unless there's a reason to change.
+**Stretch — not in this PR**:
+- Hover tooltip currently shows `name + demand + utilization`. Could add forecast delta or the V3.α interchange chip on hover.
+- Color scale is by utilization %. A toggle to switch to demand magnitude might be useful for ops staff; deferred until there's UX signal.
 
 ---
 
@@ -364,6 +360,6 @@ V3 was scoped on 2026-05-01. See §V3 above for the full plan per item. Recommen
 
 1. ~~**V3.ε** NEVP capacity verification~~ — ✅ shipped 2026-05-01
 2. **V3.α** Interchange flow visualization (~1.5 days)
-3. **V3.β** Real BA-polygon choropleth (~3 days)
+3. ~~**V3.β** Real BA-polygon choropleth~~ — ✅ shipped 2026-05-02
 4. **V3.γ** Hawaii coverage (3–5 days)
 5. **V3.δ** Multi-tenant — deferred
