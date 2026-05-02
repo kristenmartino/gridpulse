@@ -17,7 +17,7 @@ from components import (
     tab_overview,
     tab_us_grid,
 )
-from config import REGION_NAMES, TAB_LABELS
+from config import REGION_GROUPS, REGION_NAMES, TAB_LABELS
 from personas.config import list_personas
 
 # All five tabs in the strip are visible. ``_VISIBLE_TABS`` is kept as a
@@ -57,7 +57,17 @@ def _build_header() -> html.Header:
     persona_options = [
         {"label": f"{p['avatar']} {p['title']}", "value": p["id"]} for p in list_personas()
     ]
-    region_options = [{"label": name, "value": code} for code, name in REGION_NAMES.items()]
+    # Region options are grouped geographically (Central / Northeast /
+    # Southeast / West). dbc.Select doesn't support native <optgroup>,
+    # so we surface each group with a disabled separator option that's
+    # visually distinct but unselectable. The empty value="" never
+    # reaches a callback because Bootstrap honors the disabled attribute
+    # on click + keyboard nav.
+    region_options: list[dict] = []
+    for group_name, codes in REGION_GROUPS.items():
+        region_options.append({"label": f"── {group_name} ──", "value": "", "disabled": True})
+        for code in codes:
+            region_options.append({"label": REGION_NAMES.get(code, code), "value": code})
 
     brand = html.Div(
         [
