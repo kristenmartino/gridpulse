@@ -64,15 +64,82 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
     """
     Get validation metrics for a region's trained models.
 
+    **MAPE is the authoritative metric** — pulled per-model from each
+    pickle's `.meta.json` in GCS, written by the daily training job
+    (V0.2 / V3.ε). Other fields (RMSE / MAE / R²) come from the
+    Redis diagnostics payload when present; that payload is computed
+    from actual demand vs scoring-job forecasts and is currently
+    simulation-derived in production (the scoring job's diagnostics
+    path uses `_simulate_forecasts` because it doesn't share GCS
+    pickles with the in-process model cache). Treat RMSE / MAE / R²
+    as approximations until that path is unified.
+
+    Resolution order:
+    1. Per-model holdout MAPE from ``models.persistence.get_model_metadata``
+       (real training-time values, prophet / arima / xgboost only —
+       ensemble has no own meta.json so its MAPE comes from Redis).
+    2. ``wattcast:diagnostics:{region}`` for RMSE / MAE / R² and the
+       ensemble's MAPE; supplements layer 1 without overwriting it.
+    3. In-process trained pickle (dev mode running with the local
+       precompute thread).
+    4. Simulated baseline (consistent defaults). Last-resort dev
+       fallback when none of the above produce data.
+
     Returns:
-        Dict of model_name → {mape, rmse, mae, r2}.
-        Returns simulated metrics if no trained models exist.
+        Dict of model_name → {mape?, rmse?, mae?, r2?}. Empty fields
+        omitted; the UI tolerates partial dicts.
     """
+    out: dict[str, dict[str, float]] = {}
+
+    # 1. Real holdout MAPE per model — written by jobs/training_job.py.
+    try:
+        from models.persistence import get_model_metadata
+
+        for model_name in ("prophet", "arima", "xgboost"):
+            try:
+                meta = get_model_metadata(region, model_name)
+            except Exception:
+                meta = None
+            if meta is None:
+                continue
+            mape = getattr(meta, "mape", None)
+            if mape is not None and np.isfinite(mape) and mape > 0:
+                out[model_name] = {"mape": float(mape)}
+    except Exception as e:  # pragma: no cover — defensive (GCS outage)
+        log.debug("get_model_metrics_meta_miss", region=region, error=str(e))
+
+    # 2. Supplement with Redis diagnostics (RMSE / MAE / R² + ensemble MAPE).
+    try:
+        from data.redis_client import redis_get
+
+        cached = redis_get(f"wattcast:diagnostics:{region}")
+        if cached and isinstance(cached.get("metrics"), dict):
+            for model_name, redis_m in cached["metrics"].items():
+                if not isinstance(redis_m, dict):
+                    continue
+                base = out.get(model_name, {})
+                # MAPE from Redis only when meta.json didn't provide one
+                # (currently true only for the ensemble row).
+                if "mape" not in base and "mape" in redis_m:
+                    base["mape"] = redis_m["mape"]
+                # RMSE / MAE / R² supplement layer 1.
+                for field in ("rmse", "mae", "r2"):
+                    if field in redis_m and field not in base:
+                        base[field] = redis_m[field]
+                if base:
+                    out[model_name] = base
+    except Exception as e:  # pragma: no cover — defensive
+        log.debug("get_model_metrics_redis_miss", region=region, error=str(e))
+
+    if out:
+        return out
+
+    # 3. Local pickle — dev mode.
     model_data = _load_cached_models(region)
     if model_data and "metrics" in model_data:
         return model_data["metrics"]
 
-    # Simulated metrics (consistent, reasonable values)
+    # 4. Simulated baseline — last resort.
     return {
         "prophet": {"mape": 2.8, "rmse": 450, "mae": 320, "r2": 0.967},
         "arima": {"mape": 3.5, "rmse": 580, "mae": 410, "r2": 0.945},
