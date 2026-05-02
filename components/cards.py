@@ -288,6 +288,7 @@ def build_page_title(
     title: str,
     subtitle: str | None = None,
     freshness_chip: html.Span | None = None,
+    subtitle_tooltip: str | None = None,
 ) -> html.Div:
     """Page-level title block: h1 + 1-line subtitle + optional freshness chip.
 
@@ -297,13 +298,19 @@ def build_page_title(
         title: Region name or page title (e.g., "Florida Power & Light").
         subtitle: 1-line descriptive context.
         freshness_chip: Optional small chip rendered to the right of the title.
+        subtitle_tooltip: Optional ``title=`` attribute on the subtitle. Used
+            by the US Grid tab to surface the list of quality-gated BAs on
+            hover when the subtitle reads "... · N hidden".
     """
     title_row: list = [html.H1(title, className="gp-page-title__heading")]
     if freshness_chip is not None:
         title_row.append(freshness_chip)
     children: list = [html.Div(title_row, className="gp-page-title__row")]
     if subtitle:
-        children.append(html.P(subtitle, className="gp-page-title__subtitle"))
+        subtitle_kwargs = {"className": "gp-page-title__subtitle"}
+        if subtitle_tooltip:
+            subtitle_kwargs["title"] = subtitle_tooltip
+        children.append(html.P(subtitle, **subtitle_kwargs))
     return html.Div(children, className="gp-page-title")
 
 

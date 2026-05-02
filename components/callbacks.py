@@ -2382,10 +2382,17 @@ def register_callbacks(app):
                 # Cards are grouped geographically. Section headers
                 # span the full grid row via ``grid-column: 1 / -1`` —
                 # see ``.gp-region-grid__section-header`` in custom.css.
+                # V3.ζ follow-up: skip codes filtered out by the
+                # forecast quality gate (already absent from
+                # ``region_data``) so we don't render orphan section
+                # headers or placeholder cards for hidden regions.
                 from config import REGION_GROUPS
 
                 grid_children: list = []
                 for group_name, codes in REGION_GROUPS.items():
+                    visible = [c for c in codes if c in region_data]
+                    if not visible:
+                        continue
                     grid_children.append(
                         html.Div(
                             group_name,
@@ -2393,8 +2400,7 @@ def register_callbacks(app):
                         )
                     )
                     grid_children.extend(
-                        _build_us_grid_region_card(code, region_data.get(code, {}))
-                        for code in codes
+                        _build_us_grid_region_card(code, region_data[code]) for code in visible
                     )
                 body = html.Div(grid_children, className="gp-region-grid")
 
@@ -6435,17 +6441,28 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
     """Pull per-region snapshots from Redis for the US Grid card grid.
 
     Returns ``{region_code: {"current_mw", "prev_mw", "today_mw",
-    "interchange"}}`` for every region in ``REGION_NAMES``. Regions
-    without a Redis entry (cold pipeline, new BAs awaiting their first
-    scoring run) — or whose demand tail is NaN / zero (EIA-930
-    publishing lag for the most recent hour) — get a dict with
-    ``current_mw=None`` so the caller can render an ``"—"`` placeholder
-    card without ever exposing a NaN to downstream sums or divisions.
-    ``interchange`` is the V3.α ``wattcast:interchange:{region}:1h``
-    payload, or ``None`` if absent.
+    "interchange"}}`` for every region in ``REGION_NAMES`` that **passes
+    the V3.ζ forecast quality gate**. Regions without a Redis entry
+    (cold pipeline, new BAs awaiting their first scoring run) — or
+    whose demand tail is NaN / zero (EIA-930 publishing lag for the
+    most recent hour) — get a dict with ``current_mw=None`` so the
+    caller can render an ``"—"`` placeholder card without ever exposing
+    a NaN to downstream sums or divisions. ``interchange`` is the V3.α
+    ``wattcast:interchange:{region}:1h`` payload, or ``None`` if absent.
+
+    Regions failing the quality gate (XGBoost holdout MAPE in the
+    ``rollback`` grade per ``mape_grade()``) are omitted from the
+    return entirely so all downstream consumers (cards, metrics, map)
+    see the same filtered set. The dropdown gate in ``layout.py``
+    independently filters the same way; the hidden-count surfaced in
+    the page title comes from ``hidden_regions()``.
     """
+    from models.model_service import is_forecast_quality_acceptable
+
     out: dict[str, dict] = {}
     for region in REGION_NAMES:
+        if not is_forecast_quality_acceptable(region):
+            continue
         actuals = redis_get(f"wattcast:actuals:{region}")
         demand = (actuals or {}).get("demand_mw") or []
         interchange = redis_get(f"wattcast:interchange:{region}:1h")
@@ -6468,7 +6485,17 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
 
 
 def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
-    """Page title block: 'US Grid' + '<N> BAs · X.X GW total demand'."""
+    """Page title block: 'US Grid' + '<N> BAs · X.X GW total demand'.
+
+    V3.ζ follow-up: when the forecast-quality gate hides one or more
+    BAs from the visible set, append a small annotation to the
+    subtitle ("· N hidden") with a hover tooltip listing the affected
+    codes. Hidden BAs are not in ``region_data`` (the collector skips
+    them), so the count is the difference between ``REGION_NAMES`` and
+    the gate's view of acceptable regions.
+    """
+    from models.model_service import hidden_regions
+
     n_regions = len(REGION_NAMES)
     # Filter to finite, positive values only — ``_collect_us_grid_region_data``
     # already returns ``None`` for regions whose demand tail is NaN, but
@@ -6479,14 +6506,24 @@ def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
     ]
     n_with_data = len(real_demands)
     total_mw = sum(real_demands)
+    hidden = hidden_regions(REGION_NAMES.keys())
+    n_visible = n_regions - len(hidden)
+
     if total_mw > 0:
         subtitle = (
-            f"{n_with_data} of {n_regions} balancing authorities reporting · "
+            f"{n_with_data} of {n_visible} balancing authorities reporting · "
             f"{total_mw / 1000:.1f} GW total demand"
         )
     else:
-        subtitle = f"{n_regions} balancing authorities · pipeline warming up"
-    return build_page_title(title="US Grid", subtitle=subtitle)
+        subtitle = f"{n_visible} balancing authorities · pipeline warming up"
+    tooltip: str | None = None
+    if hidden:
+        subtitle += f" · {len(hidden)} hidden"
+        tooltip = (
+            "Hidden by the forecast quality gate (XGBoost holdout MAPE > 22%, "
+            "the 7-day rollback grade): " + ", ".join(sorted(hidden))
+        )
+    return build_page_title(title="US Grid", subtitle=subtitle, subtitle_tooltip=tooltip)
 
 
 def _is_real_positive(value) -> bool:
