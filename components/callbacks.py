@@ -6832,11 +6832,22 @@ _MAP_LAND_COLOR = "#111113"  # --bg-raised
 _MAP_COASTLINE_COLOR = "#27272a"
 _MAP_SUBUNIT_COLOR = "#1f1f23"
 _MAP_AXIS_FONT_COLOR = "#71717a"  # --text-tertiary
-_MAP_BORDER_COLOR = "#1f1f23"
+# Polygon borders need to read against ANY colorscale fill — green, yellow,
+# or red. A near-black border (#1f1f23) was nearly identical to the
+# darkest polygon fill, so adjacent BAs visually fused into one blob on
+# the Polygons view. A translucent zinc reads against everything.
+_MAP_BORDER_COLOR = "rgba(228, 228, 231, 0.5)"
+# Five-stop colorscale: the previous three-stop scale (0.0 → 0.7 → 1.0,
+# green → yellow → red) put 30% and 60% utilization at nearly identical
+# greens because both fall on the long [0.0, 0.7] interpolation segment.
+# Most BAs operate in the 30–70% band, so spreading colors there is what
+# the eye actually needs.
 _MAP_COLORSCALE = [
-    [0.0, "#34d399"],  # --success — comfortable margin
-    [0.7, "#fbbf24"],  # --warning — getting tight
-    [1.0, "#f87171"],  # --danger — peak utilization
+    [0.00, "#10b981"],  # emerald-500 — idle / comfortable headroom
+    [0.40, "#84cc16"],  # lime-500 — running easy
+    [0.60, "#eab308"],  # yellow-500 — getting tight
+    [0.80, "#f97316"],  # orange-500 — warning
+    [1.00, "#dc2626"],  # red-600 — peak / stressed
 ]
 
 
@@ -7039,7 +7050,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
             colorscale=_MAP_COLORSCALE,
             zmin=0,
             zmax=100,
-            marker={"line": {"color": _MAP_BORDER_COLOR, "width": 0.6}},
+            marker={"line": {"color": _MAP_BORDER_COLOR, "width": 1.0}},
             colorbar={
                 "title": {
                     "text": "Utilization %",
