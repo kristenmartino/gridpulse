@@ -193,6 +193,60 @@ class TestChoroplethRender:
         assert graph.figure.data[0].type == "scattergeo"
 
 
+class TestPolygonVisibility:
+    """Regression tests for the user-reported "all green - no real lines"
+    bug. Previously ``_MAP_BORDER_COLOR = "#1f1f23"`` was indistinguishable
+    from ``_MAP_LAND_COLOR = "#111113"``, so adjacent BAs visually fused
+    into one green blob and the user could only see Florida (where the
+    BAs differ enough in stress to show distinct fills)."""
+
+    def test_border_color_distinct_from_land_color(self):
+        """Border must be perceptually different from the basemap fill —
+        otherwise polygons have no visible edges against the unfilled
+        background, and adjacent same-stress BAs merge visually."""
+        from components.callbacks import _MAP_BORDER_COLOR, _MAP_LAND_COLOR
+
+        # Same string would mean the bug is back.
+        assert _MAP_BORDER_COLOR != _MAP_LAND_COLOR
+        # _MAP_LAND_COLOR is a hex; _MAP_BORDER_COLOR is now an rgba()
+        # with non-zero alpha. The simple string-inequality check above
+        # catches the regression that motivated this test (both being
+        # near-black hex). The alpha check below catches a different
+        # regression (border accidentally set fully transparent).
+        if _MAP_BORDER_COLOR.startswith("rgba"):
+            # rgba(r, g, b, a) — alpha must be > 0
+            alpha_str = _MAP_BORDER_COLOR.rsplit(",", 1)[1].rstrip(") ")
+            assert float(alpha_str) > 0.0
+
+    def test_colorscale_has_distinct_midrange_stops(self):
+        """Most BAs operate at 30–70% utilization. With only [0.0, 0.7, 1.0]
+        stops, 30% and 60% mapped to nearly identical greens. Need at
+        least 4 stops so mid-range values are visually distinct."""
+        from components.callbacks import _MAP_COLORSCALE
+
+        assert len(_MAP_COLORSCALE) >= 4, (
+            f"colorscale only has {len(_MAP_COLORSCALE)} stops — "
+            "mid-range utilization values won't be visually distinct"
+        )
+        # Stops must be sorted, span [0.0, 1.0], and have unique colors.
+        positions = [stop[0] for stop in _MAP_COLORSCALE]
+        assert positions == sorted(positions)
+        assert positions[0] == 0.0
+        assert positions[-1] == 1.0
+        colors = [stop[1] for stop in _MAP_COLORSCALE]
+        assert len(set(colors)) == len(colors), "duplicate colors in colorscale"
+
+    def test_choropleth_border_width_is_visible(self):
+        """0.6 px renders as a hairline that disappears against same-shade
+        neighbors. Bump to ≥ 0.8 px so polygon edges always read."""
+        from components.callbacks import _build_us_grid_choropleth
+
+        body = _build_us_grid_choropleth({"PJM": {"current_mw": 70_000.0}})
+        graph = _find_graph(body)
+        width = graph.figure.data[0].marker.line.width
+        assert width >= 0.8, f"border width {width} too thin to read"
+
+
 class TestDrilldownTolerance:
     """The drilldown callback should accept both customdata shapes:
     1-D string (scatter) and list/tuple (choropleth)."""
