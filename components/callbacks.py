@@ -1226,7 +1226,12 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     uirev = f"{region}:{','.join(sorted(selected_models))}"
 
     log.info("diagnostics_redis_hit", region=region)
-    metrics = cached.get("metrics", {})
+    # Read metrics through the shared resolver so the table and the
+    # leaderboard stay locked together (real holdout MAPE per model
+    # from each pickle's meta.json; RMSE/MAE/R² from this Redis payload).
+    from models.model_service import get_model_metrics
+
+    metrics = get_model_metrics(region)
     timestamps = pd.to_datetime(cached.get("timestamps", []))
     ensemble = np.array(cached.get("ensemble", []))
     residuals = np.array(cached.get("residuals", []))
@@ -2620,10 +2625,15 @@ def register_callbacks(app):
         demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
         actual = demand_df["demand_mw"].values
 
-        from models.model_service import get_forecasts
+        from models.model_service import get_forecasts, get_model_metrics
 
         forecasts = get_forecasts(region, demand_df, selected_models)
-        metrics = forecasts.get("metrics", {})
+        # Read metrics from the same Redis-first source the leaderboard
+        # uses (``get_model_metrics``) so the table and the leaderboard
+        # always show consistent numbers — even if ``get_forecasts``
+        # fell back to fresh simulated forecasts whose computed metrics
+        # would otherwise diverge from the Redis payload's metrics.
+        metrics = get_model_metrics(region) or forecasts.get("metrics", {})
         model_order = ["prophet", "arima", "xgboost", "ensemble"]
         selected = [m for m in model_order if m in set(selected_models)]
 
