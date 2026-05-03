@@ -250,6 +250,8 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 - Scoring time: ~90 sec for 16 BAs → estimate ~5 min for 51. Comfortable on the hourly cron.
 - Cloud Run training memory may need a bump from 8 → 16 GB if peak RSS spikes; monitor first run.
 
+**Empirical correction (2026-05-03)**: the ~95 min estimate above was optimistic. The 2026-05-01 manual run took **2h48m** for the first full 51-BA training, and three subsequent scheduled runs hit the 7,200s (2h) `--task-timeout` cap. Job timeout bumped to **5h** (`gcloud run jobs update gridpulse-training-job --region us-east1 --task-timeout=5h` → `timeoutSeconds: 18000`). Memory and CPU unchanged (8 Gi / 4 CPU were never the bottleneck — training is sequential per BA). Until the next 04:00 UTC scheduled run, the 35 V3.ζ-added BAs have no trained models in GCS, so their Models-tab metrics fall back to the simulated baseline and their Forecast tab shows the warming state.
+
 **Follow-ups** (not in V3.ζ scope):
 - Forecast-quality gate that hides BAs whose backtest MAPE exceeds a threshold from the dropdown. Today they appear but render whatever the model produces.
 - Re-source the V1.α 8 BAs against EIA-860M so capacity methodology is uniform across all 51.
