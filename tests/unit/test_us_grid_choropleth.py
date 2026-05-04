@@ -193,6 +193,52 @@ class TestChoroplethRender:
         assert graph.figure.data[0].type == "scattergeo"
 
 
+class TestPolygonWindingOrder:
+    """Regression for the user-reported "all green" bug. Plotly's
+    underlying renderer (D3-geo) treats a polygon's outer ring as the
+    region boundary, but follows the **D3 convention** rather than RFC
+    7946: outer rings are clockwise (negative shoelace area). When the
+    upstream geojson had RFC-7946-style CCW outer rings, those polygons
+    were rendered as "everything except this region" — they filled the
+    entire viewport and visually merged into one giant green field.
+
+    This test locks down winding order so a future asset replacement
+    (or a manual edit) can't silently re-introduce the bug."""
+
+    @staticmethod
+    def _signed_area(ring):
+        """Shoelace via trapezoid sum. Returns positive for CCW,
+        negative for CW (standard mathematical convention with y-up)."""
+        a = 0.0
+        n = len(ring)
+        for i in range(n):
+            x1, y1 = ring[i][0], ring[i][1]
+            x2, y2 = ring[(i + 1) % n][0], ring[(i + 1) % n][1]
+            a += (x2 - x1) * (y2 + y1)
+        return -a / 2.0
+
+    def test_all_outer_rings_clockwise(self):
+        """Every outer ring must have negative signed area (CW). A CCW
+        outer ring is the smoking gun for the all-green bug."""
+        with open(GEOJSON_PATH) as f:
+            gj = json.load(f)
+
+        violations = []
+        for feat in gj["features"]:
+            rid = feat["properties"]["region"]
+            for poly_idx, poly in enumerate(feat["geometry"]["coordinates"]):
+                outer = poly[0]
+                if self._signed_area(outer) > 0:
+                    violations.append(f"{rid}[{poly_idx}]")
+
+        assert not violations, f"Outer rings with CCW winding (would render inverted): {violations}"
+
+    # Note: hole (inner ring) orientation is NOT asserted. Empirically
+    # Plotly/D3-geo renders cutouts correctly regardless of hole winding
+    # (likely uses an even-odd fill rule rather than strict ring-direction
+    # interpretation). Holes are kept as-shipped by the upstream source.
+
+
 class TestPolygonVisibility:
     """Regression tests for the user-reported "all green - no real lines"
     bug. Previously ``_MAP_BORDER_COLOR = "#1f1f23"`` was indistinguishable
