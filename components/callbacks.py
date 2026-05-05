@@ -39,6 +39,7 @@ from components.cards import (
 from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
+    IS_IMPORT_DOMINATED,
     REGION_CAPACITY_MW,
     REGION_COORDINATES,
     REGION_NAMES,
@@ -6602,15 +6603,19 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
         region: d["current_mw"] / cap
         for region, d in populated.items()
         if (cap := REGION_CAPACITY_MW.get(region, 0)) > 0
+        # V3.η: structurally import-dominated BAs (CPLW, HST, SPA) are
+        # never valid candidates for "highest stress" — their capacity
+        # is a peak × 1.15 estimate, not a measured plate, so the stress
+        # ratio against it is too noisy to rank against truly-stressed
+        # vertically integrated BAs. Filter at source rather than at
+        # the reliability ceiling.
+        and region not in IS_IMPORT_DOMINATED
     }
-    # Drop import-dominated BAs whose ``REGION_CAPACITY_MW`` (sourced
-    # from EIA-860M, counts only in-territory operating generators) is
-    # smaller than the BA's served demand. Observed in V3.ζ: CPLW had
-    # 449 MW served vs 42 MW of in-territory generation, producing a
-    # nonsensical "Highest-Stress: CPLW · 1071%". Anything above the
-    # ``_STRESS_RELIABLE_CEILING`` is structural (the BA imports most
-    # of its power), not real stress — exclude from the ranking. The
-    # underlying-data fix lives in the V3.η follow-up.
+    # Belt-and-braces fallback: anything above the reliability ceiling
+    # is structural (sustained > 100% means the BA imports most of its
+    # power), not real stress. Today this cap should never trip after
+    # the V3.η filter above, but keeps the KPI honest if a future BA
+    # gets misclassified or if EIA-860M data drifts.
     reliable_stress = {r: s for r, s in stress_by_region.items() if s <= _STRESS_RELIABLE_CEILING}
     if reliable_stress:
         top_region = max(reliable_stress, key=reliable_stress.get)
@@ -6762,18 +6767,25 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
     stress_chip = None
     if capacity_mw > 0:
         stress_ratio = current_mw / capacity_mw
-        if stress_ratio > _STRESS_RELIABLE_CEILING:
-            # Import-dominated BA — capacity figure is wrong for this
-            # purpose (counts only in-territory generators). Show a
-            # qualitative "imports" chip instead of a misleading
-            # "1071%" number. See ``_STRESS_RELIABLE_CEILING`` comment.
+        # V3.η: structurally import-dominated BAs (CPLW, HST, SPA) get
+        # the qualitative "imports" chip whether or not their stress
+        # ratio happens to land above the ceiling on a given hour. The
+        # capacity figure for these BAs is a peak × 1.15 estimate, not
+        # measured plate, so the percentage isn't meaningful even when
+        # it's mathematically below 100%.
+        is_import_dominated = (
+            region in IS_IMPORT_DOMINATED or stress_ratio > _STRESS_RELIABLE_CEILING
+        )
+        if is_import_dominated:
             stress_chip = html.Span(
                 "imports",
                 className="gp-region-card__stress gp-region-card__stress--imports",
                 title=(
-                    f"Demand ({current_mw:,.0f} MW) far exceeds in-territory "
-                    f"generators ({capacity_mw:,.0f} MW). This BA imports nearly "
-                    f"all its power; stress ratio is not meaningful here."
+                    f"{name} is an import-dominated balancing authority — "
+                    f"its served demand routinely exceeds in-territory generation "
+                    f"and is supplied via inter-BA transfers. The utilization % "
+                    f"is calculated against an estimated capacity pool, not a "
+                    f"measured plate."
                 ),
             )
         else:
@@ -6891,9 +6903,14 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     max_demand = max(demand_gw)
     sizes = [10 + (d / max_demand) * 30 for d in demand_gw]
 
+    # V3.η: append " · imports" suffix to the BA name for structurally
+    # import-dominated BAs (CPLW, HST, SPA) so users understand what
+    # the utilization % is measured against (a peak × 1.15 estimate,
+    # not a measured plate capacity).
     hover_text = [
-        f"<b>{name}</b><br>Demand: {d:.1f} GW<br>Utilization: {s:.0f}%"
-        for name, d, s in zip(names, demand_gw, stress_pct, strict=False)
+        f"<b>{name}{' · imports' if r in IS_IMPORT_DOMINATED else ''}</b>"
+        f"<br>Demand: {d:.1f} GW<br>Utilization: {s:.0f}%"
+        for r, name, d, s in zip(regions, names, demand_gw, stress_pct, strict=False)
     ]
 
     fig = go.Figure(
@@ -7039,7 +7056,11 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
 
     names = [REGION_NAMES.get(r, r) for r in regions]
     demand_gw = [populated[r]["current_mw"] / 1000 for r in regions]
-    customdata = list(zip(regions, names, demand_gw, strict=False))
+    # V3.η: customdata[3] = " · imports" suffix for import-dominated
+    # BAs, empty string for everyone else. Plotly hovertemplate renders
+    # the empty string invisibly so we don't need separate templates.
+    import_tag = [" · imports" if r in IS_IMPORT_DOMINATED else "" for r in regions]
+    customdata = list(zip(regions, names, demand_gw, import_tag, strict=False))
 
     fig = go.Figure(
         go.Choropleth(
@@ -7069,7 +7090,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
             # callback handles it without changes.
             customdata=customdata,
             hovertemplate=(
-                "<b>%{customdata[1]}</b><br>"
+                "<b>%{customdata[1]}</b>%{customdata[3]}<br>"
                 "Demand: %{customdata[2]:.1f} GW<br>"
                 "Utilization: %{z:.0f}%<extra></extra>"
             ),
