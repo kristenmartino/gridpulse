@@ -349,6 +349,72 @@ def save_model(
     return version
 
 
+def write_extra_to_meta(
+    region: str,
+    model_name: str,
+    version: str,
+    key_updates: dict[str, Any],
+) -> bool:
+    """Merge ``key_updates`` into a saved model's ``extra`` dict in GCS.
+
+    Round-trips the existing meta JSON, deep-merges the new keys on top of
+    the existing ``extra`` (other top-level fields are preserved verbatim),
+    and writes the result back to the same blob. Returns ``True`` on
+    success, ``False`` if GCS is disabled / the blob is missing / the
+    upload fails.
+
+    Used by the training job to attach ensemble-level holdout metrics +
+    weights to the xgboost meta after both per-model persistence and
+    ensemble computation are done. Avoids a separate "ensemble meta"
+    blob (which would need its own latest.json plumbing) at the cost
+    of a single follow-up GCS write per region per training run.
+    """
+    client = _get_client()
+    if client is None:
+        log.info(
+            "model_meta_extra_skipped_gcs_disabled",
+            region=region,
+            model=model_name,
+        )
+        return False
+    try:
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(_blob_path(region, model_name, version, ".meta.json"))
+        if not blob.exists():
+            log.warning(
+                "model_meta_extra_missing",
+                region=region,
+                model=model_name,
+                version=version,
+            )
+            return False
+        meta_dict = json.loads(blob.download_as_text())
+        extra = dict(meta_dict.get("extra") or {})
+        extra.update(key_updates)
+        meta_dict["extra"] = extra
+        blob.upload_from_string(
+            json.dumps(meta_dict, indent=2),
+            content_type="application/json",
+        )
+        log.info(
+            "model_meta_extra_updated",
+            region=region,
+            model=model_name,
+            version=version,
+            keys=sorted(key_updates.keys()),
+        )
+        return True
+    except Exception as e:
+        log.warning(
+            "model_meta_extra_failed",
+            region=region,
+            model=model_name,
+            version=version,
+            error=str(e),
+        )
+        return False
+
+
 def get_model_metadata(region: str, model_name: str) -> ModelMetadata | None:
     """Fetch metadata for the latest version of ``(region, model_name)``.
 

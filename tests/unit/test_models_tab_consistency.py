@@ -28,7 +28,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 
-def _meta(model_name, mape, region="PJM"):
+def _meta(model_name, mape, region="PJM", extra=None):
     """Build a minimal ``ModelMetadata`` for the patch."""
     from models.persistence import ModelMetadata
 
@@ -41,7 +41,23 @@ def _meta(model_name, mape, region="PJM"):
         train_rows=8000,
         mape=mape,
         lib_versions={},
-        extra={},
+        extra=extra or {},
+    )
+
+
+def _meta_with_holdout(model_name, holdout_metrics, region="PJM", ensemble=None):
+    """Build a ModelMetadata with full holdout_metrics in extra. The
+    optional ``ensemble`` dict (only meaningful for xgboost) goes into
+    ``extra["ensemble_holdout_metrics"]``.
+    """
+    extra = {"holdout_metrics": holdout_metrics}
+    if ensemble is not None:
+        extra["ensemble_holdout_metrics"] = ensemble
+    return _meta(
+        model_name,
+        mape=holdout_metrics.get("mape"),
+        region=region,
+        extra=extra,
     )
 
 
@@ -72,6 +88,122 @@ _REDIS_PAYLOAD_FAKE_METRICS = {
     "hourly_error": {h: 1.0 for h in range(24)},
     "feature_importance": {"temperature_2m": 0.5},
 }
+
+
+class TestHoldoutMetricsFromMetaExtra:
+    """The new training-job path persists full {mape, rmse, mae, r2}
+    holdout dicts to each model's ``meta.extra["holdout_metrics"]``
+    and the ensemble's metrics to xgboost's
+    ``meta.extra["ensemble_holdout_metrics"]``. After this lands the
+    Models tab's RMSE / MAE / R² numbers stop being
+    ``_simulate_forecasts`` output and become real training-time
+    holdout values with the same provenance as MAPE."""
+
+    def _meta_lookup_with_holdouts(self, holdouts_by_model, ensemble=None):
+        def _stub(region, model_name):
+            if model_name in holdouts_by_model:
+                if model_name == "xgboost" and ensemble is not None:
+                    return _meta_with_holdout(
+                        model_name,
+                        holdouts_by_model[model_name],
+                        region=region,
+                        ensemble=ensemble,
+                    )
+                return _meta_with_holdout(model_name, holdouts_by_model[model_name], region=region)
+            return None
+
+        return _stub
+
+    def test_real_rmse_mae_r2_overrides_simulated_redis(self):
+        """When holdout_metrics is in meta.extra, RMSE / MAE / R² come
+        from there — NOT from Redis (which is simulated in production)."""
+        from models.model_service import get_model_metrics
+
+        real_holdouts = {
+            "prophet": {"mape": 11.04, "rmse": 612.0, "mae": 481.0, "r2": 0.872},
+            "arima": {"mape": 5.19, "rmse": 388.0, "mae": 298.0, "r2": 0.943},
+            "xgboost": {"mape": 1.10, "rmse": 142.0, "mae": 89.0, "r2": 0.991},
+        }
+        with (
+            patch(
+                "models.persistence.get_model_metadata",
+                side_effect=self._meta_lookup_with_holdouts(real_holdouts),
+            ),
+            patch("data.redis_client.redis_get", return_value=_REDIS_PAYLOAD_FAKE_METRICS),
+        ):
+            got = get_model_metrics("PJM")
+
+        # MAPE remains real (existing behavior)
+        assert got["xgboost"]["mape"] == 1.10
+        # NEW: all three other metrics are now real holdout values too
+        assert got["xgboost"]["rmse"] == 142.0  # was 480 simulated
+        assert got["xgboost"]["mae"] == 89.0  # was 360 simulated
+        assert got["xgboost"]["r2"] == 0.991  # was 0.94 simulated
+        assert got["prophet"]["rmse"] == 612.0
+        assert got["arima"]["mae"] == 298.0
+
+    def test_ensemble_metrics_from_xgboost_extra(self):
+        """The ensemble row's metrics live on xgboost's
+        ``extra["ensemble_holdout_metrics"]`` — when the training job
+        computes ensemble holdout metrics, those flow through here."""
+        from models.model_service import get_model_metrics
+
+        real_holdouts = {
+            "prophet": {"mape": 11.04, "rmse": 612.0, "mae": 481.0, "r2": 0.872},
+            "arima": {"mape": 5.19, "rmse": 388.0, "mae": 298.0, "r2": 0.943},
+            "xgboost": {"mape": 1.10, "rmse": 142.0, "mae": 89.0, "r2": 0.991},
+        }
+        ensemble_holdout = {
+            "mape": 0.94,
+            "rmse": 119.0,
+            "mae": 71.0,
+            "r2": 0.994,
+        }
+        with (
+            patch(
+                "models.persistence.get_model_metadata",
+                side_effect=self._meta_lookup_with_holdouts(
+                    real_holdouts, ensemble=ensemble_holdout
+                ),
+            ),
+            patch("data.redis_client.redis_get", return_value=_REDIS_PAYLOAD_FAKE_METRICS),
+        ):
+            got = get_model_metrics("PJM")
+
+        # All four ensemble metrics from real holdout, not Redis simulated
+        assert got["ensemble"]["mape"] == 0.94  # was 2.94 simulated
+        assert got["ensemble"]["rmse"] == 119.0  # was 460 simulated
+        assert got["ensemble"]["mae"] == 71.0
+        assert got["ensemble"]["r2"] == 0.994
+
+    def test_legacy_meta_falls_back_to_redis_for_rmse(self):
+        """Backward-compat: a pickle trained before this code lands
+        has only top-level ``meta.mape`` (no holdout_metrics in extra).
+        For those, MAPE is real but RMSE / MAE / R² still supplement
+        from Redis — exactly the pre-PR behavior."""
+        from models.model_service import get_model_metrics
+
+        # Mix: prophet has holdout metrics; arima/xgboost are legacy
+        def _stub(region, model_name):
+            if model_name == "prophet":
+                return _meta_with_holdout(
+                    model_name,
+                    {"mape": 11.04, "rmse": 612.0, "mae": 481.0, "r2": 0.872},
+                )
+            return _meta(model_name, mape={"arima": 5.19, "xgboost": 1.10}.get(model_name))
+
+        with (
+            patch("models.persistence.get_model_metadata", side_effect=_stub),
+            patch("data.redis_client.redis_get", return_value=_REDIS_PAYLOAD_FAKE_METRICS),
+        ):
+            got = get_model_metrics("PJM")
+
+        # prophet: full real metrics from meta extra
+        assert got["prophet"]["rmse"] == 612.0
+        # arima / xgboost: real MAPE from meta, but RMSE supplements from Redis
+        assert got["arima"]["mape"] == 5.19
+        assert got["arima"]["rmse"] == 700  # Redis fallback for legacy meta
+        assert got["xgboost"]["mae"] == 360
 
 
 class TestRealMapeSource:

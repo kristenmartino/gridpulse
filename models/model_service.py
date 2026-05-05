@@ -60,30 +60,38 @@ def get_forecasts(
     return _simulate_forecasts(region, actual, models_shown)
 
 
+_HOLDOUT_FIELDS = ("mape", "rmse", "mae", "r2")
+
+
 def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
     """
     Get validation metrics for a region's trained models.
 
-    **MAPE is the authoritative metric** — pulled per-model from each
-    pickle's `.meta.json` in GCS, written by the daily training job
-    (V0.2 / V3.ε). Other fields (RMSE / MAE / R²) come from the
-    Redis diagnostics payload when present; that payload is computed
-    from actual demand vs scoring-job forecasts and is currently
-    simulation-derived in production (the scoring job's diagnostics
-    path uses `_simulate_forecasts` because it doesn't share GCS
-    pickles with the in-process model cache). Treat RMSE / MAE / R²
-    as approximations until that path is unified.
+    **All four metrics (MAPE / RMSE / MAE / R²) are training-time
+    holdout values** — each model's last 168-hour holdout, computed
+    by the daily training job and persisted in
+    ``meta.extra["holdout_metrics"]``. The ensemble row is computed
+    from the SAME holdout predictions and stashed in xgboost's meta
+    extra under ``ensemble_holdout_metrics``. Provenance is uniform:
+    no metric is silently sourced from a different distribution
+    than its siblings.
 
     Resolution order:
-    1. Per-model holdout MAPE from ``models.persistence.get_model_metadata``
-       (real training-time values, prophet / arima / xgboost only —
-       ensemble has no own meta.json so its MAPE comes from Redis).
-    2. ``wattcast:diagnostics:{region}`` for RMSE / MAE / R² and the
-       ensemble's MAPE; supplements layer 1 without overwriting it.
-    3. In-process trained pickle (dev mode running with the local
-       precompute thread).
-    4. Simulated baseline (consistent defaults). Last-resort dev
-       fallback when none of the above produce data.
+    1. ``meta.extra["holdout_metrics"]`` per model — full {mape, rmse,
+       mae, r2} dict, real training-time holdout. This is the canonical
+       path for any BA whose models trained on the new code path.
+    2. Top-level ``meta.mape`` per model — backward-compat for pickles
+       trained before this path landed (only MAPE is real; RMSE/MAE/R²
+       are still supplemented from Redis below).
+    3. Ensemble metrics from xgboost's meta extra
+       (``ensemble_holdout_metrics``).
+    4. Redis diagnostics ``wattcast:diagnostics:{region}`` —
+       fallback ONLY for fields not provided by the meta path.
+       In production this content is currently
+       ``_simulate_forecasts``-derived; the meta-first ordering means
+       a viewer never sees a simulated value when a real one exists.
+    5. Local pickle (dev mode with in-process precompute).
+    6. Hardcoded simulated baseline — last-resort dev fallback.
 
     Returns:
         Dict of model_name → {mape?, rmse?, mae?, r2?}. Empty fields
@@ -91,7 +99,8 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
     """
     out: dict[str, dict[str, float]] = {}
 
-    # 1. Real holdout MAPE per model — written by jobs/training_job.py.
+    # 1 + 2. Per-model holdout metrics from meta extras.
+    ensemble_from_xgb_meta: dict[str, float] | None = None
     try:
         from models.persistence import get_model_metadata
 
@@ -102,13 +111,48 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
                 meta = None
             if meta is None:
                 continue
-            mape = getattr(meta, "mape", None)
-            if mape is not None and np.isfinite(mape) and mape > 0:
-                out[model_name] = {"mape": float(mape)}
+            base: dict[str, float] = {}
+
+            # Layer 1: full holdout metrics from extra (preferred).
+            extra = getattr(meta, "extra", None) or {}
+            holdout = extra.get("holdout_metrics") if isinstance(extra, dict) else None
+            if isinstance(holdout, dict):
+                for field in _HOLDOUT_FIELDS:
+                    val = holdout.get(field)
+                    if val is not None and np.isfinite(val):
+                        base[field] = float(val)
+
+            # Layer 2: legacy fallback — top-level meta.mape only.
+            if "mape" not in base:
+                mape = getattr(meta, "mape", None)
+                if mape is not None and np.isfinite(mape) and mape > 0:
+                    base["mape"] = float(mape)
+
+            if base:
+                out[model_name] = base
+
+            # Layer 3: ensemble metrics ride along on xgboost's extra.
+            if model_name == "xgboost" and isinstance(extra, dict):
+                ens = extra.get("ensemble_holdout_metrics")
+                if isinstance(ens, dict):
+                    candidate = {
+                        f: float(ens[f])
+                        for f in _HOLDOUT_FIELDS
+                        if f in ens and np.isfinite(ens[f])
+                    }
+                    if candidate:
+                        ensemble_from_xgb_meta = candidate
     except Exception as e:  # pragma: no cover — defensive (GCS outage)
         log.debug("get_model_metrics_meta_miss", region=region, error=str(e))
 
-    # 2. Supplement with Redis diagnostics (RMSE / MAE / R² + ensemble MAPE).
+    if ensemble_from_xgb_meta:
+        out["ensemble"] = ensemble_from_xgb_meta
+
+    # 4. Redis diagnostics — supplements ONLY fields the meta path
+    # didn't provide. In production this is currently
+    # ``_simulate_forecasts``-derived, so we only fall back to it
+    # for legacy pickles or the ensemble row when xgboost's meta
+    # didn't carry ensemble_holdout_metrics.
     try:
         from data.redis_client import redis_get
 
@@ -118,12 +162,7 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
                 if not isinstance(redis_m, dict):
                     continue
                 base = out.get(model_name, {})
-                # MAPE from Redis only when meta.json didn't provide one
-                # (currently true only for the ensemble row).
-                if "mape" not in base and "mape" in redis_m:
-                    base["mape"] = redis_m["mape"]
-                # RMSE / MAE / R² supplement layer 1.
-                for field in ("rmse", "mae", "r2"):
+                for field in _HOLDOUT_FIELDS:
                     if field in redis_m and field not in base:
                         base[field] = redis_m[field]
                 if base:
@@ -134,12 +173,12 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
     if out:
         return out
 
-    # 3. Local pickle — dev mode.
+    # 5. Local pickle — dev mode.
     model_data = _load_cached_models(region)
     if model_data and "metrics" in model_data:
         return model_data["metrics"]
 
-    # 4. Simulated baseline — last resort.
+    # 6. Simulated baseline — last resort.
     return {
         "prophet": {"mape": 2.8, "rmse": 450, "mae": 320, "r2": 0.967},
         "arima": {"mape": 3.5, "rmse": 580, "mae": 410, "r2": 0.945},
