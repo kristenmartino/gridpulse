@@ -7123,12 +7123,29 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
         },
     )
 
+    # Coverage caption — disambiguates the dark-fill gaps in the
+    # Polygons view (Idaho, parts of Montana / Wyoming / the Plains,
+    # AK + HI insets) as intentional unmapped territory, not a
+    # rendering bug. EIA-930 has ~64 BAs in the lower 48; we ship
+    # polygons for ~51 (~80% of demand). Renders only inside the
+    # Polygons view body — Cards / Map don't have coverage gaps to
+    # disclose.
+    n_covered = len(regions)
+    caption = html.Div(
+        f"{n_covered} of ~64 lower-48 balancing authorities mapped · "
+        "dark areas are EIA-930 BAs not yet covered here.",
+        className="gp-region-map__coverage-caption",
+    )
+
     return html.Div(
-        dcc.Graph(
-            id="us-grid-map",
-            figure=fig,
-            config={"displayModeBar": False, "responsive": True},
-            style={"height": "480px"},
-        ),
+        [
+            dcc.Graph(
+                id="us-grid-map",
+                figure=fig,
+                config={"displayModeBar": False, "responsive": True},
+                style={"height": "480px"},
+            ),
+            caption,
+        ],
         className="gp-region-map",
     )

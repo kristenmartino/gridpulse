@@ -2398,3 +2398,11 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     color: var(--text-tertiary);
     font-size: var(--text-sm);
 }
+
+.gp-region-map__coverage-caption {
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    text-align: center;
+    margin-top: var(--space-2);
+    line-height: 1.4;
+}
