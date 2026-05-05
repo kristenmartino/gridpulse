@@ -361,15 +361,20 @@ REGION_CAPACITY_MW: dict[str, int] = {
     "FPL": 35_963,
     "SPP": 102_376,
     "ISONE": 30_000,
-    # V1.α — 8 new BAs.
-    "SOCO": 46_000,
+    # V1.α — 8 new BAs. V3.η (2026-05-02) corrected SOCO / DUK / CPLE /
+    # PSCO from EIA-860M generator capacity to peak-demand × 1.15
+    # reserve margin because in-territory generation is below served
+    # demand for these net-importer utility BAs (capacity / peak ratios
+    # were 0.93–0.96, indicating regular imports). Peak source: EIA-930
+    # 12-month max demand per ``data/eia_client.fetch_demand``.
+    "SOCO": 54_980,  # was 46,000 (EIA-860M); peak 47,809 × 1.15
     "TVA": 35_000,
-    "DUK": 20_800,
-    "CPLE": 13_700,
+    "DUK": 25_513,  # was 20,800 (EIA-860M); peak 22,186 × 1.15
+    "CPLE": 16_478,  # was 13,700 (EIA-860M); peak 14,329 × 1.15
     "BPAT": 17_462,
     "AZPS": 9_400,
     "NEVP": 15_445,
-    "PSCO": 9_080,
+    "PSCO": 12_238,  # was 9,080 (EIA-860M); peak 10,642 × 1.15
     # V3.ζ — 35 remaining EIA-930 BAs in the contiguous US. Capacities
     # all sourced from EIA-860M Feb 2026 (one batch query, methodology
     # mirrors V3.ε for NEVP — sum nameplate-capacity-mw rows filtered
@@ -380,15 +385,22 @@ REGION_CAPACITY_MW: dict[str, int] = {
     # Southeast (11):
     "FPC": 16_535,
     "TEC": 8_747,
-    "FMPP": 3_908,
+    "FMPP": 4_574,  # V3.η: was 3,908 (EIA-860M); peak 3,978 × 1.15
     "JEA": 3_214,
     "TAL": 1_024,
     "GVL": 600,
     "SEC": 2_826,
-    "HST": 36,
+    # V3.η: Homestead is import-dominated (peak 147 MW vs 36 MW
+    # in-territory generation = 4.08×). Corrected to peak × 1.15 and
+    # tagged in IS_IMPORT_DOMINATED so the UI hides its stress chip.
+    "HST": 169,  # was 36; peak 147 × 1.15
     "SC": 5_968,
     "SCEG": 8_122,
-    "CPLW": 42,
+    # V3.η: DEP-West (CPLW, NC mountains) is severely import-dominated
+    # (peak 1,261 MW vs 42 MW in-territory generators = 30×). User-
+    # reported 2026-05-02 as "Highest-Stress: CPLW · 1071%". Corrected
+    # to peak × 1.15 and tagged in IS_IMPORT_DOMINATED.
+    "CPLW": 1_450,  # was 42; peak 1,261 × 1.15
     # Central (4):
     "LGEE": 9_074,
     "AECI": 6_650,
@@ -416,6 +428,41 @@ REGION_CAPACITY_MW: dict[str, int] = {
     "PNM": 7_544,
     "WALC": 7_096,
 }
+
+# ---------------------------------------------------------------------------
+# Import-dominated BAs
+# ---------------------------------------------------------------------------
+# Some EIA-930 balancing authorities serve far more demand than their
+# in-territory generators can produce — they're structurally dependent on
+# imports from neighbours. Showing these BAs' "stress" against their
+# nameplate capacity is misleading: a 30× import multiplier (CPLW) makes
+# every reading look critical, and even after the V3.η peak × 1.15
+# capacity correction, the underlying number is still an *estimate* of
+# the resource pool the BA can draw on, not a measured plate capacity.
+#
+# The UI uses this set to:
+#   1. Suppress the BA from the "highest-stress" KPI candidate pool so
+#      a 30× multiplier doesn't always win (PR #76 capped the display
+#      at 100% but didn't fix candidacy).
+#   2. Annotate the polygon hover + drilldown with an "import-dominated
+#      · capacity is estimated" footnote so users understand what the
+#      utilization % is actually measured against.
+#
+# Inclusion criterion: in-territory generation < ~50% of 12-month peak
+# demand (i.e. multiplier ≥ 2×). Sourced from EIA-860M generator rows
+# vs EIA-930 demand peaks. Re-evaluate annually as new generators
+# come online.
+IS_IMPORT_DOMINATED: frozenset[str] = frozenset(
+    {
+        "CPLW",  # DEP-West, NC mountains. Peak 1,261 MW vs 42 MW gen = 30×.
+        "HST",  # Homestead, FL. Peak 147 MW vs 36 MW gen = 4.08×.
+        "SPA",  # Southwestern Power Admin — federal hydro *marketer*,
+        #        not a vertically integrated utility. Its 2,559 MW
+        #        nameplate is the federal dam fleet; the served load
+        #        is far larger via long-term power contracts.
+    }
+)
+
 
 # ---------------------------------------------------------------------------
 # NOAA State → Balancing Authority Mapping
