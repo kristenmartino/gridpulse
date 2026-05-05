@@ -464,6 +464,91 @@ class TestGetModelMetadata:
             assert mp.get_model_metadata("SPP", "arima") is None
 
 
+class TestWriteExtraToMeta:
+    """``write_extra_to_meta`` round-trips an existing meta blob,
+    deep-merges new keys into ``extra``, and writes the result back.
+    Used by the training job to attach ensemble-level holdout metrics
+    to the xgboost meta after both per-model persistence and ensemble
+    computation are done."""
+
+    def _setup(self, tmp_path):
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        store: dict[str, bytes] = {}
+        client = _make_fake_client(store)
+        return mp, store, client
+
+    def test_merges_new_keys_into_extra(self, tmp_path) -> None:
+        mp, store, client = self._setup(tmp_path)
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=client),
+        ):
+            version = mp.save_model(
+                "PJM",
+                "xgboost",
+                {"k": "v"},
+                "h",
+                100,
+                mape=1.10,
+                extra={"cv_scores": [1.0, 1.2]},
+            )
+            assert version is not None
+
+            ok = mp.write_extra_to_meta(
+                "PJM",
+                "xgboost",
+                version,
+                {
+                    "ensemble_holdout_metrics": {
+                        "mape": 0.94,
+                        "rmse": 119.0,
+                        "mae": 71.0,
+                        "r2": 0.994,
+                    },
+                    "ensemble_weights": {
+                        "xgboost": 0.6,
+                        "prophet": 0.25,
+                        "arima": 0.15,
+                    },
+                },
+            )
+            assert ok is True
+
+            mp.invalidate_latest_cache()
+            meta = mp.get_model_metadata("PJM", "xgboost")
+            assert meta is not None
+
+            # Existing keys preserved, new keys merged in.
+            assert meta.extra["cv_scores"] == [1.0, 1.2]
+            assert meta.extra["ensemble_holdout_metrics"]["mape"] == 0.94
+            assert meta.extra["ensemble_holdout_metrics"]["rmse"] == 119.0
+            assert meta.extra["ensemble_weights"]["xgboost"] == 0.6
+            # Top-level fields unchanged.
+            assert meta.mape == 1.10
+            assert meta.region == "PJM"
+
+    def test_returns_false_when_blob_missing(self, tmp_path) -> None:
+        mp, store, client = self._setup(tmp_path)
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=client),
+        ):
+            ok = mp.write_extra_to_meta("PJM", "xgboost", "v-nonexistent", {"foo": "bar"})
+            assert ok is False
+
+    def test_returns_false_when_gcs_disabled(self, tmp_path) -> None:
+        mp, _, _ = self._setup(tmp_path)
+        with patch.object(mp, "_get_client", return_value=None):
+            ok = mp.write_extra_to_meta("PJM", "xgboost", "v1", {"foo": "bar"})
+            assert ok is False
+
+
 # ---------------------------------------------------------------------------
 # Pickle failure does not crash
 # ---------------------------------------------------------------------------
