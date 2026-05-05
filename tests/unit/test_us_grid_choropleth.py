@@ -193,6 +193,66 @@ class TestChoroplethRender:
         assert graph.figure.data[0].type == "scattergeo"
 
 
+class TestPolygonCoverageCaption:
+    """The Polygons view has visible dark-fill gaps where we don't yet
+    ship a BA polygon (Idaho, parts of Montana / Wyoming, AK + HI
+    insets). Without a caption a first-time viewer reads those as
+    "broken." Caption converts them into honest "unmapped" indicators.
+    """
+
+    def test_caption_renders_in_polygon_body(self):
+        from components.callbacks import _build_us_grid_choropleth
+
+        body = _build_us_grid_choropleth(
+            {
+                "PJM": {"current_mw": 70_000.0},
+                "ERCOT": {"current_mw": 50_000.0},
+            }
+        )
+
+        def find_text(node, predicate):
+            children = getattr(node, "children", None)
+            if isinstance(children, str):
+                return children if predicate(children) else None
+            if isinstance(children, (list, tuple)):
+                for c in children:
+                    found = find_text(c, predicate)
+                    if found is not None:
+                        return found
+            elif children is not None:
+                return find_text(children, predicate)
+            return None
+
+        caption = find_text(body, lambda s: "balancing authorities mapped" in s)
+        assert caption is not None, (
+            "Polygon view body should contain a coverage caption that "
+            "names how many BAs are mapped vs unmapped."
+        )
+        # The covered count comes from the populated dict — 2 in this test.
+        assert "2 of " in caption
+
+    def test_caption_absent_in_cold_state(self):
+        """When all regions are warming, the choropleth returns an
+        empty-state placeholder — caption shouldn't appear there
+        (there's nothing mapped to count, and the empty-state copy
+        already explains the situation)."""
+        from components.callbacks import _build_us_grid_choropleth
+
+        body = _build_us_grid_choropleth({"PJM": {"current_mw": None}})
+
+        def has_text(node, target):
+            children = getattr(node, "children", None)
+            if isinstance(children, str):
+                return target in children
+            if isinstance(children, (list, tuple)):
+                return any(has_text(c, target) for c in children)
+            if children is not None:
+                return has_text(children, target)
+            return False
+
+        assert not has_text(body, "balancing authorities mapped")
+
+
 class TestPolygonWindingOrder:
     """Regression for the user-reported "all green" bug. Plotly's
     underlying renderer (D3-geo) treats a polygon's outer ring as the
