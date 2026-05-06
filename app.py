@@ -30,7 +30,8 @@ configure_logging()
 import dash  # noqa: E402
 import dash_bootstrap_components as dbc  # noqa: E402
 import structlog  # noqa: E402
-from flask import Flask, jsonify  # noqa: E402
+from flask import Flask, jsonify, request  # noqa: E402
+from flask_compress import Compress  # noqa: E402
 
 log = structlog.get_logger()
 
@@ -38,8 +39,33 @@ log = structlog.get_logger()
 server = Flask(__name__)
 server.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(32).hex())
 
+# Gzip responses larger than 500 bytes. Plotly figure JSON sent on every
+# callback round-trip is the dominant wire-size win — typical figure
+# payload is 30-80 KB pre-compression and compresses to roughly 10-25 KB
+# (60-70% reduction). The 500-byte floor keeps the encoding overhead
+# off small responses (health checks, dependency manifests, etc.).
+Compress(server)
+server.config["COMPRESS_MIN_SIZE"] = 500
+
 # Add request logging middleware
 add_request_logging(server)
+
+
+# Asset / callback cache headers. Dash's built-in fingerprinting
+# (``?v={hash}`` query suffix on /assets/ requests) makes 1-year
+# immutable caching safe — content changes always rotate the hash.
+# Callback responses (``/_dash-update-component``) are dynamic and
+# must not cache. The ``/health`` and ``/metrics`` endpoints don't
+# benefit from caching either way; leave their default behavior alone.
+@server.after_request
+def _set_cache_headers(response):
+    path = request.path
+    if path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif path.startswith("/_dash-update-component") or path == "/_dash-dependencies":
+        response.headers["Cache-Control"] = "no-cache"
+    return response
+
 
 # Dash app
 app = dash.Dash(
