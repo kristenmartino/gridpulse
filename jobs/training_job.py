@@ -122,6 +122,27 @@ def _holdout_metrics_prophet(featured_df, region: str) -> dict | None:
         return None
 
 
+def _read_cached_arima_order(region: str) -> tuple | None:
+    """Pull the previously-selected (order, seasonal_order) from the
+    existing arima meta's extra. Returns None if no meta exists or the
+    keys aren't present (i.e. the BA hasn't been trained on the
+    cache-aware code path yet)."""
+    try:
+        from models.persistence import get_model_metadata
+
+        meta = get_model_metadata(region, "arima")
+        if meta is None or not isinstance(getattr(meta, "extra", None), dict):
+            return None
+        order = meta.extra.get("order")
+        seasonal_order = meta.extra.get("seasonal_order")
+        if order is None or seasonal_order is None:
+            return None
+        return tuple(order), tuple(seasonal_order)
+    except Exception as e:  # pragma: no cover — defensive
+        log.debug("arima_cached_order_lookup_failed", region=region, error=str(e))
+        return None
+
+
 def _holdout_metrics_arima(featured_df, region: str) -> dict | None:
     """Compute SARIMAX's full holdout metric set on the last 168 hours.
 
@@ -137,8 +158,15 @@ def _holdout_metrics_arima(featured_df, region: str) -> dict | None:
         return None
     train_df = featured_df.iloc[:-_HOLDOUT_HOURS]
     val_df = featured_df.iloc[-_HOLDOUT_HOURS:]
+    cached = _read_cached_arima_order(region)
+    cached_order = cached[0] if cached else None
+    cached_seasonal_order = cached[1] if cached else None
     try:
-        holdout_model = train_arima(train_df)
+        holdout_model = train_arima(
+            train_df,
+            cached_order=cached_order,
+            cached_seasonal_order=cached_seasonal_order,
+        )
         forecast = np.asarray(
             predict_arima(holdout_model, val_df, periods=len(val_df)),
             dtype=float,
@@ -310,13 +338,27 @@ def _train_arima(
 
     Holdout-metric extraction mirrors :func:`_train_prophet` — full
     {mape, rmse, mae, r2} dict persisted in ``extra["holdout_metrics"]``.
+
+    The selected ``(order, seasonal_order)`` is stashed in
+    ``extra`` so the next training run can skip the pmdarima
+    auto_arima stepwise search (the dominant per-BA cost). The
+    cache is invalidated automatically if the data changes
+    enough to make the order obsolete — at the limit, a force
+    retrain bypasses it entirely.
     """
     from models.arima_model import train_arima
 
     region = region_data.region
     assert region_data.featured_df is not None
+    cached = _read_cached_arima_order(region)
+    cached_order = cached[0] if cached else None
+    cached_seasonal_order = cached[1] if cached else None
     try:
-        arima_dict = train_arima(region_data.featured_df)
+        arima_dict = train_arima(
+            region_data.featured_df,
+            cached_order=cached_order,
+            cached_seasonal_order=cached_seasonal_order,
+        )
     except Exception as e:
         log.warning("training_arima_failed", region=region, error=str(e))
         return None
@@ -325,6 +367,14 @@ def _train_arima(
     extra: dict = {}
     if holdout_metrics is not None:
         extra["holdout_metrics"] = holdout_metrics
+    # Cache the order for next run's fast path. We persist whatever
+    # train_arima ended up using — whether that came from the cache
+    # itself (round-trip preserves it) or from a fresh auto_arima.
+    if isinstance(arima_dict, dict):
+        if "order" in arima_dict:
+            extra["order"] = list(arima_dict["order"])
+        if "seasonal_order" in arima_dict:
+            extra["seasonal_order"] = list(arima_dict["seasonal_order"])
 
     return save_model(
         region=region,
@@ -337,8 +387,50 @@ def _train_arima(
     )
 
 
-def _train_region(region: str) -> dict:
-    """Run all training phases for a single region. Returns a summary dict."""
+def _skip_if_data_hash_matches(region: str, current_hash: str) -> dict | None:
+    """Return a summary's ``models`` dict if every model is already up
+    to date on ``current_hash``, else None.
+
+    "Up to date" means: a saved version exists for each of xgboost /
+    prophet / arima AND each meta's ``data_hash`` equals ``current_hash``.
+    If even one model is stale or missing, return None and let the
+    caller train all three (the inverse-MAPE ensemble weighting needs
+    the per-model holdouts to come from the same training pass).
+    """
+    try:
+        from models.persistence import get_model_metadata
+
+        versions: dict[str, str | None] = {}
+        for model_name in ("xgboost", "prophet", "arima"):
+            try:
+                meta = get_model_metadata(region, model_name)
+            except Exception:
+                meta = None
+            if meta is None:
+                return None
+            if getattr(meta, "data_hash", None) != current_hash:
+                return None
+            versions[model_name] = meta.version
+        return versions
+    except Exception as e:  # pragma: no cover — defensive (GCS outage)
+        log.debug("training_resume_check_failed", region=region, error=str(e))
+        return None
+
+
+def _train_region(region: str, force: bool = False) -> dict:
+    """Run all training phases for a single region. Returns a summary dict.
+
+    When ``force`` is False (the default), the function short-circuits if
+    every model already has a saved version whose ``data_hash`` matches
+    the data we'd produce now. This is the resume-friendly behavior — a
+    Cloud Run retry that restarts from BA 0 doesn't redundantly retrain
+    BAs the previous attempt already finished, and the daily cron only
+    re-fits BAs whose underlying data actually changed.
+
+    Hash check is cheap (one ``get_model_metadata`` per model = three GCS
+    metadata reads, no pickle download). Compared to training cost
+    (~12 min/BA on the slow path), the overhead is negligible.
+    """
     t0 = time.time()
     summary: dict = {"region": region, "ok": False, "models": {}, "backtests": {}}
 
@@ -352,6 +444,27 @@ def _train_region(region: str) -> dict:
         summary["error"] = "feature_engineering_failed"
         summary["elapsed_s"] = round(time.time() - t0, 2)
         return summary
+
+    # Resume short-circuit: bail out if every model is already up to
+    # date on the current data. Saves the entire training cost when a
+    # previous run already finished this region. Counts as success in
+    # the per-region summary so ``ok_count`` reflects "regions with a
+    # fresh model on disk" — the operationally meaningful number.
+    if not force:
+        current_hash = _compute_data_hash(region_data)
+        skipped = _skip_if_data_hash_matches(region, current_hash)
+        if skipped is not None:
+            summary["models"] = skipped
+            summary["ok"] = True
+            summary["resumed"] = True
+            summary["elapsed_s"] = round(time.time() - t0, 2)
+            log.info(
+                "training_region_resumed",
+                region=region,
+                reason="data_hash_unchanged",
+                data_hash=current_hash[:8],
+            )
+            return summary
 
     # Score every model on the SAME 168-hour holdout window before
     # persisting production models. This is the only time predictions
