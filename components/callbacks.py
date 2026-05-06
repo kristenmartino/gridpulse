@@ -18,6 +18,8 @@ Sprint 4 changes:
 """
 
 import io
+import threading
+from datetime import UTC
 
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -27,6 +29,7 @@ import structlog
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 from plotly.subplots import make_subplots
 
+from components.accessibility import CB_PALETTE, LINE_STYLES
 from components.cards import (
     build_alert_card,
     build_insight_card,
@@ -51,15 +54,13 @@ from personas.config import get_persona
 
 log = structlog.get_logger()
 
-import threading  # noqa: E402
-
 _cache_lock = threading.Lock()
 _CACHE_VERSION = 3
 
-_MODEL_CACHE: dict = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
-_PREDICTION_CACHE: dict = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
-_BACKTEST_CACHE: dict = {}  # {(region, horizon, model, exog_mode): (result_dict, data_hash, time)}
-_GENERATION_CACHE: dict = {}  # {region: (gen_df, fetch_timestamp)}
+_MODEL_CACHE: dict[tuple, tuple] = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
+_PREDICTION_CACHE: dict[tuple, tuple] = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
+_BACKTEST_CACHE: dict[tuple, dict] = {}  # {(region, horizon, model, exog_mode): (result_dict, data_hash, time)}
+_GENERATION_CACHE: dict[str, tuple] = {}  # {region: (gen_df, fetch_timestamp)}
 BACKTEST_EXOG_MODES = {"oracle_exog", "forecast_exog"}
 DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 
@@ -120,10 +121,6 @@ def _layout(*, uirevision: str | None = None, **overrides) -> dict:
 
 
 # Color palette (colorblind-safe — Wong 2011)
-from datetime import UTC  # noqa: E402
-
-from components.accessibility import CB_PALETTE, LINE_STYLES  # noqa: E402
-
 COLORS = {
     "actual": CB_PALETTE["blue"],
     "prophet": CB_PALETTE["orange"],

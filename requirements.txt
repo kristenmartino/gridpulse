@@ -1,8 +1,10 @@
-# Core framework
-dash>=2.17.0
-dash-bootstrap-components>=1.6.0
-flask>=3.0.0
-gunicorn>=22.0.0
+# Core framework — upper bounds on the web stack guard against silent
+# breakage from major-version releases (Dash 3 / Flask 4 will both ship
+# with API changes worth re-validating before adopting).
+dash>=2.17.0,<3
+dash-bootstrap-components>=1.6.0,<2
+flask>=3.0.0,<4
+gunicorn>=22.0.0,<23
 
 # Data & ML
 pandas>=2.2.0
