@@ -107,6 +107,12 @@
     --content-gutter: 1.5rem;
     --section-gap: 2rem;            /* space-y-8 between major sections */
     --card-padding: 1.25rem;        /* p-5 inside cards */
+    /* Sticky-chrome offsets — must match .gp-header { height } and the
+     * .nav-tabs total height (link padding × 2 + line-height + border).
+     * .nav-tabs sticks DIRECTLY under the header so the tab-content
+     * region scrolls under both. */
+    --header-height: 56px;
+    --tabs-height: 48px;
 
     /* Motion — durations */
     --duration-fast: 120ms;
@@ -356,6 +362,39 @@ select:disabled,
 .disabled {
     cursor: not-allowed;
     opacity: 0.6;
+}
+
+/* ── Keyboard-shortcut chips ──────────────────────────────────── */
+/* Sits adjacent to a selector to advertise its Alt+key shortcut
+ * (handlers live in assets/accessibility.js). aria-hidden because
+ * the underlying selector already carries aria-keyshortcuts —
+ * screen-reader users don't need the visual chip read aloud. */
+.gp-header__kbd-hint {
+    display: inline-flex;
+    align-items: center;
+    margin-left: -4px;     /* tucked next to the preceding selector */
+    margin-right: var(--space-2);
+    pointer-events: none;  /* purely informational */
+}
+
+.gp-header__kbd-hint kbd {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    line-height: 1;
+    padding: 3px 5px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    background: var(--bg-elevated);
+    color: var(--text-tertiary);
+    box-shadow: 0 1px 0 var(--border-subtle);
+    letter-spacing: 0.02em;
+}
+
+/* Hide the kbd chips under Briefing Mode chrome — the projection
+ * surface shouldn't show shortcut hints to a meeting audience. */
+body.briefing .gp-header__kbd-hint {
+    display: none;
 }
 
 /* ── Briefing Mode (R5c — projection / meeting-ready chrome) ───── */
@@ -1301,11 +1340,16 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 .gp-header {
     background: var(--bg-base);
     border-bottom: 1px solid var(--border-subtle);
-    height: 56px;
+    height: var(--header-height);
     margin: 0;
     padding: 0;
-    position: relative;
-    z-index: 2;  /* over the body::before noise overlay */
+    /* Sticky chrome: header pins to top of the viewport. z-index 50
+     * keeps it above the tab strip (40), KPI rows in flow, and the
+     * body::before noise overlay (10000 — but that's fixed-positioned
+     * so it occupies its own stacking context). */
+    position: sticky;
+    top: 0;
+    z-index: 50;
 }
 
 .gp-header__inner {
@@ -1581,6 +1625,15 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 .nav-tabs {
     border-bottom: 1px solid var(--border-subtle);
     padding: 0 var(--space-3);
+    /* Sticky tab strip pins directly under the header (top:
+     * --header-height). The blurred translucent background keeps
+     * content under it readable on scroll without a hard line. */
+    position: sticky;
+    top: var(--header-height);
+    z-index: 40;
+    background: var(--bg-overlay);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
 
 .nav-tabs .nav-link {
