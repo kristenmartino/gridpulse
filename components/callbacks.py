@@ -57,9 +57,15 @@ log = structlog.get_logger()
 _cache_lock = threading.Lock()
 _CACHE_VERSION = 3
 
-_MODEL_CACHE: dict[tuple, tuple] = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
-_PREDICTION_CACHE: dict[tuple, tuple] = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
-_BACKTEST_CACHE: dict[tuple, dict] = {}  # {(region, horizon, model, exog_mode): (result_dict, data_hash, time)}
+_MODEL_CACHE: dict[
+    tuple, tuple
+] = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
+_PREDICTION_CACHE: dict[
+    tuple, tuple
+] = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
+_BACKTEST_CACHE: dict[
+    tuple, dict
+] = {}  # {(region, horizon, model, exog_mode): (result_dict, data_hash, time)}
 _GENERATION_CACHE: dict[str, tuple] = {}  # {region: (gen_df, fetch_timestamp)}
 BACKTEST_EXOG_MODES = {"oracle_exog", "forecast_exog"}
 DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
@@ -1267,10 +1273,23 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
         className="metrics-table",
     )
 
+    # Residuals span the full training window (60-90 days hourly =
+    # 1440-2160 points). At 1280px chart width that's ~1.7 raw points
+    # per pixel — well past the resolution where the eye can resolve
+    # them. LTTB downsample to ~720 keeps the silhouette intact, drops
+    # ~70% of the wire JSON, and saves Plotly a real chunk of layout
+    # cost on the client.
+    from data.preprocessing import lttb_downsample
+
+    resid_x, resid_y = lttb_downsample(
+        np.asarray(timestamps.values),
+        np.asarray(residuals),
+        threshold=720,
+    )
     fig_resid_time = go.Figure(
         go.Scatter(
-            x=timestamps,
-            y=residuals,
+            x=resid_x,
+            y=resid_y,
             mode="lines",
             line=dict(color=COLORS["arima"], width=1),
         )

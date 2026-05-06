@@ -207,3 +207,102 @@ def _ensure_utc(df: pd.DataFrame, source: str) -> pd.DataFrame:
         log.debug("converting_to_utc", source=source, from_tz=str(df["timestamp"].dt.tz))
         df["timestamp"] = df["timestamp"].dt.tz_convert("UTC")
     return df
+
+
+def lttb_downsample(
+    x: np.ndarray,
+    y: np.ndarray,
+    threshold: int = 720,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Largest-Triangle-Three-Buckets downsample.
+
+    Reduces a series ``(x, y)`` to approximately ``threshold`` points while
+    preserving visually significant peaks and troughs. The algorithm is
+    Sveinn Steinarsson's 2013 thesis design — at each step it picks the
+    point in a bucket that forms the largest triangle with the previous
+    chosen point and the *average* point of the next bucket. That makes
+    it visually faithful: extrema that drive the chart's silhouette stay
+    in, while internal in-bucket noise gets dropped.
+
+    Use this for line-chart serialization where the underlying series has
+    > ~1500 points but the user is viewing it at a few hundred pixels of
+    horizontal resolution. A 90-day hourly view (2160 points) drawn at
+    1280px wide is the canonical case — every visible pixel is fed by
+    1.6 raw points, so dropping 2/3 of them costs nothing perceptually.
+
+    Args:
+        x: Strictly increasing 1-D coordinates (typically timestamps as
+           float or datetime64[ns]). Must be the same length as ``y``.
+        y: 1-D values. NaN propagates through the chosen-point indices —
+           callers should mask their NaN-runs upstream if they want
+           continuous lines.
+        threshold: Target number of output points. Must be >= 3 (start +
+           end + at least one bucket). The implementation is a no-op
+           when ``len(x) <= threshold``, so it's safe to apply
+           unconditionally to short series.
+
+    Returns:
+        ``(x_out, y_out)`` arrays of length approximately ``threshold``.
+        First and last points of the input are always preserved (they
+        anchor the chart's x-axis range). NumPy dtype of inputs is
+        preserved on output.
+
+    Raises:
+        ValueError: if ``len(x) != len(y)`` or ``threshold < 3``.
+    """
+    if len(x) != len(y):
+        raise ValueError(f"x and y must have the same length, got {len(x)} and {len(y)}")
+    if threshold < 3:
+        raise ValueError(f"threshold must be >= 3, got {threshold}")
+
+    n = len(x)
+    if n <= threshold:
+        return x, y
+
+    # Buckets between the first and last points (those two are always kept).
+    bucket_count = threshold - 2
+    bucket_size = (n - 2) / bucket_count
+
+    # Convert datetime-like x to float for triangle-area arithmetic.
+    # The output preserves input dtype by indexing back into the original
+    # arrays at the end.
+    if np.issubdtype(x.dtype, np.datetime64):
+        x_float = x.astype("datetime64[ns]").astype(np.int64).astype(np.float64)
+    else:
+        x_float = x.astype(np.float64, copy=False)
+    y_float = y.astype(np.float64, copy=False)
+
+    sampled_indices = [0]  # always keep the first point
+    a = 0  # last selected point's index — anchor of the next triangle
+
+    for i in range(bucket_count):
+        bucket_start = int(np.floor(i * bucket_size)) + 1
+        bucket_end = int(np.floor((i + 1) * bucket_size)) + 1
+        bucket_end = min(bucket_end, n - 1)
+
+        # Average point of the NEXT bucket — the third triangle vertex.
+        # Falls back to the last point on the final iteration.
+        avg_start = bucket_end
+        avg_end = min(int(np.floor((i + 2) * bucket_size)) + 1, n)
+        if avg_end <= avg_start:
+            avg_x = x_float[-1]
+            avg_y = y_float[-1]
+        else:
+            avg_x = x_float[avg_start:avg_end].mean()
+            avg_y = y_float[avg_start:avg_end].mean()
+
+        ax = x_float[a]
+        ay = y_float[a]
+        bucket_x = x_float[bucket_start:bucket_end]
+        bucket_y = y_float[bucket_start:bucket_end]
+        # Triangle area shoelace, magnitude only — orientation is irrelevant.
+        areas = np.abs((ax - avg_x) * (bucket_y - ay) - (ax - bucket_x) * (avg_y - ay))
+        chosen_offset = int(np.argmax(areas))
+        chosen = bucket_start + chosen_offset
+        sampled_indices.append(chosen)
+        a = chosen
+
+    sampled_indices.append(n - 1)  # always keep the last point
+
+    idx = np.asarray(sampled_indices, dtype=np.int64)
+    return x[idx], y[idx]
