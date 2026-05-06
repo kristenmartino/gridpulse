@@ -1,5 +1,5 @@
 """
-NextEra Energy Demand Forecasting Dashboard.
+GridPulse — Energy Demand Forecasting Dashboard.
 
 Entry point for the Dash application. Sets up:
 - Structured logging via observability module

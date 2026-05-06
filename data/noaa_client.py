@@ -25,7 +25,7 @@ REQUEST_TIMEOUT = 15
 
 # NOAA requires a User-Agent header
 HEADERS = {
-    "User-Agent": "(NextEra Energy Dashboard, contact@example.com)",
+    "User-Agent": "GridPulse (kristen@kristenmartino.ai)",
     "Accept": "application/geo+json",
 }
 
