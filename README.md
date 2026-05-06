@@ -2,9 +2,7 @@
 
 **[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)**
 
-Weather-aware energy intelligence for 8 U.S. balancing authorities. GridPulse combines real grid data (EIA), meteorological signals (Open-Meteo), multiple forecasting models, model validation, generation context, and scenario analysis in one decision-ready platform.
-
-Built for the NextEra Analytics portfolio on a stack aligned with modern data and analytics workflows: Python, Dash/Plotly, XGBoost, Prophet, and Cloud Run.
+Weather-aware energy intelligence. GridPulse combines real grid data (EIA), meteorological signals (Open-Meteo), multiple forecasting models, model validation, generation context, and scenario analysis in one decision-ready platform.
 
 **Tagline:** _See demand sooner. Decide with confidence._
 
