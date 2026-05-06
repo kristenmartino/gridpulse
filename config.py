@@ -143,7 +143,10 @@ TRAINING_WINDOW_DAYS = 365
 FORECAST_HORIZON_DAYS = 7
 
 # ---------------------------------------------------------------------------
-# Regions — 16 Balancing Authorities (~98% of US load coverage)
+# Regions — 51 Balancing Authorities (~100% of contiguous-US lower-48 load)
+#
+# Original 8 (ISOs/RTOs + FPL) + V1.α expansion (8 utility/federal BAs) +
+# V3.ζ expansion (35 remaining EIA-930 BAs in the lower 48).
 #
 # Lat/lon are weather-lookup proxies — the load center of each BA's territory,
 # not a geometric centroid. Open-Meteo pulls all 17 weather variables at this

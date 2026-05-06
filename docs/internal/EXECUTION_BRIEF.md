@@ -1,5 +1,7 @@
 # EXECUTION_BRIEF.md — GridPulse Redesign and Repositioning Master Brief
 
+> **Internal working document** — prioritization layer used by the AI development workflow. Not a public spec. For the user-facing project overview see [README.md](../../README.md); for the product spec see [PRD.md](../../PRD.md).
+
 _Last updated: 2026-04-19_
 
 > **Pipeline scheduling status:** Done. The web service is Redis-only in
