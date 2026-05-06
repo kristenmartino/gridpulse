@@ -10,37 +10,35 @@ Weather-aware energy intelligence. GridPulse combines real grid data (EIA), mete
 
 ## What GridPulse Does
 
-GridPulse is designed to help energy teams move from fragmented monitoring to a more unified operating view. It brings together:
-- demand visibility
-- weather-aware forecasting
-- forecast confidence and backtesting
-- generation and net load context
-- alerts and extreme-event monitoring
-- scenario analysis
-- role-based views and briefings
+GridPulse helps energy teams move from fragmented monitoring to a unified operating view. The product organizes around four decision pillars:
 
-### Core questions it helps answer
+- **Forecast with context** — unify demand, weather, and time-series patterns in a forecasting experience built for real operating conditions
+- **See confidence, not just output** — understand model reliability, forecast uncertainty, and recent performance before acting on a number
+- **Surface risk earlier** — track anomalies, severe conditions, and forecast instability in one operational view
+- **Plan through scenarios** — test assumptions and understand how changing conditions alter expected demand and decision windows
 
-| Product Area | Question | What It Shows |
+### Core questions the dashboard answers
+
+| Tab | Question | What it shows |
 |---|---|---|
-| **Overview** | What changed, and what matters now? | Mission-control summary, key KPIs, context, and role-aware briefing |
-| **Historical Demand** | What happened? | Actual recorded demand, EIA day-ahead forecast overlay, weather context, comparative KPIs |
-| **Demand Forecast** | What will happen? | Forward-looking model predictions (Prophet, SARIMAX, XGBoost, Ensemble) with confidence bands |
-| **Backtest / Models** | How trustworthy is the forecast? | Model vs actuals, per-model MAPE, residuals, validation context |
-| **Generation & Net Load** | What is happening on the supply side? | Generation mix breakdown, renewable share, net load trends |
-| **Risk / Extreme Events** | Where is operating risk rising? | Severe-weather signals, anomalies, stress indicators, degraded conditions |
-| **Scenarios** | What changes if conditions shift? | What-if analysis, weather overrides, scenario presets, impact comparisons |
+| **Overview** | What changed, and what matters now? | Mission-control summary, key KPIs, role-aware briefing |
+| **US Grid** | Which balancing authorities are stressed? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
+| **Forecast** | What will happen? | Forward-looking predictions (Prophet, SARIMAX, XGBoost, Ensemble) with confidence bands |
+| **Risk** | Where is operating risk rising? | Severe-weather signals, anomalies, stress indicators, degraded conditions |
+| **Models** | How trustworthy is the forecast? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, SHAP feature importance |
 
-Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) reconfigure the default tab, KPI cards, and welcome briefing. Each persona reflects a different decision-making context for the same underlying data.
+Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) reconfigure the default tab, KPI cards, and welcome briefing — each reflects a different decision-making context for the same underlying data.
 
 ---
 
 ## Models
 
-- **XGBoost**: 43 engineered features, TimeSeriesSplit CV, SHAP explanations — 3.13% MAPE on ERCOT 21-day holdout (Feb 2026 reference run; see [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md))
-- **Prophet**: weather regressors with multiplicative seasonality
-- **SARIMAX**: auto-order selection via pmdarima
-- **Ensemble**: inverse-MAPE weighted combination (self-correcting)
+- **XGBoost** — 43 engineered features, TimeSeriesSplit CV, SHAP explanations. Reference run: 3.13% MAPE on ERCOT 21-day holdout (Feb 2026).
+- **Prophet** — weather regressors with logistic growth + floor=0 (structurally prevents negative forecasts). Daily / weekly / yearly seasonality.
+- **SARIMAX** — auto-order selection via `pmdarima` on cold runs; cached `(p,d,q)(P,D,Q,m)` order on warm runs (skips the auto-select stepwise search, ~10× speedup on daily refresh).
+- **Ensemble** — inverse-MAPE weighted combination (self-correcting; underperforming models lose weight automatically).
+
+**Real holdout metrics, not simulated.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble row is computed from the same holdout predictions so all four model metrics share provenance.
 
 See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analysis on real EIA data.
 
@@ -52,20 +50,21 @@ See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analy
 ┌────────────────────────────────────────────────────────────────────┐
 │  Browser — gridpulse.kristenmartino.ai                             │
 │  ┌────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐  │
-│  │ View /     │ │ Region   │ │ KPI Bar  │ │ Briefings /        │  │
-│  │ Persona    │ │ Selector │ │          │ │ Signals            │  │
-│  │ Selector   │ │          │ │          │ │                    │  │
+│  │ Persona    │ │ Region   │ │ KPI Bar  │ │ Briefings /        │  │
+│  │ Selector   │ │ Selector │ │          │ │ Signals            │  │
 │  └────────────┘ └──────────┘ └──────────┘ └────────────────────┘  │
 │  ┌──────────────────────────────────────────────────────────────┐  │
-│  │ Overview | History | Forecast | Models | Grid | Risk | ... │  │
+│  │ Overview | US Grid | Forecast | Risk | Models                │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 └─────────────────────────┬──────────────────────────────────────────┘
                           │ Callback + store-driven rendering
                           ▼
 ┌────────────────────────────────────────────────────────────────────┐
-│  Redis (Memorystore) ← pre-computed by Cloud Run Job (12h cron)   │
-│  Fallback chain: Redis → live API → stale cache → explicit demo   │
-│  mode / no-data states depending on context                       │
+│  Redis (Memorystore) ← populated by Cloud Run Jobs                │
+│    · scoring job  (hourly 0 * * * *)                              │
+│    · training job (daily  0 4 * * *)                              │
+│  Web service is Redis-only: never fetches APIs or trains          │
+│  models in the request path. Cold Redis → "warming" UI state.     │
 └───────────┬─────────────────────────────┬──────────────────────────┘
       ┌─────▼─────┐                 ┌─────▼──────┐
       │ Data Layer│                 │ ML Models  │
@@ -77,7 +76,7 @@ See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analy
       └───────────┘                 └────────────┘
 ```
 
-**Data flow:** Region selection triggers cache-backed reads. If pre-computed or cached data exists, charts render quickly. If not, the app attempts live fetch and compute paths. The system is designed to prefer real/stale operational data over fake data in degraded production paths, while still supporting explicit offline/demo contexts when needed.
+**Data flow:** the scoring job runs hourly, fetching EIA + weather, loading the latest pickled models from GCS, and writing forecasts / alerts / diagnostics to Redis. The training job runs daily at 04:00 UTC, retraining each region's models on the last 60 days and persisting them back to GCS. The web service does cache-backed reads only — no API calls or model training in the request path.
 
 ---
 
@@ -105,37 +104,36 @@ For live EIA data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia
 │   ├── callbacks.py                # Shared data flows + interaction callbacks
 │   ├── cards.py                    # KPI, alert, welcome, briefing, supporting cards
 │   ├── tab_overview.py             # Overview screen
-│   ├── tab_forecast.py             # Historical Demand screen
-│   ├── tab_demand_outlook.py       # Demand Forecast screen
-│   ├── tab_backtest.py             # Backtest screen
-│   ├── tab_generation.py           # Generation & Net Load screen
-│   ├── tab_weather.py              # Weather / correlation screen
-│   ├── tab_models.py               # Model diagnostics screen
-│   ├── tab_alerts.py               # Extreme events / alerts screen
-│   └── tab_simulator.py            # Scenario simulator screen
+│   ├── tab_us_grid.py              # US Grid screen (Cards / Map / Polygons)
+│   ├── tab_demand_outlook.py       # Forecast screen
+│   ├── tab_alerts.py               # Risk / extreme events screen
+│   └── tab_models.py               # Models screen (per-model metrics + diagnostics)
 ├── data/
 │   ├── eia_client.py               # EIA API v2
 │   ├── weather_client.py           # Open-Meteo
 │   ├── noaa_client.py              # NOAA/NWS alerts
 │   ├── news_client.py              # External news feed integration
+│   ├── redis_client.py             # Memorystore client (read-only at request time)
 │   ├── cache.py                    # SQLite cache with TTL
-│   ├── preprocessing.py            # Merge, align, interpolate, validate
-│   ├── feature_engineering.py      # 43 derived features
-│   ├── audit.py                    # Forecast audit trail
-│   └── demo_data.py                # Synthetic/offline demo data utilities
+│   ├── preprocessing.py            # Merge, align, interpolate, LTTB downsample
+│   ├── feature_engineering.py      # 43 derived features (CDD/HDD, lags, rolling stats)
+│   └── audit.py                    # Forecast audit trail
 ├── models/
-│   ├── model_service.py            # Forecast service abstraction
+│   ├── model_service.py            # Forecast service abstraction (meta.json-first)
+│   ├── persistence.py              # GCS-backed model store (atomic latest.json pointer)
 │   ├── prophet_model.py            # Prophet model
-│   ├── arima_model.py              # SARIMAX model
+│   ├── arima_model.py              # SARIMAX model (cached-order fast path)
 │   ├── xgboost_model.py            # XGBoost model + SHAP
-│   ├── ensemble.py                 # Ensemble weighting logic
+│   ├── ensemble.py                 # Inverse-MAPE weighting
 │   ├── evaluation.py               # MAPE, RMSE, MAE, R²
-│   └── pricing.py                  # Merit-order pricing model
+│   └── training.py                 # Training orchestrator
 ├── jobs/                           # Cloud Run Jobs (hourly scoring, daily training)
-├── personas/                       # Persona configs and welcome logic
-├── tests/                          # Unit / integration / e2e tests
+│   ├── scoring_job.py              # Reads GCS pickles → writes Redis
+│   └── training_job.py             # Trains all 51 BAs → persists to GCS
+├── personas/                       # 4 persona configs + welcome logic
+├── tests/                          # 1681 tests across unit / integration / e2e
 ├── Dockerfile                      # Multi-stage, non-root, healthcheck
-└── .github/workflows/              # CI / deploy workflows
+└── .github/workflows/              # CI + deploy-prod workflows
 ```
 
 ---
