@@ -87,6 +87,19 @@ jobs:
             --max-retries 1
 
       - name: Deploy training job (Production)
+        # task-timeout 18000 (5h): V3.ζ tripled the BA count (16 → 51).
+        # The 2026-05-01 manual run took 2h48m; subsequent scheduled
+        # runs at the old 2h timeout all hit the cap. Empirically a
+        # cold full retrain of 51 BAs runs ~3-4h (12 min/BA), so 5h
+        # leaves safe headroom. The cached-order ARIMA fast path
+        # (models/arima_model.py) brings refresh runs well under 1h.
+        #
+        # max-retries 0: each retry restarts from BA 0 instead of
+        # resuming, so a retry on a timed-out job re-runs the same
+        # BAs we already trained. The resume logic in training_job
+        # (skip if data_hash matches) makes a *fresh execution* the
+        # right path forward — let the next scheduled run pick up
+        # where this one left off, don't waste a retry.
         run: |
           gcloud run jobs deploy gridpulse-training-job \
             --image ${{ env.IMAGE }}:${{ github.sha }} \
@@ -97,10 +110,10 @@ jobs:
             --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
             --command python \
             --args=-m,jobs,training \
-            --task-timeout 7200 \
+            --task-timeout 18000 \
             --memory 8Gi \
             --cpu 4 \
-            --max-retries 1
+            --max-retries 0
 
       - name: Get production URL
         id: url

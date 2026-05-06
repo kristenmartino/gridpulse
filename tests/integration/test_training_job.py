@@ -111,7 +111,13 @@ class TestTrainingJob:
             prophet_mod, "train_prophet", lambda df: {"type": "prophet", "params": [1]}
         )
         monkeypatch.setattr(
-            arima_mod, "train_arima", lambda df: {"type": "sarimax", "order": (1, 0, 1)}
+            arima_mod,
+            "train_arima",
+            lambda df, **kwargs: {
+                "type": "sarimax",
+                "order": (1, 0, 1),
+                "seasonal_order": (1, 1, 1, 24),
+            },
         )
 
         # Capture save_model calls — substitute an in-memory implementation.
@@ -171,7 +177,7 @@ class TestTrainingJob:
             lambda df, n_splits=3: {"model": "x", "cv_scores": []},
         )
         monkeypatch.setattr(prophet_mod, "train_prophet", lambda df: {"type": "prophet"})
-        monkeypatch.setattr(arima_mod, "train_arima", lambda df: {"type": "sarimax"})
+        monkeypatch.setattr(arima_mod, "train_arima", lambda df, **kwargs: {"type": "sarimax"})
 
         # save_model returns None for xgboost (simulates GCS failure),
         # works for everything else.

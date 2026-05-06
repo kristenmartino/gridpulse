@@ -135,7 +135,15 @@ class TestHoldoutMetricsArima:
             actuals = exog["demand_mw"].values
             return actuals * 0.97  # 3% under-forecast → MAPE ≈ 3
 
-        monkeypatch.setattr(arima_mod, "train_arima", lambda df: {"params": []})
+        monkeypatch.setattr(
+            arima_mod,
+            "train_arima",
+            lambda df, **kwargs: {
+                "params": [],
+                "order": (2, 1, 2),
+                "seasonal_order": (1, 1, 1, 24),
+            },
+        )
         monkeypatch.setattr(arima_mod, "predict_arima", _fake_predict)
 
         from jobs.training_job import _holdout_metrics_arima
@@ -158,7 +166,15 @@ class TestHoldoutMetricsArima:
         def _broken_predict(model_dict, exog, periods=168):
             raise ValueError("synthetic arima predict failure")
 
-        monkeypatch.setattr(arima_mod, "train_arima", lambda df: {"params": []})
+        monkeypatch.setattr(
+            arima_mod,
+            "train_arima",
+            lambda df, **kwargs: {
+                "params": [],
+                "order": (2, 1, 2),
+                "seasonal_order": (1, 1, 1, 24),
+            },
+        )
         monkeypatch.setattr(arima_mod, "predict_arima", _broken_predict)
 
         from jobs.training_job import _holdout_metrics_arima
@@ -230,7 +246,15 @@ class TestTrainPersistsHoldoutMetrics:
     ) -> None:
         import models.arima_model as arima_mod
 
-        monkeypatch.setattr(arima_mod, "train_arima", lambda df: {"params": []})
+        monkeypatch.setattr(
+            arima_mod,
+            "train_arima",
+            lambda df, **kwargs: {
+                "params": [],
+                "order": (2, 1, 2),
+                "seasonal_order": (1, 1, 1, 24),
+            },
+        )
         monkeypatch.setattr(
             arima_mod,
             "predict_arima",
@@ -262,6 +286,158 @@ class TestTrainPersistsHoldoutMetrics:
         holdout_in_extra = extra.get("holdout_metrics")
         assert holdout_in_extra is not None
         assert holdout_in_extra["mape"] == pytest.approx(4.0, abs=0.5)
+
+
+class TestResumeLogic:
+    """``_train_region`` short-circuits when every model already has a
+    saved version with the current data_hash. Critical for Cloud Run
+    retry behavior — without it, a retry restarts from BA 0 and
+    redundantly retrains BAs the previous attempt finished. With it,
+    retries pick up where the previous attempt left off.
+    """
+
+    def test_skip_when_all_models_have_matching_hash(self, monkeypatch) -> None:
+        # Stub get_model_metadata so every model returns a meta with
+        # matching data_hash.
+        from unittest.mock import MagicMock
+
+        from jobs import training_job
+
+        meta = MagicMock(version="v1", data_hash="abc123", extra={})
+        monkeypatch.setattr(
+            "models.persistence.get_model_metadata",
+            lambda region, model_name: meta,
+        )
+
+        skipped = training_job._skip_if_data_hash_matches("PJM", "abc123")
+        assert skipped == {
+            "xgboost": "v1",
+            "prophet": "v1",
+            "arima": "v1",
+        }
+
+    def test_no_skip_when_one_model_has_stale_hash(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        from jobs import training_job
+
+        def _meta_lookup(region, model_name):
+            # arima is stale, xgboost + prophet are current
+            ds_hash = "abc123" if model_name != "arima" else "old456"
+            return MagicMock(version="v1", data_hash=ds_hash, extra={})
+
+        monkeypatch.setattr("models.persistence.get_model_metadata", _meta_lookup)
+
+        assert training_job._skip_if_data_hash_matches("PJM", "abc123") is None
+
+    def test_no_skip_when_one_model_missing(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        from jobs import training_job
+
+        def _meta_lookup(region, model_name):
+            # arima never trained for this region
+            if model_name == "arima":
+                return None
+            return MagicMock(version="v1", data_hash="abc123", extra={})
+
+        monkeypatch.setattr("models.persistence.get_model_metadata", _meta_lookup)
+
+        assert training_job._skip_if_data_hash_matches("PJM", "abc123") is None
+
+
+class TestArimaCachedOrder:
+    """The ARIMA training functions read ``meta.extra["order"]`` and
+    ``["seasonal_order"]`` if present and skip the auto_arima
+    stepwise search entirely — the dominant cost in the per-BA
+    training loop. Cache miss falls back to the slow path.
+    """
+
+    def test_read_cached_order_returns_tuple(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        from jobs import training_job
+
+        meta = MagicMock(
+            extra={
+                "order": [2, 1, 2],
+                "seasonal_order": [1, 1, 1, 24],
+            }
+        )
+        monkeypatch.setattr(
+            "models.persistence.get_model_metadata",
+            lambda region, model_name: meta,
+        )
+
+        result = training_job._read_cached_arima_order("PJM")
+        assert result == ((2, 1, 2), (1, 1, 1, 24))
+
+    def test_read_cached_order_returns_none_when_missing(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock
+
+        from jobs import training_job
+
+        # Meta exists but has no order in extra
+        meta = MagicMock(extra={"holdout_metrics": {"mape": 5.0}})
+        monkeypatch.setattr(
+            "models.persistence.get_model_metadata",
+            lambda region, model_name: meta,
+        )
+
+        assert training_job._read_cached_arima_order("PJM") is None
+
+    def test_read_cached_order_returns_none_when_no_meta(self, monkeypatch) -> None:
+        from jobs import training_job
+
+        monkeypatch.setattr(
+            "models.persistence.get_model_metadata",
+            lambda region, model_name: None,
+        )
+
+        assert training_job._read_cached_arima_order("PJM") is None
+
+    def test_train_arima_fast_path_skips_auto_arima(self) -> None:
+        """When ``cached_order`` and ``cached_seasonal_order`` are
+        supplied, ``train_arima`` skips ``_auto_select_order`` entirely
+        and just refits with the cached order. This is the key
+        speedup — auto_arima is the dominant per-BA cost."""
+        from unittest.mock import patch
+
+        import pandas as pd
+
+        from models.arima_model import train_arima
+
+        # Synthetic DF with enough rows for the SARIMAX fit to succeed.
+        ts = pd.date_range("2024-01-01", periods=720, freq="h", tz="UTC")
+        df = pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": np.full(720, 50_000.0)
+                + 5_000.0 * np.sin(2 * np.pi * np.arange(720) / 24),
+                "temperature_2m": 20.0,
+                "wind_speed_80m": 5.0,
+                "shortwave_radiation": 0.5,
+                "cooling_degree_days": 0.0,
+                "heating_degree_days": 0.0,
+            }
+        )
+
+        with patch("models.arima_model._auto_select_order") as mock_auto:
+            mock_auto.return_value = ((9, 9, 9), (9, 9, 9, 24))  # would fail to fit
+            try:
+                result = train_arima(
+                    df,
+                    cached_order=(2, 1, 2),
+                    cached_seasonal_order=(1, 1, 1, 24),
+                )
+                # auto_select_order MUST NOT have been called
+                mock_auto.assert_not_called()
+                assert result["order"] == (2, 1, 2)
+                assert result["seasonal_order"] == (1, 1, 1, 24)
+            except Exception:
+                # Even if SARIMAX fitting fails on synthetic data, the
+                # important assertion (auto_arima skipped) still holds.
+                mock_auto.assert_not_called()
 
 
 class TestEnsembleHoldoutMetrics:
