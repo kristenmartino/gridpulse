@@ -1,5 +1,33 @@
-# GridPulse Landing Page Wireframe + Homepage Copy Deck
-_Last updated: 2026-04-09_
+# GridPulse Landing Page Wireframe + Homepage Copy Deck — _archived_
+_Spec authored 2026-04-09. Archived to `docs/internal/` 2026-05-06._
+
+## Status
+
+**Not implemented and not planned.** This wireframe specs an enterprise-B2B-SaaS marketing landing page (hero / social proof / value pillars / module grid / "Request a demo" CTA) that doesn't fit a portfolio-stage project. Audience for the GridPulse repo is overwhelmingly recruiting / technical evaluation — those reviewers evaluate the live dashboard + the GitHub repo + the test suite, not a separate marketing page.
+
+Substantive copy from this spec that DOES belong on portfolio surfaces was migrated:
+
+- Headline candidates → `README.md`'s H1 + tagline
+- Value pillars (forecast with context · see confidence not just output · surface risk earlier · plan through scenarios) → `README.md` "What GridPulse Does"
+- Persona role framing → already live in the dashboard's persona switcher
+- Module names (Forecast / Risk / Grid / Scenarios / Models / Briefings / API) → `README.md` "Roadmap direction"
+- Tech credibility bullets → `README.md` "Models" + ADRs in `PRD.md`
+
+What's intentionally NOT migrated:
+- "Request a demo" / "Schedule a call" CTAs — there's nothing to demo beyond the live URL
+- "Social proof / credibility strip" with logos — would be stock-image theater without real customers
+- "Solutions" nav — implies tailored verticals that don't exist
+- "Suite expansion / platform vision" copy — overreach for a single-product portfolio piece
+
+## When to reopen
+
+Revisit if the project is positioning for an actual commercial deployment, energy-sector PM role applications where a marketing artifact is load-bearing, or a real customer signs up. Until then the README + deployed URL combination is doing the job a marketing page would attempt.
+
+---
+
+_The original wireframe content is preserved below for reference._
+
+---
 
 ## Purpose
 
