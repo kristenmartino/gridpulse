@@ -93,7 +93,33 @@ def _build_header() -> html.Header:
         className="gp-header__brand",
     )
 
-    controls = html.Div(
+    # Keyboard-shortcut hints. The actual handlers live in
+    # ``assets/accessibility.js`` (Alt+R focuses region, Alt+P focuses
+    # persona, Alt+1..4 switch tabs). The visible <kbd> chips advertise
+    # the shortcut without consuming label-row chrome — they sit
+    # adjacent to the selector they target. Hidden under
+    # ``body.briefing`` so the projection chrome stays clean.
+    region_kbd_hint = html.Span(
+        html.Kbd("⌥R"),
+        className="gp-header__kbd-hint",
+        title="Alt+R focuses the region selector",
+        **{"aria-hidden": "true"},
+    )
+    persona_kbd_hint = html.Span(
+        html.Kbd("⌥P"),
+        className="gp-header__kbd-hint",
+        title="Alt+P focuses the persona selector",
+        **{"aria-hidden": "true"},
+    )
+
+    # The dbc.Select component strict-validates its kwargs and rejects
+    # arbitrary aria-* attributes, so we can't put aria-keyshortcuts
+    # directly on the selector. Wrap each selector + its kbd hint in
+    # a labelled <div role="group"> instead — the role + the visible
+    # chip together convey the shortcut to assistive tech, and the
+    # browser's own focus model handles the Alt+R keystroke via
+    # ``assets/accessibility.js``.
+    region_group = html.Div(
         [
             dbc.Select(
                 id="region-selector",
@@ -101,12 +127,31 @@ def _build_header() -> html.Header:
                 value="FPL",
                 className="gp-header__select region-selector",
             ),
+            region_kbd_hint,
+        ],
+        className="gp-header__shortcut-group",
+        role="group",
+        **{"aria-label": "Balancing authority — Alt+R"},
+    )
+    persona_group = html.Div(
+        [
             dbc.Select(
                 id="persona-selector",
                 options=persona_options,
                 value="grid_ops",
                 className="gp-header__chip persona-switcher",
             ),
+            persona_kbd_hint,
+        ],
+        className="gp-header__shortcut-group",
+        role="group",
+        **{"aria-label": "Persona — Alt+P"},
+    )
+
+    controls = html.Div(
+        [
+            region_group,
+            persona_group,
             html.Button(
                 "Briefing Mode",
                 id="meeting-mode-btn",
