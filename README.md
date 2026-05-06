@@ -35,12 +35,6 @@ Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) 
 
 ---
 
-## Regions
-
-ERCOT · CAISO · PJM · MISO · NYISO · **FPL (NextEra)** · SPP · ISO-NE
-
----
-
 ## Models
 
 - **XGBoost**: 43 engineered features, TimeSeriesSplit CV, SHAP explanations — 3.13% MAPE on ERCOT 21-day holdout
@@ -49,18 +43,6 @@ ERCOT · CAISO · PJM · MISO · NYISO · **FPL (NextEra)** · SPP · ISO-NE
 - **Ensemble**: inverse-MAPE weighted combination (self-correcting)
 
 See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analysis on real EIA data.
-
----
-
-## Positioning
-
-GridPulse is not just a forecasting dashboard. It is evolving into an **energy intelligence platform** for:
-- forecast confidence
-- grid visibility
-- role-aware operational decision support
-- scenario-ready analysis
-
-This positioning matters because the product already includes more than raw forecasting: it combines data, context, validation, and workflow support for multiple energy personas.
 
 ---
 
