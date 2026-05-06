@@ -1,5 +1,7 @@
 # Forecast Backtest Results
 
+> **Last validated:** 2026-02-21 — point-in-time reference snapshot. Daily training has run since this report, so live model performance may differ from the figures below. Current numbers are in the most recent Cloud Run training-job logs. The results captured here are the official validation reference at time of capture.
+
 **Date:** 2026-02-21
 **Holdout Period:** 21 days (504 hours)
 **Training Period:** ~43 days

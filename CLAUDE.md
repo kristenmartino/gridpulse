@@ -5,7 +5,7 @@
 This repo already has multiple context layers. Read them in this order:
 
 1. `CLAUDE.md` — architecture, conventions, code standards, execution guardrails
-2. `EXECUTION_BRIEF.md` — prioritization, redesign direction, product-shell changes, execution order
+2. `docs/internal/EXECUTION_BRIEF.md` — prioritization, redesign direction, product-shell changes, execution order
 3. `README.md` — current public framing and deployment overview
 4. `PRD.md` — product requirements, personas, ADRs, descoping rationale
 5. `TECHNICAL_SPEC.md` — data/model/system details
@@ -52,7 +52,7 @@ Use this framing unless a human directs otherwise:
 - **Positioning:** Forecast confidence, grid visibility, and decision support
 - **Tagline:** See demand sooner. Decide with confidence.
 
-This framing should guide UI copy, navigation naming, and landing-page work. For prioritization of those changes, follow `EXECUTION_BRIEF.md`.
+This framing should guide UI copy, navigation naming, and landing-page work. For prioritization of those changes, follow `docs/internal/EXECUTION_BRIEF.md`.
 
 ---
 
@@ -175,7 +175,7 @@ When the task is related to branding, shell UX, navigation, or product coherence
 2. Broader landing-page and marketing assets
 3. Mobile awareness patterns
 
-Detailed guidance lives in `EXECUTION_BRIEF.md`. Use that file for sequencing and acceptance criteria.
+Detailed guidance lives in `docs/internal/EXECUTION_BRIEF.md`. Use that file for sequencing and acceptance criteria.
 
 ---
 
@@ -242,7 +242,7 @@ When making shell/UI changes:
 ---
 
 ## Spec References
-- `EXECUTION_BRIEF.md` — prioritization, redesign direction, execution order
+- `docs/internal/EXECUTION_BRIEF.md` — prioritization, redesign direction, execution order
 - `PRD.md` — requirements, personas, descoping rationale, ADRs
 - `TECHNICAL_SPEC.md` — data sources, features, models, caching
 - `docs/BACKTEST_RESULTS.md` — real EIA holdout accuracy

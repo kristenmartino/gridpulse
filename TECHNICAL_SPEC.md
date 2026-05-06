@@ -38,7 +38,7 @@ GridPulse is a Dash/Plotly-based application that combines:
 - role-aware presentation and briefing patterns
 
 ### Primary technical capabilities
-- hourly demand forecasting across 8 balancing authorities
+- hourly demand forecasting across 51 balancing authorities (~100% lower-48 coverage; 8 reference BAs as primary documented targets)
 - feature-engineered model inputs built from weather and time-series signals
 - validation and backtest workflows for trust and accountability
 - cache-backed serving with resilience patterns
@@ -160,6 +160,8 @@ GridPulse includes an external news/signals integration for contextual headlines
 
 ## 3.1 Balancing Authorities
 
+GridPulse deploys against **51 US balancing authorities** (V3.ζ expansion) for ~100% contiguous lower-48 demand coverage. The eight reference BAs detailed below are the documented primary targets for capacity modeling, backtest reporting, and persona workflows; the remaining 43 use the same model stack with centroid-based weather lookup. See [config.py](config.py) `REGION_COORDINATES` for the complete list.
+
 | Code | Full Name | Centroid (lat, lon) | Capacity (MW) | Source (2025) |
 |---|---|---|---|---|
 | ERCOT | Texas (ERCOT) | 31.0, -97.0 | 153,000 | ERCOT CDR — Summer 2025 resource assessment |
@@ -172,7 +174,7 @@ GridPulse includes an external news/signals integration for contextual headlines
 | ISONE | New England (ISO-NE) | 42.3, -71.8 | 30,000 | ISO-NE 2025 Regional System Plan |
 
 ### Note on FPL
-FPL represents Florida Power & Light’s service territory, not all statewide Florida demand. Of the eight BAs in GridPulse, FPL is the only investor-owned utility (a NextEra Energy subsidiary); the other seven are nonprofit ISOs/RTOs whose nearest equivalent of an "annual report to shareholders" is their State-of-the-Market, Power Trends, or Regional System Plan publication — the sources cited above.
+FPL represents Florida Power & Light’s service territory, not all statewide Florida demand. Of the eight reference BAs, FPL is the only investor-owned utility; the other seven are nonprofit ISOs/RTOs whose nearest equivalent of an "annual report to shareholders" is their State-of-the-Market, Power Trends, or Regional System Plan publication — the sources cited above.
 
 ## 3.2 Weather Location Assumption
 Weather data is fetched for centroid coordinates representing each balancing authority. This is a pragmatic simplification and can reduce fidelity for geographically large regions.

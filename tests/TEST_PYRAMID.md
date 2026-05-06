@@ -2,7 +2,7 @@
 
 ## Overview
 
-Test strategy for the NextEra Energy Forecast Dashboard.
+Test strategy for GridPulse.
 Defines coverage targets, test scope, and critical user flows.
 
 ## Test Pyramid

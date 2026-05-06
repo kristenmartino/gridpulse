@@ -37,7 +37,7 @@ Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) 
 
 ## Models
 
-- **XGBoost**: 43 engineered features, TimeSeriesSplit CV, SHAP explanations — 3.13% MAPE on ERCOT 21-day holdout
+- **XGBoost**: 43 engineered features, TimeSeriesSplit CV, SHAP explanations — 3.13% MAPE on ERCOT 21-day holdout (Feb 2026 reference run; see [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md))
 - **Prophet**: weather regressors with multiplicative seasonality
 - **SARIMAX**: auto-order selection via pmdarima
 - **Ensemble**: inverse-MAPE weighted combination (self-correcting)
@@ -187,12 +187,12 @@ See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test
 
 | Doc | Purpose |
 |---|---|
-| [CLAUDE.md](CLAUDE.md) | AI coding assistant context, architecture, conventions, execution guardrails |
-| [EXECUTION_BRIEF.md](EXECUTION_BRIEF.md) | Agent-ready prioritization layer for redesign and repositioning work |
-| [PRD.md](PRD.md) | Product requirements, personas, ADRs, scope decisions |
-| [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md) | Data sources, features, models, caching, pipeline details |
-| [docs/SCHEDULED_JOBS.md](docs/SCHEDULED_JOBS.md) | Cloud Run Jobs deploy + first-run bootstrap |
 | [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) | Model accuracy on real EIA holdout data |
+| [TECHNICAL_SPEC.md](TECHNICAL_SPEC.md) | Data sources, features, models, caching, pipeline details |
+| [PRD.md](PRD.md) | Product requirements, personas, ADRs, scope decisions |
+| [docs/SCHEDULED_JOBS.md](docs/SCHEDULED_JOBS.md) | Cloud Run Jobs deploy + first-run bootstrap |
+| [CLAUDE.md](CLAUDE.md) | AI coding assistant context, architecture, conventions, execution guardrails |
+| [docs/internal/EXECUTION_BRIEF.md](docs/internal/EXECUTION_BRIEF.md) | _(internal)_ Agent-ready prioritization layer for redesign and repositioning work |
 
 ---
 

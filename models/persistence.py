@@ -46,6 +46,10 @@ log = structlog.get_logger()
 
 MODELS_PREFIX = "models"
 LATEST_POINTER = "latest.json"
+# `/tmp` is the POSIX dev/CI default; production overrides via
+# MODEL_LOCAL_CACHE_DIR (e.g. `/app/trained_models/` in the Cloud Run image,
+# wired in the Dockerfile so the cache survives across requests within a
+# container instance).
 LOCAL_MODEL_CACHE_DIR = os.getenv("MODEL_LOCAL_CACHE_DIR", "/tmp/gridpulse-models")
 
 _client: Client | None = None
@@ -583,6 +587,9 @@ __all__ = [
 
 
 # ── Self-test CLI (manual) ───────────────────────────────────
+# Uses ``print`` (not structlog) intentionally: this is a human-facing CLI
+# inspector that emits raw JSON to stdout for piping to ``jq`` etc. Structured
+# log output would corrupt the JSON stream consumers expect here.
 
 if __name__ == "__main__":  # pragma: no cover
     if len(sys.argv) >= 3 and sys.argv[1] == "inspect":

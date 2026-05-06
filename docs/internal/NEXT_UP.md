@@ -1,5 +1,7 @@
 # Next Up — Post-Redesign Roadmap
 
+> **Internal working document** — living development punchlist, not a stable specification. For the user-facing project overview see [README.md](../../README.md); for the product spec see [PRD.md](../../PRD.md).
+
 _Living punchlist for work queued after the [shell redesign](.claude/plans/shell-redesign-v2.md) (R1→R6 + R7 emoji sweep) and the [multi-model scoring extension](.claude/plans/scoring-job-multi-model.md) (option A + Stages 1–3) shipped to `main`._
 
 Each item below has explicit **acceptance criteria** and a **rough effort estimate** so it can be picked up cold.

@@ -105,7 +105,7 @@ This structure is both a product framing model and a guide for future IA cleanup
 
 | ID | Requirement | Priority |
 |---|---|---|
-| R1.1 | Hourly demand from EIA API v2 for 16 balancing authorities — original 8 (ERCOT, CAISO, PJM, MISO, NYISO, FPL, SPP, ISONE) plus the V1.α expansion (SOCO, TVA, DUK, CPLE, BPAT, AZPS, NEVP, PSCO) covering ~98% of US load ([PR #61](https://github.com/kristenmartino/gridpulse/pull/61)) | Must Have |
+| R1.1 | Hourly demand from EIA API v2 for 51 balancing authorities — original 8 (ERCOT, CAISO, PJM, MISO, NYISO, FPL, SPP, ISONE), V1.α expansion of 8 utility/federal BAs (SOCO, TVA, DUK, CPLE, BPAT, AZPS, NEVP, PSCO) ([PR #61](https://github.com/kristenmartino/gridpulse/pull/61)), and V3.ζ expansion of the remaining 35 EIA-930 BAs in the lower 48 for ~100% contiguous-US coverage | Must Have |
 | R1.2 | Hourly weather variables from Open-Meteo including temperature, wind, radiation, humidity, precipitation, and related signals | Must Have |
 | R1.3 | Severe weather / alert context from NOAA/NWS mapped to regions | Must Have |
 | R1.4 | Cache-backed data access with stale-data fallback for degraded conditions | Must Have |
@@ -148,7 +148,7 @@ This structure is both a product framing model and a guide for future IA cleanup
 | R4.6 | **Risk / Extreme Events** view with alerting, stress signals, anomalies, and degraded-condition visibility | Should Have |
 | R4.7 | **Scenarios** with what-if controls, presets, and impact comparisons | Should Have |
 | R4.8 | Persona / view switcher with role-specific defaults, KPI emphasis, and welcome briefing | Must Have |
-| R4.9 | Region selector covering all 8 supported balancing authorities | Must Have |
+| R4.9 | Region selector covering all 51 supported balancing authorities (~100% lower-48 coverage) | Must Have |
 | R4.10 | Per-widget data confidence or freshness signaling | Must Have |
 | R4.11 | Briefing / meeting-ready mode for presentation and stakeholder review | Should Have |
 
