@@ -87,16 +87,22 @@ jobs:
             --max-retries 1
 
       - name: Deploy training job (Production)
-        # task-timeout 18000 (5h): V3.ζ tripled the BA count (16 → 51).
-        # The 2026-05-01 manual run took 2h48m; subsequent scheduled
-        # runs at the old 2h timeout all hit the cap. Empirically a
-        # cold full retrain of 51 BAs runs ~3-4h (12 min/BA), so 5h
-        # leaves safe headroom. The cached-order ARIMA fast path
-        # (models/arima_model.py) brings refresh runs well under 1h.
+        # task-timeout 18000 (5h): individual task budget.
         #
-        # max-retries 0: each retry restarts from BA 0 instead of
-        # resuming, so a retry on a timed-out job re-runs the same
-        # BAs we already trained. The resume logic in training_job
+        # tasks 3, parallelism 3: each Cloud Run Job execution fans out
+        # to three parallel tasks; ``jobs/training_job._partition_regions_for_task``
+        # gives each task an interleaved-stride slice of the 51-BA list.
+        # The 2026-05-06 manual run cleared 24 of 51 in 5h with one
+        # task at ~12.5 min/BA average. 17 BAs per task × 12.5 min ≈
+        # 3.5h, comfortably within the 5h budget.
+        #
+        # ``models.persistence._write_latest`` uses GCS optimistic
+        # concurrency (If-Generation-Match) so concurrent pointer
+        # updates from parallel tasks can't silently drop each
+        # other's entries.
+        #
+        # max-retries 0: each retry restarts from BA 0 of THIS task
+        # instead of resuming. The resume logic in training_job
         # (skip if data_hash matches) makes a *fresh execution* the
         # right path forward — let the next scheduled run pick up
         # where this one left off, don't waste a retry.
@@ -111,6 +117,8 @@ jobs:
             --command python \
             --args=-m,jobs,training \
             --task-timeout 18000 \
+            --tasks 3 \
+            --parallelism 3 \
             --memory 8Gi \
             --cpu 4 \
             --max-retries 0

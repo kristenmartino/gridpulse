@@ -542,15 +542,62 @@ def _train_region(region: str, force: bool = False) -> dict:
     return summary
 
 
+def _partition_regions_for_task(all_regions: list[str]) -> tuple[list[str], int, int]:
+    """Partition the full region list across parallel Cloud Run Job tasks.
+
+    Cloud Run Jobs exposes ``CLOUD_RUN_TASK_INDEX`` (0-based) and
+    ``CLOUD_RUN_TASK_COUNT`` env vars; the latter equals the job's
+    configured ``taskCount`` (set via the deploy workflow). Each task
+    runs the same image and entrypoint — partitioning is the job code's
+    responsibility.
+
+    Uses **interleaved stride** rather than contiguous slicing because
+    ``ordered_regions`` lists the largest BAs first (FPL, ERCOT, CAISO,
+    PJM, MISO, ...). A contiguous split would put the four heaviest BAs
+    all in task 0; interleaving spreads them across tasks so each task
+    sees a similar total cost.
+
+    Returns ``(partition, task_index, task_count)``. When the env vars
+    are unset (local dev, ``taskCount=1``) the partition equals the full
+    list — no behavior change.
+    """
+    import os
+
+    task_index = int(os.getenv("CLOUD_RUN_TASK_INDEX", "0"))
+    task_count = int(os.getenv("CLOUD_RUN_TASK_COUNT", "1"))
+    partition = all_regions[task_index::task_count]
+    return partition, task_index, task_count
+
+
 def run() -> int:
-    """Run the training job end-to-end. Returns an exit code."""
+    """Run the training job end-to-end. Returns an exit code.
+
+    Designed to be run by N parallel Cloud Run Job tasks. Each task
+    handles its own interleaved slice of the region list; per-region
+    work doesn't share state across tasks except for GCS pointer
+    files, which are written with optimistic-concurrency
+    (see :func:`models.persistence._write_latest`).
+
+    Only task 0 writes the ``wattcast:meta:last_trained`` Redis pointer
+    at the end — the other tasks log their per-task completion but
+    don't race the meta write. That key is consumed by the UI's
+    data-freshness chip; partial-meta from one task would mislead.
+    """
     t0 = time.time()
-    regions = phases.ordered_regions(PRECOMPUTE_DEFAULT_REGION)
-    log.info("training_job_start", regions=regions)
+    all_regions = phases.ordered_regions(PRECOMPUTE_DEFAULT_REGION)
+    regions, task_index, task_count = _partition_regions_for_task(all_regions)
+    log.info(
+        "training_job_start",
+        task_index=task_index,
+        task_count=task_count,
+        regions=regions,
+        total_regions=len(all_regions),
+    )
 
     # Training is memory-intensive (SARIMAX auto-order especially). Run
-    # regions sequentially to keep peak RSS bounded; the daily cadence
-    # tolerates the longer wall-clock.
+    # regions sequentially WITHIN a task to keep peak RSS bounded.
+    # Parallelism comes from running N tasks across the partition, not
+    # from within-task threading.
     results: list[dict] = []
     for region in regions:
         try:
@@ -566,18 +613,29 @@ def run() -> int:
     ok_count = sum(1 for r in results if r.get("ok"))
     fail_regions = [r["region"] for r in results if not r.get("ok")]
 
-    phases.write_meta(
-        "last_trained",
-        extra={
-            "regions_trained": ok_count,
-            "regions_failed": fail_regions,
-            "mode": "training-job",
-        },
-    )
+    # Meta-write coordinator pattern: only task 0 records the
+    # last-trained summary. With taskCount>1 the other tasks have an
+    # incomplete view (each sees only its own slice), so a meta write
+    # from task N≠0 would falsely report N's failures as the whole
+    # run's failures. Task 0's view is also partial, but it's the
+    # canonical writer — the UI consumes this only for "approximately
+    # when did training last complete," not for per-region status.
+    if task_index == 0:
+        phases.write_meta(
+            "last_trained",
+            extra={
+                "regions_trained": ok_count,
+                "regions_failed": fail_regions,
+                "task_count": task_count,
+                "mode": "training-job",
+            },
+        )
 
     elapsed = round(time.time() - t0, 2)
     log.info(
         "training_job_complete",
+        task_index=task_index,
+        task_count=task_count,
         ok_count=ok_count,
         fail_count=len(fail_regions),
         elapsed_s=elapsed,
