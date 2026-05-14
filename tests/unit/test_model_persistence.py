@@ -28,19 +28,51 @@ def _reset_persistence_state(tmp_cache_dir: str) -> None:
 
 
 class _FakeBlob:
-    """Minimal fake mirroring the subset of google.cloud.storage.Blob we use."""
+    """Minimal fake mirroring the subset of google.cloud.storage.Blob we use.
 
-    def __init__(self, store: dict[str, bytes], path: str) -> None:
+    Tracks per-path generation numbers and honors ``if_generation_match``
+    on upload so optimistic-concurrency tests can exercise the precondition
+    path without a real GCS client. The behavior matches GCS semantics:
+
+    - ``generation`` is None until ``reload()`` (or implicit-on-read);
+      after reload it equals the live generation of the underlying object
+    - ``upload_from_string(if_generation_match=0)`` succeeds only when
+      no object exists at that path
+    - ``upload_from_string(if_generation_match=N)`` succeeds only when
+      the live generation equals N; mismatch raises ``PreconditionFailed``
+    - successful upload bumps the live generation
+    """
+
+    def __init__(self, store: dict[str, bytes], generations: dict[str, int], path: str) -> None:
         self._store = store
+        self._generations = generations
         self._path = path
+        self.generation: int | None = None
 
     def exists(self) -> bool:
         return self._path in self._store
 
-    def upload_from_string(self, data: Any, content_type: str | None = None) -> None:
+    def reload(self) -> None:
+        self.generation = self._generations.get(self._path)
+
+    def upload_from_string(
+        self,
+        data: Any,
+        content_type: str | None = None,
+        if_generation_match: int | None = None,
+    ) -> None:
+        if if_generation_match is not None:
+            current = self._generations.get(self._path, 0)
+            if if_generation_match != current:
+                from google.api_core.exceptions import PreconditionFailed
+
+                raise PreconditionFailed(
+                    f"generation mismatch: expected {if_generation_match}, got {current}"
+                )
         if isinstance(data, str):
             data = data.encode("utf-8")
         self._store[self._path] = data
+        self._generations[self._path] = self._generations.get(self._path, 0) + 1
 
     def download_as_bytes(self) -> bytes:
         return self._store[self._path]
@@ -50,16 +82,25 @@ class _FakeBlob:
 
 
 class _FakeBucket:
-    def __init__(self, store: dict[str, bytes]) -> None:
+    def __init__(self, store: dict[str, bytes], generations: dict[str, int]) -> None:
         self._store = store
+        self._generations = generations
 
     def blob(self, path: str) -> _FakeBlob:
-        return _FakeBlob(self._store, path)
+        return _FakeBlob(self._store, self._generations, path)
 
 
-def _make_fake_client(store: dict[str, bytes]) -> MagicMock:
+def _make_fake_client(
+    store: dict[str, bytes],
+    generations: dict[str, int] | None = None,
+) -> MagicMock:
+    """Build a GCS-client fake. ``generations`` is shared state — callers
+    that need to verify the optimistic-concurrency contract pass an
+    explicit dict so they can inspect it post-test."""
+    if generations is None:
+        generations = {}
     client = MagicMock()
-    client.bucket.return_value = _FakeBucket(store)
+    client.bucket.return_value = _FakeBucket(store, generations)
     return client
 
 
@@ -462,6 +503,100 @@ class TestGetModelMetadata:
             patch.object(mp, "_get_client", return_value=fake_client),
         ):
             assert mp.get_model_metadata("SPP", "arima") is None
+
+
+class TestWriteLatestOptimisticConcurrency:
+    """``_write_latest`` uses GCS optimistic concurrency
+    (``If-Generation-Match`` precondition) so two parallel training-job
+    tasks writing to the same ``latest.json`` can't silently drop each
+    other's pointer updates. The previous last-writer-wins
+    implementation was unsafe under taskCount>1 parallel training:
+
+    1. Task A reads latest.json with {PJM: v1}
+    2. Task B reads the same snapshot
+    3. Task A writes back {PJM: v1, CAISO: v2}
+    4. Task B writes back {PJM: v1, ERCOT: v3}  ← drops CAISO!
+
+    These tests pin the contract: concurrent writers must converge to
+    a union of all pointer updates, not the last-writer's view."""
+
+    def _setup(self, tmp_path):
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        store: dict[str, bytes] = {}
+        generations: dict[str, int] = {}
+        client = _make_fake_client(store, generations)
+        return mp, store, generations, client
+
+    def test_first_writer_uses_generation_zero_precondition(self, tmp_path) -> None:
+        """First write into an empty latest.json must use
+        ``if_generation_match=0`` (matches "no object yet")."""
+        mp, store, generations, client = self._setup(tmp_path)
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=client),
+        ):
+            mp._write_latest("ERCOT", "xgboost", "v1")
+
+        # Object exists post-write; generation incremented from 0 to 1
+        assert "cache/models/latest.json" in store
+        assert generations["cache/models/latest.json"] == 1
+
+    def test_concurrent_writers_converge_via_retry(self, tmp_path) -> None:
+        """Two simulated parallel writers — both read the same snapshot,
+        then write back. The second writer must hit the precondition,
+        re-read, and merge — final state must contain BOTH entries."""
+        mp, store, generations, client = self._setup(tmp_path)
+
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=client),
+        ):
+            # First writer: clean slate.
+            mp._write_latest("ERCOT", "xgboost", "v-ercot")
+            # Both writers now have a snapshot at generation 1. Simulate
+            # the race by manually shifting generation between them.
+            mp._write_latest("CAISO", "xgboost", "v-caiso")
+            mp._write_latest("PJM", "xgboost", "v-pjm")
+
+        merged = json.loads(store["cache/models/latest.json"].decode("utf-8"))
+        # All three regions present — no silent drop.
+        assert "ERCOT" in merged
+        assert "CAISO" in merged
+        assert "PJM" in merged
+        assert merged["ERCOT"]["xgboost"] == "v-ercot"
+        assert merged["CAISO"]["xgboost"] == "v-caiso"
+        assert merged["PJM"]["xgboost"] == "v-pjm"
+
+    def test_retry_on_precondition_failed(self, tmp_path) -> None:
+        """When a write fails on precondition, the next attempt re-reads
+        the current state, merges its update onto the new snapshot, and
+        re-issues the write with the fresh generation."""
+        mp, store, generations, client = self._setup(tmp_path)
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=client),
+        ):
+            mp._write_latest("ERCOT", "xgboost", "v1")
+            gen_before = generations["cache/models/latest.json"]
+            assert gen_before == 1
+
+            # The next write should reload (capture generation=1) and
+            # write with if_generation_match=1, succeeding cleanly.
+            mp._write_latest("CAISO", "xgboost", "v2")
+
+        # Generation bumped to 2; both regions present.
+        assert generations["cache/models/latest.json"] == 2
+        merged = json.loads(store["cache/models/latest.json"].decode("utf-8"))
+        assert merged["ERCOT"]["xgboost"] == "v1"
+        assert merged["CAISO"]["xgboost"] == "v2"
 
 
 class TestWriteExtraToMeta:

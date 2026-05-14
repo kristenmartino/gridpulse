@@ -288,6 +288,87 @@ class TestTrainPersistsHoldoutMetrics:
         assert holdout_in_extra["mape"] == pytest.approx(4.0, abs=0.5)
 
 
+class TestTaskPartitioner:
+    """``_partition_regions_for_task`` reads Cloud Run Job env vars
+    (``CLOUD_RUN_TASK_INDEX`` / ``CLOUD_RUN_TASK_COUNT``) and returns
+    an interleaved-stride slice of the region list. Interleaved (vs
+    contiguous) is the right choice because ``ordered_regions`` lists
+    the largest BAs first — a contiguous split would put the four
+    most expensive BAs (FPL/ERCOT/CAISO/PJM) all in task 0."""
+
+    def test_single_task_returns_full_list(self, monkeypatch) -> None:
+        """When run locally or with taskCount=1, the partition equals
+        the input — no behavior change vs the pre-parallel path."""
+        monkeypatch.delenv("CLOUD_RUN_TASK_INDEX", raising=False)
+        monkeypatch.delenv("CLOUD_RUN_TASK_COUNT", raising=False)
+        from jobs.training_job import _partition_regions_for_task
+
+        regions = ["A", "B", "C", "D", "E"]
+        partition, idx, count = _partition_regions_for_task(regions)
+
+        assert partition == regions
+        assert idx == 0
+        assert count == 1
+
+    def test_three_tasks_interleaved_stride(self, monkeypatch) -> None:
+        """With 9 regions across 3 tasks, each task gets every 3rd
+        region starting from its index. Interleaved stride spreads
+        the cost-ordered list evenly — task 0 gets [0, 3, 6], task 1
+        gets [1, 4, 7], task 2 gets [2, 5, 8]."""
+        regions = ["FPL", "ERCOT", "CAISO", "PJM", "MISO", "NYISO", "SPP", "ISONE", "SOCO"]
+
+        from jobs.training_job import _partition_regions_for_task
+
+        monkeypatch.setenv("CLOUD_RUN_TASK_COUNT", "3")
+        monkeypatch.setenv("CLOUD_RUN_TASK_INDEX", "0")
+        part_0, _, _ = _partition_regions_for_task(regions)
+
+        monkeypatch.setenv("CLOUD_RUN_TASK_INDEX", "1")
+        part_1, _, _ = _partition_regions_for_task(regions)
+
+        monkeypatch.setenv("CLOUD_RUN_TASK_INDEX", "2")
+        part_2, _, _ = _partition_regions_for_task(regions)
+
+        assert part_0 == ["FPL", "PJM", "SPP"]
+        assert part_1 == ["ERCOT", "MISO", "ISONE"]
+        assert part_2 == ["CAISO", "NYISO", "SOCO"]
+
+    def test_partition_union_equals_input(self, monkeypatch) -> None:
+        """The union of all task partitions must equal the input list
+        with no duplicates and no missing regions — otherwise some BA
+        would never be trained."""
+        regions = [f"R{i:02d}" for i in range(51)]  # mirror current 51-BA count
+
+        from jobs.training_job import _partition_regions_for_task
+
+        monkeypatch.setenv("CLOUD_RUN_TASK_COUNT", "3")
+        all_partitioned: list[str] = []
+        for task_idx in range(3):
+            monkeypatch.setenv("CLOUD_RUN_TASK_INDEX", str(task_idx))
+            partition, _, _ = _partition_regions_for_task(regions)
+            all_partitioned.extend(partition)
+
+        assert sorted(all_partitioned) == sorted(regions)
+        assert len(all_partitioned) == len(regions)
+
+    def test_partition_balanced_within_one(self, monkeypatch) -> None:
+        """Partition sizes shouldn't differ by more than one — with
+        51 BAs across 3 tasks, expect 17/17/17. Off-by-many would mean
+        one task consistently overruns."""
+        regions = [f"R{i:02d}" for i in range(51)]
+
+        from jobs.training_job import _partition_regions_for_task
+
+        monkeypatch.setenv("CLOUD_RUN_TASK_COUNT", "3")
+        sizes: list[int] = []
+        for task_idx in range(3):
+            monkeypatch.setenv("CLOUD_RUN_TASK_INDEX", str(task_idx))
+            partition, _, _ = _partition_regions_for_task(regions)
+            sizes.append(len(partition))
+
+        assert max(sizes) - min(sizes) <= 1, f"Imbalanced partition: {sizes}"
+
+
 class TestResumeLogic:
     """``_train_region`` short-circuits when every model already has a
     saved version with the current data_hash. Critical for Cloud Run

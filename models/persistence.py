@@ -225,30 +225,83 @@ def _read_latest(force: bool = False) -> dict[str, dict[str, str]]:
         return {}
 
 
+_LATEST_WRITE_MAX_RETRIES = 5
+
+
 def _write_latest(region: str, model_name: str, version: str) -> None:
     """Merge a single (region, model_name, version) entry into ``latest.json``.
 
-    Last-writer-wins. The training job is the only writer, so contention is
-    not a concern in normal operation.
+    Uses GCS optimistic concurrency (``If-Generation-Match`` precondition)
+    so concurrent training-job tasks can't silently drop each other's
+    pointer updates. Earlier last-writer-wins implementation was unsafe
+    under ``taskCount>1`` parallel training — two tasks reading the same
+    snapshot and writing back would each preserve only their own entry,
+    losing the sibling task's just-written pointer.
+
+    Retries up to ``_LATEST_WRITE_MAX_RETRIES`` times on
+    ``PreconditionFailed`` (412) — each retry re-reads the current
+    blob so the merge picks up whatever the racing writer just wrote.
+    If we still can't commit after the retry budget we log and bail;
+    the lost write means one model version is orphaned in GCS but the
+    pickle itself is still there and ``get_model_metadata`` falls back
+    to the legacy meta path until the next training run reconciles.
     """
     client = _get_client()
     if client is None:
         return
     try:
+        from google.api_core.exceptions import PreconditionFailed
+    except Exception:  # pragma: no cover — google-cloud not installed in dev
+        PreconditionFailed = Exception  # type: ignore[assignment, misc] # noqa: N806
+
+    try:
         bucket = client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(_latest_path())
-        current: dict[str, dict[str, str]] = {}
-        if blob.exists():
-            try:
-                current = json.loads(blob.download_as_text())
-                if not isinstance(current, dict):
+        for attempt in range(_LATEST_WRITE_MAX_RETRIES):
+            blob = bucket.blob(_latest_path())
+            current: dict[str, dict[str, str]] = {}
+            generation: int | None = None
+            if blob.exists():
+                # ``reload`` populates ``blob.generation`` — the generation
+                # number is what makes the conditional write race-safe.
+                blob.reload()
+                generation = blob.generation
+                try:
+                    current = json.loads(blob.download_as_text())
+                    if not isinstance(current, dict):
+                        current = {}
+                except Exception as e:
+                    log.warning("model_latest_merge_read_failed", error=str(e))
                     current = {}
-            except Exception as e:
-                log.warning("model_latest_merge_read_failed", error=str(e))
-                current = {}
-        current.setdefault(region, {})[model_name] = version
-        payload = json.dumps(current, indent=2, sort_keys=True)
-        blob.upload_from_string(payload, content_type="application/json")
+            current.setdefault(region, {})[model_name] = version
+            payload = json.dumps(current, indent=2, sort_keys=True)
+            try:
+                # ``if_generation_match=0`` means "only if no version
+                # exists yet" — the first writer wins; subsequent
+                # writers see the generation and merge against it.
+                blob.upload_from_string(
+                    payload,
+                    content_type="application/json",
+                    if_generation_match=generation if generation is not None else 0,
+                )
+                break
+            except PreconditionFailed:
+                log.info(
+                    "model_latest_race_retrying",
+                    region=region,
+                    model=model_name,
+                    attempt=attempt + 1,
+                    max=_LATEST_WRITE_MAX_RETRIES,
+                )
+                continue
+        else:
+            log.warning(
+                "model_latest_race_exhausted",
+                region=region,
+                model=model_name,
+                version=version,
+                max=_LATEST_WRITE_MAX_RETRIES,
+            )
+            return
         with _latest_cache_lock:
             global _latest_cache
             _latest_cache = current
