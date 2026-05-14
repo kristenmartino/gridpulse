@@ -184,7 +184,7 @@ class TestChoroplethRender:
         from components import callbacks as cb
 
         # Force the loader to return None (asset corrupt / missing)
-        with patch("components.callbacks._load_ba_polygons", return_value=None):
+        with patch("components._callbacks_us_grid._load_ba_polygons", return_value=None):
             body = cb._build_us_grid_choropleth({"PJM": {"current_mw": 70_000.0}})
         # Scatter helper returns a Div with the same gp-region-map class
         # but a Scattergeo trace.

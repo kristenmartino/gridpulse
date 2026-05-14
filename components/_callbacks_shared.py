@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import threading
 
+import numpy as np
+
 from components.accessibility import CB_PALETTE
 
 # ── Cache state ──────────────────────────────────────────────────────
@@ -151,6 +153,48 @@ _MODEL_BAND_COLORS = {
 }
 
 
+# ── Demand-series helpers ────────────────────────────────────────────
+
+
+def _latest_real_demand(values, *, offset: int = 0):
+    """Return the most recent real demand reading from a list / Series.
+
+    Walks backward and returns the first value that is finite (not NaN
+    or inf) and strictly positive. ``offset=0`` finds "now"; ``offset=24``
+    finds "24 hours ago" while still skipping any NaN / zero rows that
+    fall on the chosen position — so a NaN spike doesn't silently shift
+    a trend baseline.
+
+    Returns ``None`` when no usable reading exists in the window — the
+    caller should render an ``"—"`` placeholder rather than a numeric.
+
+    Cross-tab helper: consumed by both the Overview hero chart and the
+    US Grid card-grid collector. Lives in shared because both tabs
+    depend on the same NaN-guard semantics.
+    """
+    if values is None:
+        return None
+    try:
+        n = len(values)
+    except TypeError:
+        return None
+    if n == 0:
+        return None
+    skipped = 0
+    for i in range(n - 1, -1, -1):
+        try:
+            v = float(values.iloc[i] if hasattr(values, "iloc") else values[i])
+        except (TypeError, ValueError):
+            continue
+        if not np.isfinite(v) or v <= 0:
+            continue
+        if skipped < offset:
+            skipped += 1
+            continue
+        return v
+    return None
+
+
 # ── Stress / reliability tokens ──────────────────────────────────────
 #
 # Stress ratios above this threshold are treated as structural import-
@@ -224,6 +268,8 @@ __all__ = [
     # Color palette
     "COLORS",
     "_MODEL_BAND_COLORS",
+    # Demand-series helpers
+    "_latest_real_demand",
     # Stress thresholds
     "_STRESS_RELIABLE_CEILING",
     # Map tokens

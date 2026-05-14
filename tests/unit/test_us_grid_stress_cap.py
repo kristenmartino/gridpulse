@@ -94,7 +94,7 @@ class TestMetricsBarStressCap:
 
         # Inject a region with stress between 100% and ceiling
         with patch.dict(
-            "components.callbacks.REGION_CAPACITY_MW",
+            "components._callbacks_us_grid.REGION_CAPACITY_MW",
             {"PJM": 50000},  # 70000/50000 = 140% (reliable but over 100%)
             clear=False,
         ):
@@ -149,7 +149,7 @@ class TestRegionCardStressChip:
         from components.callbacks import _build_us_grid_region_card
 
         # CPLW with realistic served demand vs in-territory capacity
-        with patch("components.callbacks.REGION_NAMES", {"CPLW": "DEP-W (NC mtn)"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"CPLW": "DEP-W (NC mtn)"}):
             card = _build_us_grid_region_card(
                 "CPLW",
                 {"current_mw": 449.0, "prev_mw": 445.0, "today_mw": [449.0] * 24},
@@ -164,7 +164,7 @@ class TestRegionCardStressChip:
         regular percentage."""
         from components.callbacks import _build_us_grid_region_card
 
-        with patch("components.callbacks.REGION_NAMES", {"PJM": "Mid-Atlantic (PJM)"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"PJM": "Mid-Atlantic (PJM)"}):
             card = _build_us_grid_region_card(
                 "PJM",
                 {"current_mw": 70000.0, "prev_mw": 69000.0, "today_mw": [70000.0] * 24},
@@ -184,11 +184,11 @@ class TestRegionCardStressChip:
 
         with (
             patch.dict(
-                "components.callbacks.REGION_CAPACITY_MW",
+                "components._callbacks_us_grid.REGION_CAPACITY_MW",
                 {"PJM": 50000},  # 140%
                 clear=False,
             ),
-            patch("components.callbacks.REGION_NAMES", {"PJM": "PJM"}),
+            patch("components._callbacks_us_grid.REGION_NAMES", {"PJM": "PJM"}),
         ):
             card = _build_us_grid_region_card(
                 "PJM",
@@ -214,7 +214,7 @@ class TestStressCeilingThreshold:
         from components.callbacks import _build_us_grid_metrics_items
 
         with patch.dict(
-            "components.callbacks.REGION_CAPACITY_MW", {"PJM": 35176}, clear=False
+            "components._callbacks_us_grid.REGION_CAPACITY_MW", {"PJM": 35176}, clear=False
         ):  # 70000/35176 ≈ 199%
             region_data = {"PJM": {"current_mw": 70000.0, "today_mw": [70000.0] * 24}}
             items = _build_us_grid_metrics_items(region_data)
@@ -226,7 +226,7 @@ class TestStressCeilingThreshold:
         from components.callbacks import _build_us_grid_metrics_items
 
         with patch.dict(
-            "components.callbacks.REGION_CAPACITY_MW", {"PJM": 34825}, clear=False
+            "components._callbacks_us_grid.REGION_CAPACITY_MW", {"PJM": 34825}, clear=False
         ):  # 70000/34825 ≈ 201%
             region_data = {
                 "PJM": {"current_mw": 70000.0, "today_mw": [70000.0] * 24},
