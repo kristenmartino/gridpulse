@@ -18,7 +18,6 @@ Sprint 4 changes:
 """
 
 import io
-import threading
 from datetime import UTC
 
 import dash_bootstrap_components as dbc
@@ -29,6 +28,40 @@ import structlog
 from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 from plotly.subplots import make_subplots
 
+# Shared infrastructure — caches, layout helpers, color tokens, basemap
+# constants — lives in ``_callbacks_shared.py``. The explicit re-import
+# list below makes every name accessible at
+# ``from components.callbacks import <X>`` so the 40+ import sites in
+# ``app.py`` and ``tests/`` continue to resolve. Explicit (not star) so
+# ``ruff`` can statically verify name resolution everywhere downstream.
+# Step 1 of the decomposition tracked in issue #87; per-tab helpers
+# move into ``_callbacks_<tab>.py`` modules in follow-up PRs.
+# noqa: F401 on the re-exports below — these aren't unused, they're
+# the public-import shim. Anything imported from this module via
+# ``from components.callbacks import <X>`` resolves through here.
+from components._callbacks_shared import (
+    _BACKTEST_CACHE,
+    _CACHE_VERSION,
+    _EIA_FUEL_MAP,
+    _GENERATION_CACHE,
+    _MAP_AXIS_FONT_COLOR,
+    _MAP_BORDER_COLOR,
+    _MAP_COASTLINE_COLOR,
+    _MAP_COLORSCALE,
+    _MAP_LAND_COLOR,
+    _MAP_SUBUNIT_COLOR,
+    _MODEL_BAND_COLORS,
+    _MODEL_CACHE,
+    _PREDICTION_CACHE,
+    _STRESS_RELIABLE_CEILING,
+    BACKTEST_EXOG_MODES,  # noqa: F401 — re-export
+    COLORS,
+    DEFAULT_BACKTEST_EXOG_MODE,
+    PLOT_LAYOUT,  # noqa: F401 — re-export
+    PLOT_TEMPLATE,  # noqa: F401 — re-export
+    _cache_lock,  # noqa: F401 — re-export (app.py uses for cache stats)
+    _layout,
+)
 from components.accessibility import CB_PALETTE, LINE_STYLES
 from components.cards import (
     build_alert_card,
@@ -53,105 +86,6 @@ from data.redis_client import redis_get
 from personas.config import get_persona
 
 log = structlog.get_logger()
-
-_cache_lock = threading.Lock()
-_CACHE_VERSION = 3
-
-_MODEL_CACHE: dict[
-    tuple, tuple
-] = {}  # {(region, model_name, horizon): (model, data_hash, timestamp)}
-_PREDICTION_CACHE: dict[
-    tuple, tuple
-] = {}  # {(region, horizon): (predictions, timestamps, data_hash, time)}
-_BACKTEST_CACHE: dict[
-    tuple, dict
-] = {}  # {(region, horizon, model, exog_mode): (result_dict, data_hash, time)}
-_GENERATION_CACHE: dict[str, tuple] = {}  # {region: (gen_df, fetch_timestamp)}
-BACKTEST_EXOG_MODES = {"oracle_exog", "forecast_exog"}
-DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
-
-# EIA fuel type code normalization
-_EIA_FUEL_MAP: dict[str, str] = {
-    "SUN": "solar",
-    "WND": "wind",
-    "NG": "gas",
-    "NUC": "nuclear",
-    "COL": "coal",
-    "WAT": "hydro",
-    "OTH": "other",
-    "Solar": "solar",
-    "Wind": "wind",
-    "Natural Gas": "gas",
-    "Nuclear": "nuclear",
-    "Coal": "coal",
-    "Hydro": "hydro",
-    "Other": "other",
-}
-
-# Plotly dark theme defaults
-PLOT_TEMPLATE = "plotly_dark"
-PLOT_LAYOUT = dict(
-    template=PLOT_TEMPLATE,
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(
-        color="#a1a1aa",  # --text-secondary (v2 palette)
-        size=11,
-        family="Inter, 'Segoe UI', system-ui, sans-serif",
-    ),
-    margin=dict(l=48, r=16, t=24, b=36),
-    legend=dict(
-        orientation="h",
-        y=-0.18,
-        font=dict(size=11),
-        bgcolor="rgba(0,0,0,0)",
-    ),
-)
-
-
-def _layout(*, uirevision: str | None = None, **overrides) -> dict:
-    """Compose a Plotly layout dict from PLOT_LAYOUT + per-call overrides.
-
-    ``uirevision`` is the Plotly hook that preserves user-set UI state
-    (zoom, pan, legend toggles) across figure re-renders. Tie it to
-    *user-meaningful* state — region, horizon, model — NOT to a raw data
-    hash, so that auto-refreshes (5-min interval, store updates) reuse
-    the same revision string and the chart's interaction state survives.
-    Changing the string forces Plotly to re-initialize the view, which
-    is the desired behavior when the user picks a new region/horizon.
-    """
-    layout = {**PLOT_LAYOUT, **overrides}
-    if uirevision is not None:
-        layout["uirevision"] = uirevision
-    return layout
-
-
-# Color palette (colorblind-safe — Wong 2011)
-COLORS = {
-    "actual": CB_PALETTE["blue"],
-    "prophet": CB_PALETTE["orange"],
-    "arima": CB_PALETTE["green"],
-    "xgboost": CB_PALETTE["sky_blue"],
-    "ensemble": CB_PALETTE["vermillion"],
-    "eia_forecast": "#7f7f7f",
-    "temperature": CB_PALETTE["yellow"],
-    "confidence": "rgba(213,94,0,0.15)",
-    "gas": CB_PALETTE["orange"],
-    "nuclear": CB_PALETTE["purple"],
-    "coal": "#7f7f7f",
-    "wind": CB_PALETTE["green"],
-    "solar": CB_PALETTE["yellow"],
-    "hydro": CB_PALETTE["blue"],
-    "other": "#b0b0b0",
-}
-
-# Model-aware confidence band fill colors (base model color at 12% opacity)
-_MODEL_BAND_COLORS = {
-    "xgboost": "rgba(86,180,233,0.12)",  # sky_blue
-    "prophet": "rgba(230,159,0,0.12)",  # orange
-    "arima": "rgba(0,158,115,0.12)",  # green
-    "ensemble": "rgba(213,94,0,0.12)",  # vermillion
-}
 
 
 def _compute_data_hash(demand_df: pd.DataFrame, weather_df: pd.DataFrame, region: str) -> str:
@@ -6581,16 +6515,11 @@ def _is_real_positive(value) -> bool:
     return bool(np.isfinite(f) and f > 0)
 
 
-# ``REGION_CAPACITY_MW`` (sourced from EIA-860M Feb 2026) counts only
-# in-territory operating generators. For a handful of import-dominated
-# utility BAs (CPLW = Duke Energy Progress West NC mountains, HST =
-# City of Homestead, GVL = Gainesville, SPA = federal hydro marketer)
-# the actual served demand exceeds in-territory capacity many times
-# over because they import nearly all their power. A "demand /
-# capacity" stress ratio above this ceiling means the capacity figure
-# is wrong, not that the BA is genuinely stressed — drop those rows
-# from any stress ranking. Underlying-data fix is the V3.η follow-up.
-_STRESS_RELIABLE_CEILING = 2.0
+# ``_STRESS_RELIABLE_CEILING`` lives in ``_callbacks_shared.py`` — re-exported
+# via the module-level star-import. Belt-and-braces fallback for any BA not
+# explicitly tagged in ``IS_IMPORT_DOMINATED``; structurally above this
+# ratio means the capacity figure is unreliable and the row should be
+# excluded from stress rankings.
 
 
 def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
@@ -6851,32 +6780,12 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
 
 
 # ── V1.γ: US GRID MAP HELPERS ────────────────────────────────
-
-
-# Hex equivalents of the v2 design tokens that Plotly figures need inline
-# (Plotly doesn't read CSS custom properties). Keep in sync with the values
-# in :root in assets/custom.css.
-_MAP_LAND_COLOR = "#111113"  # --bg-raised
-_MAP_COASTLINE_COLOR = "#27272a"
-_MAP_SUBUNIT_COLOR = "#1f1f23"
-_MAP_AXIS_FONT_COLOR = "#71717a"  # --text-tertiary
-# Polygon borders need to read against ANY colorscale fill — green, yellow,
-# or red. A near-black border (#1f1f23) was nearly identical to the
-# darkest polygon fill, so adjacent BAs visually fused into one blob on
-# the Polygons view. A translucent zinc reads against everything.
-_MAP_BORDER_COLOR = "rgba(228, 228, 231, 0.5)"
-# Five-stop colorscale: the previous three-stop scale (0.0 → 0.7 → 1.0,
-# green → yellow → red) put 30% and 60% utilization at nearly identical
-# greens because both fall on the long [0.0, 0.7] interpolation segment.
-# Most BAs operate in the 30–70% band, so spreading colors there is what
-# the eye actually needs.
-_MAP_COLORSCALE = [
-    [0.00, "#10b981"],  # emerald-500 — idle / comfortable headroom
-    [0.40, "#84cc16"],  # lime-500 — running easy
-    [0.60, "#eab308"],  # yellow-500 — getting tight
-    [0.80, "#f97316"],  # orange-500 — warning
-    [1.00, "#dc2626"],  # red-600 — peak / stressed
-]
+#
+# The ``_MAP_*`` tokens (land / coastline / subunit / border colors +
+# the colorscale) live in ``_callbacks_shared.py`` and are re-exported
+# via the module-level star-import. Plotly figures need the hex values
+# inline because Plotly doesn't read CSS custom properties; the shared
+# module keeps them in sync with ``:root`` in ``assets/custom.css``.
 
 
 def _build_us_grid_map(region_data: dict) -> html.Div:
