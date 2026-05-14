@@ -390,3 +390,44 @@ V3 was scoped on 2026-05-01. See §V3 above for the full plan per item. Recommen
 3. ~~**V3.β** Real BA-polygon choropleth~~ — ✅ shipped 2026-05-02
 4. **V3.γ** Hawaii coverage (3–5 days)
 5. **V3.δ** Multi-tenant — deferred
+
+---
+
+## V4 — Audience inflection point
+
+Open question (2026-05-06): the six-month audience for GridPulse isn't fixed. Two coherent futures, each with a different gap-list. This section makes the choice explicit so it's a decision rather than implicit drift.
+
+### Path A — Portfolio-grade complete
+
+**Audience**: recruiters, hiring managers, technical reviewers evaluating a portfolio piece. They click through the live URL, scan the GitHub repo, possibly read the case study.
+
+**State after the V3.ζ / V3.η / real-metrics work**: approximately done. The remaining backlog is the polish tail (#21 URL state refinements, #25 briefing background callback, #26 chart polish) plus #87 (`callbacks.py` decomposition) plus #91 (`wattcast:` Redis namespace rename). All are quality-of-life improvements; none changes what the project demonstrates.
+
+**Time to "complete" if this is the audience**: ~1–2 days of focused work.
+
+### Path B — Real production system
+
+**Audience**: an energy operator, analytics team, or trading desk actually using GridPulse for daily decisions. The current state is "could be real" not "is real."
+
+**Gap-list (in honest priority order):**
+
+1. **Model drift monitoring** — holdout metrics are training-time only. No continuous "this model's MAPE is degrading vs live actuals" loop. Without this, the inverse-MAPE ensemble weights become stale and the "real holdout metrics" claim becomes "real *when last trained*." Effort: ~1 week for scoring-job side comparison + alerting on drift threshold.
+2. **Observability infrastructure** — structured logs exist; no metrics dashboard for the data pipeline itself, no alerting on training-job failures or scoring-job staleness, no error-budget framework. Effort: ~3–5 days for Cloud Monitoring dashboards + alert policies + runbook.
+3. **Authentication + multi-tenant** — currently anonymous public read. No tenant scoping on Redis writes, no per-user state, no rate limiting. Effort: ~2 weeks (Workforce Identity Federation or Identity Platform + auth-gated callbacks + Redis namespacing + rate limiter).
+4. **API surface** — currently visualization only. A serious operator wants `GET /v1/forecast/{region}/{horizon}` to feed their own pipelines. Effort: ~1 week (FastAPI or extending Flask routes + OpenAPI spec + auth + rate limits).
+5. **Alerting beyond UI badges** — extreme-event detection exists in-app; no email/Slack/PagerDuty webhook for "your region just crossed the stress threshold." Effort: ~2–3 days for SNS or equivalent + subscription management.
+6. **Disaster-recovery story** — no backup strategy for GCS pickles, no Redis failover plan, no documented incident-response runbook. Effort: ~1 week for backup automation + DR runbook + first tabletop exercise.
+7. **Data quality monitoring** — `validate_dataframe` exists for ad-hoc checks; no continuous data-quality SLA against EIA / Open-Meteo / NOAA upstream. Effort: ~3 days for quality dashboards + alerts.
+8. **Cost monitoring** — Cloud Run + Memorystore + GCS bills grow with usage; no budget alerts or cost-attribution by region. Effort: ~1 day for budget configuration.
+
+**Time to "production-real" if this is the audience**: ~6–8 weeks of focused work, in priority order.
+
+### Recommendation
+
+**The choice isn't binary.** Path A is approximately one week of cleanup away — it can be closed out independent of which long-term direction this goes. Path B is a real investment that only makes sense if there's a real user (or a clear path to one) on the other side.
+
+**Right next moves regardless of which path:**
+- Close out the Path A polish tail (1–2 days)
+- Pick **one** Path B item as a proof-of-concept that the production-system arc is achievable — model drift monitoring is the highest-leverage candidate because it directly extends the V3.η / real-metrics integrity work that's the project's distinguishing strength
+
+**Defer until a real user signal arrives**: items 3–8 of Path B. They're real work but optionality-cost is low — they can be added in priority order whenever a real user surfaces.
