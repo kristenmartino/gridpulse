@@ -651,8 +651,8 @@ class TestGetFeatureImportance:
 class TestBuildPersonaKpis:
     """Tests for _build_persona_kpis(persona_id, region, demand_df, weather_df)."""
 
-    @patch("components.callbacks.redis_get", return_value=None)
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_grid_ops_with_demand_data(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -660,8 +660,8 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("grid_ops", "ERCOT", demand_df=demand)
         assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks.redis_get", return_value=None)
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_renewables_with_weather_data(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -669,8 +669,8 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("renewables", "ERCOT", weather_df=weather)
         assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks.redis_get", return_value=None)
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_trader_persona(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -678,8 +678,8 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("trader", "ERCOT", demand_df=demand)
         assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks.redis_get", return_value=None)
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_data_scientist_persona(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -687,8 +687,8 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("data_scientist", "PJM", demand_df=demand)
         assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks.redis_get", return_value=None)
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_unknown_persona_falls_back_to_grid_ops(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -696,10 +696,10 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("unknown_persona", "ERCOT", demand_df=demand)
         assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_no_data_falls_to_redis(self):
         """When no demand_df provided, should call redis_get for actuals."""
-        with patch("components.callbacks.redis_get") as mock_redis:
+        with patch("components._callbacks_overview.redis_get") as mock_redis:
             mock_redis.return_value = None
             from components.callbacks import _build_persona_kpis
 
@@ -708,7 +708,7 @@ class TestBuildPersonaKpis:
             mock_redis.assert_any_call("wattcast:actuals:ERCOT")
             assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_redis_demand_fallback(self):
         """Redis provides demand stats when demand_df is None."""
         redis_data = {
@@ -720,13 +720,13 @@ class TestBuildPersonaKpis:
         def mock_redis_get(key):
             return redis_data.get(key)
 
-        with patch("components.callbacks.redis_get", side_effect=mock_redis_get):
+        with patch("components._callbacks_overview.redis_get", side_effect=mock_redis_get):
             from components.callbacks import _build_persona_kpis
 
             result = _build_persona_kpis("grid_ops", "ERCOT")
             assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_backtest_cache_provides_mape(self, mock_redis):
         """Backtest cache provides MAPE and RMSE."""
         import components.callbacks as cb_mod
@@ -747,8 +747,8 @@ class TestBuildPersonaKpis:
             cb_mod._BACKTEST_CACHE.clear()
             cb_mod._BACKTEST_CACHE.update(original)
 
-    @patch("components.callbacks.redis_get", return_value=None)
-    @patch("components.callbacks._BACKTEST_CACHE", {})
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_all_none_returns_row_with_dash_values(self, mock_redis):
         """With no data at all, should still return a valid Row with placeholder values."""
         from components.callbacks import _build_persona_kpis
