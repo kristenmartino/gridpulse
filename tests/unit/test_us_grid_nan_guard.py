@@ -140,12 +140,11 @@ class TestCollectUsGridRegionData:
 
     def _patch_redis(self, monkeypatch, redis_state):
         """Helper: patch redis_get to return matching keys from the dict."""
-        from components import callbacks as cb
 
         def _get(key):
             return redis_state.get(key)
 
-        monkeypatch.setattr(cb, "redis_get", _get)
+        monkeypatch.setattr("components._callbacks_us_grid.redis_get", _get)
 
     def test_clean_demand_tail(self, monkeypatch):
         from components.callbacks import _collect_us_grid_region_data
@@ -155,7 +154,7 @@ class TestCollectUsGridRegionData:
             {"wattcast:actuals:PJM": {"demand_mw": [70000.0, 71000.0, 72000.0]}},
         )
         # Limit to one region for clarity
-        with patch("components.callbacks.REGION_NAMES", {"PJM": "Mid-Atlantic (PJM)"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"PJM": "Mid-Atlantic (PJM)"}):
             data = _collect_us_grid_region_data()
         assert data["PJM"]["current_mw"] == 72000.0
         assert data["PJM"]["prev_mw"] == 71000.0
@@ -169,7 +168,7 @@ class TestCollectUsGridRegionData:
             monkeypatch,
             {"wattcast:actuals:PSCO": {"demand_mw": [9000.0, 9100.0, 9200.0, float("nan")]}},
         )
-        with patch("components.callbacks.REGION_NAMES", {"PSCO": "Colorado (Xcel)"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"PSCO": "Colorado (Xcel)"}):
             data = _collect_us_grid_region_data()
         assert data["PSCO"]["current_mw"] == 9200.0
         assert data["PSCO"]["prev_mw"] == 9100.0
@@ -185,7 +184,7 @@ class TestCollectUsGridRegionData:
             monkeypatch,
             {"wattcast:actuals:HECO": {"demand_mw": [nan, nan, nan, nan]}},
         )
-        with patch("components.callbacks.REGION_NAMES", {"HECO": "Hawaii (HECO)"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"HECO": "Hawaii (HECO)"}):
             data = _collect_us_grid_region_data()
         assert data["HECO"]["current_mw"] is None
         assert data["HECO"]["prev_mw"] is None
@@ -254,7 +253,7 @@ class TestUsGridRegionCardNaNGuard:
         from components.callbacks import _build_us_grid_region_card
 
         # Card path mocks REGION_NAMES indirectly via REGION_NAMES.get
-        with patch("components.callbacks.REGION_NAMES", {"PSCO": "Colorado (Xcel)"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"PSCO": "Colorado (Xcel)"}):
             card = _build_us_grid_region_card("PSCO", {"current_mw": float("nan")})
         # Walk the card looking for "nan" in any string content
 
@@ -278,7 +277,7 @@ class TestUsGridRegionCardNaNGuard:
     def test_none_current_renders_placeholder(self):
         from components.callbacks import _build_us_grid_region_card
 
-        with patch("components.callbacks.REGION_NAMES", {"PSCO": "Colorado (Xcel)"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"PSCO": "Colorado (Xcel)"}):
             card = _build_us_grid_region_card("PSCO", {"current_mw": None})
         # Should pick the empty-card class, not the populated one
         assert "gp-region-card--empty" in (card.className or "")
@@ -289,7 +288,7 @@ class TestUsGridTitleNaNGuard:
         """Title bar's 'X.X GW total demand' must not say 'nan GW'."""
         from components.callbacks import _build_us_grid_title
 
-        with patch("components.callbacks.REGION_NAMES", {"PJM": "PJM", "PSCO": "PSCO"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"PJM": "PJM", "PSCO": "PSCO"}):
             title = _build_us_grid_title(
                 {
                     "PJM": {"current_mw": 70000.0},
@@ -320,7 +319,7 @@ class TestUsGridTitleNaNGuard:
     def test_all_nan_renders_warming(self):
         from components.callbacks import _build_us_grid_title
 
-        with patch("components.callbacks.REGION_NAMES", {"PJM": "PJM", "PSCO": "PSCO"}):
+        with patch("components._callbacks_us_grid.REGION_NAMES", {"PJM": "PJM", "PSCO": "PSCO"}):
             title = _build_us_grid_title(
                 {
                     "PJM": {"current_mw": float("nan")},

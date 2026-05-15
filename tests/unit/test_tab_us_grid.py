@@ -112,7 +112,7 @@ class TestRegionDataCollection:
         from components.callbacks import _collect_us_grid_region_data
         from config import REGION_NAMES
 
-        with patch("components.callbacks.redis_get", return_value=None):
+        with patch("components._callbacks_us_grid.redis_get", return_value=None):
             data = _collect_us_grid_region_data()
 
         assert set(data.keys()) == set(REGION_NAMES.keys())
@@ -123,7 +123,7 @@ class TestRegionDataCollection:
         from components.callbacks import _collect_us_grid_region_data
 
         synthetic = {"demand_mw": list(range(1000, 1050))}  # 50 entries
-        with patch("components.callbacks.redis_get", return_value=synthetic):
+        with patch("components._callbacks_us_grid.redis_get", return_value=synthetic):
             data = _collect_us_grid_region_data()
 
         sample = next(iter(data.values()))
