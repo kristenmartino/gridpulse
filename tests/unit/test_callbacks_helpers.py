@@ -852,7 +852,7 @@ class TestGetFeatureImportance:
 class TestBuildPersonaKpis:
     """Tests for _build_persona_kpis()."""
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_grid_ops_with_data(self, mock_redis, demand_df, weather_df):
         from components.callbacks import _build_persona_kpis
 
@@ -863,21 +863,21 @@ class TestBuildPersonaKpis:
 
         assert isinstance(result, dbc.Row)
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_renewables_with_data(self, mock_redis, demand_df, weather_df):
         from components.callbacks import _build_persona_kpis
 
         result = _build_persona_kpis("renewables", "CAISO", demand_df, weather_df)
         assert result is not None
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_trader_with_data(self, mock_redis, demand_df, weather_df):
         from components.callbacks import _build_persona_kpis
 
         result = _build_persona_kpis("trader", "PJM", demand_df, weather_df)
         assert result is not None
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_data_scientist_with_data(self, mock_redis, demand_df, weather_df):
         from components.callbacks import _build_persona_kpis
 
@@ -885,21 +885,21 @@ class TestBuildPersonaKpis:
         assert result is not None
 
     @pytest.mark.parametrize("persona", ["grid_ops", "renewables", "trader", "data_scientist"])
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_all_personas_no_data(self, mock_redis, persona):
         from components.callbacks import _build_persona_kpis
 
         result = _build_persona_kpis(persona, "ERCOT", None, None)
         assert result is not None
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_unknown_persona_falls_to_grid_ops(self, mock_redis, demand_df):
         from components.callbacks import _build_persona_kpis
 
         result = _build_persona_kpis("unknown_persona", "ERCOT", demand_df, None)
         assert result is not None
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_empty_demand_df(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -907,7 +907,7 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("grid_ops", "FPL", empty_df, None)
         assert result is not None
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_demand_df_with_nans(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -920,7 +920,7 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("grid_ops", "ERCOT", df, None)
         assert result is not None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_overview.redis_get")
     def test_redis_fallback_for_demand(self, mock_redis):
         from components.callbacks import _build_persona_kpis
 
@@ -935,7 +935,7 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("grid_ops", "FPL", None, None)
         assert result is not None
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_spurious_zero_demand_excluded_from_range(self, mock_redis):
         """Regression: EIA-sourced zero-hour rows (e.g. NYISO 2026-02-10)
         collapsed Demand Range to the full peak because ``.min()`` returned
@@ -959,7 +959,7 @@ class TestBuildPersonaKpis:
         # Peak 24000 − Min 15000 = 9000, not 24000.
         assert value_str == "9,000 MW", f"expected 9,000 MW range, got {value_str}"
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_overview.redis_get")
     def test_redis_fallback_excludes_zero_demand(self, mock_redis):
         """Redis fallback path must also skip non-positive demand values."""
         from components.callbacks import _build_persona_kpis
@@ -976,7 +976,7 @@ class TestBuildPersonaKpis:
         # Range should be 30000 − 25000 = 5000, not 30000.
         assert value_str == "5,000 MW", f"expected 5,000 MW range, got {value_str}"
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_overview.redis_get")
     def test_weather_redis_fallback_filters_none_and_nan(self, mock_redis):
         """Regression: Redis weather arrays can carry None/NaN gaps
         (Open-Meteo nulls). The naive ``sum(vals)/len(vals)`` path used to
@@ -1006,7 +1006,7 @@ class TestBuildPersonaKpis:
         # Mean of 100, 300, 500 = 300 W/m²
         assert avg_solar_str == "300 W/m\u00b2", f"expected 300 W/m², got {avg_solar_str}"
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_overview.redis_get")
     def test_weather_partial_df_falls_back_per_metric(self, mock_redis):
         """Regression: previously the Redis fallback required *both*
         avg_wind and avg_solar to be None. If ``weather_df`` supplied only
@@ -1041,7 +1041,7 @@ class TestBuildPersonaKpis:
             f"expected 400 W/m² (Redis fallback), got {avg_solar_str}"
         )
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_overview.redis_get")
     def test_weather_all_nan_df_coerces_to_none_and_falls_back(self, mock_redis):
         """Regression: ``series.mean()`` on an all-NaN column returns NaN,
         not ``None``. The old code kept that NaN as ``avg_wind`` and the
@@ -1067,7 +1067,7 @@ class TestBuildPersonaKpis:
         # Mean of 8, 12, 16 from Redis = 12.0
         assert avg_wind_str == "12.0 mph", f"expected 12.0 mph, got {avg_wind_str}"
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_backtest_cache_used_for_mape(self, mock_redis, demand_df):
         import components.callbacks as cb
         from components.callbacks import _build_persona_kpis
@@ -1081,7 +1081,7 @@ class TestBuildPersonaKpis:
         result = _build_persona_kpis("grid_ops", "ERCOT", demand_df, None)
         assert result is not None
 
-    @patch("components.callbacks.redis_get", return_value=None)
+    @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_high_utilization_price(self, mock_redis):
         """When peak demand is close to capacity, price should be elevated."""
         from components.callbacks import _build_persona_kpis
