@@ -304,7 +304,7 @@ class TestLoadDataFromRedis:
 class TestWeatherTabFromRedis:
     """Tests for _weather_tab_from_redis(region)."""
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_weather.redis_get")
     def test_full_data_returns_6_figures(self, mock_rg):
         """Full cached weather correlation data → returns 6 go.Figures."""
         mock_rg.return_value = _weather_correlation_payload()
@@ -317,7 +317,7 @@ class TestWeatherTabFromRedis:
         for fig in result:
             assert isinstance(fig, go.Figure)
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_weather.redis_get")
     def test_cache_miss_returns_none(self, mock_rg):
         """Cache miss → returns None."""
         mock_rg.return_value = None
@@ -326,7 +326,7 @@ class TestWeatherTabFromRedis:
 
         assert _weather_tab_from_redis("FPL") is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_weather.redis_get")
     def test_empty_correlation_matrix_still_creates_figures(self, mock_rg):
         """Empty correlation matrix → figures still created (no crash)."""
         payload = _weather_correlation_payload()
@@ -339,7 +339,7 @@ class TestWeatherTabFromRedis:
         assert result is not None
         assert len(result) == 6
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_weather.redis_get")
     def test_scatter_plots_have_traces(self, mock_rg):
         """Temperature, wind, solar scatter plots have marker traces."""
         mock_rg.return_value = _weather_correlation_payload()
@@ -356,7 +356,7 @@ class TestWeatherTabFromRedis:
         assert len(fig_solar.data) == 1
         assert fig_solar.data[0].mode == "markers"
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_weather.redis_get")
     def test_heatmap_uses_rdbu_colorscale(self, mock_rg):
         """Heatmap figure uses RdBu colorscale."""
         mock_rg.return_value = _weather_correlation_payload()
