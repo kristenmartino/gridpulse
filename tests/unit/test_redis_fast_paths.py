@@ -469,7 +469,7 @@ class TestModelsTabFromRedis:
 class TestGenerationTabFromRedis:
     """Tests for _generation_tab_from_redis(region, range_hours, demand_json, persona_id)."""
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_generation.redis_get")
     def test_full_gen_data_returns_7_tuple(self, mock_rg):
         """Full generation data → returns 7-tuple."""
         mock_rg.return_value = _generation_payload(72)
@@ -484,7 +484,7 @@ class TestGenerationTabFromRedis:
         assert isinstance(fig_mix, go.Figure)
         assert "%" in ren_pct
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_generation.redis_get")
     def test_cache_miss_returns_none(self, mock_rg):
         """Cache miss → returns None."""
         mock_rg.return_value = None
@@ -493,7 +493,7 @@ class TestGenerationTabFromRedis:
 
         assert _generation_tab_from_redis("FPL", 168, None, "grid_ops") is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_generation.redis_get")
     def test_no_timestamps_returns_none(self, mock_rg):
         """Payload without timestamps → returns None."""
         mock_rg.return_value = {"wind": [100, 200], "solar": [50, 60]}
@@ -502,7 +502,7 @@ class TestGenerationTabFromRedis:
 
         assert _generation_tab_from_redis("FPL", 168, None, "grid_ops") is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_generation.redis_get")
     def test_empty_after_cutoff_returns_none(self, mock_rg):
         """All timestamps older than range_hours → returns None."""
         # Create data far in the past (>168 hours ago)
@@ -523,7 +523,7 @@ class TestGenerationTabFromRedis:
 
         assert _generation_tab_from_redis("FPL", 168, None, "grid_ops") is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_generation.redis_get")
     def test_renewable_pct_from_wind_solar_hydro(self, mock_rg):
         """Renewable % is computed from wind + solar + hydro columns."""
         mock_rg.return_value = _generation_payload(72)
@@ -537,7 +537,7 @@ class TestGenerationTabFromRedis:
         # With wind + solar + hydro present, renewable % should be > 0
         assert ren_pct_val > 0
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_generation.redis_get")
     def test_demand_alignment_from_demand_json(self, mock_rg):
         """demand_json provided → demand series is aligned from it."""
         gen_payload = _generation_payload(72)
