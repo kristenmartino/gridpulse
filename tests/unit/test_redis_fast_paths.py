@@ -568,7 +568,7 @@ class TestGenerationTabFromRedis:
 class TestAlertsTabFromRedis:
     """Tests for _alerts_tab_from_redis(region)."""
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_alerts.redis_get")
     def test_with_alerts_builds_alert_cards(self, mock_rg):
         """Payload with alerts → alert cards built from build_alert_card."""
         mock_rg.return_value = _alerts_payload(with_alerts=True)
@@ -583,7 +583,7 @@ class TestAlertsTabFromRedis:
         # Each card is an html.Div from build_alert_card
         assert isinstance(alert_cards[0], html.Div)
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_alerts.redis_get")
     def test_no_alerts_placeholder(self, mock_rg):
         """No alerts → placeholder 'No active alerts' text."""
         mock_rg.return_value = _alerts_payload(with_alerts=False)
@@ -597,7 +597,7 @@ class TestAlertsTabFromRedis:
         assert isinstance(alert_cards[0], html.P)
         assert "No active alerts" in alert_cards[0].children
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_alerts.redis_get")
     def test_stress_below_30_is_positive(self, mock_rg):
         """Stress score < 30 → 'positive' CSS class on label span."""
         payload = _alerts_payload(with_alerts=False)
@@ -611,7 +611,7 @@ class TestAlertsTabFromRedis:
         assert isinstance(stress_label_span, html.Span)
         assert "positive" in stress_label_span.className
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_alerts.redis_get")
     def test_stress_ge_60_is_negative(self, mock_rg):
         """Stress score >= 60 → 'negative' CSS class on label span."""
         payload = _alerts_payload(with_alerts=True)
@@ -625,7 +625,7 @@ class TestAlertsTabFromRedis:
         assert isinstance(stress_label_span, html.Span)
         assert "negative" in stress_label_span.className
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_alerts.redis_get")
     def test_stress_mid_range_is_neutral(self, mock_rg):
         """Stress score 30-59 → 'neutral' CSS class on label span."""
         payload = _alerts_payload(with_alerts=True)
@@ -639,7 +639,7 @@ class TestAlertsTabFromRedis:
         assert isinstance(stress_label_span, html.Span)
         assert "neutral" in stress_label_span.className
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_alerts.redis_get")
     def test_anomaly_data_produces_figure_with_traces(self, mock_rg):
         """Anomaly timestamps present → figure has demand + upper + lower traces."""
         mock_rg.return_value = _alerts_payload(with_alerts=True)
@@ -652,7 +652,7 @@ class TestAlertsTabFromRedis:
         # demand + upper + lower + anomaly markers = 4 traces
         assert len(fig_anomaly.data) == 4
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_alerts.redis_get")
     def test_temperature_data_produces_figure_with_hlines(self, mock_rg):
         """Temperature timestamps present → figure with temp trace."""
         mock_rg.return_value = _alerts_payload(with_alerts=True)
