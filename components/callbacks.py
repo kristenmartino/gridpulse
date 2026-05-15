@@ -39,6 +39,11 @@ from plotly.subplots import make_subplots
 # noqa: F401 on the re-exports below — these aren't unused, they're
 # the public-import shim. Anything imported from this module via
 # ``from components.callbacks import <X>`` resolves through here.
+from components._callbacks_models import (
+    _format_metric,
+    _get_feature_importance,
+    _models_tab_from_redis,
+)
 from components._callbacks_shared import (
     _BACKTEST_CACHE,
     _CACHE_VERSION,
@@ -57,6 +62,7 @@ from components._callbacks_shared import (
     PLOT_LAYOUT,  # noqa: F401 — re-export
     PLOT_TEMPLATE,  # noqa: F401 — re-export
     _cache_lock,  # noqa: F401 — re-export (app.py uses for cache stats)
+    _empty_figure,
     _latest_real_demand,
     _layout,
 )
@@ -1124,167 +1130,6 @@ def _weather_tab_from_redis(region):
     fig_seasonal.update_layout(**_layout(uirevision=region, height=350))
 
     return fig_temp, fig_wind, fig_solar, fig_heatmap, fig_importance, fig_seasonal
-
-
-def _format_metric(m: dict, key: str, fmt: str) -> str:
-    """Format a metric value, returning 'N/A' when the key is missing or None.
-
-    Prevents unavailable metrics from displaying as ``0`` which users can
-    misread as a real (and suspiciously perfect) model score.
-    """
-    val = m.get(key)
-    if val is None:
-        return "N/A"
-    return fmt.format(val)
-
-
-def _models_tab_from_redis(region, selected_models: list[str] | None = None):
-    """Redis fast path for update_models_tab callback.
-
-    Returns a 6-tuple (table, fig_resid_time, fig_resid_hist, fig_resid_pred,
-    fig_heatmap, fig_shap) or None if cache miss.
-    """
-    default_models = ["prophet", "arima", "xgboost", "ensemble"]
-    selected_models = selected_models or default_models
-    # Current Redis diagnostics payload is ensemble-only for residual charts.
-    # Keep this fast path only when callback explicitly requests ensemble-only.
-    if selected_models is not default_models and set(selected_models) != {"ensemble"}:
-        return None
-
-    cached = redis_get(f"wattcast:diagnostics:{region}")
-    if cached is None:
-        return None
-
-    # uirevision keyed on region + sorted model selection so zoom/legend
-    # state survives Redis refresh but resets when the user picks new models.
-    uirev = f"{region}:{','.join(sorted(selected_models))}"
-
-    log.info("diagnostics_redis_hit", region=region)
-    # Read metrics through the shared resolver so the table and the
-    # leaderboard stay locked together (real holdout MAPE per model
-    # from each pickle's meta.json; RMSE/MAE/R² from this Redis payload).
-    from models.model_service import get_model_metrics
-
-    metrics = get_model_metrics(region)
-    timestamps = pd.to_datetime(cached.get("timestamps", []))
-    ensemble = np.array(cached.get("ensemble", []))
-    residuals = np.array(cached.get("residuals", []))
-    hourly_err = cached.get("hourly_error", {})
-    fi = cached.get("feature_importance", {})
-
-    # Metrics table
-    name_map = {
-        "Prophet": "prophet",
-        "SARIMAX": "arima",
-        "XGBoost": "xgboost",
-        "Ensemble": "ensemble",
-    }
-    rows = []
-    for display_name, key in name_map.items():
-        if key not in selected_models:
-            continue
-        m = metrics.get(key, {})
-        rows.append(
-            html.Tr(
-                [
-                    html.Td(display_name, style={"fontWeight": "600"}),
-                    html.Td(_format_metric(m, "mape", "{:.2f}%")),
-                    html.Td(_format_metric(m, "rmse", "{:.0f}")),
-                    html.Td(_format_metric(m, "mae", "{:.0f}")),
-                    html.Td(_format_metric(m, "r2", "{:.4f}")),
-                ]
-            )
-        )
-    table = html.Table(
-        [
-            html.Thead(html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])),
-            html.Tbody(rows),
-        ],
-        className="metrics-table",
-    )
-
-    # Residuals span the full training window (60-90 days hourly =
-    # 1440-2160 points). At 1280px chart width that's ~1.7 raw points
-    # per pixel — well past the resolution where the eye can resolve
-    # them. LTTB downsample to ~720 keeps the silhouette intact, drops
-    # ~70% of the wire JSON, and saves Plotly a real chunk of layout
-    # cost on the client.
-    from data.preprocessing import lttb_downsample
-
-    resid_x, resid_y = lttb_downsample(
-        np.asarray(timestamps.values),
-        np.asarray(residuals),
-        threshold=720,
-    )
-    fig_resid_time = go.Figure(
-        go.Scatter(
-            x=resid_x,
-            y=resid_y,
-            mode="lines",
-            line=dict(color=COLORS["arima"], width=1),
-        )
-    )
-    fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
-    fig_resid_time.update_layout(**_layout(uirevision=uirev, yaxis_title="Residual (MW)"))
-
-    fig_resid_hist = go.Figure(
-        go.Histogram(x=residuals, nbinsx=50, marker_color=COLORS["ensemble"])
-    )
-    fig_resid_hist.update_layout(
-        **_layout(uirevision=uirev, xaxis_title="Residual (MW)", yaxis_title="Count")
-    )
-
-    fig_resid_pred = go.Figure(
-        go.Scatter(
-            x=ensemble,
-            y=residuals,
-            mode="markers",
-            marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
-        )
-    )
-    fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
-    fig_resid_pred.update_layout(
-        **_layout(
-            uirevision=uirev,
-            xaxis_title="Predicted (MW)",
-            yaxis_title="Residual (MW)",
-        )
-    )
-
-    h_hours = hourly_err.get("hours", list(range(24)))
-    h_vals = hourly_err.get("values", [0] * 24)
-    h_median = float(np.median(h_vals)) if h_vals else 0
-    fig_heatmap = go.Figure(
-        go.Bar(
-            x=h_hours,
-            y=h_vals,
-            marker_color=[COLORS["ensemble"] if e > h_median else COLORS["actual"] for e in h_vals],
-        )
-    )
-    fig_heatmap.update_layout(
-        **_layout(
-            uirevision=uirev,
-            xaxis_title="Hour of Day",
-            yaxis_title="Mean |Error| (MW)",
-        )
-    )
-
-    if "xgboost" in selected_models:
-        fi_names = fi.get("names", [])
-        fi_vals = fi.get("values", [])
-        fig_shap = go.Figure(
-            go.Bar(
-                x=fi_vals[::-1],
-                y=fi_names[::-1],
-                orientation="h",
-                marker_color=COLORS["xgboost"],
-            )
-        )
-        fig_shap.update_layout(**_layout(uirevision=uirev, xaxis_title="Feature Importance"))
-    else:
-        fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
-
-    return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
 
 
 def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
@@ -5668,57 +5513,6 @@ def _build_overview_news() -> html.Div:
         from data.news_client import _get_demo_news
 
         return build_news_feed(_get_demo_news())
-
-
-def _empty_figure(message: str = "") -> go.Figure:
-    fig = go.Figure()
-    fig.update_layout(
-        **_layout(
-            uirevision="empty",
-            annotations=[
-                dict(
-                    text=message,
-                    showarrow=False,
-                    font=dict(size=14, color="#A8B3C7"),
-                    xref="paper",
-                    yref="paper",
-                    x=0.5,
-                    y=0.5,
-                )
-            ],
-            xaxis=dict(visible=False),
-            yaxis=dict(visible=False),
-        )
-    )
-    return fig
-
-
-def _get_feature_importance(region: str, top_n: int = 10) -> tuple[list[str], np.ndarray]:
-    """Extract real feature importances from cached XGBoost model, or return defaults."""
-    if (region, "xgboost", 0) in _MODEL_CACHE:
-        model_dict, _, _ = _MODEL_CACHE[(region, "xgboost", 0)]
-        if isinstance(model_dict, dict) and "feature_importances" in model_dict:
-            imp = model_dict["feature_importances"]
-            sorted_feats = sorted(imp.items(), key=lambda x: x[1], reverse=True)[:top_n]
-            names = [f[0] for f in sorted_feats]
-            vals = np.array([f[1] for f in sorted_feats])
-            if vals.sum() > 0:
-                return names, vals
-
-    names = [
-        "temperature_2m",
-        "demand_lag_24h",
-        "hour_sin",
-        "cooling_degree_days",
-        "wind_speed_80m",
-        "demand_roll_24h_mean",
-        "heating_degree_days",
-        "solar_capacity_factor",
-        "relative_humidity_2m",
-        "is_holiday",
-    ]
-    vals = np.array([0.25, 0.18, 0.12, 0.10, 0.08, 0.07, 0.06, 0.05, 0.05, 0.04])
-    return names, vals
 
 
 def _build_persona_kpis(

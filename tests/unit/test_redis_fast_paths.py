@@ -381,7 +381,7 @@ class TestWeatherTabFromRedis:
 class TestModelsTabFromRedis:
     """Tests for _models_tab_from_redis(region)."""
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_models.redis_get")
     def test_full_diagnostics_returns_table_and_5_figures(self, mock_rg):
         """Full diagnostics → returns (html.Table, 5 x go.Figure)."""
         mock_rg.return_value = _diagnostics_payload()
@@ -396,7 +396,7 @@ class TestModelsTabFromRedis:
         for fig in figs:
             assert isinstance(fig, go.Figure)
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_models.redis_get")
     def test_cache_miss_returns_none(self, mock_rg):
         """Cache miss → returns None."""
         mock_rg.return_value = None
@@ -405,7 +405,7 @@ class TestModelsTabFromRedis:
 
         assert _models_tab_from_redis("FPL") is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_models.redis_get")
     def test_non_ensemble_selection_returns_none(self, mock_rg):
         """Redis fast path is disabled for non-ensemble selections."""
         mock_rg.return_value = _diagnostics_payload()
@@ -414,7 +414,7 @@ class TestModelsTabFromRedis:
 
         assert _models_tab_from_redis("FPL", selected_models=["prophet"]) is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_models.redis_get")
     def test_table_has_4_rows(self, mock_rg):
         """Metrics table has 4 rows: Prophet, SARIMAX, XGBoost, Ensemble."""
         mock_rg.return_value = _diagnostics_payload()
@@ -430,7 +430,7 @@ class TestModelsTabFromRedis:
         names = [row.children[0].children for row in rows]
         assert names == ["Prophet", "SARIMAX", "XGBoost", "Ensemble"]
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_models.redis_get")
     def test_empty_hourly_error_defaults_to_24_zeros(self, mock_rg):
         """Missing hourly_error values → defaults to list of 24 zeros."""
         payload = _diagnostics_payload()
@@ -447,7 +447,7 @@ class TestModelsTabFromRedis:
         assert len(bar_y) == 24
         assert all(v == 0 for v in bar_y)
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_models.redis_get")
     def test_feature_importance_reversed_order(self, mock_rg):
         """Feature importance bar chart has reversed name/value order."""
         mock_rg.return_value = _diagnostics_payload()

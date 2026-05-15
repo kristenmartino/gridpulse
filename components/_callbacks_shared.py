@@ -30,6 +30,7 @@ from __future__ import annotations
 import threading
 
 import numpy as np
+import plotly.graph_objects as go
 
 from components.accessibility import CB_PALETTE
 
@@ -120,6 +121,36 @@ def _layout(*, uirevision: str | None = None, **overrides) -> dict:
     if uirevision is not None:
         layout["uirevision"] = uirevision
     return layout
+
+
+def _empty_figure(message: str = "") -> go.Figure:
+    """Render an axis-less placeholder figure with a centered message.
+
+    Cross-tab fallback: every tab needs the "no data yet / select X / loading"
+    visual when its primary chart can't render. Centralised here so all tabs
+    share the same dark-mode styling and the same uirevision key (``"empty"``)
+    that keeps Plotly from re-initializing the view on each re-render.
+    """
+    fig = go.Figure()
+    fig.update_layout(
+        **_layout(
+            uirevision="empty",
+            annotations=[
+                dict(
+                    text=message,
+                    showarrow=False,
+                    font=dict(size=14, color="#A8B3C7"),
+                    xref="paper",
+                    yref="paper",
+                    x=0.5,
+                    y=0.5,
+                )
+            ],
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+        )
+    )
+    return fig
 
 
 # ── Color palette (colorblind-safe per Wong 2011) ────────────────────
@@ -265,6 +296,7 @@ __all__ = [
     "PLOT_TEMPLATE",
     "PLOT_LAYOUT",
     "_layout",
+    "_empty_figure",
     # Color palette
     "COLORS",
     "_MODEL_BAND_COLORS",
