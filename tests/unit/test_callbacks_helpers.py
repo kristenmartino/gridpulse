@@ -1267,7 +1267,7 @@ class TestEnsembleFold:
             return {"xgboost": xgb_preds, "prophet": prophet_preds, "arima": arima_preds}[name]
 
         with (
-            patch("components.callbacks._predict_single_fold", side_effect=mock_predict),
+            patch("components._callbacks_backtest._predict_single_fold", side_effect=mock_predict),
             patch("models.evaluation.compute_mape", return_value=5.0),
         ):
             result = _ensemble_fold(train, test)
@@ -1290,7 +1290,7 @@ class TestEnsembleFold:
             }
         )
 
-        with patch("components.callbacks._predict_single_fold", return_value=None):
+        with patch("components._callbacks_backtest._predict_single_fold", return_value=None):
             result = _ensemble_fold(train, test)
             assert result is None
 
@@ -1320,7 +1320,7 @@ class TestEnsembleFold:
             return np.ones(24) * 30000
 
         with (
-            patch("components.callbacks._predict_single_fold", side_effect=mock_predict),
+            patch("components._callbacks_backtest._predict_single_fold", side_effect=mock_predict),
             patch("models.evaluation.compute_mape", return_value=3.0),
         ):
             result = _ensemble_fold(train, test)
@@ -1355,7 +1355,7 @@ class TestEnsembleFold:
             return None  # arima fails
 
         # Equal weights: ensemble = mean(29000, 35000) = 32000
-        with patch("components.callbacks._predict_single_fold", side_effect=mock_predict):
+        with patch("components._callbacks_backtest._predict_single_fold", side_effect=mock_predict):
             result = _ensemble_fold(train, test)
             assert result is not None
             avg = result.mean()
@@ -1385,7 +1385,7 @@ class TestEnsembleFold:
             return np.ones(24) * 31000
 
         with (
-            patch("components.callbacks._predict_single_fold", side_effect=mock_predict),
+            patch("components._callbacks_backtest._predict_single_fold", side_effect=mock_predict),
             patch("models.evaluation.compute_mape", return_value=3.0),
         ):
             result = _ensemble_fold(train, test)
@@ -1420,7 +1420,7 @@ class TestEnsembleFold:
 
         # MAPE=0 for perfect predictions → 1/MAPE is infinite → fallback to uniform
         with (
-            patch("components.callbacks._predict_single_fold", side_effect=mock_predict),
+            patch("components._callbacks_backtest._predict_single_fold", side_effect=mock_predict),
             patch("models.evaluation.compute_mape", return_value=0.0),
         ):
             result = _ensemble_fold(train, test)
@@ -1470,7 +1470,9 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        with patch("components.callbacks._predict_single_fold", return_value=np.ones(24) * 30000):
+        with patch(
+            "components._callbacks_backtest._predict_single_fold", return_value=np.ones(24) * 30000
+        ):
             result = _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
 
         assert "predictions" in result
@@ -1590,7 +1592,9 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        with patch("components.callbacks._ensemble_fold", return_value=np.ones(24) * 30000):
+        with patch(
+            "components._callbacks_backtest._ensemble_fold", return_value=np.ones(24) * 30000
+        ):
             result = _run_backtest_for_horizon(demand_df, weather_df, 24, "ensemble", "ERCOT")
 
         assert "metrics" in result
@@ -1629,7 +1633,9 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        with patch("components.callbacks._predict_single_fold", return_value=np.ones(24) * 30000):
+        with patch(
+            "components._callbacks_backtest._predict_single_fold", return_value=np.ones(24) * 30000
+        ):
             _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
 
         assert ("ERCOT", 24, "xgboost", "forecast_exog") in cb._BACKTEST_CACHE
@@ -1662,7 +1668,7 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        with patch("components.callbacks._predict_single_fold", return_value=None):
+        with patch("components._callbacks_backtest._predict_single_fold", return_value=None):
             result = _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
         assert "error" in result
 
@@ -1673,7 +1679,7 @@ class TestRunBacktestForHorizon:
 
         cb._BACKTEST_CACHE.clear()
         with (
-            patch("components.callbacks.REQUIRE_REDIS", True),
+            patch("components._callbacks_backtest.REQUIRE_REDIS", True),
             patch("data.cache.get_cache") as mock_get_cache,
         ):
             mock_cache = MagicMock()
@@ -1721,8 +1727,11 @@ class TestRunBacktestForHorizon:
         mock_get_cache.return_value = mock_cache
 
         with (
-            patch("components.callbacks.REQUIRE_REDIS", True),
-            patch("components.callbacks._predict_single_fold", return_value=np.ones(24) * 30000),
+            patch("components._callbacks_backtest.REQUIRE_REDIS", True),
+            patch(
+                "components._callbacks_backtest._predict_single_fold",
+                return_value=np.ones(24) * 30000,
+            ),
         ):
             result = _run_backtest_for_horizon(
                 demand_df,

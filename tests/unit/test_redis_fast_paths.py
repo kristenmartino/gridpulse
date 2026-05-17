@@ -792,7 +792,7 @@ class TestOutlookTabFromRedis:
 class TestBacktestTabFromRedis:
     """Tests for _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id)."""
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_full_backtest_returns_7_tuple(self, mock_rg):
         """Full backtest data → returns 7-tuple."""
         mock_rg.return_value = _backtest_payload(24)
@@ -808,7 +808,7 @@ class TestBacktestTabFromRedis:
         assert "MW" in rmse_str
         assert "MW" in mae_str
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_cache_miss_returns_none(self, mock_rg):
         """Cache miss → returns None."""
         mock_rg.return_value = None
@@ -817,7 +817,7 @@ class TestBacktestTabFromRedis:
 
         assert _backtest_tab_from_redis("FPL", 24, "xgboost", "grid_ops") is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_model_miss_returns_none(self, mock_rg):
         """Requested model not in predictions (and not ensemble) → None."""
         payload = _backtest_payload(24)
@@ -829,7 +829,7 @@ class TestBacktestTabFromRedis:
         result = _backtest_tab_from_redis("FPL", 24, "prophet", "grid_ops")
         assert result is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_ensemble_fallback(self, mock_rg):
         """Model not in predictions → falls back to ensemble predictions."""
         payload = _backtest_payload(24)
@@ -844,7 +844,7 @@ class TestBacktestTabFromRedis:
         # Should use ensemble metrics: 2.80%
         assert "2.80" in mape_str
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_metrics_formatting(self, mock_rg):
         """Metrics are correctly formatted: MAPE%, RMSE MW, MAE MW, R2."""
         mock_rg.return_value = _backtest_payload(24)
@@ -859,7 +859,7 @@ class TestBacktestTabFromRedis:
         assert mae_str == "260 MW (forecast_exog)"
         assert r2_str == "0.970 (forecast_exog)"
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_first_available_fallback(self, mock_rg):
         """Neither requested model nor ensemble → uses first available model."""
         payload = _backtest_payload(24)
@@ -879,7 +879,7 @@ class TestBacktestTabFromRedis:
         mape_str = result[1]
         assert "3.20" in mape_str
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_empty_predictions_uses_actual(self, mock_rg):
         """Empty predictions dict → falls back to using actual as predictions."""
         payload = _backtest_payload(24)
@@ -897,7 +897,7 @@ class TestBacktestTabFromRedis:
         # Chart should still have traces
         assert len(fig.data) >= 2
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_backtest.redis_get")
     def test_backtest_chart_has_expected_traces(self, mock_rg):
         """Backtest chart has actual, forecast, prediction interval, and error-fill traces."""
         mock_rg.return_value = _backtest_payload(24)
