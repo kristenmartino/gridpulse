@@ -88,9 +88,15 @@ class TestForecastOutlookWarming:
         self, monkeypatch, clear_caches, empty_sqlite_cache
     ) -> None:
         """With REQUIRE_REDIS=True and a cache miss, _run_forecast_outlook returns warming."""
+        import components._callbacks_forecast as fcb
         import components.callbacks as cbs
 
+        # _run_forecast_outlook lives in _callbacks_forecast and reads
+        # REQUIRE_REDIS from its own module namespace (imported from config
+        # at module load). Patch both modules so the test works regardless
+        # of which namespace the production code reads from.
         monkeypatch.setattr(cbs, "REQUIRE_REDIS", True)
+        monkeypatch.setattr(fcb, "REQUIRE_REDIS", True)
 
         # Also patch fetchers to explode — a warming return means they
         # must NOT have been called.
@@ -114,9 +120,13 @@ class TestForecastOutlookWarming:
         self, monkeypatch, clear_caches, empty_sqlite_cache
     ) -> None:
         """With REQUIRE_REDIS=False the v1 compute fallback runs (we stub training)."""
+        import components._callbacks_forecast as fcb
         import components.callbacks as cbs
 
+        # Patch both module namespaces — _run_forecast_outlook reads
+        # REQUIRE_REDIS from _callbacks_forecast after the Step 8 extraction.
         monkeypatch.setattr(cbs, "REQUIRE_REDIS", False)
+        monkeypatch.setattr(fcb, "REQUIRE_REDIS", False)
 
         # Stub out training + prediction so the test doesn't need xgboost.
         import models.xgboost_model as xgb_mod

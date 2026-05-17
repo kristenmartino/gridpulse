@@ -675,9 +675,9 @@ class TestOutlookTabFromRedis:
     """Tests for _outlook_tab_from_redis(region, horizon_hours, model_name,
     demand_json, weather_json, persona_id)."""
 
-    @patch("components.callbacks._add_trailing_actuals")
-    @patch("components.callbacks._add_confidence_bands")
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
     def test_full_forecasts_returns_9_tuple(self, mock_rg, mock_bands, mock_trail):
         """Full forecast data → returns 9-tuple."""
         mock_rg.return_value = _forecast_payload(72, "xgboost")
@@ -696,7 +696,7 @@ class TestOutlookTabFromRedis:
         assert "MW" in min_str
         assert "MW" in range_str
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_forecast.redis_get")
     def test_cache_miss_returns_none(self, mock_rg):
         """Cache miss → returns None."""
         mock_rg.return_value = None
@@ -705,7 +705,7 @@ class TestOutlookTabFromRedis:
 
         assert _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops") is None
 
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_forecast.redis_get")
     def test_model_miss_returns_none(self, mock_rg):
         """Requested model not in forecasts and not xgboost/ensemble → None."""
         payload = _forecast_payload(72, "xgboost")
@@ -717,9 +717,9 @@ class TestOutlookTabFromRedis:
         result = _outlook_tab_from_redis("FPL", 48, "prophet", None, None, "grid_ops")
         assert result is None
 
-    @patch("components.callbacks._add_trailing_actuals")
-    @patch("components.callbacks._add_confidence_bands")
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
     def test_insufficient_horizon_returns_none(self, mock_rg, mock_bands, mock_trail):
         """Available data shorter than requested horizon → returns None."""
         # Only 24 data points but requesting 48
@@ -730,9 +730,9 @@ class TestOutlookTabFromRedis:
         result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
         assert result is None
 
-    @patch("components.callbacks._add_trailing_actuals")
-    @patch("components.callbacks._add_confidence_bands")
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
     def test_horizon_trimming(self, mock_rg, mock_bands, mock_trail):
         """More data than horizon → sliced to horizon_hours."""
         mock_rg.return_value = _forecast_payload(72, "xgboost")
@@ -745,9 +745,9 @@ class TestOutlookTabFromRedis:
         # Main forecast trace should have exactly 24 points
         assert len(fig.data[0].y) == 24
 
-    @patch("components.callbacks._add_trailing_actuals")
-    @patch("components.callbacks._add_confidence_bands")
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
     def test_peak_min_computed_correctly(self, mock_rg, mock_bands, mock_trail):
         """Peak and min values are correctly extracted from predictions."""
         # Construct a known payload
@@ -768,9 +768,9 @@ class TestOutlookTabFromRedis:
         # Min = 30000
         assert "30,000" in min_str
 
-    @patch("components.callbacks._add_trailing_actuals")
-    @patch("components.callbacks._add_confidence_bands")
-    @patch("components.callbacks.redis_get")
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
     def test_scored_at_timestamp_formatted(self, mock_rg, mock_bands, mock_trail):
         """scored_at value is formatted into human-readable UTC string."""
         mock_rg.return_value = _forecast_payload(72, "xgboost")
