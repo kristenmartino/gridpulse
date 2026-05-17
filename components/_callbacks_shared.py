@@ -33,6 +33,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from components.accessibility import CB_PALETTE
+from data.redis_client import redis_get
 
 # ── Cache state ──────────────────────────────────────────────────────
 #
@@ -151,6 +152,172 @@ def _empty_figure(message: str = "") -> go.Figure:
         )
     )
     return fig
+
+
+# ── Data signature for cache correctness (cross-tab) ─────────────────
+#
+# Used by both the Forecast tab's outlook generator and the Backtest
+# tab's horizon runner to key prediction / backtest caches on the
+# *content* of the input frames (not just their shape). Two frames with
+# different demand_mw values produce different hashes; identical content
+# regardless of column ordering / timestamp parsing produces the same.
+
+
+def _compute_data_hash(demand_df, weather_df, region: str) -> str:
+    """Compute stable input signature for cache correctness.
+
+    Signature includes:
+    - region
+    - row counts
+    - normalized start/end timestamps
+    - lightweight content checksums over key columns
+    """
+    import hashlib
+    import json
+
+    import pandas as pd
+
+    def _normalize_ts(ts) -> str:
+        """Strip timezone to produce a stable string regardless of tz-aware vs tz-naive."""
+        t = pd.Timestamp(ts)
+        if t.tzinfo is not None:
+            t = t.tz_convert("UTC").tz_localize(None)
+        return str(t)
+
+    def _frame_sig(df, key_cols: list[str]) -> dict:
+        frame_sig: dict[str, str | int] = {
+            "rows": int(len(df)),
+            "start": "",
+            "end": "",
+            "checksum": "",
+        }
+        if df.empty:
+            return frame_sig
+
+        if "timestamp" in df.columns:
+            ts_bounds = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+            if ts_bounds.notna().any():
+                frame_sig["start"] = _normalize_ts(ts_bounds.min())
+                frame_sig["end"] = _normalize_ts(ts_bounds.max())
+
+        cols = [c for c in key_cols if c in df.columns]
+        if not cols:
+            return frame_sig
+
+        sample = df.loc[:, cols].copy()
+        if "timestamp" in sample.columns:
+            ts = pd.to_datetime(sample["timestamp"], utc=True, errors="coerce")
+            sample["timestamp"] = ts.astype("int64").fillna(-1).astype("int64")
+            sample = sample.sort_values("timestamp", kind="mergesort")
+        for col in cols:
+            if col != "timestamp" and pd.api.types.is_numeric_dtype(sample[col]):
+                sample[col] = sample[col].round(6)
+
+        hashed = pd.util.hash_pandas_object(sample.fillna("<NA>"), index=False).to_numpy(
+            dtype=np.uint64
+        )
+        frame_sig["checksum"] = f"{int(hashed.sum(dtype=np.uint64)):016x}"
+        return frame_sig
+
+    signature_payload = {
+        "region": region,
+        "demand": _frame_sig(demand_df, ["timestamp", "demand_mw"]),
+        "weather": _frame_sig(
+            weather_df,
+            [
+                "timestamp",
+                "temperature_2m",
+                "wind_speed_80m",
+                "shortwave_radiation",
+                "relative_humidity_2m",
+            ],
+        ),
+    }
+    signature_json = json.dumps(signature_payload, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(signature_json.encode("utf-8")).hexdigest()
+
+
+# ── Prediction-interval helpers (cross-tab) ──────────────────────────
+#
+# Both the Forecast tab (confidence bands around the live forecast)
+# and the Backtest tab (residual-derived intervals shown alongside the
+# holdout chart) need empirical-error quantiles. They share the same
+# residual source: in-memory ``_BACKTEST_CACHE`` for recent in-process
+# computes plus the scoring job's Redis backtests for the production
+# baseline. Living in shared lets both tab modules import without
+# cross-tab dependencies.
+
+
+def _collect_backtest_residuals(region: str, model_name: str, horizon_hours: int) -> np.ndarray:
+    """Collect recent backtest residuals by model/region/horizon from cache layers."""
+    residual_chunks: list[np.ndarray] = []
+
+    # In-memory cache (most recent in-process compute path)
+    for (r, h, m, _mode), (cached_result, _hash, _time) in _BACKTEST_CACHE.items():
+        if r != region or h != horizon_hours:
+            continue
+        if m != model_name and not (model_name == "ensemble" and m in ("ensemble",)):
+            continue
+        actual = np.asarray(cached_result.get("actual", []), dtype=float)
+        pred = np.asarray(cached_result.get("predictions", []), dtype=float)
+        n = min(len(actual), len(pred))
+        if n > 0:
+            residual_chunks.append(actual[:n] - pred[:n])
+
+    # Redis pre-computed backtests (common production path)
+    for key in (
+        f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon_hours}",
+        f"wattcast:backtest:{region}:{horizon_hours}",
+    ):
+        cached = redis_get(key)
+        if not isinstance(cached, dict):
+            continue
+        actual = np.asarray(cached.get("actual", []), dtype=float)
+        preds_map = cached.get("predictions", {})
+        if isinstance(preds_map, dict):
+            if model_name in preds_map:
+                pred = np.asarray(preds_map.get(model_name, []), dtype=float)
+            elif "ensemble" in preds_map:
+                pred = np.asarray(preds_map.get("ensemble", []), dtype=float)
+            elif preds_map:
+                pred = np.asarray(next(iter(preds_map.values())), dtype=float)
+            else:
+                pred = np.array([], dtype=float)
+            n = min(len(actual), len(pred))
+            if n > 0:
+                residual_chunks.append(actual[:n] - pred[:n])
+
+    if not residual_chunks:
+        return np.array([], dtype=float)
+    residuals = np.concatenate(residual_chunks)
+    return residuals[np.isfinite(residuals)]
+
+
+def _empirical_interval_from_backtests(
+    region: str,
+    model_name: str,
+    horizon_hours: int,
+    target_coverage: float = 0.80,
+) -> dict[str, float | int | bool]:
+    """Estimate empirical prediction interval from recent backtest residuals."""
+    from models.evaluation import empirical_error_quantiles
+
+    residuals = _collect_backtest_residuals(region, model_name, horizon_hours)
+    if residuals.size < max(24, horizon_hours // 2):
+        return {"available": False}
+
+    tail_size = int(min(residuals.size, max(horizon_hours * 5, 120)))
+    recent = residuals[-tail_size:]
+    alpha = (1.0 - target_coverage) / 2.0
+    q = empirical_error_quantiles(recent, lower_q=alpha, upper_q=1.0 - alpha)
+    return {
+        "available": True,
+        "lower_error": float(q["lower_error"]),
+        "upper_error": float(q["upper_error"]),
+        "sample_size": int(q["sample_size"]),
+        "target_coverage": float(target_coverage),
+        "calibration_window_hours": tail_size,
+    }
 
 
 # ── Color palette (colorblind-safe per Wong 2011) ────────────────────
@@ -302,6 +469,11 @@ __all__ = [
     "_MODEL_BAND_COLORS",
     # Demand-series helpers
     "_latest_real_demand",
+    # Data signature
+    "_compute_data_hash",
+    # Prediction-interval helpers (cross-tab)
+    "_collect_backtest_residuals",
+    "_empirical_interval_from_backtests",
     # Stress thresholds
     "_STRESS_RELIABLE_CEILING",
     # Map tokens
