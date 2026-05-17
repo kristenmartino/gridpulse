@@ -62,7 +62,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import structlog
-from dash import dcc, html
+from dash import Input, Output, State, dcc, html, no_update
 
 from components._callbacks_shared import (
     _BACKTEST_CACHE,
@@ -2023,6 +2023,82 @@ def _build_persona_kpis(
     return build_kpi_row(kpis)
 
 
+# ── Callback registration (Step 10 — register_callbacks split) ──────
+
+
+def register_overview_callbacks(app):
+    """Register Overview-tab callbacks with the Dash app.
+
+    Step 10a of the ``register_callbacks`` decomposition. Called once
+    by ``components.callbacks.register_callbacks`` at app boot. Owning
+    the Dash decorator block here keeps the Overview tab's read path
+    end-to-end inside this module — layout (``tab_overview.py``),
+    helpers (the 17 functions above), and callback wiring all in
+    coherent places.
+    """
+
+    @app.callback(
+        [
+            Output("overview-title", "children"),
+            Output("overview-metrics-bar", "children"),
+            Output("overview-spotlight-chart", "figure"),
+            Output("overview-model-card", "children"),
+            Output("overview-insight-card", "children"),
+        ],
+        [
+            Input("demand-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
+            Input("persona-selector", "value"),
+        ],
+        [
+            State("weather-store", "data"),
+            State("region-selector", "value"),
+            State("data-freshness-store", "data"),
+        ],
+    )
+    def update_overview_tab(
+        demand_json, active_tab, persona_id, weather_json, region, freshness_data
+    ):
+        """Render the v2 linear-stack Overview: title, metrics, chart, model, insight."""
+        if active_tab != "tab-overview":
+            return [no_update] * 5
+
+        persona_id = persona_id or "grid_ops"
+        region = region or "FPL"
+
+        try:
+            demand_df = None
+            if demand_json:
+                demand_df = pd.read_json(io.StringIO(demand_json))
+            # weather_json + freshness_data reserved for future inline drivers panel
+            del weather_json, freshness_data
+
+            # 1. Title block (region name + subtitle)
+            title = _build_overview_title(region)
+
+            # 2. MetricsBar (5-up KPI row)
+            metrics_bar = build_metrics_bar(_build_overview_metrics_items(demand_df))
+
+            # 3. Hero forecast chart (actual + dashed forecast + confidence band)
+            chart = _build_overview_hero_chart(region, demand_df)
+
+            # 4. ModelMetricsCard
+            model_card = _build_overview_model_card(region)
+
+            # 5. InsightCard
+            insight = _build_overview_insight(region, demand_df, persona_id)
+
+            return (title, metrics_bar, chart, model_card, insight)
+        except Exception as exc:
+            log.exception("update_overview_tab_failed")
+            err_msg = f"{type(exc).__name__}: {exc}"
+            err_div = html.Div(
+                err_msg,
+                style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
+            )
+            return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div)
+
+
 __all__ = [
     # 7a — Overview core
     "_build_overview_title",
@@ -2054,4 +2130,6 @@ __all__ = [
     "_build_overview_digest",
     "_build_overview_news",
     "_build_persona_kpis",
+    # 10a — Callback registration
+    "register_overview_callbacks",
 ]

@@ -26,7 +26,7 @@ from __future__ import annotations
 import numpy as np
 import plotly.graph_objects as go
 import structlog
-from dash import dcc, html
+from dash import ALL, Input, Output, ctx, dcc, html, no_update
 
 from components._callbacks_shared import (
     _MAP_AXIS_FONT_COLOR,
@@ -718,3 +718,124 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
         ],
         className="gp-region-map",
     )
+
+
+# ── Callback registration (Step 10b — register_callbacks split) ──────
+
+
+def register_us_grid_callbacks(app):
+    """Register US Grid tab callbacks with the Dash app.
+
+    Step 10b of the ``register_callbacks`` decomposition. Owns the
+    three callbacks the US Grid tab needs: snapshot rendering (cards/
+    map/polygons toggle), card-click drilldown, and map-click drilldown.
+    All three reuse the helpers defined in this module.
+    """
+    from components.cards import build_metrics_bar
+    from config import REGION_GROUPS
+
+    @app.callback(
+        [
+            Output("us-grid-title", "children"),
+            Output("us-grid-metrics-bar", "children"),
+            Output("us-grid-region-grid", "children"),
+        ],
+        [
+            Input("dashboard-tabs", "active_tab"),
+            Input("refresh-interval", "n_intervals"),
+            Input("us-grid-view-toggle", "value"),
+        ],
+    )
+    def update_us_grid_snapshot(active_tab, _n_intervals, view):
+        """Render the US Grid tabs title, MetricsBar, and body (cards or map)."""
+        if active_tab != "tab-us-grid":
+            return [no_update] * 3
+
+        view = view or "cards"
+
+        try:
+            region_data = _collect_us_grid_region_data()
+            title = _build_us_grid_title(region_data)
+            metrics_items = _build_us_grid_metrics_items(region_data)
+            metrics_bar = build_metrics_bar(metrics_items)
+            metrics_bar.className = f"gp-metrics-bar gp-metrics-bar--{len(metrics_items)}up"
+
+            if view == "map":
+                body = _build_us_grid_map(region_data)
+            elif view == "polygons":
+                body = _build_us_grid_choropleth(region_data)
+            else:
+                grid_children: list = []
+                for group_name, codes in REGION_GROUPS.items():
+                    visible = [c for c in codes if c in region_data]
+                    if not visible:
+                        continue
+                    grid_children.append(
+                        html.Div(
+                            group_name,
+                            className="gp-region-grid__section-header",
+                        )
+                    )
+                    grid_children.extend(
+                        _build_us_grid_region_card(code, region_data[code]) for code in visible
+                    )
+                body = html.Div(grid_children, className="gp-region-grid")
+
+            return (title, metrics_bar, body)
+        except Exception as exc:
+            log.exception("update_us_grid_snapshot_failed")
+            err_msg = f"{type(exc).__name__}: {exc}"
+            err_div = html.Div(
+                err_msg,
+                style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
+            )
+            return (err_div, html.Div(), err_div)
+
+    @app.callback(
+        [
+            Output("region-selector", "value", allow_duplicate=True),
+            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        ],
+        Input({"type": "us-grid-region-card", "region": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def drilldown_from_us_grid(n_clicks_list):
+        """Click a region card → open Forecast tab pre-set to that region."""
+        if not n_clicks_list or not any(n for n in n_clicks_list if n):
+            return no_update, no_update
+        triggered = ctx.triggered_id
+        if not isinstance(triggered, dict) or triggered.get("type") != "us-grid-region-card":
+            return no_update, no_update
+        region = triggered.get("region")
+        if not region:
+            return no_update, no_update
+        return region, "tab-outlook"
+
+    @app.callback(
+        [
+            Output("region-selector", "value", allow_duplicate=True),
+            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        ],
+        Input("us-grid-map", "clickData"),
+        prevent_initial_call=True,
+    )
+    def drilldown_from_us_grid_map(click_data):
+        """Click a map point → open Forecast tab pre-set to that region.
+
+        Tolerates two ``customdata`` shapes so the same callback works
+        for both the ``scatter_geo`` view (1-D array of region codes)
+        and the V3.β ``Choropleth`` view (2-D array where index 0 is
+        the region code, indexes 1-2 carry hover text fields).
+        """
+        if not click_data:
+            return no_update, no_update
+        points = click_data.get("points") or []
+        if not points:
+            return no_update, no_update
+        cd = points[0].get("customdata")
+        if cd is None:
+            return no_update, no_update
+        region = cd[0] if isinstance(cd, (list, tuple)) else cd
+        if not region:
+            return no_update, no_update
+        return region, "tab-outlook"
