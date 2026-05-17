@@ -527,7 +527,10 @@ class TestEnsembleFold:
             return np.full(len(te), base.get(name, 39000.0))
 
         with (
-            patch("components._callbacks_backtest._predict_single_fold", side_effect=mock_predict_single),
+            patch(
+                "components._callbacks_backtest._predict_single_fold",
+                side_effect=mock_predict_single,
+            ),
             patch("models.evaluation.compute_mape", return_value=5.0),
         ):
             result = _ensemble_fold(train, test)

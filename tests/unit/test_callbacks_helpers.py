@@ -1470,7 +1470,9 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        with patch("components._callbacks_backtest._predict_single_fold", return_value=np.ones(24) * 30000):
+        with patch(
+            "components._callbacks_backtest._predict_single_fold", return_value=np.ones(24) * 30000
+        ):
             result = _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
 
         assert "predictions" in result
@@ -1590,7 +1592,9 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        with patch("components._callbacks_backtest._ensemble_fold", return_value=np.ones(24) * 30000):
+        with patch(
+            "components._callbacks_backtest._ensemble_fold", return_value=np.ones(24) * 30000
+        ):
             result = _run_backtest_for_horizon(demand_df, weather_df, 24, "ensemble", "ERCOT")
 
         assert "metrics" in result
@@ -1629,7 +1633,9 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        with patch("components._callbacks_backtest._predict_single_fold", return_value=np.ones(24) * 30000):
+        with patch(
+            "components._callbacks_backtest._predict_single_fold", return_value=np.ones(24) * 30000
+        ):
             _run_backtest_for_horizon(demand_df, weather_df, 24, "xgboost", "ERCOT")
 
         assert ("ERCOT", 24, "xgboost", "forecast_exog") in cb._BACKTEST_CACHE
@@ -1722,7 +1728,10 @@ class TestRunBacktestForHorizon:
 
         with (
             patch("components._callbacks_backtest.REQUIRE_REDIS", True),
-            patch("components._callbacks_backtest._predict_single_fold", return_value=np.ones(24) * 30000),
+            patch(
+                "components._callbacks_backtest._predict_single_fold",
+                return_value=np.ones(24) * 30000,
+            ),
         ):
             result = _run_backtest_for_horizon(
                 demand_df,
