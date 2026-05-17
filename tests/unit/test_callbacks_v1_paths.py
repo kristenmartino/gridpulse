@@ -527,7 +527,7 @@ class TestEnsembleFold:
             return np.full(len(te), base.get(name, 39000.0))
 
         with (
-            patch("components.callbacks._predict_single_fold", side_effect=mock_predict_single),
+            patch("components._callbacks_backtest._predict_single_fold", side_effect=mock_predict_single),
             patch("models.evaluation.compute_mape", return_value=5.0),
         ):
             result = _ensemble_fold(train, test)
@@ -543,7 +543,7 @@ class TestEnsembleFold:
         test = _train_df(24)
 
         with patch(
-            "components.callbacks._predict_single_fold",
+            "components._callbacks_backtest._predict_single_fold",
             side_effect=ValueError("model failed"),
         ):
             result = _ensemble_fold(train, test)
@@ -572,7 +572,7 @@ class TestRunBacktestForHorizon:
         cached = {"timestamps": [], "actual": [], "predictions": [], "metrics": {"mape": 5.0}}
 
         with patch.dict(
-            "components.callbacks._BACKTEST_CACHE",
+            "components._callbacks_backtest._BACKTEST_CACHE",
             {cache_key: (cached, data_hash, time.time())},
         ):
             result = _run_backtest_for_horizon(demand, weather, 24, "xgboost", "FPL")
@@ -603,7 +603,7 @@ class TestRunBacktestForHorizon:
         mock_cache.get.return_value = sqlite_result
 
         with (
-            patch.dict("components.callbacks._BACKTEST_CACHE", {}, clear=True),
+            patch.dict("components._callbacks_backtest._BACKTEST_CACHE", {}, clear=True),
             patch("data.cache.get_cache", return_value=mock_cache),
         ):
             result = _run_backtest_for_horizon(demand, weather, 24, "xgboost", "FPL")
@@ -628,7 +628,7 @@ class TestRunBacktestForHorizon:
         )
 
         with (
-            patch.dict("components.callbacks._BACKTEST_CACHE", {}, clear=True),
+            patch.dict("components._callbacks_backtest._BACKTEST_CACHE", {}, clear=True),
             patch("data.cache.get_cache", return_value=mock_cache),
             patch("data.preprocessing.merge_demand_weather", return_value=small_df),
             patch("data.feature_engineering.engineer_features", return_value=small_df),

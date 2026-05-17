@@ -152,9 +152,14 @@ class TestBacktestWarming:
     def test_returns_warming_when_require_redis_true(
         self, monkeypatch, clear_caches, empty_sqlite_cache
     ) -> None:
+        import components._callbacks_backtest as bcb
         import components.callbacks as cbs
 
+        # _run_backtest_for_horizon lives in _callbacks_backtest after the
+        # Step 9 extraction and reads REQUIRE_REDIS from its own namespace.
+        # Patch both modules so the warming gate trips reliably.
         monkeypatch.setattr(cbs, "REQUIRE_REDIS", True)
+        monkeypatch.setattr(bcb, "REQUIRE_REDIS", True)
 
         demand_df, weather_df = _sample_frames()
         result = cbs._run_backtest_for_horizon(
