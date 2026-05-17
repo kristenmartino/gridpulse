@@ -90,7 +90,7 @@ from components._callbacks_shared import (
     _MAP_LAND_COLOR,  # noqa: F401 — re-export (tests/unit/test_us_grid_*)
     _MODEL_BAND_COLORS,  # noqa: F401 — re-export (Backtest helpers in callbacks.py call it)
     _MODEL_CACHE,  # noqa: F401 — re-export (test fixture `_clear_module_caches`)
-    _PREDICTION_CACHE,
+    _PREDICTION_CACHE,  # noqa: F401 — re-export (test fixture `_clear_module_caches`)
     _STRESS_RELIABLE_CEILING,  # noqa: F401 — re-export (tests/unit/test_us_grid_stress_cap)
     BACKTEST_EXOG_MODES,  # noqa: F401 — re-export
     COLORS,
