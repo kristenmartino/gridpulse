@@ -72,14 +72,14 @@ from components._callbacks_overview import (
     _build_overview_briefing,  # noqa: F401 — re-export (tests + helper-callable surface)
     _build_overview_data_health,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_digest,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
-    _build_overview_hero_chart,
-    _build_overview_insight,
-    _build_overview_metrics_items,
-    _build_overview_model_card,
+    _build_overview_hero_chart,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
+    _build_overview_insight,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
+    _build_overview_metrics_items,  # noqa: F401 — re-export (tests/unit/test_overview_metrics_nan_guard.py)
+    _build_overview_model_card,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_news,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_sparkline,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_spotlight,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
-    _build_overview_title,
+    _build_overview_title,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_persona_kpis,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
     _build_risk_insight,
     _build_scenarios_panel,
@@ -88,6 +88,7 @@ from components._callbacks_overview import (
     _spotlight_model_accuracy,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _spotlight_renewables,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _spotlight_trader,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
+    register_overview_callbacks,
 )
 from components._callbacks_shared import (
     _BACKTEST_CACHE,  # noqa: F401 — re-export (test fixture `_clear_module_caches`)
@@ -120,7 +121,6 @@ from components._callbacks_weather import (
 from components.accessibility import LINE_STYLES
 from components.cards import (
     build_alert_card,
-    build_metrics_bar,
     build_model_metrics_card,
     build_page_title,
 )
@@ -437,197 +437,17 @@ def register_callbacks(app):
 
     # ── 3. OVERVIEW TAB (R2 — v2 linear stack) ────────────────
     # Single callback drives the 5 dynamic regions of the 7-section
-    # mission-control stack. The footer is rendered statically in the
-    # tab_overview layout. Persona affects only the InsightCard tone;
-    # all charts and KPIs are persona-independent (matches v2 dashboard).
-
-    @app.callback(
-        [
-            Output("overview-title", "children"),
-            Output("overview-metrics-bar", "children"),
-            Output("overview-spotlight-chart", "figure"),
-            Output("overview-model-card", "children"),
-            Output("overview-insight-card", "children"),
-        ],
-        [
-            Input("demand-store", "data"),
-            Input("dashboard-tabs", "active_tab"),
-            Input("persona-selector", "value"),
-        ],
-        [
-            State("weather-store", "data"),
-            State("region-selector", "value"),
-            State("data-freshness-store", "data"),
-        ],
-    )
-    def update_overview_tab(
-        demand_json, active_tab, persona_id, weather_json, region, freshness_data
-    ):
-        """Render the v2 linear-stack Overview: title, metrics, chart, model, insight."""
-        if active_tab != "tab-overview":
-            return [no_update] * 5
-
-        persona_id = persona_id or "grid_ops"
-        region = region or "FPL"
-
-        try:
-            demand_df = None
-            if demand_json:
-                demand_df = pd.read_json(io.StringIO(demand_json))
-            # weather_json + freshness_data reserved for future inline drivers panel
-            del weather_json, freshness_data
-
-            # 1. Title block (region name + subtitle)
-            title = _build_overview_title(region)
-
-            # 2. MetricsBar (5-up KPI row)
-            metrics_bar = build_metrics_bar(_build_overview_metrics_items(demand_df))
-
-            # 3. Hero forecast chart (actual + dashed forecast + confidence band)
-            chart = _build_overview_hero_chart(region, demand_df)
-
-            # 4. ModelMetricsCard
-            model_card = _build_overview_model_card(region)
-
-            # 5. InsightCard
-            insight = _build_overview_insight(region, demand_df, persona_id)
-
-            return (title, metrics_bar, chart, model_card, insight)
-        except Exception as exc:
-            log.exception("update_overview_tab_failed")
-            err_msg = f"{type(exc).__name__}: {exc}"
-            err_div = html.Div(
-                err_msg,
-                style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
-            )
-            return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div)
+    # mission-control stack. Step 10a of the register_callbacks split
+    # (issue #87) moves the decorator block into ``_callbacks_overview.py``
+    # so the Overview tab's read path is end-to-end inside that module.
+    register_overview_callbacks(app)
 
     # ── 3a-bis. V1.β + V1.γ: US GRID SMALL-MULTIPLES TAB ──────
-    # Bird's-eye view of all 16 BAs as a card grid OR a Plotly scatter_geo
-    # of BA centroids (Cards | Map toggle). Each card / map point click
-    # drills down into the Forecast tab for that region. Reads per-region
-    # actuals from Redis (warming/cold regions render an "—" placeholder
-    # in cards view; map view drops them).
-
-    @app.callback(
-        [
-            Output("us-grid-title", "children"),
-            Output("us-grid-metrics-bar", "children"),
-            Output("us-grid-region-grid", "children"),
-        ],
-        [
-            Input("dashboard-tabs", "active_tab"),
-            Input("refresh-interval", "n_intervals"),
-            Input("us-grid-view-toggle", "value"),
-        ],
-    )
-    def update_us_grid_snapshot(active_tab, _n_intervals, view):
-        """Render the US Grid tab's title, MetricsBar, and body (cards or map)."""
-        if active_tab != "tab-us-grid":
-            return [no_update] * 3
-
-        view = view or "cards"
-
-        try:
-            region_data = _collect_us_grid_region_data()
-            title = _build_us_grid_title(region_data)
-            metrics_items = _build_us_grid_metrics_items(region_data)
-            metrics_bar = build_metrics_bar(metrics_items)
-            metrics_bar.className = f"gp-metrics-bar gp-metrics-bar--{len(metrics_items)}up"
-
-            if view == "map":
-                body = _build_us_grid_map(region_data)
-            elif view == "polygons":
-                body = _build_us_grid_choropleth(region_data)
-            else:
-                # Cards are grouped geographically. Section headers
-                # span the full grid row via ``grid-column: 1 / -1`` —
-                # see ``.gp-region-grid__section-header`` in custom.css.
-                # V3.ζ follow-up: skip codes filtered out by the
-                # forecast quality gate (already absent from
-                # ``region_data``) so we don't render orphan section
-                # headers or placeholder cards for hidden regions.
-                from config import REGION_GROUPS
-
-                grid_children: list = []
-                for group_name, codes in REGION_GROUPS.items():
-                    visible = [c for c in codes if c in region_data]
-                    if not visible:
-                        continue
-                    grid_children.append(
-                        html.Div(
-                            group_name,
-                            className="gp-region-grid__section-header",
-                        )
-                    )
-                    grid_children.extend(
-                        _build_us_grid_region_card(code, region_data[code]) for code in visible
-                    )
-                body = html.Div(grid_children, className="gp-region-grid")
-
-            return (title, metrics_bar, body)
-        except Exception as exc:
-            log.exception("update_us_grid_snapshot_failed")
-            err_msg = f"{type(exc).__name__}: {exc}"
-            err_div = html.Div(
-                err_msg,
-                style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
-            )
-            return (err_div, html.Div(), err_div)
-
-    @app.callback(
-        [
-            Output("region-selector", "value", allow_duplicate=True),
-            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
-        ],
-        Input({"type": "us-grid-region-card", "region": ALL}, "n_clicks"),
-        prevent_initial_call=True,
-    )
-    def drilldown_from_us_grid(n_clicks_list):
-        """Click a region card → open Forecast tab pre-set to that region."""
-        if not n_clicks_list or not any(n for n in n_clicks_list if n):
-            return no_update, no_update
-        triggered = ctx.triggered_id
-        if not isinstance(triggered, dict) or triggered.get("type") != "us-grid-region-card":
-            return no_update, no_update
-        region = triggered.get("region")
-        if not region:
-            return no_update, no_update
-        return region, "tab-outlook"
-
-    @app.callback(
-        [
-            Output("region-selector", "value", allow_duplicate=True),
-            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
-        ],
-        Input("us-grid-map", "clickData"),
-        prevent_initial_call=True,
-    )
-    def drilldown_from_us_grid_map(click_data):
-        """Click a map point → open Forecast tab pre-set to that region.
-
-        Mirrors ``drilldown_from_us_grid`` (cards). Same outputs, same
-        downstream effect; the map hands the region code through
-        ``customdata`` instead of a pattern-matching component ID.
-
-        Tolerates two ``customdata`` shapes so the same callback works
-        for both the ``scatter_geo`` view (1-D array of region codes)
-        and the V3.β ``Choropleth`` view (2-D array where index 0 is
-        the region code, indexes 1-2 carry hover text fields).
-        """
-        if not click_data:
-            return no_update, no_update
-        points = click_data.get("points") or []
-        if not points:
-            return no_update, no_update
-        cd = points[0].get("customdata")
-        if cd is None:
-            return no_update, no_update
-        # Choropleth → list/tuple per point; scatter → string per point
-        region = cd[0] if isinstance(cd, (list, tuple)) else cd
-        if not region:
-            return no_update, no_update
-        return region, "tab-outlook"
+    # Step 10b of the register_callbacks split (issue #87) moves the
+    # three US-Grid callbacks (snapshot + card drilldown + map drilldown)
+    # into ``_callbacks_us_grid.py`` so the tab's read path is end-to-end
+    # inside that module.
+    register_us_grid_callbacks(app)
 
     # ── 3b. NEXD-8: SESSION CHANGE DETECTION ──────────────────
     # Snapshot store kept around even though the "What Changed" card is gone
@@ -2252,4 +2072,5 @@ from components._callbacks_us_grid import (  # noqa: E402
     _collect_us_grid_region_data,  # noqa: F401 — re-export
     _is_real_positive,  # noqa: F401 — re-export
     _load_ba_polygons,  # noqa: F401 — re-export
+    register_us_grid_callbacks,
 )
