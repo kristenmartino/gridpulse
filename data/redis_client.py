@@ -104,6 +104,53 @@ def redis_set(key: str, value: dict | list, ttl: int = 86400) -> bool:
         return False
 
 
+def redis_publish(suffix: str, value: dict | list, ttl: int = 86400) -> bool:
+    """Write a JSON value to the primary prefix and (optionally) a dual-write prefix.
+
+    Phase 2 of the ``wattcast:`` → ``gridpulse:`` migration (issue #91).
+    Producer jobs (``jobs/phases.py``) call this with a suffix like
+    ``"actuals:{region}"``; the helper composes the full key from
+    ``REDIS_KEY_PREFIX`` and writes there. When
+    ``REDIS_DUAL_WRITE_PREFIX`` is also set (Phase 2 ops), the same
+    payload is written to ``{dual_prefix}:{suffix}`` so the new
+    namespace is populated before the Phase 3 read-cutover happens.
+
+    Both writes are attempted independently. Return value is ``True`` only
+    when the **primary** write succeeds — the dual write is best-effort
+    (it's a migration safety net, not the source of truth). Dual-write
+    failures log a warning but don't fail the primary path; the next
+    scoring/training cycle will retry.
+
+    Args:
+        suffix: Key suffix after the prefix, e.g. ``"actuals:FPL"``.
+        value: JSON-serializable payload.
+        ttl: TTL in seconds (default 24h, matching scoring/training cadence).
+
+    Returns:
+        ``True`` if the primary write succeeded, ``False`` otherwise.
+    """
+    # Imported lazily for the same reason as ``redis_key`` — avoid forcing
+    # config to load before test fixtures monkeypatch the env.
+    from config import REDIS_DUAL_WRITE_PREFIX, REDIS_KEY_PREFIX
+
+    primary_key = f"{REDIS_KEY_PREFIX}:{suffix}"
+    primary_ok = redis_set(primary_key, value, ttl=ttl)
+
+    if REDIS_DUAL_WRITE_PREFIX and REDIS_DUAL_WRITE_PREFIX != REDIS_KEY_PREFIX:
+        dual_key = f"{REDIS_DUAL_WRITE_PREFIX}:{suffix}"
+        # redis_set already swallows + logs exceptions, so this just
+        # produces a structured warning on failure without raising.
+        dual_ok = redis_set(dual_key, value, ttl=ttl)
+        if not dual_ok:
+            logger.warning(
+                "redis_dual_write_failed primary=%s dual=%s — dual is best-effort",
+                primary_key,
+                dual_key,
+            )
+
+    return primary_ok
+
+
 def redis_available() -> bool:
     """Check if Redis is connected and responsive."""
     return _get_redis() is not None

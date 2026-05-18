@@ -197,3 +197,125 @@ class TestRedisKeyPrefix:
         assert rc.redis_key("") == "wattcast:"
         # Colons in the suffix pass through (this is how multi-part keys work)
         assert rc.redis_key("a:b:c") == "wattcast:a:b:c"
+
+
+class TestRedisPublishDualWrite:
+    """Verify ``redis_publish()`` writes to primary and (optionally) dual-write prefix.
+
+    Phase 2 of the ``wattcast:`` → ``gridpulse:`` migration tracked in
+    issue #91. The helper composes the primary key from
+    ``REDIS_KEY_PREFIX`` and, when ``REDIS_DUAL_WRITE_PREFIX`` is set,
+    mirrors the same payload to the secondary namespace.
+    """
+
+    def _reload_modules(self):
+        """Reload config + redis_client so the env vars set in the test propagate."""
+        import importlib
+
+        import config
+        import data.redis_client as rc
+
+        importlib.reload(config)
+        importlib.reload(rc)
+        return rc
+
+    def test_single_write_when_dual_prefix_unset(self):
+        """Default mode (no dual-write env) writes once to the primary prefix."""
+        with patch.dict(
+            "os.environ",
+            {"REDIS_KEY_PREFIX": "wattcast"},
+            clear=False,
+        ) as env:
+            env.pop("REDIS_DUAL_WRITE_PREFIX", None)
+            rc = self._reload_modules()
+
+            with patch("data.redis_client.redis_set", return_value=True) as mock_set:
+                ok = rc.redis_publish("actuals:FPL", {"x": 1}, ttl=60)
+
+            assert ok is True
+            assert mock_set.call_count == 1
+            args, kwargs = mock_set.call_args
+            assert args[0] == "wattcast:actuals:FPL"
+            assert args[1] == {"x": 1}
+            assert kwargs == {"ttl": 60}
+
+    def test_dual_write_when_prefix_set(self):
+        """When ``REDIS_DUAL_WRITE_PREFIX`` is set, writes to both prefixes."""
+        with patch.dict(
+            "os.environ",
+            {"REDIS_KEY_PREFIX": "wattcast", "REDIS_DUAL_WRITE_PREFIX": "gridpulse"},
+            clear=False,
+        ):
+            rc = self._reload_modules()
+
+            with patch("data.redis_client.redis_set", return_value=True) as mock_set:
+                ok = rc.redis_publish("forecast:ERCOT:1h", {"y": 2}, ttl=120)
+
+            assert ok is True
+            assert mock_set.call_count == 2
+            primary_call, dual_call = mock_set.call_args_list
+            assert primary_call.args[0] == "wattcast:forecast:ERCOT:1h"
+            assert dual_call.args[0] == "gridpulse:forecast:ERCOT:1h"
+            # Same payload + TTL on both writes
+            assert primary_call.args[1] == dual_call.args[1] == {"y": 2}
+            assert primary_call.kwargs == dual_call.kwargs == {"ttl": 120}
+
+    def test_dual_write_failure_doesnt_break_primary(self):
+        """A failed dual-write logs a warning but still reports primary success.
+
+        Justifies the "best-effort" claim in the docstring: during Phase 2
+        rollout, a transient failure on the new prefix shouldn't degrade
+        the production write path. The next scoring cycle overwrites both
+        keys within an hour, so missed dual-writes self-heal.
+        """
+        with patch.dict(
+            "os.environ",
+            {"REDIS_KEY_PREFIX": "wattcast", "REDIS_DUAL_WRITE_PREFIX": "gridpulse"},
+            clear=False,
+        ):
+            rc = self._reload_modules()
+
+            # First call (primary) succeeds, second (dual) fails.
+            with patch("data.redis_client.redis_set", side_effect=[True, False]):
+                ok = rc.redis_publish("diagnostics:PJM", {"z": 3})
+
+            # Primary success → caller sees True even though dual failed.
+            assert ok is True
+
+    def test_primary_failure_reports_false(self):
+        """When the primary write fails, return False regardless of dual outcome."""
+        with patch.dict(
+            "os.environ",
+            {"REDIS_KEY_PREFIX": "wattcast", "REDIS_DUAL_WRITE_PREFIX": "gridpulse"},
+            clear=False,
+        ):
+            rc = self._reload_modules()
+
+            # Primary fails, dual succeeds. Still report failure — the
+            # source of truth (current prefix) didn't write.
+            with patch("data.redis_client.redis_set", side_effect=[False, True]):
+                ok = rc.redis_publish("alerts:CAISO", {"w": 4})
+
+            assert ok is False
+
+    def test_same_prefix_for_both_skips_dual_write(self):
+        """If ops accidentally set DUAL == PRIMARY, write once not twice.
+
+        Defensive: avoids a redundant Redis round-trip and a confusing
+        log line if someone configures the same prefix for both env vars.
+        """
+        with patch.dict(
+            "os.environ",
+            {"REDIS_KEY_PREFIX": "gridpulse", "REDIS_DUAL_WRITE_PREFIX": "gridpulse"},
+            clear=False,
+        ):
+            rc = self._reload_modules()
+
+            with patch("data.redis_client.redis_set", return_value=True) as mock_set:
+                rc.redis_publish("meta:last_scored", {"t": "now"})
+
+            assert mock_set.call_count == 1
+            assert mock_set.call_args.args[0] == "gridpulse:meta:last_scored"
+
+        # Restore default for sibling tests.
+        self._reload_modules()

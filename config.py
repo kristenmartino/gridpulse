@@ -108,10 +108,21 @@ REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 # Key prefix for every Redis namespace this app touches. Issue #91 tracks
 # the multi-phase migration from the old ``wattcast:`` prefix (a project
 # name that predates GridPulse) to ``gridpulse:``. Default stays
-# ``wattcast`` until Phase 3 — Phase 1 (this commit) only introduces the
-# indirection so callsites no longer hardcode the literal. Override via
-# the ``REDIS_KEY_PREFIX`` env var without code changes.
+# ``wattcast`` until Phase 3 — Phase 1 introduced the indirection so
+# callsites no longer hardcode the literal. Override via the
+# ``REDIS_KEY_PREFIX`` env var without code changes.
 REDIS_KEY_PREFIX = os.getenv("REDIS_KEY_PREFIX", "wattcast")
+
+# Secondary prefix that producer jobs (scoring / training) mirror writes
+# to. When set, every ``redis_publish(suffix, ...)`` call writes the
+# payload to BOTH ``{REDIS_KEY_PREFIX}:{suffix}`` and
+# ``{REDIS_DUAL_WRITE_PREFIX}:{suffix}``. Phase 2 (#91) uses this to
+# warm the ``gridpulse:`` namespace while the web still reads
+# ``wattcast:`` — so Phase 3 (flipping ``REDIS_KEY_PREFIX``) finds a
+# fully-populated bucket on the new prefix. After Phase 3 stabilises,
+# Phase 4 unsets this var (and the dual-write code path removes itself).
+# Empty string = disabled (single-write to primary).
+REDIS_DUAL_WRITE_PREFIX = os.getenv("REDIS_DUAL_WRITE_PREFIX", "")
 
 # When True the web callbacks (load_data, _run_forecast_outlook,
 # _run_backtest_for_horizon) must NOT fall back to synchronous API fetches
