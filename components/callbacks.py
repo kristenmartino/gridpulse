@@ -23,7 +23,6 @@ from datetime import UTC
 import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import structlog
 from dash import ALL, Input, Output, State, ctx, html, no_update
 
@@ -38,7 +37,10 @@ from dash import ALL, Input, Output, State, ctx, html, no_update
 # noqa: F401 on the re-exports below — these aren't unused, they're
 # the public-import shim. Anything imported from this module via
 # ``from components.callbacks import <X>`` resolves through here.
-from components._callbacks_alerts import _alerts_tab_from_redis
+from components._callbacks_alerts import (
+    _alerts_tab_from_redis,  # noqa: F401 — re-export (callback now lives in _callbacks_alerts)
+    register_alerts_callbacks,
+)
 from components._callbacks_backtest import (
     _backtest_tab_from_redis,  # noqa: F401 — re-export (tests/unit/test_redis_fast_paths.py)
     _build_forecast_exog_fold,  # noqa: F401 — re-export (tests + register_callbacks symmetry)
@@ -81,8 +83,6 @@ from components._callbacks_overview import (
     _build_overview_spotlight,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_title,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_persona_kpis,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
-    _build_risk_insight,
-    _build_weather_context,
     _fetch_generation_cached,  # noqa: F401 — re-export (tests/unit/test_callbacks_*)
     _spotlight_model_accuracy,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _spotlight_renewables,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
@@ -102,7 +102,7 @@ from components._callbacks_shared import (
     _PREDICTION_CACHE,  # noqa: F401 — re-export (test fixture `_clear_module_caches`)
     _STRESS_RELIABLE_CEILING,  # noqa: F401 — re-export (tests/unit/test_us_grid_stress_cap)
     BACKTEST_EXOG_MODES,  # noqa: F401 — re-export
-    COLORS,
+    COLORS,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py::TestModuleConstants)
     DEFAULT_BACKTEST_EXOG_MODE,  # noqa: F401 — re-export (tests + Backtest module imports it elsewhere)
     PLOT_LAYOUT,  # noqa: F401 — re-export
     PLOT_TEMPLATE,  # noqa: F401 — re-export
@@ -110,20 +110,16 @@ from components._callbacks_shared import (
     _collect_backtest_residuals,  # noqa: F401 — re-export (tests)
     _compute_data_hash,  # noqa: F401 — re-export (tests/unit/test_callbacks_*)
     _empirical_interval_from_backtests,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
-    _empty_figure,
+    _empty_figure,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py::TestEmptyFigure)
     _latest_real_demand,  # noqa: F401 — re-export (tests/unit/test_us_grid_nan_guard.py)
-    _layout,
+    _layout,  # noqa: F401 — re-export (test trace inspection)
 )
 from components._callbacks_weather import (
     _weather_tab_from_redis,  # noqa: F401 — re-export (tests/unit/test_redis_fast_paths.py); fast path is currently orphaned in register_callbacks
 )
-from components.cards import (
-    build_alert_card,
-    build_page_title,
-)
 from config import (
     EIA_API_KEY,
-    REGION_NAMES,
+    REGION_NAMES,  # noqa: F401 — re-export (tests/unit/test_forecast_quality_gate.py patches this)
     REQUIRE_REDIS,
 )
 from data.redis_client import redis_get
@@ -529,280 +525,22 @@ def register_callbacks(app):
     # — corrected here to match the actual tab the callbacks update.
     register_models_callbacks(app)
 
-    # ── 7. TAB 4: GENERATION & NET LOAD ──────────────────────
+    # ── 5. RISK / ALERTS TAB ──────────────────────────────────
+    # Step 10d of the register_callbacks split (issue #87) moves the
+    # three Risk tab callbacks (title, insight, the 8-output
+    # ``update_alerts_tab`` with v1 demo-data fallback) into
+    # ``_callbacks_alerts.py``. The previous section header
+    # ``# ── 7. TAB 4: GENERATION & NET LOAD ──`` was a stale breadcrumb
+    # from an earlier round of refactoring that deleted the Generation
+    # callbacks but left the comment; the outputs in that block were
+    # actually all ``tab5-*`` (Risk tab) ids.
+    register_alerts_callbacks(app)
 
-    @app.callback(
-        Output("risk-title", "children"),
-        [
-            Input("region-selector", "value"),
-            Input("dashboard-tabs", "active_tab"),
-        ],
-    )
-    def update_risk_title(region, active_tab):
-        """Page-title block for the Risk tab."""
-        if active_tab != "tab-alerts":
-            return no_update
-
-        region = region or "FPL"
-        region_name = REGION_NAMES.get(region, region)
-        return build_page_title(
-            "Risk",
-            f"Active alerts, demand anomalies, and grid stress · {region_name}",
-        )
-
-    @app.callback(
-        Output("risk-insight-card", "children"),
-        [
-            Input("dashboard-tabs", "active_tab"),
-            Input("region-selector", "value"),
-            Input("demand-store", "data"),
-            Input("weather-store", "data"),
-        ],
-    )
-    def update_risk_insight(active_tab, region, demand_json, weather_json):
-        """Narrative summary for the Risk tab — 'all systems nominal' or
-        a 1-sentence elevated-risk note."""
-        if active_tab != "tab-alerts":
-            return no_update
-        return _build_risk_insight(region, demand_json, weather_json)
-
-    @app.callback(
-        [
-            Output("tab5-alerts-list", "children"),
-            Output("tab5-stress-score", "children"),
-            Output("tab5-stress-label", "children"),
-            Output("tab5-stress-breakdown", "children"),
-            Output("tab5-anomaly-chart", "figure"),
-            Output("tab5-temp-exceedance", "figure"),
-            Output("tab5-timeline", "figure"),
-            Output("tab5-weather-context", "children"),
-        ],
-        [
-            Input("region-selector", "value"),
-            Input("demand-store", "data"),
-            Input("weather-store", "data"),
-            Input("dashboard-tabs", "active_tab"),
-        ],
-        prevent_initial_call=True,
-    )
-    def update_alerts_tab(region, demand_json, weather_json, active_tab):
-        """Update Tab 5 alerts and stress indicators."""
-        if active_tab != "tab-alerts":
-            return [no_update] * 8
-        empty = _empty_figure("Loading...")
-
-        # ── v2 Redis fast path ──────────────────────────────
-        if region:
-            redis_result = _alerts_tab_from_redis(region)
-            if redis_result is not None:
-                return redis_result
-
-        # ── v1 compute fallback ─────────────────────────────
-        from data.demo_data import generate_demo_alerts
-
-        alerts = generate_demo_alerts(region)
-
-        alert_cards = []
-        if alerts:
-            for a in alerts:
-                alert_cards.append(
-                    build_alert_card(
-                        event=a["event"],
-                        headline=a["headline"],
-                        severity=a["severity"],
-                        expires=a.get("expires", "")[:16] if a.get("expires") else None,
-                    )
-                )
-        else:
-            alert_cards = [
-                html.P(
-                    "No active alerts",
-                    style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
-                )
-            ]
-
-        n_crit = sum(1 for a in alerts if a["severity"] == "critical")
-        n_warn = sum(1 for a in alerts if a["severity"] == "warning")
-        n_info = sum(1 for a in alerts if a["severity"] == "info")
-        stress = min(100, n_crit * 30 + n_warn * 15 + 20)
-        stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
-        stress_color = "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
-
-        from components.icons import icon as _icon
-
-        breakdown_items = []
-        if n_crit:
-            breakdown_items.append(
-                html.Div(
-                    [
-                        _icon(
-                            "alert-triangle",
-                            size="xs",
-                            className="gp-stress-row__icon gp-stress-row__icon--critical",
-                        ),
-                        html.Span(f"Critical: {n_crit}"),
-                    ],
-                    className="gp-stress-row gp-stress-row--critical",
-                )
-            )
-        if n_warn:
-            breakdown_items.append(
-                html.Div(
-                    [
-                        _icon(
-                            "alert-circle",
-                            size="xs",
-                            className="gp-stress-row__icon gp-stress-row__icon--warning",
-                        ),
-                        html.Span(f"Warning: {n_warn}"),
-                    ],
-                    className="gp-stress-row gp-stress-row--warning",
-                )
-            )
-        if n_info:
-            breakdown_items.append(
-                html.Div(
-                    [
-                        _icon(
-                            "info",
-                            size="xs",
-                            className="gp-stress-row__icon gp-stress-row__icon--info",
-                        ),
-                        html.Span(f"Info: {n_info}"),
-                    ],
-                    className="gp-stress-row gp-stress-row--info",
-                )
-            )
-        if not alerts:
-            breakdown_items.append(
-                html.Div("No active alerts", className="gp-stress-row gp-stress-row--empty")
-            )
-        breakdown = html.Div(breakdown_items)
-
-        if demand_json:
-            demand_df = pd.read_json(io.StringIO(demand_json))
-            demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
-            recent = demand_df.tail(168)
-            rolling_mean = recent["demand_mw"].rolling(24).mean()
-            rolling_std = recent["demand_mw"].rolling(24).std()
-            upper = rolling_mean + 2 * rolling_std
-            lower = rolling_mean - 2 * rolling_std
-            anomalies = recent[recent["demand_mw"] > upper]
-
-            fig_anomaly = go.Figure()
-            fig_anomaly.add_trace(
-                go.Scatter(
-                    x=recent["timestamp"],
-                    y=recent["demand_mw"],
-                    name="Demand",
-                    line=dict(color=COLORS["actual"]),
-                )
-            )
-            fig_anomaly.add_trace(
-                go.Scatter(
-                    x=recent["timestamp"],
-                    y=upper,
-                    name="Upper (2σ)",
-                    line=dict(color="#FF5C7A", dash="dash", width=1),
-                )
-            )
-            fig_anomaly.add_trace(
-                go.Scatter(
-                    x=recent["timestamp"],
-                    y=lower,
-                    name="Lower (2σ)",
-                    line=dict(color="#FF5C7A", dash="dash", width=1),
-                )
-            )
-            if not anomalies.empty:
-                fig_anomaly.add_trace(
-                    go.Scatter(
-                        x=anomalies["timestamp"],
-                        y=anomalies["demand_mw"],
-                        mode="markers",
-                        name="Anomaly",
-                        marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
-                    )
-                )
-            fig_anomaly.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
-        else:
-            fig_anomaly = empty
-
-        if weather_json:
-            weather_df = pd.read_json(io.StringIO(weather_json))
-            weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
-            recent_w = weather_df.tail(168)
-            fig_temp = go.Figure()
-            fig_temp.add_trace(
-                go.Scatter(
-                    x=recent_w["timestamp"],
-                    y=recent_w["temperature_2m"],
-                    name="Temperature",
-                    line=dict(color=COLORS["temperature"]),
-                )
-            )
-            for t in [95, 100, 105]:
-                fig_temp.add_hline(
-                    y=t,
-                    line=dict(color="#FF5C7A", dash="dot", width=1),
-                    annotation_text=f"{t}°F",
-                    annotation_position="right",
-                )
-            fig_temp.update_layout(**_layout(uirevision=region, yaxis_title="°F"))
-        else:
-            fig_temp = empty
-
-        events = [
-            ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
-            ("2022-09-06", "CA Heat Wave", "CAISO", 80),
-            ("2023-07-20", "Heat Dome", "CAISO", 85),
-            ("2024-04-08", "Solar Eclipse", "PJM", 40),
-        ]
-        fig_timeline = go.Figure()
-        for date, name, reg, sev in events:
-            color = COLORS["ensemble"] if reg == region else "#A8B3C7"
-            fig_timeline.add_trace(
-                go.Scatter(
-                    x=[date],
-                    y=[sev],
-                    mode="markers+text",
-                    text=[name],
-                    textposition="top center",
-                    marker=dict(size=12, color=color),
-                    showlegend=False,
-                )
-            )
-        fig_timeline.update_layout(
-            **_layout(
-                uirevision=region,
-                xaxis_title="Date",
-                yaxis_title="Severity Score",
-                yaxis_range=[0, 100],
-            )
-        )
-
-        # Build weather context from latest reading
-        weather_context = html.Div()
-        if weather_json:
-            try:
-                w_df = pd.read_json(io.StringIO(weather_json))
-                if not w_df.empty:
-                    weather_context = _build_weather_context(w_df.iloc[-1])
-            except Exception:
-                log.warning("weather_context_build_failed")
-
-        return (
-            alert_cards,
-            str(stress),
-            html.Span(stress_label, className=f"kpi-delta {stress_color}"),
-            breakdown,
-            fig_anomaly,
-            fig_temp,
-            fig_timeline,
-            weather_context,
-        )
-
-    # ── 9. TAB 6: SCENARIO SIMULATOR ─────────────────────────
+    # ── 6. FALLBACK BANNER (cross-cutting — degraded data sources) ────
+    # The previous section header ``# ── 9. TAB 6: SCENARIO SIMULATOR ──``
+    # was another stale breadcrumb. The block below renders the
+    # fallback banner shown when data sources are degraded — it's
+    # cross-cutting (visible on every tab) so stays in callbacks.py.
 
     @app.callback(
         Output("fallback-banner", "children"),
