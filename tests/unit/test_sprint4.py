@@ -9,7 +9,6 @@ Covers:
 """
 
 import inspect
-import sys
 
 import pandas as pd
 import pytest
