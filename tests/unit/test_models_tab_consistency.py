@@ -361,10 +361,16 @@ class TestLeaderboardTableConsistency:
     def test_v1_fallback_uses_shared_metrics(self):
         """The v1 compute fallback in ``update_models_tab`` also reads
         through ``get_model_metrics`` so cold-Redis dev mode stays
-        consistent with the (also-fallback) leaderboard."""
+        consistent with the (also-fallback) leaderboard.
+
+        Step 10c moved the callback registration out of
+        ``components.callbacks.register_callbacks`` and into
+        ``components._callbacks_models.register_models_callbacks`` —
+        the assertion below introspects the new location.
+        """
         import inspect
 
-        from components import callbacks as cb
+        from components import _callbacks_models as cm
 
-        src = inspect.getsource(cb.register_callbacks)
+        src = inspect.getsource(cm.register_models_callbacks)
         assert "get_model_metrics(region) or forecasts.get" in src
