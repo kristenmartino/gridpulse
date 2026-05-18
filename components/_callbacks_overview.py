@@ -254,19 +254,22 @@ def _build_overview_hero_chart(
         log.warning("overview_hero_forecast_failed", region=region, error=str(exc))
 
     fig.update_layout(
-        **_layout(uirevision=region, showlegend=False),
-        xaxis=dict(
-            showgrid=False,
-            linecolor="rgba(255,255,255,0.04)",
-            tickfont=dict(color="#71717a", size=10),
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor="rgba(255,255,255,0.04)",
-            zeroline=False,
-            tickformat=",.0f",
-            tickfont=dict(color="#71717a", size=10),
-            title=None,
+        **_layout(
+            uirevision=region,
+            showlegend=False,
+            xaxis=dict(
+                showgrid=False,
+                linecolor="rgba(255,255,255,0.04)",
+                tickfont=dict(color="#71717a", size=10),
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="rgba(255,255,255,0.04)",
+                zeroline=False,
+                tickformat=",.0f",
+                tickfont=dict(color="#71717a", size=10),
+                title=None,
+            ),
         ),
     )
     return fig
@@ -1069,10 +1072,12 @@ def _driver_sparkline(df: pd.DataFrame, column: str, color: str, fillcolor: str)
         )
     )
     fig.update_layout(
-        **_layout(uirevision=column),
-        xaxis=dict(visible=False),
-        yaxis=dict(visible=False),
-        margin=dict(l=0, r=0, t=4, b=4),
+        **_layout(
+            uirevision=column,
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            margin=dict(l=0, r=0, t=4, b=4),
+        )
     )
     return fig
 

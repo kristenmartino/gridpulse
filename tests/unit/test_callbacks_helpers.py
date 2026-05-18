@@ -2146,3 +2146,91 @@ class TestModuleConstants:
         removed = PLOT_CONFIG["modeBarButtonsToRemove"]
         for button in ("select2d", "lasso2d", "autoScale2d", "toggleSpikelines"):
             assert button in removed
+
+
+class TestChartHelpersDoNotCollideOnAxisKwargs:
+    """Regression guard for the ``update_layout() got multiple values for
+    keyword argument 'xaxis'`` family of bugs.
+
+    After PR #115 added ``xaxis``/``yaxis`` defaults to ``PLOT_LAYOUT``,
+    any callsite still doing ``update_layout(**_layout(...), xaxis=...)``
+    fails at call time. The unit tests caught the spotlight + sparkline
+    sites but missed the Overview hero chart and the Forecast drivers
+    sparkline. Production caught them. This test class exercises every
+    chart-building helper to ensure none of them collide.
+
+    Failure mode: the helper raises ``TypeError: ... got multiple values
+    for keyword argument 'xaxis'`` when its ``update_layout()`` is
+    called. Passing this test means the helper successfully built a
+    figure end-to-end.
+    """
+
+    def _demand_df(self, periods: int = 200):
+        return pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2024-01-01", periods=periods, freq="h", tz="UTC"),
+                "demand_mw": [40000.0] * periods,
+            }
+        )
+
+    def _weather_df(self, periods: int = 48):
+        ts = pd.date_range("2024-01-01", periods=periods, freq="h", tz="UTC")
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "temperature_2m": [70.0] * periods,
+                "wind_speed_80m": [10.0] * periods,
+                "shortwave_radiation": [200.0] * periods,
+            }
+        )
+
+    def test_overview_hero_chart_builds(self):
+        """``_build_overview_hero_chart`` builds without xaxis/yaxis collision."""
+        from components.callbacks import _build_overview_hero_chart
+
+        fig = _build_overview_hero_chart("FPL", self._demand_df())
+        # If we got here without TypeError, the fix is intact. Also check the
+        # PLOT_LAYOUT axis tone landed — that confirms the merge worked.
+        assert fig.layout.xaxis.gridcolor == "rgba(255,255,255,0.04)"
+
+    def test_overview_sparkline_builds(self):
+        """``_build_overview_sparkline`` — 24h demand sparkline."""
+        from components.callbacks import _build_overview_sparkline
+
+        fig = _build_overview_sparkline(self._demand_df(periods=48), "FPL")
+        assert fig.layout.xaxis is not None
+
+    def test_driver_sparkline_builds(self):
+        """``_driver_sparkline`` — the Forecast tab's per-driver mini chart.
+
+        This one bit twice: in the spotlight-fix wave (PR #115) and
+        again here. The xaxis/yaxis kwargs were outside ``_layout()``.
+        Not re-exported via the callbacks shim (internal Overview
+        helper) — import from the per-tab module directly.
+        """
+        from components._callbacks_overview import _driver_sparkline
+
+        wdf = self._weather_df(periods=24)
+        fig = _driver_sparkline(wdf, "temperature_2m", "#3b82f6", "rgba(0,0,0,0.1)")
+        # ``visible=False`` is from the helper's own override (hiding axes
+        # on the sparkline); proves the override reached the figure.
+        assert fig.layout.xaxis.visible is False
+        assert fig.layout.yaxis.visible is False
+
+    def test_spotlight_renewables_builds(self):
+        from components.callbacks import _spotlight_renewables
+
+        fig = _spotlight_renewables(self._weather_df(), "FPL")
+        assert fig.layout.title.text == "Renewable Potential (48h)"
+
+    def test_spotlight_trader_builds(self):
+        from components.callbacks import _spotlight_trader
+
+        fig = _spotlight_trader(self._demand_df(periods=48), "FPL")
+        assert fig.layout.title.text == "Demand vs Capacity"
+
+    def test_spotlight_model_accuracy_builds(self):
+        from components.callbacks import _spotlight_model_accuracy
+
+        fig = _spotlight_model_accuracy("FPL")
+        assert fig.layout.title.text == "Model MAPE Comparison"
