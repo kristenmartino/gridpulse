@@ -217,13 +217,32 @@ dashboard shows "Data warming up" until the next hourly tick (up to
 backtests).
 
 For these deploys, force-execute both Jobs immediately so keys
-populate without the wait:
+populate without the wait. **Do NOT manually redeploy the Jobs first**
+— CI's ``deploy-prod.yml`` already ran ``gcloud run jobs deploy``
+for both with the new image. The Jobs are sitting on the new code;
+they just haven't been triggered yet.
 
 ```bash
 # After CI finishes deploying:
 gcloud run jobs execute gridpulse-scoring-job  --region us-east1 --wait
 gcloud run jobs execute gridpulse-training-job --region us-east1
 # (training takes ~3.5h with the 3-task parallel split — don't --wait)
+```
+
+If you ever DO need to manually update a Job's image (rolling back
+to a previous commit, or recovering from a CI failure that pushed
+to GHCR but didn't update Cloud Run), the real command is:
+
+```bash
+# Latest from CI's ``prod-latest`` tag:
+gcloud run jobs update gridpulse-training-job \
+  --image us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse:prod-latest \
+  --region us-east1
+
+# Or a specific commit SHA (immutable — recommended for rollback):
+gcloud run jobs update gridpulse-training-job \
+  --image us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse:<sha> \
+  --region us-east1
 ```
 
 **Cases that need this dance:**
