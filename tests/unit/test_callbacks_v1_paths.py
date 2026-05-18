@@ -956,7 +956,7 @@ class TestDemandOutlookV1:
 
     def test_no_data_returns_loading(self, callbacks):
         """No demand/weather data returns loading placeholder."""
-        with patch("components.callbacks.redis_get", return_value=None):
+        with patch("components._callbacks_forecast.redis_get", return_value=None):
             result = callbacks["update_demand_outlook"](
                 24, "xgboost", "tab-outlook", None, "grid_ops", None, "FPL"
             )
@@ -972,8 +972,8 @@ class TestDemandOutlookV1:
         }
 
         with (
-            patch("components.callbacks.redis_get", return_value=None),
-            patch("components.callbacks._run_forecast_outlook", return_value=fake_result),
+            patch("components._callbacks_forecast.redis_get", return_value=None),
+            patch("components._callbacks_forecast._run_forecast_outlook", return_value=fake_result),
         ):
             result = callbacks["update_demand_outlook"](
                 24, "xgboost", "tab-outlook", _demand_json(), "grid_ops", _weather_json(), "FPL"
@@ -990,9 +990,9 @@ class TestDemandOutlookV1:
     def test_v1_forecast_error(self, callbacks):
         """When forecast returns error, display error annotation."""
         with (
-            patch("components.callbacks.redis_get", return_value=None),
+            patch("components._callbacks_forecast.redis_get", return_value=None),
             patch(
-                "components.callbacks._run_forecast_outlook",
+                "components._callbacks_forecast._run_forecast_outlook",
                 return_value={"error": "Model training failed"},
             ),
         ):

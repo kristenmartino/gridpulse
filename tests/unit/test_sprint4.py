@@ -9,7 +9,6 @@ Covers:
 """
 
 import inspect
-import sys
 
 import pandas as pd
 import pytest
@@ -80,20 +79,42 @@ class TestCallbackOutputCompleteness:
     """
 
     def test_tab5_stress_breakdown_wired(self):
-        src = inspect.getsource(sys.modules["components.callbacks"])
+        # The alerts callback wiring lives in register_callbacks in callbacks.py
+        # — explicit import ensures the module is loaded before introspection
+        # (regression-safe against pytest test-ordering changes).
+        import components.callbacks
+
+        src = inspect.getsource(components.callbacks)
         assert "tab5-stress-breakdown" in src
 
     def test_persona_tab_disabled_loop_removed(self):
         """Tab visibility loop was removed: dbc.Tab tab_id != id, disabled not dynamic."""
-        src = inspect.getsource(sys.modules["components.callbacks"])
+        import components.callbacks
+
+        src = inspect.getsource(components.callbacks)
         assert "bound_tid" not in src, "Broken tab visibility loop should be removed"
 
     def test_model_service_used_not_raw_noise(self):
-        """Callbacks use model_service, not inline random noise."""
-        src = inspect.getsource(sys.modules["components.callbacks"])
-        assert "get_forecasts" in src, "model_service.get_forecasts not used"
-        # Old pattern should be gone
-        assert "np.random.normal(0, 0.02" not in src, "Old noise pattern still present"
+        """Callbacks use model_service, not inline random noise.
+
+        Step 10c of the register_callbacks split (issue #87) moved the
+        forecast callback (and its ``get_forecasts`` call) out of
+        callbacks.py into ``_callbacks_forecast.py``. The assertion now
+        targets the forecast module's source; the no-noise check spans
+        both modules to catch the legacy pattern wherever it could live.
+        """
+        import components._callbacks_forecast
+        import components._callbacks_models
+        import components.callbacks
+
+        forecast_src = inspect.getsource(components._callbacks_forecast)
+        models_src = inspect.getsource(components._callbacks_models)
+        callbacks_src = inspect.getsource(components.callbacks)
+        combined = forecast_src + models_src + callbacks_src
+
+        assert "get_forecasts" in combined, "model_service.get_forecasts not used"
+        # Old pattern should be gone everywhere
+        assert "np.random.normal(0, 0.02" not in combined, "Old noise pattern still present"
 
 
 class TestTab1KPIContracts:
