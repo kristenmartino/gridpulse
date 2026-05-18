@@ -104,6 +104,7 @@ from components._callbacks_shared import (
     BACKTEST_EXOG_MODES,  # noqa: F401 — re-export
     COLORS,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py::TestModuleConstants)
     DEFAULT_BACKTEST_EXOG_MODE,  # noqa: F401 — re-export (tests + Backtest module imports it elsewhere)
+    PLOT_CONFIG,  # noqa: F401 — re-export
     PLOT_LAYOUT,  # noqa: F401 — re-export
     PLOT_TEMPLATE,  # noqa: F401 — re-export
     _cache_lock,  # noqa: F401 — re-export (app.py uses for cache stats)

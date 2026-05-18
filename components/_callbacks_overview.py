@@ -1109,9 +1109,6 @@ def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go
         uirevision=region,
         showlegend=False,
         margin=dict(l=40, r=10, t=10, b=30),
-    )
-    fig.update_layout(
-        **sparkline_layout,
         xaxis=dict(
             showgrid=False,
             tickformat="%H:%M",
@@ -1123,6 +1120,7 @@ def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go
             title="MW",
         ),
     )
+    fig.update_layout(**sparkline_layout)
     return fig
 
 
@@ -1499,11 +1497,11 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
         uirevision=region,
         margin=dict(l=45, r=45, t=35, b=40),
         legend=dict(orientation="h", y=-0.15, font=dict(size=10)),
-    )
-    fig.update_layout(
-        **renew_layout,
-        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color="#DDE6F2")),
-        showlegend=True,
+        # Axis overrides flow through ``_layout()`` so the shared
+        # gridcolor / linecolor defaults in ``PLOT_LAYOUT`` deep-merge
+        # with per-chart options. Passing these as kwargs to
+        # ``update_layout()`` separately would conflict with the
+        # ``xaxis`` / ``yaxis`` keys already in ``PLOT_LAYOUT``.
         yaxis=dict(
             title="Wind (mph)",
             showgrid=True,
@@ -1516,6 +1514,11 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
             showgrid=False,
         ),
         xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
+    )
+    fig.update_layout(
+        **renew_layout,
+        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color="#DDE6F2")),
+        showlegend=True,
     )
     return fig
 
@@ -1573,11 +1576,9 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
             annotation_font_color=color,
         )
 
-    trader_layout = _layout(uirevision=region, margin=dict(l=50, r=10, t=35, b=30))
-    fig.update_layout(
-        **trader_layout,
-        title=dict(text="Demand vs Capacity", font=dict(size=13, color="#DDE6F2")),
-        showlegend=False,
+    trader_layout = _layout(
+        uirevision=region,
+        margin=dict(l=50, r=10, t=35, b=30),
         xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
         yaxis=dict(
             showgrid=True,
@@ -1585,6 +1586,11 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
             tickformat=",.0f",
             title="MW",
         ),
+    )
+    fig.update_layout(
+        **trader_layout,
+        title=dict(text="Demand vs Capacity", font=dict(size=13, color="#DDE6F2")),
+        showlegend=False,
     )
     return fig
 
@@ -1625,17 +1631,20 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
         )
     )
 
-    model_layout = _layout(uirevision=region, margin=dict(l=40, r=10, t=35, b=30))
-    fig.update_layout(
-        **model_layout,
-        title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#DDE6F2")),
-        showlegend=False,
+    model_layout = _layout(
+        uirevision=region,
+        margin=dict(l=40, r=10, t=35, b=30),
         yaxis=dict(
             title="MAPE (%)",
             showgrid=True,
             gridcolor="rgba(255,255,255,0.05)",
         ),
         xaxis=dict(showgrid=False),
+    )
+    fig.update_layout(
+        **model_layout,
+        title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#DDE6F2")),
+        showlegend=False,
     )
     return fig
 
