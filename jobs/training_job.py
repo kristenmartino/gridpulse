@@ -8,7 +8,7 @@ For each region:
 3. Train XGBoost (primary), Prophet, and SARIMAX (best-effort).
 4. Persist each model to GCS via :mod:`models.persistence`.
 5. Recompute backtests and write them to Redis.
-6. Mark ``wattcast:meta:last_trained``.
+6. Mark ``gridpulse:meta:last_trained``.
 
 Does not trigger scoring — the next hourly scoring run picks up the new
 models via :func:`models.persistence.load_model`.
@@ -578,7 +578,7 @@ def run() -> int:
     files, which are written with optimistic-concurrency
     (see :func:`models.persistence._write_latest`).
 
-    Only task 0 writes the ``wattcast:meta:last_trained`` Redis pointer
+    Only task 0 writes the ``gridpulse:meta:last_trained`` Redis pointer
     at the end — the other tasks log their per-task completion but
     don't race the meta write. That key is consumed by the UI's
     data-freshness chip; partial-meta from one task would mislead.

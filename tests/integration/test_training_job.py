@@ -154,8 +154,8 @@ class TestTrainingJob:
         assert ("ERCOT", "arima") in saved_versions
 
         # last_trained meta is present and reflects the successful region.
-        assert "wattcast:meta:last_trained" in fake_redis
-        meta = fake_redis["wattcast:meta:last_trained"]
+        assert "gridpulse:meta:last_trained" in fake_redis
+        meta = fake_redis["gridpulse:meta:last_trained"]
         assert meta["regions_trained"] == 1
         assert meta["mode"] == "training-job"
 
@@ -201,7 +201,7 @@ class TestTrainingJob:
         exit_code = training_job.run()
         assert exit_code == 1
         # Region must show up in failed list when xgboost couldn't be saved.
-        assert "ERCOT" in fake_redis["wattcast:meta:last_trained"]["regions_failed"]
+        assert "ERCOT" in fake_redis["gridpulse:meta:last_trained"]["regions_failed"]
 
     def test_training_job_no_data_records_failure(
         self,
@@ -218,4 +218,4 @@ class TestTrainingJob:
 
         exit_code = training_job.run()
         assert exit_code == 1
-        assert "ERCOT" in fake_redis["wattcast:meta:last_trained"]["regions_failed"]
+        assert "ERCOT" in fake_redis["gridpulse:meta:last_trained"]["regions_failed"]

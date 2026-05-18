@@ -16,7 +16,7 @@ module owns the Models / Diagnostics tab's data-shaping helpers:
 
 All three are exclusively Models-tab data path. ``_models_tab_from_redis``
 is the producer/consumer split between the scoring job (writes
-``wattcast:diagnostics:{region}``) and the web request path. The
+``gridpulse:diagnostics:{region}``) and the web request path. The
 metric formatter is its only caller plus ``register_callbacks``'s v1
 fallback branch (which mirrors the same table layout when Redis is
 cold). ``_get_feature_importance`` is the Models-tab v1 fallback's

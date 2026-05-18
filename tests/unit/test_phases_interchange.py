@@ -58,7 +58,7 @@ class TestWriteInterchange:
         result = phases.write_interchange("PJM")
 
         assert result.ok is True
-        payload = fake_redis["wattcast:interchange:PJM:1h"]
+        payload = fake_redis["gridpulse:interchange:PJM:1h"]
         assert payload["region"] == "PJM"
         assert payload["net_mw"] is None
         assert payload["counterparties"] == []
@@ -86,7 +86,7 @@ class TestWriteInterchange:
         result = phases.write_interchange("PJM")
 
         assert result.ok is True
-        payload = fake_redis["wattcast:interchange:PJM:1h"]
+        payload = fake_redis["gridpulse:interchange:PJM:1h"]
         assert payload["latest_hour"] == latest.isoformat()
         # Net = sum of all four = -1625.5
         assert payload["net_mw"] == pytest.approx(-1625.5, abs=0.01)
@@ -118,7 +118,7 @@ class TestWriteInterchange:
         )
 
         phases.write_interchange("PJM")
-        payload = fake_redis["wattcast:interchange:PJM:1h"]
+        payload = fake_redis["gridpulse:interchange:PJM:1h"]
         assert payload["latest_hour"] == latest.isoformat()
         assert payload["net_mw"] == pytest.approx(-750.0, abs=0.01)
         assert payload["counterparties"][0]["mw"] == pytest.approx(-500.0)
@@ -140,7 +140,7 @@ class TestWriteInterchange:
         )
 
         phases.write_interchange("PJM")
-        payload = fake_redis["wattcast:interchange:PJM:1h"]
+        payload = fake_redis["gridpulse:interchange:PJM:1h"]
         assert payload["net_mw"] == pytest.approx(-1000.0)
         assert len(payload["counterparties"]) == 1
         assert payload["counterparties"][0]["to_ba"] == "MISO"
@@ -161,7 +161,7 @@ class TestWriteInterchange:
 
         assert result.ok is False
         assert "synthetic EIA outage" in (result.error or "")
-        assert "wattcast:interchange:PJM:1h" not in fake_redis
+        assert "gridpulse:interchange:PJM:1h" not in fake_redis
 
     def test_no_eia_api_key_returns_failure(self, fake_redis, monkeypatch):
         """No API key → bail before fetch attempt."""
@@ -173,7 +173,7 @@ class TestWriteInterchange:
 
         assert result.ok is False
         assert result.error == "no_eia_api_key"
-        assert "wattcast:interchange:PJM:1h" not in fake_redis
+        assert "gridpulse:interchange:PJM:1h" not in fake_redis
 
 
 class TestInterchangeChipRender:

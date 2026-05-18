@@ -11,7 +11,7 @@ Continues the per-tab split established by:
 
 Currently a single function: ``_alerts_tab_from_redis``. The Alerts tab
 is structurally a "Redis-only" tab — every view it renders comes from
-the ``wattcast:alerts:{region}`` payload that the scoring job writes
+the ``gridpulse:alerts:{region}`` payload that the scoring job writes
 each hour. There's no fallback compute path because alert detection
 itself runs in the scoring job, not on the web. That makes this module
 small (~200 lines) and self-contained.

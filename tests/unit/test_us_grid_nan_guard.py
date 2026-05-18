@@ -151,7 +151,7 @@ class TestCollectUsGridRegionData:
 
         self._patch_redis(
             monkeypatch,
-            {"wattcast:actuals:PJM": {"demand_mw": [70000.0, 71000.0, 72000.0]}},
+            {"gridpulse:actuals:PJM": {"demand_mw": [70000.0, 71000.0, 72000.0]}},
         )
         # Limit to one region for clarity
         with patch("components._callbacks_us_grid.REGION_NAMES", {"PJM": "Mid-Atlantic (PJM)"}):
@@ -166,7 +166,7 @@ class TestCollectUsGridRegionData:
 
         self._patch_redis(
             monkeypatch,
-            {"wattcast:actuals:PSCO": {"demand_mw": [9000.0, 9100.0, 9200.0, float("nan")]}},
+            {"gridpulse:actuals:PSCO": {"demand_mw": [9000.0, 9100.0, 9200.0, float("nan")]}},
         )
         with patch("components._callbacks_us_grid.REGION_NAMES", {"PSCO": "Colorado (Xcel)"}):
             data = _collect_us_grid_region_data()
@@ -182,7 +182,7 @@ class TestCollectUsGridRegionData:
         nan = float("nan")
         self._patch_redis(
             monkeypatch,
-            {"wattcast:actuals:HECO": {"demand_mw": [nan, nan, nan, nan]}},
+            {"gridpulse:actuals:HECO": {"demand_mw": [nan, nan, nan, nan]}},
         )
         with patch("components._callbacks_us_grid.REGION_NAMES", {"HECO": "Hawaii (HECO)"}):
             data = _collect_us_grid_region_data()
