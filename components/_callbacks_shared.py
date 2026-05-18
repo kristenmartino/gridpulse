@@ -86,8 +86,40 @@ _EIA_FUEL_MAP: dict[str, str] = {
 
 
 # ── Plotly layout tokens ─────────────────────────────────────────────
+#
+# Issue #26: cross-cutting Plotly polish — hover label theming, axis
+# tone, modebar trim. Defaults set here so every chart that flows
+# through ``_layout()`` picks them up; per-chart overrides still win
+# because ``_layout()`` does a shallow merge over ``PLOT_LAYOUT``.
 
 PLOT_TEMPLATE = "plotly_dark"
+
+# Modebar config for any chart that *wants* a visible modebar. The
+# current GridPulse design hides the modebar entirely on every tab
+# (each ``tab_*.py`` defines a local ``_GRAPH_CONFIG`` with
+# ``displayModeBar: False`` — portfolio-dashboard context where no
+# user is doing analytic exploration). This constant lives here as
+# the cross-cutting alternative: when a future chart needs a
+# user-facing zoom/pan/download bar, opt in with
+# ``dcc.Graph(config=PLOT_CONFIG, ...)`` instead of inventing yet
+# another local config dict.
+#
+# ``displaylogo=False`` strips the Plotly attribution.
+# ``modeBarButtonsToRemove`` trims the lasso / select / autoscale /
+# spike-line buttons (not useful for time-series demand data) so
+# the only remaining buttons are zoom / pan / reset / download.
+# ``responsive=True`` keeps charts legible on container resize.
+PLOT_CONFIG: dict[str, object] = {
+    "displaylogo": False,
+    "modeBarButtonsToRemove": [
+        "select2d",
+        "lasso2d",
+        "autoScale2d",
+        "toggleSpikelines",
+    ],
+    "responsive": True,
+}
+
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,
     paper_bgcolor="rgba(0,0,0,0)",
@@ -104,6 +136,40 @@ PLOT_LAYOUT = dict(
         font=dict(size=11),
         bgcolor="rgba(0,0,0,0)",
     ),
+    # Hover label — dark surface, Inter, left-aligned. Matches the
+    # rest of the v2 chrome and reads as "part of the same surface"
+    # rather than a Plotly-default light pill.
+    hoverlabel=dict(
+        bgcolor="#11141c",
+        bordercolor="rgba(255,255,255,0.10)",
+        font=dict(
+            family="Inter, 'Segoe UI', system-ui, sans-serif",
+            size=12,
+            color="#F5F7FA",
+        ),
+        align="left",
+    ),
+    # Unified hover groups every trace's value at the same x — much
+    # cleaner for time-series with multiple model overlays. Charts
+    # that want trace-individual hovers (heatmaps, scatters) override
+    # this in their own ``_layout()`` call.
+    hovermode="x unified",
+    # Subtle axis tone. Plotly's default dark-template grid is too
+    # heavy — these are barely-visible against ``--bg-raised``,
+    # which is exactly the cue we want (gridlines guide the eye
+    # without competing with the data).
+    xaxis=dict(
+        gridcolor="rgba(255,255,255,0.04)",
+        zerolinecolor="rgba(255,255,255,0.08)",
+        linecolor="rgba(255,255,255,0.10)",
+        tickfont=dict(color="#8892A5", size=11),
+    ),
+    yaxis=dict(
+        gridcolor="rgba(255,255,255,0.04)",
+        zerolinecolor="rgba(255,255,255,0.08)",
+        linecolor="rgba(255,255,255,0.10)",
+        tickfont=dict(color="#8892A5", size=11),
+    ),
 )
 
 
@@ -117,8 +183,31 @@ def _layout(*, uirevision: str | None = None, **overrides) -> dict:
     the same revision string and the chart's interaction state survives.
     Changing the string forces Plotly to re-initialize the view, which
     is the desired behavior when the user picks a new region/horizon.
+
+    Axis dicts merge instead of replace: ``PLOT_LAYOUT`` carries the
+    shared axis tone (gridcolor / linecolor / tickfont) and callsites
+    layer per-chart options (titles, tick format, showgrid toggles) on
+    top. Without this merge, a callsite that passes ``xaxis=dict(...)``
+    would silently lose the shared styling.
     """
     layout = {**PLOT_LAYOUT, **overrides}
+    # Deep-merge xaxis / yaxis (and any yaxis2/yaxis3 etc. for dual-axis
+    # plots): combine the PLOT_LAYOUT defaults with the per-call override,
+    # with the override winning on conflicting keys.
+    for axis_key, default_value in PLOT_LAYOUT.items():
+        if not (axis_key.startswith("xaxis") or axis_key.startswith("yaxis")):
+            continue
+        override_value = overrides.get(axis_key)
+        if override_value is None:
+            continue  # only the default applies — leave PLOT_LAYOUT entry alone
+        if isinstance(default_value, dict) and isinstance(override_value, dict):
+            layout[axis_key] = {**default_value, **override_value}
+        # else: scalar override (rare) — already handled by the outer
+        # ``{**PLOT_LAYOUT, **overrides}`` above.
+    # Plotly also accepts dual-axis configs the callsite didn't have a
+    # default for (e.g. ``yaxis2``). Those pass through unchanged from
+    # the override dict — they're already in ``layout`` from the
+    # outer merge above.
     if uirevision is not None:
         layout["uirevision"] = uirevision
     return layout
@@ -462,6 +551,7 @@ __all__ = [
     # Plotly layout
     "PLOT_TEMPLATE",
     "PLOT_LAYOUT",
+    "PLOT_CONFIG",
     "_layout",
     "_empty_figure",
     # Color palette

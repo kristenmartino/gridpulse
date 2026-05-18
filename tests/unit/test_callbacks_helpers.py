@@ -2112,3 +2112,37 @@ class TestModuleConstants:
         from components.callbacks import PLOT_LAYOUT
 
         assert "template" in PLOT_LAYOUT
+
+    def test_plot_layout_has_hover_and_axis_polish(self):
+        """Issue #26 — cross-cutting hover/axis tokens live in PLOT_LAYOUT."""
+        from components.callbacks import PLOT_LAYOUT
+
+        # Hover label theming
+        assert PLOT_LAYOUT["hovermode"] == "x unified"
+        hoverlabel = PLOT_LAYOUT["hoverlabel"]
+        assert hoverlabel["bgcolor"] == "#11141c"
+        assert hoverlabel["align"] == "left"
+
+        # Subtle axis tone on both axes (one rgba alpha — same value)
+        for axis in ("xaxis", "yaxis"):
+            ax = PLOT_LAYOUT[axis]
+            assert ax["gridcolor"] == "rgba(255,255,255,0.04)"
+            assert ax["zerolinecolor"] == "rgba(255,255,255,0.08)"
+            assert ax["linecolor"] == "rgba(255,255,255,0.10)"
+
+    def test_plot_config_constant(self):
+        """PLOT_CONFIG is exported for charts that opt into a visible modebar.
+
+        Current GridPulse design hides the modebar everywhere — each tab
+        has its own ``_GRAPH_CONFIG = {"displayModeBar": False, ...}``.
+        PLOT_CONFIG is the cross-cutting alternative for future charts
+        that need user-facing zoom/pan/download.
+        """
+        from components.callbacks import PLOT_CONFIG
+
+        assert PLOT_CONFIG["displaylogo"] is False
+        assert PLOT_CONFIG["responsive"] is True
+        # Lasso / select buttons don't belong on a time-series modebar
+        removed = PLOT_CONFIG["modeBarButtonsToRemove"]
+        for button in ("select2d", "lasso2d", "autoScale2d", "toggleSpikelines"):
+            assert button in removed
