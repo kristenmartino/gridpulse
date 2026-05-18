@@ -6,8 +6,8 @@ Cloud Run Jobs driven by Cloud Scheduler:
 
 | Job | Cadence | What it does |
 |---|---|---|
-| `gridpulse-scoring-job` | Hourly (`0 * * * *`) | Refresh Redis: actuals, weather, generation, forecasts, alerts, diagnostics, weather-correlation, `wattcast:meta:last_scored` |
-| `gridpulse-training-job` | Daily (`0 4 * * *` UTC) | Retrain XGBoost / Prophet / SARIMAX per region, persist to GCS, recompute backtests, `wattcast:meta:last_trained` |
+| `gridpulse-scoring-job` | Hourly (`0 * * * *`) | Refresh Redis: actuals, weather, generation, forecasts, alerts, diagnostics, weather-correlation, `gridpulse:meta:last_scored` |
+| `gridpulse-training-job` | Daily (`0 4 * * *` UTC) | Retrain XGBoost / Prophet / SARIMAX per region, persist to GCS, recompute backtests, `gridpulse:meta:last_trained` |
 
 The Dash web service (`gridpulse`) reads Redis only. A Redis miss becomes
 a degraded "warming" state in the UI — it never blocks the request on an
@@ -33,7 +33,7 @@ Staging mirrors this topology with `-dev` suffixes
  └──────┬───────────────┬────────────┘
         │               │
         ▼               ▼
-  GCS (models/)   Redis (wattcast:*)
+  GCS (models/)   Redis (gridpulse:*)
                         ▲
               ┌─────────┴────────────┐
               │ Cloud Run Service    │
@@ -161,7 +161,7 @@ deploy:
    gcloud storage cat gs://nextera-portfolio-energy-cache/cache/models/latest.json
 
    # Redis populated
-   redis-cli -h $REDIS_HOST GET wattcast:meta:last_scored
+   redis-cli -h $REDIS_HOST GET gridpulse:meta:last_scored
    ```
 
 5. Enable the Cloud Scheduler entries (they default to `ENABLED`, but
@@ -195,9 +195,78 @@ Set `REQUIRE_REDIS=true` locally to exercise the degraded / warming UI:
 REQUIRE_REDIS=true python app.py
 ```
 
+## Cache-invalidating deploys
+
+**Important:** Cloud Run **deploy** ≠ Cloud Run **execute**. The CI
+workflow (`deploy-prod.yml`) builds a new image and updates BOTH Jobs'
+container definitions on every push to `main` — but Jobs only *run*
+when Cloud Scheduler triggers them (hourly for scoring, daily for
+training). A fresh deploy with new code sits dormant until the next
+cron tick.
+
+Most deploys don't notice this: the previous scoring run already
+populated Redis with the format the new web code expects, and the
+next hourly tick refreshes it under the new code. The web service
+keeps reading the same keys throughout.
+
+**Any deploy that changes the Redis key namespace, payload schema, or
+prefix invalidates that assumption.** After the deploy, the new web
+code looks for keys that the old scoring run didn't write — the
+dashboard shows "Data warming up" until the next hourly tick (up to
+60 minutes for scoring, up to 24 hours for training-derived
+backtests).
+
+For these deploys, force-execute both Jobs immediately so keys
+populate without the wait. **Do NOT manually redeploy the Jobs first**
+— CI's ``deploy-prod.yml`` already ran ``gcloud run jobs deploy``
+for both with the new image. The Jobs are sitting on the new code;
+they just haven't been triggered yet.
+
+```bash
+# After CI finishes deploying:
+gcloud run jobs execute gridpulse-scoring-job  --region us-east1 --wait
+gcloud run jobs execute gridpulse-training-job --region us-east1
+# (training takes ~3.5h with the 3-task parallel split — don't --wait)
+```
+
+If you ever DO need to manually update a Job's image (rolling back
+to a previous commit, or recovering from a CI failure that pushed
+to GHCR but didn't update Cloud Run), the real command is:
+
+```bash
+# Latest from CI's ``prod-latest`` tag:
+gcloud run jobs update gridpulse-training-job \
+  --image us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse:prod-latest \
+  --region us-east1
+
+# Or a specific commit SHA (immutable — recommended for rollback):
+gcloud run jobs update gridpulse-training-job \
+  --image us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse:<sha> \
+  --region us-east1
+```
+
+**Cases that need this dance:**
+
+- `REDIS_KEY_PREFIX` change (e.g. issue #91 `wattcast:` → `gridpulse:`)
+- Adding a new Redis key the web reads (web 404s the key until the
+  scoring job's next tick writes it)
+- Payload schema break (web parses the new shape, last scoring run
+  wrote the old shape → parse error or empty render)
+- Changing the model artifact format (training job needs to re-emit
+  `latest.json` in the new shape before the scoring job will load it)
+
+**Symptom map for the live dashboard during the warming window:**
+
+| What's missing | Means |
+|---|---|
+| Demand chart empty / "warming" | Redis `gridpulse:actuals:{region}` not populated — wait for next scoring tick or force-execute |
+| Forecast chart empty | `gridpulse:forecast:{region}:1h` not populated — same fix |
+| Backtest tab empty | `gridpulse:backtest:{exog_mode}:{region}:{horizon}` not populated — needs training tick (daily) or force-execute |
+| Model accuracy card SHOWS numbers but charts are empty | Expected: MAPE/RMSE/MAE/R² come from GCS `meta.json` (persisted at training time, independent of Redis). The card is reading from the durable source while the live data flows from Redis are still warming. Not a bug. |
+
 ## Operations
 
-- **Redis staleness**: `wattcast:meta:last_scored.updated_at` should be
+- **Redis staleness**: `gridpulse:meta:last_scored.updated_at` should be
   within the last ~90 minutes. Consider a Cloud Monitoring alert on
   absence.
 - **Job failure**: Cloud Run Jobs exit non-zero only when every region
