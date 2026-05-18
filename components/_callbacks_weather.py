@@ -45,7 +45,7 @@ import structlog
 from plotly.subplots import make_subplots
 
 from components._callbacks_shared import COLORS, _layout
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
@@ -55,7 +55,7 @@ def _weather_tab_from_redis(region):
 
     Returns a 6-tuple of Plotly figures or None if cache miss.
     """
-    cached = redis_get(f"wattcast:weather-correlation:{region}")
+    cached = redis_get(redis_key(f"weather-correlation:{region}"))
     if cached is None:
         return None
 

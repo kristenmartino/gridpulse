@@ -46,7 +46,7 @@ from components._callbacks_shared import (
     _layout,
 )
 from components.cards import build_alert_card
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
@@ -57,7 +57,7 @@ def _alerts_tab_from_redis(region):
     Returns an 8-tuple (alert_cards, stress_str, stress_label_span, breakdown,
     fig_anomaly, fig_temp, fig_timeline, weather_context) or None if cache miss.
     """
-    cached = redis_get(f"wattcast:alerts:{region}")
+    cached = redis_get(redis_key(f"alerts:{region}"))
     if cached is None:
         return None
 

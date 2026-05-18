@@ -41,7 +41,7 @@ import plotly.graph_objects as go
 import structlog
 
 from components._callbacks_shared import COLORS, _layout
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
@@ -52,7 +52,7 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
     Returns a 7-tuple (fig_hero, fig_mix, ren_pct, peak_ramp, min_net,
     curtailment, insight_card) or None if cache miss.
     """
-    cached_gen = redis_get(f"wattcast:generation:{region}")
+    cached_gen = redis_get(redis_key(f"generation:{region}"))
     if cached_gen is None or not cached_gen.get("timestamps"):
         return None
 

@@ -84,7 +84,7 @@ from components._callbacks_shared import (
 )
 from components.accessibility import LINE_STYLES
 from config import CACHE_TTL_SECONDS, REQUIRE_REDIS
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
@@ -638,7 +638,7 @@ def _outlook_tab_from_redis(
     or insufficient data.
     """
     granularity = "1h"
-    cached = redis_get(f"wattcast:forecast:{region}:{granularity}")
+    cached = redis_get(redis_key(f"forecast:{region}:{granularity}"))
     if cached is None or not cached.get("forecasts"):
         return None
 

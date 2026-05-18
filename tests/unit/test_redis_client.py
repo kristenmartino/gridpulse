@@ -141,3 +141,59 @@ class TestRedisBacktestFormat:
         assert "predictions" in result
         assert "timestamps" in result
         assert result["metrics"]["xgboost"]["mape"] == 3.45
+
+
+class TestRedisKeyPrefix:
+    """Verify the ``redis_key()`` helper composes the prefix correctly.
+
+    Phase 1 of the ``wattcast:`` → ``gridpulse:`` migration tracked in
+    issue #91. The helper lives in ``data/redis_client.py`` and reads
+    ``REDIS_KEY_PREFIX`` from ``config`` at call time, so an env-var
+    flip after process start does not propagate (matches the Cloud Run
+    deploy boundary — each new revision picks up the new prefix).
+    """
+
+    def test_default_prefix_is_wattcast(self):
+        """Until Phase 3 ops flip, the default prefix matches the legacy literal."""
+        import importlib
+
+        import config
+        import data.redis_client as rc
+
+        # Clear any env-var override and re-import config so REDIS_KEY_PREFIX
+        # picks up the actual default. Without this, a sibling test that
+        # patched the env could leak into this one.
+        with patch.dict("os.environ", {}, clear=False) as env:
+            env.pop("REDIS_KEY_PREFIX", None)
+            importlib.reload(config)
+            importlib.reload(rc)
+            assert rc.redis_key("actuals:FPL") == "wattcast:actuals:FPL"
+            assert rc.redis_key("forecast:ERCOT:1h") == "wattcast:forecast:ERCOT:1h"
+
+    def test_env_var_override_changes_prefix(self):
+        """Setting ``REDIS_KEY_PREFIX`` flips the prefix on next import."""
+        import importlib
+
+        import config
+        import data.redis_client as rc
+
+        with patch.dict("os.environ", {"REDIS_KEY_PREFIX": "gridpulse"}, clear=False):
+            importlib.reload(config)
+            importlib.reload(rc)
+            assert rc.redis_key("actuals:FPL") == "gridpulse:actuals:FPL"
+            assert rc.redis_key("backtest:forecast_exog:PJM:24") == (
+                "gridpulse:backtest:forecast_exog:PJM:24"
+            )
+
+        # Restore default so subsequent tests aren't tainted by the reload above.
+        importlib.reload(config)
+        importlib.reload(rc)
+
+    def test_suffix_is_composed_verbatim(self):
+        """No escaping, no validation — caller owns the suffix shape."""
+        import data.redis_client as rc
+
+        # Empty suffix (edge case)
+        assert rc.redis_key("") == "wattcast:"
+        # Colons in the suffix pass through (this is how multi-part keys work)
+        assert rc.redis_key("a:b:c") == "wattcast:a:b:c"

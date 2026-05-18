@@ -84,7 +84,7 @@ from components.cards import (
     build_page_title,
 )
 from config import REGION_CAPACITY_MW, REGION_NAMES
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 from personas.config import get_persona
 
 log = structlog.get_logger()
@@ -1800,7 +1800,7 @@ def _build_persona_kpis(
 
     # Fallback: read demand stats from Redis
     if peak_mw is None:
-        actuals_redis = redis_get(f"wattcast:actuals:{region}")
+        actuals_redis = redis_get(redis_key(f"actuals:{region}"))
         if actuals_redis and actuals_redis.get("demand_mw"):
             demand_vals = [v for v in actuals_redis["demand_mw"] if v is not None and v > 0]
             if demand_vals:
@@ -1828,7 +1828,7 @@ def _build_persona_kpis(
     # Also filter None/NaN entries before averaging — Redis arrays can have
     # gaps where Open-Meteo emitted nulls.
     if avg_wind is None or avg_solar is None:
-        weather_redis = redis_get(f"wattcast:weather:{region}")
+        weather_redis = redis_get(redis_key(f"weather:{region}"))
         if weather_redis:
             if avg_wind is None and "wind_speed_80m" in weather_redis:
                 vals = [v for v in weather_redis["wind_speed_80m"] if pd.notna(v)]
@@ -1855,10 +1855,10 @@ def _build_persona_kpis(
     if backtest_mape is None:
         for horizon in [168, 24, 720]:
             bt_redis = redis_get(
-                f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}"
+                redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}")
             )
             if bt_redis is None:
-                bt_redis = redis_get(f"wattcast:backtest:{region}:{horizon}")
+                bt_redis = redis_get(redis_key(f"backtest:{region}:{horizon}"))
             if bt_redis and "metrics" in bt_redis:
                 xgb_metrics = bt_redis["metrics"].get("xgboost", {})
                 if xgb_metrics:

@@ -191,7 +191,7 @@ def _ts_list(series: Any) -> list[str]:
 
 def write_actuals_and_weather(data: RegionData) -> PhaseResult:
     """Write actuals + weather JSON payloads to Redis."""
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
 
     region = data.region
     try:
@@ -203,7 +203,7 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
             "timestamps": _ts_list(demand_df["timestamp"]),
             "demand_mw": demand_df["demand_mw"].tolist(),
         }
-        redis_set(f"wattcast:actuals:{region}", actuals_payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"actuals:{region}"), actuals_payload, ttl=REDIS_TTL)
 
         weather_payload: dict[str, Any] = {
             "region": region,
@@ -213,7 +213,7 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
             if col == "timestamp":
                 continue
             weather_payload[col] = weather_df[col].tolist()
-        redis_set(f"wattcast:weather:{region}", weather_payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"weather:{region}"), weather_payload, ttl=REDIS_TTL)
 
         return PhaseResult(
             region=region,
@@ -231,7 +231,7 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
 def write_generation(region: str) -> PhaseResult:
     """Fetch generation-by-fuel for a region and write a pivoted payload to Redis."""
     from data.eia_client import fetch_generation_by_fuel
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
 
     if not _has_eia_key():
         return PhaseResult(region=region, ok=False, error="no_eia_api_key")
@@ -269,7 +269,7 @@ def write_generation(region: str) -> PhaseResult:
             ren_pct = [0.0] * len(pivot)
         payload["renewable_pct"] = ren_pct
 
-        redis_set(f"wattcast:generation:{region}", payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"generation:{region}"), payload, ttl=REDIS_TTL)
         avg_ren = float(np.mean(ren_pct)) if ren_pct else 0.0
         log.info(
             "job_generation_written",
@@ -313,7 +313,7 @@ def write_interchange(region: str) -> PhaseResult:
     instead of guessing.
     """
     from data.eia_client import fetch_interchange
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
 
     if not _has_eia_key():
         return PhaseResult(region=region, ok=False, error="no_eia_api_key")
@@ -334,12 +334,12 @@ def write_interchange(region: str) -> PhaseResult:
 
     if flow_df is None or flow_df.empty:
         log.info("job_interchange_empty", region=region)
-        redis_set(f"wattcast:interchange:{region}:1h", payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"interchange:{region}:1h"), payload, ttl=REDIS_TTL)
         return PhaseResult(region=region, ok=True, details={"net_mw": None, "rows": 0})
 
     flow_df = flow_df.dropna(subset=["interchange_mw"])
     if flow_df.empty:
-        redis_set(f"wattcast:interchange:{region}:1h", payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"interchange:{region}:1h"), payload, ttl=REDIS_TTL)
         return PhaseResult(region=region, ok=True, details={"net_mw": None, "rows": 0})
 
     latest_ts = flow_df["timestamp"].max()
@@ -360,7 +360,7 @@ def write_interchange(region: str) -> PhaseResult:
             "counterparties": counterparties,
         }
     )
-    redis_set(f"wattcast:interchange:{region}:1h", payload, ttl=REDIS_TTL)
+    redis_set(redis_key(f"interchange:{region}:1h"), payload, ttl=REDIS_TTL)
     log.info(
         "job_interchange_written",
         region=region,
@@ -504,7 +504,7 @@ def predict_and_write_forecast(
         model_mapes: Optional mapping of model name → recent MAPE (%). Drives
             ensemble weighting when present.
     """
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
     from models.ensemble import compute_ensemble_weights, ensemble_combine
 
     region = data.region
@@ -602,7 +602,7 @@ def predict_and_write_forecast(
             }
 
         redis_set(
-            f"wattcast:forecast:{region}:1h",
+            redis_key(f"forecast:{region}:1h"),
             redis_payload,
             ttl=REDIS_TTL,
         )
@@ -633,7 +633,7 @@ def write_backtests(data: RegionData) -> PhaseResult:
     isn't pulled into the job container unless this phase runs.
     """
     from components.callbacks import _run_backtest_for_horizon
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
 
     region = data.region
     written: list[int] = []
@@ -663,7 +663,7 @@ def write_backtests(data: RegionData) -> PhaseResult:
             timestamps = [pd.Timestamp(t).isoformat() for t in bt["timestamps"]]
             residuals = (np.asarray(bt["actual"]) - np.asarray(bt["predictions"])).tolist()
             redis_set(
-                f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}",
+                redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}"),
                 {
                     "horizon": horizon,
                     "exog_mode": DEFAULT_BACKTEST_EXOG_MODE,
@@ -705,7 +705,7 @@ def write_backtests(data: RegionData) -> PhaseResult:
 def write_weather_correlation(data: RegionData) -> PhaseResult:
     """Write the weather-correlation payload consumed by the Weather tab."""
     from data.feature_engineering import compute_solar_capacity_factor, compute_wind_power
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
 
     region = data.region
     try:
@@ -775,7 +775,7 @@ def write_weather_correlation(data: RegionData) -> PhaseResult:
         ):
             payload[col] = wc_merged[col].tolist() if col in wc_merged.columns else []
 
-        redis_set(f"wattcast:weather-correlation:{region}", payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"weather-correlation:{region}"), payload, ttl=REDIS_TTL)
         return PhaseResult(region=region, ok=True, details={"rows": len(wc_merged)})
     except Exception as e:
         log.warning("job_weather_correlation_failed", region=region, error=str(e))
@@ -784,7 +784,7 @@ def write_weather_correlation(data: RegionData) -> PhaseResult:
 
 def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
     """Write the model-diagnostics payload (actuals vs ensemble, residuals, importance)."""
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
     from models.model_service import get_forecasts
 
     region = data.region
@@ -828,7 +828,7 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
             fi_vals = [f[1] for f in sorted_feats]
 
         redis_set(
-            f"wattcast:diagnostics:{region}",
+            redis_key(f"diagnostics:{region}"),
             {
                 "region": region,
                 "timestamps": _ts_list(diag_ts),
@@ -857,7 +857,7 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
 def write_alerts(data: RegionData) -> PhaseResult:
     """Write the alerts / stress / anomaly payload for the Risk tab."""
     from data.demo_data import generate_demo_alerts
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
 
     region = data.region
     try:
@@ -904,7 +904,7 @@ def write_alerts(data: RegionData) -> PhaseResult:
                 "values": recent_w["temperature_2m"].tolist(),
             }
 
-        redis_set(f"wattcast:alerts:{region}", payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"alerts:{region}"), payload, ttl=REDIS_TTL)
         return PhaseResult(
             region=region,
             ok=True,
@@ -925,14 +925,14 @@ def write_alerts(data: RegionData) -> PhaseResult:
 
 def write_meta(key: str, extra: dict[str, Any] | None = None) -> None:
     """Write a ``wattcast:meta:{key}`` marker with current UTC timestamp."""
-    from data.redis_client import redis_set
+    from data.redis_client import redis_key, redis_set
 
     payload = {
         "updated_at": datetime.now(UTC).isoformat(),
     }
     if extra:
         payload.update(extra)
-    redis_set(f"wattcast:meta:{key}", payload, ttl=REDIS_TTL)
+    redis_set(redis_key(f"meta:{key}"), payload, ttl=REDIS_TTL)
 
 
 # ── Orchestration helpers ────────────────────────────────────
