@@ -15,7 +15,7 @@ class TestRedisClientGracefulFallback:
         rc._redis_init_attempted = False
 
         with patch.dict("os.environ", {"REDIS_HOST": ""}, clear=False):
-            result = rc.redis_get("wattcast:actuals:FPL")
+            result = rc.redis_get("gridpulse:actuals:FPL")
             assert result is None
 
     def test_redis_unavailable_returns_none(self):
@@ -36,7 +36,7 @@ class TestRedisClientGracefulFallback:
             mock_redis_mod.Redis.return_value = mock_client
             # Need to reimport to pick up the mock
             rc._redis_init_attempted = False
-            result = rc.redis_get("wattcast:actuals:FPL")
+            result = rc.redis_get("gridpulse:actuals:FPL")
             assert result is None
 
     def test_redis_available_returns_true(self):
@@ -69,9 +69,9 @@ class TestRedisClientReads:
         rc._redis_client = mock_client
         rc._redis_init_attempted = True
 
-        result = rc.redis_get("wattcast:actuals:FPL")
+        result = rc.redis_get("gridpulse:actuals:FPL")
         assert result == payload
-        mock_client.get.assert_called_once_with("wattcast:actuals:FPL")
+        mock_client.get.assert_called_once_with("gridpulse:actuals:FPL")
 
     def test_redis_get_returns_none_for_missing_key(self):
         """redis_get returns None when key doesn't exist."""
@@ -82,7 +82,7 @@ class TestRedisClientReads:
         rc._redis_client = mock_client
         rc._redis_init_attempted = True
 
-        result = rc.redis_get("wattcast:actuals:MISSING")
+        result = rc.redis_get("gridpulse:actuals:MISSING")
         assert result is None
 
     def test_redis_get_handles_corrupt_json(self):
@@ -94,7 +94,7 @@ class TestRedisClientReads:
         rc._redis_client = mock_client
         rc._redis_init_attempted = True
 
-        result = rc.redis_get("wattcast:actuals:FPL")
+        result = rc.redis_get("gridpulse:actuals:FPL")
         assert result is None
 
     def test_redis_get_handles_read_exception(self):
@@ -106,7 +106,7 @@ class TestRedisClientReads:
         rc._redis_client = mock_client
         rc._redis_init_attempted = True
 
-        result = rc.redis_get("wattcast:actuals:FPL")
+        result = rc.redis_get("gridpulse:actuals:FPL")
         assert result is None
 
 
@@ -134,7 +134,7 @@ class TestRedisBacktestFormat:
         rc._redis_client = mock_client
         rc._redis_init_attempted = True
 
-        result = rc.redis_get("wattcast:backtest:FPL:24")
+        result = rc.redis_get("gridpulse:backtest:FPL:24")
         assert result is not None
         assert "metrics" in result
         assert "actual" in result
@@ -146,15 +146,14 @@ class TestRedisBacktestFormat:
 class TestRedisKeyPrefix:
     """Verify the ``redis_key()`` helper composes the prefix correctly.
 
-    Phase 1 of the ``wattcast:`` → ``gridpulse:`` migration tracked in
-    issue #91. The helper lives in ``data/redis_client.py`` and reads
-    ``REDIS_KEY_PREFIX`` from ``config`` at call time, so an env-var
-    flip after process start does not propagate (matches the Cloud Run
-    deploy boundary — each new revision picks up the new prefix).
+    The helper lives in ``data/redis_client.py`` and reads
+    ``REDIS_KEY_PREFIX`` from ``config`` at every call. Tests that want
+    to exercise an override re-import config after monkeypatching the
+    env so the new value propagates.
     """
 
-    def test_default_prefix_is_wattcast(self):
-        """Until Phase 3 ops flip, the default prefix matches the legacy literal."""
+    def test_default_prefix_is_gridpulse(self):
+        """The default prefix matches the product name."""
         import importlib
 
         import config
@@ -167,22 +166,29 @@ class TestRedisKeyPrefix:
             env.pop("REDIS_KEY_PREFIX", None)
             importlib.reload(config)
             importlib.reload(rc)
-            assert rc.redis_key("actuals:FPL") == "wattcast:actuals:FPL"
-            assert rc.redis_key("forecast:ERCOT:1h") == "wattcast:forecast:ERCOT:1h"
+            assert rc.redis_key("actuals:FPL") == "gridpulse:actuals:FPL"
+            assert rc.redis_key("forecast:ERCOT:1h") == "gridpulse:forecast:ERCOT:1h"
 
     def test_env_var_override_changes_prefix(self):
-        """Setting ``REDIS_KEY_PREFIX`` flips the prefix on next import."""
+        """Setting ``REDIS_KEY_PREFIX`` flips the prefix on next import.
+
+        Uses the historical ``wattcast`` value (issue #91) to verify the
+        override path — pointing at any non-default namespace exercises
+        the same code path. In production this is what you'd reach for
+        when running an experimental scoring job that shouldn't clobber
+        live keys.
+        """
         import importlib
 
         import config
         import data.redis_client as rc
 
-        with patch.dict("os.environ", {"REDIS_KEY_PREFIX": "gridpulse"}, clear=False):
+        with patch.dict("os.environ", {"REDIS_KEY_PREFIX": "wattcast"}, clear=False):
             importlib.reload(config)
             importlib.reload(rc)
-            assert rc.redis_key("actuals:FPL") == "gridpulse:actuals:FPL"
+            assert rc.redis_key("actuals:FPL") == "wattcast:actuals:FPL"
             assert rc.redis_key("backtest:forecast_exog:PJM:24") == (
-                "gridpulse:backtest:forecast_exog:PJM:24"
+                "wattcast:backtest:forecast_exog:PJM:24"
             )
 
         # Restore default so subsequent tests aren't tainted by the reload above.
@@ -194,6 +200,6 @@ class TestRedisKeyPrefix:
         import data.redis_client as rc
 
         # Empty suffix (edge case)
-        assert rc.redis_key("") == "wattcast:"
+        assert rc.redis_key("") == "gridpulse:"
         # Colons in the suffix pass through (this is how multi-part keys work)
-        assert rc.redis_key("a:b:c") == "wattcast:a:b:c"
+        assert rc.redis_key("a:b:c") == "gridpulse:a:b:c"

@@ -85,7 +85,7 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
        are still supplemented from Redis below).
     3. Ensemble metrics from xgboost's meta extra
        (``ensemble_holdout_metrics``).
-    4. Redis diagnostics ``wattcast:diagnostics:{region}`` —
+    4. Redis diagnostics ``gridpulse:diagnostics:{region}`` —
        fallback ONLY for fields not provided by the meta path.
        In production this content is currently
        ``_simulate_forecasts``-derived; the meta-first ordering means

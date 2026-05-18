@@ -12,7 +12,7 @@ Continues the per-tab split established by:
 
 ``_generation_tab_from_redis`` — the Redis fast path that builds the
 entire Generation & Net Load tab from the scoring job's hourly
-``wattcast:generation:{region}`` payload.
+``gridpulse:generation:{region}`` payload.
 
 The function shapes the parallel-array EIA payload into a fuel-pivot
 DataFrame, joins with demand for net-load arithmetic, computes the four

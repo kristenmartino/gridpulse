@@ -105,13 +105,16 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 REDIS_HOST = os.getenv("REDIS_HOST", "")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
-# Key prefix for every Redis namespace this app touches. Issue #91 tracks
-# the multi-phase migration from the old ``wattcast:`` prefix (a project
-# name that predates GridPulse) to ``gridpulse:``. Default stays
-# ``wattcast`` until Phase 3 — Phase 1 (this commit) only introduces the
-# indirection so callsites no longer hardcode the literal. Override via
-# the ``REDIS_KEY_PREFIX`` env var without code changes.
-REDIS_KEY_PREFIX = os.getenv("REDIS_KEY_PREFIX", "wattcast")
+# Key prefix for every Redis namespace this app touches. Renamed from
+# ``wattcast`` (an older project name) to ``gridpulse`` to match the
+# product (issue #91). Override via the ``REDIS_KEY_PREFIX`` env var if
+# you need to point at a different namespace — e.g. when running an
+# experimental scoring job that shouldn't clobber production keys.
+#
+# On the deploy that flipped this default, the web service returned
+# "Data warming up" until the next hourly scoring run populated the
+# ``gridpulse:*`` keys. Old ``wattcast:*`` keys TTL out within 24h.
+REDIS_KEY_PREFIX = os.getenv("REDIS_KEY_PREFIX", "gridpulse")
 
 # When True the web callbacks (load_data, _run_forecast_outlook,
 # _run_backtest_for_horizon) must NOT fall back to synchronous API fetches

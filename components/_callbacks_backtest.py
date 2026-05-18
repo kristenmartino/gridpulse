@@ -28,7 +28,7 @@ Seven helpers covering the Backtest surface:
   for a backtest fold, with Redis snapshot + climatology fallback.
 * ``_backtest_tab_from_redis`` — Redis fast path that builds the
   entire Backtest tab from the scoring job's hourly
-  ``wattcast:backtest:{exog_mode}:{region}:{horizon_hours}`` payload.
+  ``gridpulse:backtest:{exog_mode}:{region}:{horizon_hours}`` payload.
 * ``_predict_single_fold`` — train+predict for one fold of one model.
 * ``_ensemble_fold`` — equal-weight ensemble across all models for
   one fold. Uses uniform averaging (not 1/MAPE) to avoid data leakage

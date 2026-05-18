@@ -3,14 +3,14 @@ GridPulse scoring job — hourly.
 
 Refreshes Redis with the data the Dash web service reads:
 
-- actuals (``wattcast:actuals:{region}``)
-- weather (``wattcast:weather:{region}``)
-- generation by fuel (``wattcast:generation:{region}``)
-- 720h forward forecast (``wattcast:forecast:{region}:1h``)
-- weather-correlation payload (``wattcast:weather-correlation:{region}``)
-- model diagnostics (``wattcast:diagnostics:{region}``)
-- alerts / stress / anomalies (``wattcast:alerts:{region}``)
-- ``wattcast:meta:last_scored`` marker
+- actuals (``gridpulse:actuals:{region}``)
+- weather (``gridpulse:weather:{region}``)
+- generation by fuel (``gridpulse:generation:{region}``)
+- 720h forward forecast (``gridpulse:forecast:{region}:1h``)
+- weather-correlation payload (``gridpulse:weather-correlation:{region}``)
+- model diagnostics (``gridpulse:diagnostics:{region}``)
+- alerts / stress / anomalies (``gridpulse:alerts:{region}``)
+- ``gridpulse:meta:last_scored`` marker
 
 Per-region failures are isolated — one region going sideways must not
 abort the whole run. The job returns a non-zero exit code only when

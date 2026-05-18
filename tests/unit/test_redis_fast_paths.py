@@ -26,7 +26,7 @@ def _ts(n=48):
 
 
 def _demand_payload(n=48, base=30_000):
-    """Minimal ``wattcast:actuals:{region}`` Redis payload."""
+    """Minimal ``gridpulse:actuals:{region}`` Redis payload."""
     return {
         "timestamps": _ts(n),
         "demand_mw": [base + i * 10 for i in range(n)],
@@ -34,7 +34,7 @@ def _demand_payload(n=48, base=30_000):
 
 
 def _weather_payload(n=48):
-    """Minimal ``wattcast:weather:{region}`` Redis payload."""
+    """Minimal ``gridpulse:weather:{region}`` Redis payload."""
     return {
         "timestamps": _ts(n),
         "temperature_2m": [70 + i * 0.1 for i in range(n)],
@@ -44,7 +44,7 @@ def _weather_payload(n=48):
 
 
 def _weather_correlation_payload():
-    """Minimal ``wattcast:weather-correlation:{region}`` Redis payload."""
+    """Minimal ``gridpulse:weather-correlation:{region}`` Redis payload."""
     return {
         "temperature_2m": [70, 72, 74],
         "demand_mw": [30000, 31000, 32000],
@@ -70,7 +70,7 @@ def _weather_correlation_payload():
 
 
 def _diagnostics_payload():
-    """Minimal ``wattcast:diagnostics:{region}`` Redis payload."""
+    """Minimal ``gridpulse:diagnostics:{region}`` Redis payload."""
     n = 48
     return {
         "metrics": {
@@ -94,7 +94,7 @@ def _diagnostics_payload():
 
 
 def _generation_payload(n=72):
-    """Minimal ``wattcast:generation:{region}`` Redis payload."""
+    """Minimal ``gridpulse:generation:{region}`` Redis payload."""
     ts = pd.date_range(pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=n), periods=n, freq="h")
     return {
         "timestamps": ts.strftime("%Y-%m-%dT%H:%M:%S%z").tolist(),
@@ -107,7 +107,7 @@ def _generation_payload(n=72):
 
 
 def _alerts_payload(with_alerts=True):
-    """Minimal ``wattcast:alerts:{region}`` Redis payload."""
+    """Minimal ``gridpulse:alerts:{region}`` Redis payload."""
     alerts = []
     if with_alerts:
         alerts = [
@@ -139,7 +139,7 @@ def _alerts_payload(with_alerts=True):
 
 
 def _forecast_payload(n=72, model="xgboost"):
-    """Minimal ``wattcast:forecast:{region}:1h`` Redis payload."""
+    """Minimal ``gridpulse:forecast:{region}:1h`` Redis payload."""
     return {
         "scored_at": "2024-06-01T12:00:00Z",
         "forecasts": [
@@ -154,7 +154,7 @@ def _forecast_payload(n=72, model="xgboost"):
 
 
 def _backtest_payload(horizon=24):
-    """Minimal ``wattcast:backtest:{region}:{horizon}`` Redis payload."""
+    """Minimal ``gridpulse:backtest:{region}:{horizon}`` Redis payload."""
     n = 48
     actual = [30000 + i * 10 for i in range(n)]
     return {
@@ -183,8 +183,8 @@ class TestLoadDataFromRedis:
     def test_both_keys_hit_returns_5_tuple(self, mock_rg):
         """Both actuals and weather cached → returns 5-tuple of JSON strings."""
         mock_rg.side_effect = lambda k: {
-            "wattcast:actuals:FPL": _demand_payload(),
-            "wattcast:weather:FPL": _weather_payload(),
+            "gridpulse:actuals:FPL": _demand_payload(),
+            "gridpulse:weather:FPL": _weather_payload(),
         }.get(k)
 
         from components.callbacks import _load_data_from_redis
@@ -205,7 +205,7 @@ class TestLoadDataFromRedis:
     def test_actuals_miss_returns_none(self, mock_rg):
         """Actuals cache miss → returns None."""
         mock_rg.side_effect = lambda k: {
-            "wattcast:weather:FPL": _weather_payload(),
+            "gridpulse:weather:FPL": _weather_payload(),
         }.get(k)
 
         from components.callbacks import _load_data_from_redis
@@ -216,7 +216,7 @@ class TestLoadDataFromRedis:
     def test_weather_miss_returns_none(self, mock_rg):
         """Weather cache miss → returns None."""
         mock_rg.side_effect = lambda k: {
-            "wattcast:actuals:FPL": _demand_payload(),
+            "gridpulse:actuals:FPL": _demand_payload(),
         }.get(k)
 
         from components.callbacks import _load_data_from_redis
@@ -237,8 +237,8 @@ class TestLoadDataFromRedis:
         """Empty demand_mw list → freshness dict has no latest_data key."""
         payload = {"timestamps": [], "demand_mw": []}
         mock_rg.side_effect = lambda k: {
-            "wattcast:actuals:FPL": payload,
-            "wattcast:weather:FPL": _weather_payload(),
+            "gridpulse:actuals:FPL": payload,
+            "gridpulse:weather:FPL": _weather_payload(),
         }.get(k)
 
         from components.callbacks import _load_data_from_redis
@@ -252,8 +252,8 @@ class TestLoadDataFromRedis:
     def test_audit_trail_uses_redis_source(self, mock_rg):
         """Audit record records source='redis'."""
         mock_rg.side_effect = lambda k: {
-            "wattcast:actuals:FPL": _demand_payload(),
-            "wattcast:weather:FPL": _weather_payload(),
+            "gridpulse:actuals:FPL": _demand_payload(),
+            "gridpulse:weather:FPL": _weather_payload(),
         }.get(k)
 
         from components.callbacks import _load_data_from_redis
@@ -274,8 +274,8 @@ class TestLoadDataFromRedis:
             "demand_mw": [28000, 0, -5, 29000, 30000],
         }
         mock_rg.side_effect = lambda k: {
-            "wattcast:actuals:NYIS": payload,
-            "wattcast:weather:NYIS": _weather_payload(5),
+            "gridpulse:actuals:NYIS": payload,
+            "gridpulse:weather:NYIS": _weather_payload(5),
         }.get(k)
 
         from components.callbacks import _load_data_from_redis

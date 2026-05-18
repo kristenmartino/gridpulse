@@ -33,7 +33,7 @@ Six helpers that compose the demand-forecast surface:
   see realistic daily/weekly patterns instead of frozen values.
 * ``_outlook_tab_from_redis`` — Redis fast path that builds the entire
   Demand Forecast tab (figure + 7 KPI strings + insight card) from the
-  scoring job's hourly ``wattcast:forecast:{region}:1h`` payload.
+  scoring job's hourly ``gridpulse:forecast:{region}:1h`` payload.
 
 ## Cross-tab dependency factoring
 

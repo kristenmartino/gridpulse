@@ -10,11 +10,11 @@ Both the hourly scoring job and the daily training job need to:
 
 The scoring job additionally predicts forward-looking demand, writes
 forecast / alerts / diagnostics / weather-correlation Redis entries, and
-refreshes ``wattcast:meta:last_scored``.
+refreshes ``gridpulse:meta:last_scored``.
 
 The training job additionally trains new model artifacts, persists them to
 GCS via :mod:`models.persistence`, recomputes backtests, and refreshes
-``wattcast:meta:last_trained``.
+``gridpulse:meta:last_trained``.
 
 Design:
 - Every phase returns a structured result (``PhaseResult``) rather than
@@ -293,7 +293,7 @@ def write_generation(region: str) -> PhaseResult:
 def write_interchange(region: str) -> PhaseResult:
     """Fetch BA-to-BA hourly interchange and write a per-region snapshot to Redis.
 
-    Output Redis key: ``wattcast:interchange:{region}:1h``. Schema::
+    Output Redis key: ``gridpulse:interchange:{region}:1h``. Schema::
 
         {
             "region": "PJM",
@@ -484,7 +484,7 @@ def predict_and_write_forecast(
     models: dict[str, Any] | None,
     model_mapes: dict[str, float | None] | None = None,
 ) -> PhaseResult:
-    """Run all loaded forward forecasters and write ``wattcast:forecast:{region}:1h``.
+    """Run all loaded forward forecasters and write ``gridpulse:forecast:{region}:1h``.
 
     Each model in ``models`` (e.g. ``{"xgboost": <m>, "prophet": <m>,
     "arima": <m>}``) is dispatched through ``_predict_one``. The per-row
@@ -924,7 +924,7 @@ def write_alerts(data: RegionData) -> PhaseResult:
 
 
 def write_meta(key: str, extra: dict[str, Any] | None = None) -> None:
-    """Write a ``wattcast:meta:{key}`` marker with current UTC timestamp."""
+    """Write a ``gridpulse:meta:{key}`` marker with current UTC timestamp."""
     from data.redis_client import redis_key, redis_set
 
     payload = {

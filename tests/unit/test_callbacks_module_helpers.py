@@ -705,14 +705,14 @@ class TestBuildPersonaKpis:
 
             result = _build_persona_kpis("grid_ops", "ERCOT")
             # Should have called redis_get for actuals
-            mock_redis.assert_any_call("wattcast:actuals:ERCOT")
+            mock_redis.assert_any_call("gridpulse:actuals:ERCOT")
             assert isinstance(result, dbc.Row)
 
     @patch("components._callbacks_overview._BACKTEST_CACHE", {})
     def test_redis_demand_fallback(self):
         """Redis provides demand stats when demand_df is None."""
         redis_data = {
-            "wattcast:actuals:ERCOT": {
+            "gridpulse:actuals:ERCOT": {
                 "demand_mw": [25000, 30000, 35000, 40000],
             },
         }

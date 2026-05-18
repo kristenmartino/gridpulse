@@ -5,7 +5,7 @@ All external I/O is faked:
 - ``data.redis_client.redis_set`` is replaced with an in-memory dict writer.
 - ``models.persistence.load_model`` is monkeypatched to return a tiny fake model.
 
-The tests assert the scoring job writes the expected wattcast:* keys and
+The tests assert the scoring job writes the expected gridpulse:* keys and
 returns a success exit code.
 """
 
@@ -182,20 +182,20 @@ class TestScoringJob:
 
         # Must have refreshed the core Redis keys for ERCOT.
         expected_keys = {
-            "wattcast:actuals:ERCOT",
-            "wattcast:weather:ERCOT",
-            "wattcast:generation:ERCOT",
-            "wattcast:forecast:ERCOT:1h",
-            "wattcast:weather-correlation:ERCOT",
-            "wattcast:diagnostics:ERCOT",
-            "wattcast:alerts:ERCOT",
-            "wattcast:meta:last_scored",
+            "gridpulse:actuals:ERCOT",
+            "gridpulse:weather:ERCOT",
+            "gridpulse:generation:ERCOT",
+            "gridpulse:forecast:ERCOT:1h",
+            "gridpulse:weather-correlation:ERCOT",
+            "gridpulse:diagnostics:ERCOT",
+            "gridpulse:alerts:ERCOT",
+            "gridpulse:meta:last_scored",
         }
         missing = expected_keys - set(fake_redis.keys())
         assert not missing, f"Missing Redis keys: {missing}"
 
         # last_scored must record the successful region count.
-        meta = fake_redis["wattcast:meta:last_scored"]
+        meta = fake_redis["gridpulse:meta:last_scored"]
         assert meta["regions_scored"] == 1
         assert meta["mode"] == "scoring-job"
 
@@ -217,16 +217,16 @@ class TestScoringJob:
 
         # Actuals/weather/generation/alerts must still be present.
         for key in (
-            "wattcast:actuals:ERCOT",
-            "wattcast:weather:ERCOT",
-            "wattcast:generation:ERCOT",
-            "wattcast:alerts:ERCOT",
-            "wattcast:meta:last_scored",
+            "gridpulse:actuals:ERCOT",
+            "gridpulse:weather:ERCOT",
+            "gridpulse:generation:ERCOT",
+            "gridpulse:alerts:ERCOT",
+            "gridpulse:meta:last_scored",
         ):
             assert key in fake_redis
 
         # Forecast key must NOT be present when the model is missing.
-        assert "wattcast:forecast:ERCOT:1h" not in fake_redis
+        assert "gridpulse:forecast:ERCOT:1h" not in fake_redis
 
     def test_scoring_job_no_data_returns_failure(
         self,
@@ -244,5 +244,5 @@ class TestScoringJob:
         exit_code = scoring_job.run()
         assert exit_code == 1
         # last_scored still gets written with the failure summary.
-        assert fake_redis["wattcast:meta:last_scored"]["regions_scored"] == 0
-        assert "ERCOT" in fake_redis["wattcast:meta:last_scored"]["regions_failed"]
+        assert fake_redis["gridpulse:meta:last_scored"]["regions_scored"] == 0
+        assert "ERCOT" in fake_redis["gridpulse:meta:last_scored"]["regions_failed"]

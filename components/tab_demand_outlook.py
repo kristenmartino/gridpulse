@@ -47,7 +47,7 @@ def _model_segmented() -> html.Div:
 
     Production data path only carries XGBoost predictions: the scheduled
     scoring job at ``jobs/phases.py:364`` writes only XGBoost output to
-    ``wattcast:forecast:{region}:1h``, and the v1 inline-compute fallback
+    ``gridpulse:forecast:{region}:1h``, and the v1 inline-compute fallback
     in ``_run_forecast_outlook`` is gated by ``REQUIRE_REDIS`` (returns a
     warming state instead of training Prophet / ARIMA on the request
     thread). Surface only the option the data path can actually fulfill —

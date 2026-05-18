@@ -54,18 +54,20 @@ def _get_redis():
 def redis_key(suffix: str) -> str:
     """Compose a fully-qualified Redis key from the configured prefix and a suffix.
 
-    Phase 1 of the ``wattcast:`` → ``gridpulse:`` migration (issue #91).
     Callers pass the part of the key *after* the prefix, e.g.
-    ``redis_key("actuals:FPL")`` returns ``"wattcast:actuals:FPL"``
-    (default) or ``"gridpulse:actuals:FPL"`` when ``REDIS_KEY_PREFIX``
-    is set. Putting the indirection in this module — rather than at
-    every callsite — means future migrations are a single-line change.
+    ``redis_key("actuals:FPL")`` returns ``"gridpulse:actuals:FPL"``
+    (default). Putting the indirection in this module — rather than at
+    every callsite — means future renames are a single-line change.
 
-    The prefix is read once per process at import time of ``config``,
-    so an env-var flip requires a process restart. That matches the
-    Cloud Run deploy boundary: changing ``REDIS_KEY_PREFIX`` in the
-    service/job env definition triggers a new revision, which gets a
-    new prefix on its first ``redis_key`` call.
+    The prefix is read every call from ``config.REDIS_KEY_PREFIX``, so
+    tests can override it via ``importlib.reload(config)`` after
+    monkeypatching the env. In production it's effectively constant per
+    process — Cloud Run revisions get their prefix from the env on first
+    request and don't see env changes until the next deploy.
+
+    Issue #91 tracked the original ``wattcast`` → ``gridpulse`` rename;
+    this helper was introduced as part of that work and stays useful as
+    a hedge against the next rename.
     """
     # Imported lazily to avoid a circular: config -> nothing, this module
     # -> config is fine, but importing at module top would force config

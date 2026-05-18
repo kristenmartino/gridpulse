@@ -15,7 +15,7 @@ Continues the per-tab split established by:
 Plotly figures (temp/wind/solar scatters, correlation heatmap, feature-
 importance bar chart, seasonal decomposition subplots) for the
 Weather-Energy Correlation tab from the scoring job's hourly
-``wattcast:weather-correlation:{region}`` payload.
+``gridpulse:weather-correlation:{region}`` payload.
 
 ## Orphaned-callback observation
 

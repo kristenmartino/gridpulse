@@ -94,7 +94,7 @@ class TestPredictAndWriteForecast:
         )
 
         assert result.ok
-        payload = fake_redis["wattcast:forecast:ERCOT:1h"]
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
         weights = payload["ensemble_weights"]
         # 1/1 : 1/2 : 1/4 = 0.5714 : 0.2857 : 0.1429 (rounded to 4dp)
         assert weights["xgboost"] == pytest.approx(0.5714, abs=1e-3)
@@ -134,7 +134,7 @@ class TestPredictAndWriteForecast:
         )
 
         assert result.ok
-        payload = fake_redis["wattcast:forecast:ERCOT:1h"]
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
         weights = payload["ensemble_weights"]
         assert weights == {"xgboost": 1 / 3, "prophet": 1 / 3, "arima": 1 / 3} or (
             weights["xgboost"] == pytest.approx(1 / 3, abs=1e-3)
@@ -167,7 +167,7 @@ class TestPredictAndWriteForecast:
         )
 
         assert result.ok
-        payload = fake_redis["wattcast:forecast:ERCOT:1h"]
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
         weights = payload["ensemble_weights"]
         assert weights["xgboost"] == pytest.approx(0.5, abs=1e-6)
         assert weights["prophet"] == pytest.approx(0.5, abs=1e-6)
@@ -186,7 +186,7 @@ class TestPredictAndWriteForecast:
         )
 
         assert result.ok
-        payload = fake_redis["wattcast:forecast:ERCOT:1h"]
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
         assert "ensemble_weights" not in payload
         row0 = payload["forecasts"][0]
         assert "ensemble" not in row0

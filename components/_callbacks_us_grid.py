@@ -64,7 +64,7 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
     most recent hour) — get a dict with ``current_mw=None`` so the
     caller can render an ``"—"`` placeholder card without ever exposing
     a NaN to downstream sums or divisions. ``interchange`` is the V3.α
-    ``wattcast:interchange:{region}:1h`` payload, or ``None`` if absent.
+    ``gridpulse:interchange:{region}:1h`` payload, or ``None`` if absent.
 
     Regions failing the quality gate (XGBoost holdout MAPE in the
     ``rollback`` grade per ``mape_grade()``) are omitted from the
