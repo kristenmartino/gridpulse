@@ -45,7 +45,7 @@ from config import (
     REGION_COORDINATES,
     REGION_NAMES,
 )
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
@@ -79,9 +79,9 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
     for region in REGION_NAMES:
         if not is_forecast_quality_acceptable(region):
             continue
-        actuals = redis_get(f"wattcast:actuals:{region}")
+        actuals = redis_get(redis_key(f"actuals:{region}"))
         demand = (actuals or {}).get("demand_mw") or []
-        interchange = redis_get(f"wattcast:interchange:{region}:1h")
+        interchange = redis_get(redis_key(f"interchange:{region}:1h"))
         if not demand:
             out[region] = {"interchange": interchange} if interchange else {}
             continue

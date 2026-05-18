@@ -122,7 +122,7 @@ from config import (
     REGION_NAMES,  # noqa: F401 — re-export (tests/unit/test_forecast_quality_gate.py patches this)
     REQUIRE_REDIS,
 )
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 from personas.config import get_persona
 
 log = structlog.get_logger()
@@ -141,8 +141,8 @@ def _load_data_from_redis(region):
     from data.audit import audit_trail
     from observability import PipelineLogger
 
-    cached_actuals = redis_get(f"wattcast:actuals:{region}")
-    cached_weather = redis_get(f"wattcast:weather:{region}")
+    cached_actuals = redis_get(redis_key(f"actuals:{region}"))
+    cached_weather = redis_get(redis_key(f"weather:{region}"))
     if cached_actuals is None or cached_weather is None:
         return None
 

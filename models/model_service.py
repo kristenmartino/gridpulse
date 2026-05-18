@@ -154,9 +154,9 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
     # for legacy pickles or the ensemble row when xgboost's meta
     # didn't carry ensemble_holdout_metrics.
     try:
-        from data.redis_client import redis_get
+        from data.redis_client import redis_get, redis_key
 
-        cached = redis_get(f"wattcast:diagnostics:{region}")
+        cached = redis_get(redis_key(f"diagnostics:{region}"))
         if cached and isinstance(cached.get("metrics"), dict):
             for model_name, redis_m in cached["metrics"].items():
                 if not isinstance(redis_m, dict):

@@ -33,7 +33,7 @@ import numpy as np
 import plotly.graph_objects as go
 
 from components.accessibility import CB_PALETTE
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 # ── Cache state ──────────────────────────────────────────────────────
 #
@@ -266,8 +266,8 @@ def _collect_backtest_residuals(region: str, model_name: str, horizon_hours: int
 
     # Redis pre-computed backtests (common production path)
     for key in (
-        f"wattcast:backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon_hours}",
-        f"wattcast:backtest:{region}:{horizon_hours}",
+        redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon_hours}"),
+        redis_key(f"backtest:{region}:{horizon_hours}"),
     ):
         cached = redis_get(key)
         if not isinstance(cached, dict):

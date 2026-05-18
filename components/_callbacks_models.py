@@ -57,7 +57,7 @@ from components._callbacks_shared import (
     _empty_figure,
     _layout,
 )
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
@@ -87,7 +87,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     if selected_models is not default_models and set(selected_models) != {"ensemble"}:
         return None
 
-    cached = redis_get(f"wattcast:diagnostics:{region}")
+    cached = redis_get(redis_key(f"diagnostics:{region}"))
     if cached is None:
         return None
 

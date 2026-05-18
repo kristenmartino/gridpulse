@@ -83,7 +83,7 @@ from components._callbacks_shared import (
     _layout,
 )
 from config import CACHE_TTL_SECONDS, REQUIRE_REDIS, WEATHER_VARIABLES
-from data.redis_client import redis_get
+from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
@@ -127,9 +127,9 @@ def _build_forecast_exog_fold(
     out["timestamp"] = test_ts
 
     snapshot_keys = [
-        f"wattcast:weather-forecast-snapshot:{region}:{horizon_hours}",
-        f"wattcast:weather-forecast:{region}:{horizon_hours}",
-        f"wattcast:weather-forecast-snapshot:{region}",
+        redis_key(f"weather-forecast-snapshot:{region}:{horizon_hours}"),
+        redis_key(f"weather-forecast:{region}:{horizon_hours}"),
+        redis_key(f"weather-forecast-snapshot:{region}"),
     ]
 
     for key in snapshot_keys:
@@ -187,9 +187,9 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     explanation, insight_card) or None if cache miss.
     """
     exog_mode = DEFAULT_BACKTEST_EXOG_MODE
-    cached = redis_get(f"wattcast:backtest:{exog_mode}:{region}:{horizon_hours}")
+    cached = redis_get(redis_key(f"backtest:{exog_mode}:{region}:{horizon_hours}"))
     if cached is None:
-        cached = redis_get(f"wattcast:backtest:{region}:{horizon_hours}")
+        cached = redis_get(redis_key(f"backtest:{region}:{horizon_hours}"))
     if cached is None:
         return None
 
