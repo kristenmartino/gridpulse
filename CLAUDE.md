@@ -35,7 +35,7 @@ Your job is to improve product coherence, positioning, and UX **without breaking
 
 ## Product context
 
-GridPulse is a **Dash/Plotly** application for weather-aware energy forecasting and grid analysis across 8 US balancing authorities.
+GridPulse is a **Dash/Plotly** application for weather-aware energy forecasting and grid analysis across 51 US balancing authorities (~100% of contiguous-US lower-48 load).
 It combines:
 - demand data
 - weather data
@@ -60,7 +60,9 @@ This framing should guide UI copy, navigation naming, and landing-page work. For
 
 This is a **Dash/Plotly** dashboard application for weather-aware energy demand forecasting.
 It uses 3 ML models (Prophet, SARIMAX, XGBoost) combined via a weighted ensemble
-to forecast hourly electricity demand for 8 US balancing authorities.
+to forecast hourly electricity demand for 51 US balancing authorities
+(~100% of contiguous-US lower-48 load). See `config.REGION_COORDINATES` for
+the canonical list; expansion history is `Original 8 → V1.α +8 → V3.ζ +35`.
 
 ### Runtime split (production)
 - **Cloud Run Service (`gridpulse`)** — stateless Dash/Flask web app. Reads

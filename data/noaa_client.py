@@ -114,7 +114,9 @@ def fetch_alerts_for_region(
 
 def fetch_all_alerts(use_cache: bool = True) -> dict[str, list[WeatherAlert]]:
     """
-    Fetch alerts for all 8 balancing authorities.
+    Fetch alerts for every balancing authority that has a state mapping in
+    ``STATE_TO_BA`` (the NOAA/NWS alerts API is state-scoped; not all 51 BAs
+    in ``config.REGION_COORDINATES`` have a documented state mapping yet).
 
     Returns:
         Dict mapping region code → list of WeatherAlert.
