@@ -876,9 +876,7 @@ def _build_risk_insight(
     return build_insight_card("Risk summary", body)
 
 
-def _scenario_demand_factor(
-    temp_delta: float, wind_delta: float, solar_delta: float
-) -> float:
+def _scenario_demand_factor(temp_delta: float, wind_delta: float, solar_delta: float) -> float:
     """Linear demand-sensitivity factor for the scenario simulator heuristic.
 
     Returns a multiplicative factor to apply to a baseline 24h forecast.
@@ -895,12 +893,7 @@ def _scenario_demand_factor(
     All three combine linearly. Pulled out as a pure function so the
     heuristic is unit-testable without spinning up the Plotly render.
     """
-    return (
-        1.0
-        + (temp_delta / 5.0) * 0.025
-        + solar_delta * 0.00015
-        + wind_delta * 0.0005
-    )
+    return 1.0 + (temp_delta / 5.0) * 0.025 + solar_delta * 0.00015 + wind_delta * 0.0005
 
 
 def _build_scenarios_panel(
