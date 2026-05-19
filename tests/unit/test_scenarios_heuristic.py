@@ -15,9 +15,6 @@ demand-side terms. Full-fidelity physics lives in
 
 from __future__ import annotations
 
-import io
-import json
-
 import numpy as np
 import pandas as pd
 import pytest
