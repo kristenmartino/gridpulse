@@ -223,13 +223,20 @@ class TestPolygonCoverageCaption:
                 return find_text(children, predicate)
             return None
 
-        caption = find_text(body, lambda s: "balancing authorities mapped" in s)
+        caption = find_text(
+            body,
+            lambda s: "balancing authorities" in s and "mapped" in s,
+        )
         assert caption is not None, (
             "Polygon view body should contain a coverage caption that "
             "names how many BAs are mapped vs unmapped."
         )
         # The covered count comes from the populated dict — 2 in this test.
         assert "2 of " in caption
+        # EIA-930 lower-48 denominator (per the August 2025 Federal
+        # Register PRA renewal, stable since 2022). Guards against
+        # someone reverting to a stale "~64" or other wrong count.
+        assert "63" in caption
 
     def test_caption_absent_in_cold_state(self):
         """When all regions are warming, the choropleth returns an
@@ -240,17 +247,23 @@ class TestPolygonCoverageCaption:
 
         body = _build_us_grid_choropleth({"PJM": {"current_mw": None}})
 
-        def has_text(node, target):
+        def matches(node, predicate):
             children = getattr(node, "children", None)
             if isinstance(children, str):
-                return target in children
+                return predicate(children)
             if isinstance(children, (list, tuple)):
-                return any(has_text(c, target) for c in children)
+                return any(matches(c, predicate) for c in children)
             if children is not None:
-                return has_text(children, target)
+                return matches(children, predicate)
             return False
 
-        assert not has_text(body, "balancing authorities mapped")
+        # Use the same loose predicate as the populated-state test
+        # so this check stays meaningful when the caption wording
+        # evolves (and doesn't silently false-pass).
+        assert not matches(
+            body,
+            lambda s: "balancing authorities" in s and "mapped" in s,
+        )
 
 
 class TestPolygonWindingOrder:
