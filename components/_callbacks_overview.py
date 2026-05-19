@@ -876,6 +876,26 @@ def _build_risk_insight(
     return build_insight_card("Risk summary", body)
 
 
+def _scenario_demand_factor(temp_delta: float, wind_delta: float, solar_delta: float) -> float:
+    """Linear demand-sensitivity factor for the scenario simulator heuristic.
+
+    Returns a multiplicative factor to apply to a baseline 24h forecast.
+    Coefficients are order-of-magnitude-defensible against load-research
+    norms (not physically rigorous — full-fidelity physics lives in
+    ``simulation/scenario_engine.py``):
+
+      * temp_delta: ±2.5 % per 5 °F (existing — dominant driver)
+      * solar_delta: +1.5 % per 100 W/m² (sun load → AC demand;
+        meaningful for summer-peaking BAs like FPL/ERCOT/PJM)
+      * wind_delta: +0.5 % per 10 mph (wind chill → heating demand;
+        meaningful for winter-peaking BAs)
+
+    All three combine linearly. Pulled out as a pure function so the
+    heuristic is unit-testable without spinning up the Plotly render.
+    """
+    return 1.0 + (temp_delta / 5.0) * 0.025 + solar_delta * 0.00015 + wind_delta * 0.0005
+
+
 def _build_scenarios_panel(
     temp_delta: int | float | None,
     wind_delta: int | float | None,
@@ -891,12 +911,14 @@ def _build_scenarios_panel(
     Scenarios tab and the simulation/scenario_engine module — exposing
     full-fidelity here would need model loading on every slider drag.
 
-    Sensitivities (calibrated against typical residential cooling/heating
-    response in U.S. balancing authorities):
-      * temp_delta: ±2.5 % demand per +5 °F above 65 °F (cooling) and per
-        −5 °F below 65 °F (heating). Symmetric for simplicity.
-      * wind_delta: ±0.6 % renewable share per +1 mph (caps at 30 % share).
-      * solar_delta: ±0.05 % renewable share per +1 W/m² (caps similarly).
+    Demand sensitivities — see ``_scenario_demand_factor`` for coefficients.
+
+    Renewable-share sensitivities (independent of demand):
+      * wind_delta: ±0.6 pp per mph (caps at 30 pp)
+      * solar_delta: ±0.05 pp per W/m² (caps at 30 pp)
+
+    Confidence sensitivity: −1 pp per 5 °F of |temp_delta|, capped at −10 pp
+    (forecast residuals grow with abs(temp_delta) outside ±10 °F).
     """
     region = region or "FPL"
     temp_delta = float(temp_delta or 0)
@@ -936,9 +958,10 @@ def _build_scenarios_panel(
         return (kpi_empty, _empty_figure("Awaiting baseline forecast"))
 
     # ── Heuristic scenario forecast ────────────────────────────
-    # Demand response is dominated by temperature; wind/solar shift the
-    # renewable share (which we surface separately) but barely move demand.
-    demand_factor = 1.0 + (temp_delta / 5.0) * 0.025  # ±2.5% per 5°F
+    # Demand response is dominated by temperature, plus smaller terms
+    # for solar (AC load) and wind (wind chill). See
+    # ``_scenario_demand_factor`` for the coefficient rationale.
+    demand_factor = _scenario_demand_factor(temp_delta, wind_delta, solar_delta)
     scenario_y = base_y * demand_factor
 
     base_peak = float(np.max(base_y))
