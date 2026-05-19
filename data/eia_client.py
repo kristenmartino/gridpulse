@@ -2,8 +2,9 @@
 EIA API v2 client for energy data ingestion.
 
 Fetches hourly demand, generation by fuel type, and interchange data
-for 8 balancing authorities. Implements pagination, caching, and
-exponential backoff for rate limiting.
+for the 51 balancing authorities defined in ``config.REGION_COORDINATES``
+(~100% of contiguous-US lower-48 load). Implements pagination, caching,
+and exponential backoff for rate limiting.
 
 API docs: https://www.eia.gov/opendata/documentation.php
 """
