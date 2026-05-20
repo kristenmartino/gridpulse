@@ -49,6 +49,13 @@ theatrical and should be partially reverted:
   ([#124](https://github.com/kristenmartino/gridpulse/issues/124)) —
   wait until ≥2 repos have their own STATUS.md before linking makes
   sense.
+- **Scenario simulator: full-fidelity physics**
+  ([#127](https://github.com/kristenmartino/gridpulse/issues/127)) —
+  replace the analytical heuristic shipped in PR #119 with real
+  `scenario_engine` re-runs (Approach B: pre-computed sensitivity grid
+  in the scoring job, preserves Redis-only web tier). Parked until a
+  real user / interviewer signal demands physics correctness — see
+  issue body for trigger conditions.
 - **PR-B (doc-drift CI) decision** — ship only if drift surfaces during
   PR-C2 / #121 work. Otherwise stays deferred.
 - **PR-D (audit workflow)** — deferred indefinitely per [2026-05-20
