@@ -32,23 +32,30 @@ theatrical and should be partially reverted:
 
 - [x] (a) `docs/HOW_IT_WORKS.md` has real content (PR #125)
 - [ ] (b) `docs/HOW_IT_WORKS.md` and `docs/INTERVIEW_PREP.md` have been used at least once for actual practice (read aloud + timed)
-- [x] (c) [#121](https://github.com/kristenmartino/gridpulse/issues/121) has a draft PR or partial implementation (PR-D1, this PR — backend drift measurement)
-- [ ] (d) The handoff quickstart has been run on sift-news or another repo
+- [x] (c) [#121](https://github.com/kristenmartino/gridpulse/issues/121) has a draft PR or partial implementation (PRs [#126](https://github.com/kristenmartino/gridpulse/pull/126) backend writer + [#128](https://github.com/kristenmartino/gridpulse/pull/128) UI panel)
+- [~] (d) Handoff quickstart run on another repo — **deferred** 2026-05-20. Discovery: `news-aggregator/` is a working folder with multiple version subdirs (sift_v1, v2, the-digest), not a git repo, so the quickstart can't run cleanly there. User has already set up "something similar" for sift's 3 repos independently — the cross-project validation the criterion was probing for has effectively happened, just outside this framework. Re-evaluate if/when a new project is bootstrapped from scratch.
 
-**2 of 4 criteria now satisfied — the ≥2 threshold is cleared. The PM infrastructure built this week is not theatrical.** Criterion (b) takes ~10 min of reading aloud; (d) takes ~60 min running the quickstart on sift-news.
+**2 of 4 criteria satisfied (a + c) — the ≥2 "not theatrical" threshold is cleared. The PM infrastructure built this week is not theatrical.** Criterion (b) takes ~10 min of reading aloud and is yours to do off-keyboard.
 
 ## Next 3 (priority order)
 
-1. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (~2–3 days, `path-b`). Decision: incorporate live MAPE into ensemble weights, OR surface a stale-weights warning when holdout-vs-live diverges past threshold. Decide based on the live drift signal once part 2 (this PR's panel) has accumulated ~7 days of records in production.
-2. **Run handoff quickstart on sift-news** (~60 min, satisfies (d) above + unblocks [#124](https://github.com/kristenmartino/gridpulse/issues/124) cross-linking).
+1. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (~2–3 days, `path-b`). Decision: incorporate live MAPE into ensemble weights, OR surface a stale-weights warning when holdout-vs-live diverges past threshold. **Has a timing dependency** — needs ~7 days of live records in production (from PR [#126](https://github.com/kristenmartino/gridpulse/pull/126) writer) before the decision is data-informed instead of theoretical. Don't start before 2026-05-27.
+2. **Practice the explanatory docs** (~10 min, off-keyboard). Read `HOW_IT_WORKS.md` aloud (target ~5 min) and pick one STAR story from `INTERVIEW_PREP.md` to rehearse (target ~90 sec). Satisfies criterion (b) of the 14-day success criterion; surfaces stumble points to refine in `PR-C2` later.
 3. **PR-C2** (`PITCH.md` + expanded STAR stories) — parked unless interview cycle demands it. Currently no signal.
+
+The Next 3 is intentionally thin right now. Part 3 of #121 has a 7-day timing gate, so the next ~week has no high-leverage GridPulse-side code work that isn't speculative. This is a good window for off-keyboard work (practice, polish, external moves) or for picking up a different project entirely.
 
 ## Blocked / waiting on
 
-- **Cross-link this Project to portfolio-v2 / sift-news / future repos**
+- **Cross-link this Project to portfolio-v2 / sift / future repos**
   ([#124](https://github.com/kristenmartino/gridpulse/issues/124)) —
-  wait until ≥2 repos have their own STATUS.md before linking makes
-  sense.
+  trigger condition (≥2 repos with their own state-management setup)
+  is technically met since sift's 3 repos have a parallel framework
+  in place. But cross-linking requires deciding HOW (single user-level
+  mega-board vs federated per-repo boards) and reconciling shape
+  differences between sift's framework and the [`claude-templates`](https://github.com/kristenmartino/claude-templates)
+  quickstart. Defer until that decision is worth making — likely when
+  spanning ≥3 repos starts producing real navigation friction.
 - **Scenario simulator: full-fidelity physics**
   ([#127](https://github.com/kristenmartino/gridpulse/issues/127)) —
   replace the analytical heuristic shipped in PR #119 with real
