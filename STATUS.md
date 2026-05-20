@@ -47,6 +47,14 @@ The Next 3 is intentionally thin right now. Part 3 of #121 has a 7-day timing ga
 
 ## Blocked / waiting on
 
+- **Overview model card MAPE shows simulated baseline values**
+  ([#131](https://github.com/kristenmartino/gridpulse/issues/131)) — the
+  `is_trained` badge was fixed in PR #130 (now reads Redis), but the
+  MAPE / RMSE / MAE / R² displayed on the card still come from
+  `_simulate_forecasts` because the web tier can't read meta.json from
+  the Job container's disk. Real fix: scoring job writes `model_metrics`
+  into the forecast Redis payload, web tier reads from there. ~4 hours.
+
 - **Forecast tab chart 1–4h gap between actual end and forecast start**
   ([#129](https://github.com/kristenmartino/gridpulse/issues/129)) —
   EIA publishing lag visualized as empty. Fix is in
