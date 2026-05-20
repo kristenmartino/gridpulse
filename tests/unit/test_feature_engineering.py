@@ -5,6 +5,9 @@ import pandas as pd
 import pytest
 
 from data.feature_engineering import (
+    AUTOREGRESSIVE_DEMAND_FEATURES,
+    add_autoregressive_demand_features,
+    compute_autoregressive_snapshot,
     compute_cdd,
     compute_cyclical_dow,
     compute_cyclical_hour,
@@ -271,3 +274,155 @@ class TestGetFeatureNames:
         assert "demand_momentum_short" in names
         assert "demand_ratio_24h" in names
         assert "demand_ratio_168h" in names
+
+
+# ────────────────────────────────────────────────────────────────────────
+# PR-D (2026-05-20) — autoregressive features must not leak target row
+# ────────────────────────────────────────────────────────────────────────
+
+
+def _synthetic_demand_df(n: int = 240, seed: int = 42) -> pd.DataFrame:
+    """Build a smooth synthetic demand series for autoregressive tests."""
+    rng = np.random.default_rng(seed)
+    timestamps = pd.date_range("2026-01-01", periods=n, freq="h", tz="UTC")
+    hours = np.arange(n)
+    demand = (
+        20_000
+        + 5_000 * np.sin(2 * np.pi * hours / 24)
+        + 1_000 * np.sin(2 * np.pi * hours / (24 * 7))
+        + rng.normal(0, 500, size=n)
+    )
+    return pd.DataFrame({"timestamp": timestamps, "demand_mw": demand})
+
+
+class TestAutoregressiveFeaturesNoTargetLeakage:
+    """Regression for PR-D: training-time autoregressive features must not
+    include the current row's ``demand_mw`` value.
+
+    Before PR-D, ``ramp_rate[i] = demand[i] - demand[i-1]`` and
+    ``demand_roll_24h_mean[i]`` included ``demand[i]`` in its window —
+    direct target leakage. The XGBoost model trained on this then saw
+    feature definitions change at inference time (where
+    ``compute_autoregressive_snapshot`` computes them backward-only),
+    creating a train/serve distribution shift. These tests guard against
+    that regression by perturbing only the LAST row's target and
+    asserting every autoregressive feature at that row is unchanged.
+    """
+
+    def test_last_row_autoregressive_features_invariant_to_target_perturbation(self):
+        """Modify only the last row's demand by 50 GW (massive perturbation).
+
+        Every autoregressive feature at the last row should be IDENTICAL
+        between the two dataframes — they depend only on rows 0..n-2.
+        """
+        base = _synthetic_demand_df(n=240)
+        perturbed = base.copy()
+        last = len(perturbed) - 1
+        # Perturb by ~+250% — if any feature at row `last` changes,
+        # leakage is real and the diff will be obvious.
+        perturbed.loc[last, "demand_mw"] = float(base.loc[last, "demand_mw"]) + 50_000.0
+
+        base_feats = add_autoregressive_demand_features(base)
+        pert_feats = add_autoregressive_demand_features(perturbed)
+
+        for col in AUTOREGRESSIVE_DEMAND_FEATURES:
+            base_val = base_feats[col].iloc[last]
+            pert_val = pert_feats[col].iloc[last]
+            # Use NaN-safe comparison so we don't fail when row 0/1 of
+            # ramp_rate are both NaN (they should be NaN in both frames).
+            if pd.isna(base_val) and pd.isna(pert_val):
+                continue
+            assert base_val == pytest.approx(pert_val, rel=1e-9), (
+                f"Feature {col!r} at last row differs: base={base_val} "
+                f"perturbed={pert_val} — last-row target leaked into feature"
+            )
+
+    def test_training_features_match_inference_snapshot_row_by_row(self):
+        """For each row i of training features, compare against
+        ``compute_autoregressive_snapshot(demand[:i])`` (i.e. inference
+        snapshot using only prior demand). They must match exactly.
+
+        This pins the train/inference parity that PR-D establishes —
+        any future drift between the two code paths will fail this test.
+        """
+        df = _synthetic_demand_df(n=240)
+        feats = add_autoregressive_demand_features(df)
+        demand = df["demand_mw"].tolist()
+
+        # Spot-check rows that should have full windows: 168 (just past
+        # the longest lag) and 200 (well past). Random row in between.
+        for i in (168, 200, 239):
+            snapshot = compute_autoregressive_snapshot(demand[:i])
+            for col in AUTOREGRESSIVE_DEMAND_FEATURES:
+                training_val = feats[col].iloc[i]
+                inference_val = snapshot[col]
+                if pd.isna(training_val) and pd.isna(inference_val):
+                    continue
+                # roll_*_std uses ddof=1 in snapshot vs pandas default (also
+                # ddof=1) — should agree. Allow tiny float-roundoff slack.
+                assert training_val == pytest.approx(inference_val, rel=1e-6, abs=1e-6), (
+                    f"Train/inference mismatch at row {i}, col {col!r}: "
+                    f"training={training_val} inference={inference_val}"
+                )
+
+    def test_ramp_rate_first_two_rows_are_nan(self):
+        """ramp_rate[i] = demand[i-1] - demand[i-2]. The first row (i=0)
+        has no prior, the second row (i=1) has only one prior. Both
+        should be NaN; row 2 onward should be finite."""
+        df = _synthetic_demand_df(n=10)
+        feats = add_autoregressive_demand_features(df)
+        assert pd.isna(feats["ramp_rate"].iloc[0])
+        assert pd.isna(feats["ramp_rate"].iloc[1])
+        # Row 2: ramp_rate = demand[1] - demand[0]
+        expected = float(df["demand_mw"].iloc[1] - df["demand_mw"].iloc[0])
+        assert feats["ramp_rate"].iloc[2] == pytest.approx(expected)
+
+    def test_demand_roll_24h_min_excludes_current_row(self):
+        """If the current row's demand is the lowest in the last 25 hours,
+        the previous (leaky) behavior would surface that value as the
+        min. The shifted behavior surfaces the lowest of the PRIOR 24
+        rows instead.
+
+        Construct a series where the last row's demand is unambiguously
+        the lowest, and verify ``demand_roll_24h_min`` at the last row
+        does NOT equal the last row's demand.
+        """
+        n = 50
+        timestamps = pd.date_range("2026-01-01", periods=n, freq="h", tz="UTC")
+        # All rows except last = 20,000; last row = 5,000 (clearly the min)
+        demand = np.full(n, 20_000.0)
+        demand[-1] = 5_000.0
+        df = pd.DataFrame({"timestamp": timestamps, "demand_mw": demand})
+
+        feats = add_autoregressive_demand_features(df)
+        last_min = float(feats["demand_roll_24h_min"].iloc[-1])
+
+        # Last-row min must NOT be the current row's demand (5000).
+        # Must be the minimum of the PRIOR 24 rows (all 20,000).
+        assert last_min == pytest.approx(20_000.0), (
+            f"demand_roll_24h_min[last] = {last_min} — leaked current row "
+            "(should be 20,000, the min of the prior 24 rows)"
+        )
+
+    def test_demand_roll_24h_mean_uses_only_prior_rows(self):
+        """Build a series where the last row breaks the constant pattern.
+        The mean of the trailing 24-hour window EXCLUDING the current
+        row should not be moved by the perturbation."""
+        n = 50
+        timestamps = pd.date_range("2026-01-01", periods=n, freq="h", tz="UTC")
+        demand = np.full(n, 20_000.0)
+        df_base = pd.DataFrame({"timestamp": timestamps, "demand_mw": demand})
+
+        df_pert = df_base.copy()
+        df_pert.loc[n - 1, "demand_mw"] = 99_999.0  # massive last-row change
+
+        base_feats = add_autoregressive_demand_features(df_base)
+        pert_feats = add_autoregressive_demand_features(df_pert)
+
+        # The roll_24h_mean at the LAST row should be identical in both —
+        # neither depends on demand[last].
+        assert base_feats["demand_roll_24h_mean"].iloc[-1] == pytest.approx(
+            pert_feats["demand_roll_24h_mean"].iloc[-1]
+        )
+        # Sanity: the mean equals the prior-24-row constant (20,000).
+        assert base_feats["demand_roll_24h_mean"].iloc[-1] == pytest.approx(20_000.0)
