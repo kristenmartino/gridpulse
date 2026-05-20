@@ -30,16 +30,18 @@ items beyond #121 stay deferred — see [`docs/internal/NEXT_UP.md`](docs/intern
 2 of these must be true, or the PM infrastructure built this week is
 theatrical and should be partially reverted:
 
-- [x] (a) `docs/HOW_IT_WORKS.md` has real content (PR-C1, this PR)
-- [ ] (b) `docs/HOW_IT_WORKS.md` and `docs/INTERVIEW_PREP.md` have been used at least once for actual practice (PR-C1 ships real HOW_IT_WORKS + interview story list; full STAR drafts in PR-C2)
-- [ ] (c) [#121](https://github.com/kristenmartino/gridpulse/issues/121) has a draft PR or partial implementation
+- [x] (a) `docs/HOW_IT_WORKS.md` has real content (PR #125)
+- [ ] (b) `docs/HOW_IT_WORKS.md` and `docs/INTERVIEW_PREP.md` have been used at least once for actual practice (read aloud + timed)
+- [x] (c) [#121](https://github.com/kristenmartino/gridpulse/issues/121) has a draft PR or partial implementation (PR-D1, this PR — backend drift measurement)
 - [ ] (d) The handoff quickstart has been run on sift-news or another repo
+
+**2 of 4 criteria now satisfied — the ≥2 threshold is cleared. The PM infrastructure built this week is not theatrical.** Criterion (b) takes ~10 min of reading aloud; (d) takes ~60 min running the quickstart on sift-news.
 
 ## Next 3 (priority order)
 
-1. **PR-C2 — Communication artifacts** (`docs/PITCH.md` 3 lengths + expand `docs/INTERVIEW_PREP.md` STAR stories from the 5 seed entries to full 90-second narratives, ~90 min). Next session.
-2. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) — Model drift monitoring** (~1 week, `path-b`, `effort-week`). After PR-C2 lands. The 2026-05-19 PJM walkthrough surfaced a 47 GW model spread; closing this gap is real product work AND generates the strongest STAR story this project will produce.
-3. **[#122](https://github.com/kristenmartino/gridpulse/issues/122) — V3.γ Hawaii** (~3–5 days, `v3-open`, `effort-week`). Lower priority — blocked on HECO data-quality assessment, lower portfolio leverage than #121.
+1. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 2 — UI surfacing** (~1–2 days, `path-b`). Models tab gets a drift indicator panel + confidence badge degrades when live MAPE exceeds holdout MAPE by threshold. Reads from `gridpulse:drift:{region}` (this PR shipped the writer).
+2. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (~2–3 days, `path-b`). Decision: incorporate live MAPE into ensemble weights, OR surface a stale-weights warning when holdout-vs-live diverges past threshold. Decide based on what part 2 surfaces during use.
+3. **Run handoff quickstart on sift-news** (~60 min, satisfies (d) above + unblocks [#124](https://github.com/kristenmartino/gridpulse/issues/124) cross-linking). PR-C2 (`PITCH.md` + expanded STAR stories) is parked unless interview cycle demands it — currently no signal.
 
 ## Blocked / waiting on
 
@@ -57,7 +59,8 @@ theatrical and should be partially reverted:
 
 ## Recent decisions (last 7 days)
 
-- **2026-05-20** PR-C1 — Recall artifacts shipped. Real `HOW_IT_WORKS.md` + 5 Mermaid diagrams + populated `CANONICAL_FACTS.md` + `INTERVIEW_PREP.md` STAR-story stubs. STATUS.md restructured per review §5; CLAUDE.md caveat removed. [This PR]
+- **2026-05-20** PR-D1 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 1 shipped. `models/drift.py` (continuous 1-hour-ahead drift measurement) + `jobs/phases.write_drift_metrics` (hourly Redis writes to `gridpulse:drift:{region}`) + 36 new unit tests. Full suite: 1,625 pass, 0 failures. [This PR]
+- **2026-05-20** PR-C1 — Recall artifacts shipped. Real `HOW_IT_WORKS.md` + 5 Mermaid diagrams + populated `CANONICAL_FACTS.md` + `INTERVIEW_PREP.md` STAR-story content. [PR #125]
 - **2026-05-20** Wider replan after multi-perspective review: confirmed Position A, deferred Path B beyond #121, reordered PR sequence to C → B (conditional) → D (deferred), and split PR-C into C1 (recall) + C2 (communication). [PR #123]
 - **2026-05-19** Path A declared complete. [#120](https://github.com/kristenmartino/gridpulse/pull/120)
 - **2026-05-19** Scenario simulator: heuristic over full-fidelity engine. [#119](https://github.com/kristenmartino/gridpulse/pull/119)
