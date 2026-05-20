@@ -2234,3 +2234,84 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
 
         fig = _spotlight_model_accuracy("FPL")
         assert fig.layout.title.text == "Model MAPE Comparison"
+
+
+# ────────────────────────────────────────────────────────────────────────
+# ADR-008 — forecast-horizon divider (Open-Meteo vs climatology boundary)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestAddForecastHorizonDivider:
+    """``_add_forecast_horizon_divider`` marks the day-16 boundary on the
+    Forecast tab chart where Open-Meteo forecast coverage ends and
+    climatology baseline takes over. Returns ``True`` when a divider was
+    added (horizon > 384h), ``False`` otherwise. See ADR-008 in PRD.md.
+    """
+
+    @staticmethod
+    def _ts(n_hours: int):
+        return pd.date_range("2026-05-20", periods=n_hours, freq="h", tz="UTC")
+
+    def test_24h_view_no_divider(self):
+        """24-hour view is entirely within Open-Meteo's 384-hour coverage."""
+        from components.callbacks import _add_forecast_horizon_divider
+
+        fig = go.Figure()
+        added = _add_forecast_horizon_divider(fig, self._ts(24), horizon_hours=24)
+        assert added is False
+        # No shapes (vlines/vrects) or annotations should have been added
+        assert len(fig.layout.shapes) == 0
+        assert len(fig.layout.annotations) == 0
+
+    def test_7d_view_no_divider(self):
+        """7-day view (168h) is entirely within Open-Meteo coverage (384h)."""
+        from components.callbacks import _add_forecast_horizon_divider
+
+        fig = go.Figure()
+        added = _add_forecast_horizon_divider(fig, self._ts(168), horizon_hours=168)
+        assert added is False
+        assert len(fig.layout.shapes) == 0
+
+    def test_30d_view_adds_divider(self):
+        """30-day view (720h) crosses Open-Meteo's 384h boundary."""
+        from components.callbacks import _add_forecast_horizon_divider
+
+        fig = go.Figure()
+        added = _add_forecast_horizon_divider(fig, self._ts(720), horizon_hours=720)
+        assert added is True
+        # The vline + vrect both register as shapes; annotation text
+        # should mention both segment labels.
+        assert len(fig.layout.shapes) >= 2
+        annotation_texts = " ".join(str(a.text or "") for a in fig.layout.annotations).lower()
+        assert "climatology" in annotation_texts
+        assert "open-meteo" in annotation_texts
+
+    def test_short_timestamp_array_returns_false(self):
+        """Defensive: if the caller passes fewer than 384 timestamps but
+        claims a 720h horizon, the helper bails rather than indexing OOB."""
+        from components.callbacks import _add_forecast_horizon_divider
+
+        fig = go.Figure()
+        added = _add_forecast_horizon_divider(fig, self._ts(100), horizon_hours=720)
+        assert added is False
+
+    def test_divider_at_open_meteo_boundary(self):
+        """The vertical divider should land at timestamps[384] — the
+        boundary between Open-Meteo coverage and climatology fallback."""
+        from components.callbacks import _add_forecast_horizon_divider
+
+        ts = self._ts(720)
+        fig = go.Figure()
+        _add_forecast_horizon_divider(fig, ts, horizon_hours=720)
+
+        # Find the vertical line — shapes with type "line" and x0 == x1.
+        vlines = [s for s in fig.layout.shapes if str(s.type or "") == "line" and s.x0 == s.x1]
+        assert len(vlines) >= 1
+        expected = pd.Timestamp(ts[384]).isoformat()
+        line_x_repr = str(vlines[0].x0)
+        # Plotly serializes dates in several formats; assert the
+        # YYYY-MM-DDTHH prefix matches what we expect.
+        assert expected[:13] in line_x_repr, (
+            f"Divider line x={line_x_repr!r} doesn't match expected boundary "
+            f"timestamp prefix {expected[:13]!r}"
+        )

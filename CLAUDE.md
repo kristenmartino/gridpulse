@@ -178,8 +178,10 @@ Two real bugs caused by violating this guardrail, both surfaced
 - **ADR-002**: SQLite cache on Cloud Run ephemeral disk — survives across requests, acceptable to lose on recycle
 - **ADR-003**: Open-Meteo (not NOAA NWS) for weather — no API key, 17 variables in one call, historical + forecast support
 - **ADR-004**: 1/MAPE weighted ensemble — simpler than stacking, self-correcting, bounded by individual models
-- **ADR-005**: Scenario engine copies features, never mutates — pure function, safe for concurrent callbacks
+- **ADR-005**: XGBoost as the primary single-model forecaster — strong empirical performance on the engineered-feature demand problem
 - **ADR-006**: Full multi-tab architecture — overview → forecast/history → validate → grid/generation → weather/risk → simulator
+- **ADR-007**: Scenario engine copies features, never mutates — pure function, safe for concurrent callbacks
+- **ADR-008**: Climatology fallback for forecast horizon beyond Open-Meteo's 16-day coverage — operationally honest about extended-range uncertainty rather than fabricating signal; visibly labeled on the Forecast tab. Full rationale: PRD.md §10.
 
 ### Module Map
 ```text

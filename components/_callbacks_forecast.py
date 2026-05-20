@@ -83,7 +83,7 @@ from components._callbacks_shared import (
     _layout,
 )
 from components.accessibility import LINE_STYLES
-from config import CACHE_TTL_SECONDS, REQUIRE_REDIS
+from config import CACHE_TTL_SECONDS, OPEN_METEO_FORECAST_HOURS, REQUIRE_REDIS
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -103,6 +103,103 @@ def _confidence_half_width(horizon_hours: int) -> float:
     if horizon_hours <= 168:
         return 0.06  # ±6%
     return 0.10  # ±10% for 30-day
+
+
+def _add_forecast_horizon_divider(
+    fig: go.Figure,
+    timestamps,
+    horizon_hours: int,
+) -> bool:
+    """Mark the boundary between Open-Meteo forecast and climatology fallback.
+
+    Open-Meteo's free ``/forecast`` endpoint covers 16 days (384 hours).
+    Beyond that, ``jobs/phases._build_future_feature_frame`` falls back
+    to per-(hour, dow) climatological group means for the future weather
+    features. The model still produces a forecast there, but its weather
+    inputs are seasonal-average shaped, not actual forward-looking values.
+
+    This helper makes that distinction visible on the chart:
+
+    1. A dotted vertical line at the 16-day boundary
+    2. A subtle background shade on the climatology segment
+    3. Annotations labeling both segments
+
+    Returns ``True`` if the divider was added (horizon extends past
+    Open-Meteo coverage), ``False`` otherwise (24h / 7d views are all
+    real forecast — no divider needed).
+
+    See ADR-008 in PRD.md for the architectural decision behind this
+    behavior and the alternatives that were considered.
+    """
+    if horizon_hours <= OPEN_METEO_FORECAST_HOURS:
+        # All shown hours are within Open-Meteo's real-forecast coverage.
+        # No climatology section → no divider needed.
+        return False
+
+    # Coerce to a pandas-friendly index so positional access is reliable
+    # whether the caller hands us a DatetimeIndex, np.ndarray, or list.
+    ts = pd.DatetimeIndex(timestamps)
+    if len(ts) <= OPEN_METEO_FORECAST_HOURS:
+        # Shorter slice than the horizon constant — defensive guard.
+        return False
+
+    # Plotly's ``add_vline(annotation_text=...)`` positions its
+    # annotation by computing ``mean([x0, x1])``, which fails on
+    # pandas Timestamp objects (no scalar ``__add__``). Pass ISO
+    # strings to side-step the arithmetic; add the annotations
+    # separately via ``add_annotation`` for full control.
+    boundary_iso = pd.Timestamp(ts[OPEN_METEO_FORECAST_HOURS]).isoformat()
+    start_iso = pd.Timestamp(ts[0]).isoformat()
+    end_iso = pd.Timestamp(ts[-1]).isoformat()
+
+    # Vertical divider line — dotted, deliberately subtle so it reads as
+    # a guide rail rather than a primary visual element.
+    fig.add_vline(
+        x=boundary_iso,
+        line=dict(color="rgba(160,180,200,0.45)", width=1, dash="dot"),
+    )
+
+    # Faint background shade past the boundary — communicates "this is
+    # different" without competing with the forecast trace itself.
+    fig.add_vrect(
+        x0=boundary_iso,
+        x1=end_iso,
+        fillcolor="rgba(160,180,200,0.05)",
+        line_width=0,
+        layer="below",
+    )
+
+    # Right-side label for the climatology segment, anchored just past
+    # the boundary line. Uses paper coords for vertical positioning so
+    # the label stays put when the y-axis rescales.
+    fig.add_annotation(
+        x=boundary_iso,
+        y=1.0,
+        xref="x",
+        yref="paper",
+        text="climatology baseline →",
+        showarrow=False,
+        xanchor="left",
+        yanchor="bottom",
+        font=dict(size=10, color="rgba(160,180,200,0.85)"),
+        yshift=2,
+    )
+
+    # Left-side label for the real-forecast segment.
+    fig.add_annotation(
+        x=start_iso,
+        y=1.0,
+        xref="x",
+        yref="paper",
+        text="← Open-Meteo forecast",
+        showarrow=False,
+        xanchor="left",
+        yanchor="bottom",
+        font=dict(size=10, color="rgba(160,180,200,0.85)"),
+        yshift=2,
+    )
+
+    return True
 
 
 def _add_confidence_bands(
@@ -734,6 +831,10 @@ def _outlook_tab_from_redis(
         fig, timestamps, predictions, horizon_hours, region=region, model_name=model_name
     )
     _add_trailing_actuals(fig, demand_json)
+    # Mark the Open-Meteo / climatology boundary on long-horizon views.
+    # Only the 30-day view actually crosses the day-16 boundary; on 24h
+    # and 7-day views the helper is a no-op. See ADR-008.
+    has_climatology_segment = _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
     interval_caption = ""
     if interval_meta.get("method") == "empirical":
@@ -741,12 +842,22 @@ def _outlook_tab_from_redis(
             f"<br><sup>80% empirical prediction interval "
             f"(calibration window: last {int(interval_meta.get('calibration_window_hours', 0))}h)</sup>"
         )
+    # On the 30-day view, surface in the subtitle that days 17-30 are
+    # climatology baseline rather than real forecast. Users browsing
+    # the chart shouldn't have to hover the divider line to understand
+    # the regime split. See ADR-008.
+    horizon_caption = ""
+    if has_climatology_segment:
+        horizon_caption = (
+            "<br><sup>Days 1-16: real Open-Meteo forecast · "
+            "Days 17-30: (hour-of-day, day-of-week) climatology baseline</sup>"
+        )
     fig.update_layout(
         **_layout(
             uirevision=f"{region}:{horizon_hours}",
             title=(
                 f"{horizon_labels.get(horizon_hours, '')} {model_name.upper()} Demand Forecast — {region}"
-                f"{interval_caption}"
+                f"{interval_caption}{horizon_caption}"
             ),
             xaxis_title="Date/Time",
             yaxis_title="Demand (MW)",
