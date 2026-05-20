@@ -147,7 +147,7 @@ The known limitation surfaced 2026-05-19: holdout MAPE is computed at training t
 
 ## §5 — UI structure
 
-Five tabs, four personas, one region. Adapts presentation to the user role without changing the underlying data.
+Five tabs, four personas, one region — plus cross-cutting state. The shell is intentionally narrow: data is shared across roles, but presentation adapts so each persona gets a surface tuned to their decisions.
 
 ```mermaid
 flowchart TB
@@ -172,9 +172,13 @@ flowchart TB
     Personas -.-> T4
 ```
 
-The shell was reduced from **9 tabs originally to 5 visible** in the R3 redesign. The five remaining tabs absorbed content from the deprecated ones (Historical Demand → Forecast, Backtest → Models, Generation/Weather/Simulator → cross-cutting sections inside the visible tabs).
+The shell was reduced from **9 tabs originally to 5 visible** in the R3 redesign. The five remaining tabs absorbed content from the deprecated ones (Historical Demand → Forecast, Backtest → Models, Generation/Weather/Simulator → cross-cutting sections inside the visible tabs). The design hypothesis: collapsing tools the user mentally re-anchors between (forecast / backtest / generation) into a single operating surface eliminates roughly a hundred small context switches per session.
 
-Persona selection doesn't change the data — it changes the *defaults* and the *emphasis*. A trader and a grid operator looking at the same PJM forecast see different KPI selections, different default scenarios pre-populated in the simulator, and different alert thresholds — but the underlying demand series and ensemble forecast are identical.
+**Persona selection doesn't change the data — it changes the defaults and emphasis.** A trader and a grid operator looking at the same PJM forecast see different KPI selections (trader: ramp risk, congestion, pricing bands; grid ops: reserve margin, curtailment risk, 7-day outlook), different default scenarios pre-populated in the simulator (trader: heat-dome ramp event; grid ops: polar vortex sustained load), and different alert thresholds (trader's MAPE tolerance is tighter on the 4-hour horizon; grid ops widens it for the 7-day). But the underlying demand series, ensemble forecast, and confidence intervals are identical bytes. The decision in [ADR-006] was that role-specific interfaces match how decisions are actually made — a trader at 6:30am cannot reasonably evaluate model selection. The platform makes the selection and surfaces alternatives as secondary signals.
+
+**Cross-cutting state** lives in the header: region, persona, and active tab are URL-state-bookmarkable via `dcc.Location` — share a URL, the recipient lands in the same view. **Briefing Mode** is a one-click chrome-stripping toggle for projection/PDF/screenshot-friendly output. **Save View** persists the current region+persona+tab triple to localStorage so reopening the app lands back where you were.
+
+**Drill-down patterns** wire the tabs together: clicking any region card on the US Grid tab sets `region-selector.value` AND `dashboard-tabs.active_tab=tab-outlook`, landing the user on Forecast for that region — same action whether the click came from the card grid, the centroid scatter, or the polygon choropleth, because the customdata payload is normalized at the callback boundary.
 
 ## What's next
 

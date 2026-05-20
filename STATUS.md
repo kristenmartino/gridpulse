@@ -30,15 +30,16 @@ items beyond #121 stay deferred — see [`docs/internal/NEXT_UP.md`](docs/intern
 2 of these must be true, or the PM infrastructure built this week is
 theatrical and should be partially reverted:
 
-- [x] (a) `docs/HOW_IT_WORKS.md` has real content (PR-C1, this PR)
-- [ ] (b) `docs/HOW_IT_WORKS.md` and `docs/INTERVIEW_PREP.md` have been used at least once for actual practice (PR-C1 ships real HOW_IT_WORKS + interview story list; full STAR drafts in PR-C2)
+- [x] (a) `docs/HOW_IT_WORKS.md` has real content (shipped PR #125)
+- [x] (a') `docs/INTERVIEW_PREP.md` has 5 full STAR stories + `docs/PITCH.md` has 3 length variants (PR-C1 + PR-C2 combined in PR #125)
+- [ ] (b) `HOW_IT_WORKS`, `INTERVIEW_PREP`, `PITCH` have been used at least once for actual practice (read aloud, time, refine for stumble points)
 - [ ] (c) [#121](https://github.com/kristenmartino/gridpulse/issues/121) has a draft PR or partial implementation
 - [ ] (d) The handoff quickstart has been run on sift-news or another repo
 
 ## Next 3 (priority order)
 
-1. **PR-C2 — Communication artifacts** (`docs/PITCH.md` 3 lengths + expand `docs/INTERVIEW_PREP.md` STAR stories from the 5 seed entries to full 90-second narratives, ~90 min). Next session.
-2. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) — Model drift monitoring** (~1 week, `path-b`, `effort-week`). After PR-C2 lands. The 2026-05-19 PJM walkthrough surfaced a 47 GW model spread; closing this gap is real product work AND generates the strongest STAR story this project will produce.
+1. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) — Model drift monitoring** (~1 week, `path-b`, `effort-week`). The 2026-05-19 PJM walkthrough surfaced a 47 GW model spread; closing this gap is real product work AND generates the strongest STAR story this project will produce. (Promotes from #2 → #1 now that PR-C work is complete.)
+2. **Run the handoff quickstart on sift-news** (~60 min, satisfies success criterion (d)). Validates the [`claude-templates`](https://github.com/kristenmartino/claude-templates) spec works cross-project; produces a second repo with STATUS.md to enable cross-linking ([#124](https://github.com/kristenmartino/gridpulse/issues/124)).
 3. **[#122](https://github.com/kristenmartino/gridpulse/issues/122) — V3.γ Hawaii** (~3–5 days, `v3-open`, `effort-week`). Lower priority — blocked on HECO data-quality assessment, lower portfolio leverage than #121.
 
 ## Blocked / waiting on
@@ -57,7 +58,7 @@ theatrical and should be partially reverted:
 
 ## Recent decisions (last 7 days)
 
-- **2026-05-20** PR-C1 — Recall artifacts shipped. Real `HOW_IT_WORKS.md` + 5 Mermaid diagrams + populated `CANONICAL_FACTS.md` + `INTERVIEW_PREP.md` STAR-story stubs. STATUS.md restructured per review §5; CLAUDE.md caveat removed. [This PR]
+- **2026-05-20** PR-C1 + PR-C2 shipped combined in [PR #125](https://github.com/kristenmartino/gridpulse/pull/125). `HOW_IT_WORKS.md` (5 sections, 5 Mermaid diagrams) + `CANONICAL_FACTS.md` (populated) + `INTERVIEW_PREP.md` (5 full ~225-word STAR stories with practice notes) + `PITCH.md` (30s / 2min / 5min variants). STATUS.md restructured per review §5; CLAUDE.md caveat removed.
 - **2026-05-20** Wider replan after multi-perspective review: confirmed Position A, deferred Path B beyond #121, reordered PR sequence to C → B (conditional) → D (deferred), and split PR-C into C1 (recall) + C2 (communication). [PR #123]
 - **2026-05-19** Path A declared complete. [#120](https://github.com/kristenmartino/gridpulse/pull/120)
 - **2026-05-19** Scenario simulator: heuristic over full-fidelity engine. [#119](https://github.com/kristenmartino/gridpulse/pull/119)
