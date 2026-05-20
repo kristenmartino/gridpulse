@@ -439,3 +439,192 @@ class TestOverlayWeatherForecast:
         future_no_wx = _build_future_feature_frame(featured, horizon=24)
 
         pd.testing.assert_frame_equal(future_with_empty, future_no_wx)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# PR-E (2026-05-20) — XGBoost recursive autoregressive prediction
+# ────────────────────────────────────────────────────────────────────────
+
+
+class _FakeXgbModel:
+    """Minimal XGBoost-model stub for the recursive predict path.
+
+    Returns a prediction that's a deterministic function of
+    ``demand_lag_1h`` (the chained-prediction history's most recent
+    value). Lets the recursion be observed directly: pred[i] = f(pred[i-1]).
+    """
+
+    def __init__(self, feature_names: list[str], multiplier: float = 1.02):
+        self._feature_names = feature_names
+        self._mult = multiplier
+
+    def __getitem__(self, key):  # match dict-style access used by predict_xgboost
+        if key == "feature_names":
+            return self._feature_names
+        if key == "model":
+            return self
+        raise KeyError(key)
+
+
+def _fake_predict_xgboost(model_dict, df):
+    """Stand-in for ``predict_xgboost`` — returns ``demand_lag_1h * 1.02``.
+
+    Used by the recursive test path so we can verify the chaining works
+    (each step's input lag_1h equals the previous step's prediction).
+    """
+    lag_1h = df["demand_lag_1h"].fillna(20_000.0).astype(float).values
+    return lag_1h * 1.02
+
+
+class TestPredictXgboostRecursive:
+    """``_predict_xgboost_with_recursive_autoregressive`` runs a
+    chained per-hour predict loop for the recursive zone, then a
+    vectorized predict for the climatology tail. PR-E (#138).
+
+    These tests use a fake predict_xgboost that returns
+    ``demand_lag_1h * 1.02`` so we can observe chaining directly:
+    pred[i] = pred[i-1] * 1.02 once the chain starts.
+    """
+
+    @staticmethod
+    def _featured(n_hours: int = 200, last_demand: float = 20_000.0) -> pd.DataFrame:
+        ts = pd.date_range("2026-05-01", periods=n_hours, freq="h", tz="UTC")
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": np.full(n_hours, last_demand),
+            }
+        )
+
+    @staticmethod
+    def _future(n_hours: int) -> pd.DataFrame:
+        ts = pd.date_range("2026-05-20", periods=n_hours, freq="h", tz="UTC")
+        # Climatology-shaped autoregressive baseline that the helper
+        # will override row-by-row in the recursive zone.
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "hour": ts.hour,
+                "demand_lag_1h": np.full(n_hours, 30_000.0),  # baseline, will be overwritten
+                "demand_lag_3h": np.full(n_hours, 30_000.0),
+                "demand_lag_24h": np.full(n_hours, 30_000.0),
+                "demand_lag_168h": np.full(n_hours, 30_000.0),
+                "ramp_rate": np.zeros(n_hours),
+                "demand_roll_24h_mean": np.full(n_hours, 30_000.0),
+                "demand_roll_24h_std": np.full(n_hours, 100.0),
+                "demand_roll_24h_min": np.full(n_hours, 29_500.0),
+                "demand_roll_24h_max": np.full(n_hours, 30_500.0),
+                "demand_roll_72h_mean": np.full(n_hours, 30_000.0),
+                "demand_roll_72h_std": np.full(n_hours, 100.0),
+                "demand_roll_72h_min": np.full(n_hours, 29_500.0),
+                "demand_roll_72h_max": np.full(n_hours, 30_500.0),
+                "demand_roll_168h_mean": np.full(n_hours, 30_000.0),
+                "demand_roll_168h_std": np.full(n_hours, 100.0),
+                "demand_roll_168h_min": np.full(n_hours, 29_500.0),
+                "demand_roll_168h_max": np.full(n_hours, 30_500.0),
+                "demand_momentum_short": np.zeros(n_hours),
+                "demand_momentum_long": np.zeros(n_hours),
+                "demand_ratio_24h": np.ones(n_hours),
+                "demand_ratio_168h": np.ones(n_hours),
+            }
+        )
+
+    def test_recursive_zone_chains_from_recent_actuals(self, monkeypatch):
+        """First prediction uses the most recent actual (20,000 MW)
+        from ``featured`` — NOT the climatology baseline in future_df.
+        Each subsequent prediction uses the prior prediction. Verifies
+        the chain is seeded correctly."""
+        import jobs.phases as phases
+
+        monkeypatch.setattr("models.xgboost_model.predict_xgboost", _fake_predict_xgboost)
+
+        featured = self._featured(last_demand=20_000.0)
+        future_df = self._future(n_hours=5)
+        model = _FakeXgbModel(feature_names=list(future_df.columns))
+
+        preds = phases._predict_xgboost_with_recursive_autoregressive(
+            model, featured, future_df, horizon=5, recursive_hours=5
+        )
+
+        # Chain: 20000 → 20400 → 20808 → 21224 → 21649 (×1.02 each step)
+        # The first prediction reads lag_1h from history (20000 actuals),
+        # not 30000 (the climatology baseline).
+        expected = [20_000.0 * 1.02 ** (i + 1) for i in range(5)]
+        np.testing.assert_allclose(preds, expected, rtol=1e-6)
+
+    def test_recursive_then_climatology_horizon(self, monkeypatch):
+        """When horizon exceeds recursive_hours, first N predictions
+        chain from history, remaining predictions use the climatology-
+        shaped features in future_df (lag_1h=30000)."""
+        import jobs.phases as phases
+
+        monkeypatch.setattr("models.xgboost_model.predict_xgboost", _fake_predict_xgboost)
+
+        featured = self._featured(last_demand=20_000.0)
+        future_df = self._future(n_hours=10)
+        model = _FakeXgbModel(feature_names=list(future_df.columns))
+
+        preds = phases._predict_xgboost_with_recursive_autoregressive(
+            model, featured, future_df, horizon=10, recursive_hours=3
+        )
+
+        # First 3: recursive chain from 20000 ×1.02 each step
+        recursive_expected = [20_000.0 * 1.02 ** (i + 1) for i in range(3)]
+        np.testing.assert_allclose(preds[:3], recursive_expected, rtol=1e-6)
+
+        # Remaining 7: climatology predictions = 30000 × 1.02 = 30600 (all same)
+        clim_expected = [30_000.0 * 1.02] * 7
+        np.testing.assert_allclose(preds[3:], clim_expected, rtol=1e-6)
+
+    def test_recursive_hours_caps_at_horizon(self, monkeypatch):
+        """If recursive_hours > horizon, we just chain for ``horizon``
+        hours and skip the climatology tail."""
+        import jobs.phases as phases
+
+        monkeypatch.setattr("models.xgboost_model.predict_xgboost", _fake_predict_xgboost)
+
+        featured = self._featured()
+        future_df = self._future(n_hours=4)
+        model = _FakeXgbModel(feature_names=list(future_df.columns))
+
+        preds = phases._predict_xgboost_with_recursive_autoregressive(
+            model, featured, future_df, horizon=4, recursive_hours=384
+        )
+
+        assert len(preds) == 4
+        # All four are recursive
+        expected = [20_000.0 * 1.02 ** (i + 1) for i in range(4)]
+        np.testing.assert_allclose(preds, expected, rtol=1e-6)
+
+    def test_default_recursive_hours_matches_open_meteo_horizon(self):
+        """The default recursive depth (``RECURSIVE_AUTOREGRESSIVE_HOURS``)
+        must equal ``OPEN_METEO_FORECAST_HOURS`` so the two regimes —
+        "real signal" and "climatology baseline" — break at the same
+        day-16 boundary as ADR-008."""
+        from config import OPEN_METEO_FORECAST_HOURS
+        from jobs.phases import RECURSIVE_AUTOREGRESSIVE_HOURS
+
+        assert RECURSIVE_AUTOREGRESSIVE_HOURS == OPEN_METEO_FORECAST_HOURS
+        assert RECURSIVE_AUTOREGRESSIVE_HOURS == 384
+
+    def test_predict_one_xgboost_uses_recursive_path(self, monkeypatch):
+        """``_predict_one`` for XGBoost must dispatch through
+        ``_predict_xgboost_with_recursive_autoregressive`` so the
+        production scoring job picks up PR-E's behavior."""
+        import jobs.phases as phases
+
+        called: dict[str, bool] = {"recursive": False}
+
+        def _spy(model, featured, future_df, horizon, **kw):
+            called["recursive"] = True
+            return np.zeros(horizon, dtype=float)
+
+        monkeypatch.setattr(phases, "_predict_xgboost_with_recursive_autoregressive", _spy)
+
+        featured = self._featured()
+        future_df = self._future(n_hours=24)
+        model = _FakeXgbModel(feature_names=list(future_df.columns))
+
+        result = phases._predict_one("xgboost", model, featured, future_df, horizon=24)
+        assert result is not None
+        assert called["recursive"] is True

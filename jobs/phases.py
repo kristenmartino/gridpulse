@@ -51,6 +51,20 @@ DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 BACKTEST_HORIZONS = (24, 168, 720)
 FORECAST_HORIZON_HOURS = 720
 
+# PR-E (2026-05-20) — depth of recursive autoregressive-feature inference.
+# For future hours 1..RECURSIVE_AUTOREGRESSIVE_HOURS, the XGBoost predict
+# loop computes ``demand_lag_*`` / ``ramp_rate`` / ``demand_roll_*`` from
+# recent actuals + prior predictions (chained), matching the inference
+# behavior validated by the training holdout. Past this depth the
+# autoregressive features fall back to the climatology baseline built
+# by ``_build_future_feature_frame``. The boundary aligns with
+# ``config.OPEN_METEO_FORECAST_HOURS`` (384) so the "real signal"
+# regime ends at the same day-16 mark for both weather and
+# autoregressive features — see ADR-008 in PRD.md.
+from config import OPEN_METEO_FORECAST_HOURS as _OM_HOURS  # noqa: E402
+
+RECURSIVE_AUTOREGRESSIVE_HOURS = _OM_HOURS
+
 _EIA_FUEL_MAP = {
     "SUN": "solar",
     "WND": "wind",
@@ -529,10 +543,13 @@ def _build_future_feature_frame(
             ``None``, the function falls back to the pre-PR-C
             climatology-only behavior.
 
-    Note on autoregressive features: ``demand_lag_*``, ``ramp_rate``,
-    and ``demand_roll_*`` are still filled from climatology in this PR.
-    PR-E will replace them with recursive computation from the model's
-    own prior predictions, mirroring what the training holdout does.
+    Note on autoregressive features: the climatology values placed here
+    by this function are used **only as the long-horizon fallback** —
+    XGBoost prediction overrides them per-row for the first
+    ``RECURSIVE_AUTOREGRESSIVE_HOURS`` (384) via
+    ``_predict_xgboost_with_recursive_autoregressive`` (PR-E). Beyond
+    that hour the climatology values produced here are what the model
+    actually sees. ARIMA and Prophet don't use these columns.
     """
     last_ts = featured["timestamp"].max()
     future_timestamps = pd.date_range(
@@ -586,6 +603,65 @@ def _build_future_feature_frame(
     return future_df
 
 
+def _predict_xgboost_with_recursive_autoregressive(
+    model: Any,
+    featured: pd.DataFrame,
+    future_df: pd.DataFrame,
+    horizon: int,
+    recursive_hours: int = RECURSIVE_AUTOREGRESSIVE_HOURS,
+) -> np.ndarray:
+    """XGBoost prediction with recursive autoregressive features for hours 1..N.
+
+    For the first ``recursive_hours`` of the forecast (default 384, aligned
+    with Open-Meteo's forecast horizon per ADR-008), the autoregressive
+    features ``demand_lag_*`` / ``ramp_rate`` / ``demand_roll_*`` are
+    computed via ``compute_autoregressive_snapshot`` from a growing
+    demand history — initial seed is recent actuals from ``featured``,
+    each predicted hour appends its prediction. This matches the
+    inference behavior validated by the training holdout in
+    ``training.py:113-122``.
+
+    Past hour ``recursive_hours``, the climatology-shaped autoregressive
+    features already present in ``future_df`` (built by
+    ``_build_future_feature_frame``) are used as-is. The vectorized
+    XGBoost predict over the tail of ``future_df`` produces the
+    long-horizon predictions in one call.
+
+    Returns a 1D array of length ``horizon`` (or shorter if the model
+    predicts fewer rows due to a column mismatch).
+    """
+    from data.feature_engineering import compute_autoregressive_snapshot
+    from models.xgboost_model import predict_xgboost
+
+    n_recursive = min(recursive_hours, horizon)
+
+    # Recursive zone: chain predictions hour by hour, seeded from recent
+    # actuals. Each iteration: build the feature row from the growing
+    # history, predict, append the prediction to history.
+    demand_history = featured["demand_mw"].tolist()
+    recursive_preds: list[float] = []
+    for i in range(n_recursive):
+        row = future_df.iloc[[i]].copy()
+        for col, val in compute_autoregressive_snapshot(demand_history).items():
+            if col in row.columns:
+                row[col] = val
+        row = row.ffill().bfill().fillna(0)
+        pred = float(predict_xgboost(model, row)[0])
+        recursive_preds.append(pred)
+        demand_history.append(pred)
+
+    if horizon <= n_recursive:
+        return np.asarray(recursive_preds, dtype=float)
+
+    # Climatology zone (hours N+1 to horizon): vectorized predict on the
+    # tail of future_df, which already has climatology-shaped autoregressive
+    # features from ``_build_future_feature_frame``. Weather features here
+    # are also climatology (per ADR-008), so both signals degrade together.
+    clim_df = future_df.iloc[n_recursive:horizon].copy()
+    clim_preds = np.asarray(predict_xgboost(model, clim_df), dtype=float)
+    return np.concatenate([np.asarray(recursive_preds, dtype=float), clim_preds])
+
+
 def _predict_one(
     model_name: str,
     model: Any,
@@ -595,8 +671,11 @@ def _predict_one(
 ) -> np.ndarray | None:
     """Dispatch a single model to its predict function and return point forecasts.
 
-    XGBoost takes the engineered future-feature frame directly. Prophet builds
-    its own future frame internally from the training data + a periods arg —
+    XGBoost runs through ``_predict_xgboost_with_recursive_autoregressive``
+    (PR-E, 2026-05-20) which uses recursive autoregressive features for
+    the first ``RECURSIVE_AUTOREGRESSIVE_HOURS`` (384) hours of the
+    horizon, falling back to climatology beyond. Prophet builds its
+    own future frame internally from the training data + a periods arg —
     so we hand it the training ``featured`` DataFrame instead.
 
     Returns ``None`` on a per-model failure so the caller can degrade gracefully
@@ -604,9 +683,9 @@ def _predict_one(
     """
     try:
         if model_name == "xgboost":
-            from models.xgboost_model import predict_xgboost
-
-            return np.asarray(predict_xgboost(model, future_df), dtype=float)
+            return _predict_xgboost_with_recursive_autoregressive(
+                model, featured, future_df, horizon
+            )
         if model_name == "prophet":
             from models.prophet_model import predict_prophet
 
