@@ -198,13 +198,56 @@ def get_ensemble_weights(region: str) -> dict[str, float]:
 
 
 def is_trained(region: str) -> bool:
-    """Check if trained models exist for a region."""
+    """Check if a real trained-model forecast is available for the region.
+
+    The web tier's source of truth is Redis: ``gridpulse:forecast:{region}:1h``
+    is written hourly by the scoring job, and the ``ensemble_weights`` field
+    is only present when ≥2 trained base models produced finite predictions
+    during that tick. Presence of ``ensemble_weights`` is therefore the
+    tightest "real trained models are live for this region" signal we can
+    read without scanning GCS.
+
+    The pre-2026-05-20 implementation checked for a local ``trained_models/
+    {region}_models.pkl`` file, which in production *always* returns False
+    on the web tier (only the Cloud Run Job container has trained pickles
+    on disk). That caused every region to render the "simulated" badge on
+    the Overview model card even when real trained-model output was being
+    rendered in the forecast chart and Forecast tab.
+
+    Falls back to the legacy local-pickle check when Redis isn't reachable
+    (dev mode with no Memorystore). Returns False for unknown regions.
+    """
     from models.training import _safe_model_path, _validate_region
 
     try:
         _validate_region(region)
     except ValueError:
         return False
+
+    # Primary path: Redis forecast with ensemble_weights → real trained models
+    try:
+        from data.redis_client import redis_get, redis_key
+
+        payload = redis_get(redis_key(f"forecast:{region}:1h"))
+        if isinstance(payload, dict):
+            weights = payload.get("ensemble_weights")
+            if isinstance(weights, dict) and weights:
+                return True
+            # Forecast exists but no ensemble weights — could mean only one
+            # model loaded, OR weights were dropped. Treat as "live but
+            # not full ensemble" — still trained.
+            forecasts = payload.get("forecasts") or []
+            if forecasts:
+                first_row = forecasts[0]
+                # Any per-model column populated (xgboost / prophet / arima)
+                # indicates a real trained-model prediction in flight.
+                model_cols = {"xgboost", "prophet", "arima"}
+                if any(isinstance(first_row.get(k), (int, float)) for k in model_cols):
+                    return True
+    except Exception as exc:  # pragma: no cover — defensive
+        log.debug("is_trained_redis_check_failed", region=region, error=str(exc))
+
+    # Fallback: legacy local-pickle check for dev environments without Redis
     filepath = _safe_model_path(MODEL_DIR, region)
     return os.path.exists(filepath)
 
