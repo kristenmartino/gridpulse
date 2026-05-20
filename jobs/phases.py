@@ -377,11 +377,162 @@ def write_interchange(region: str) -> PhaseResult:
 # ── Phase: forecast (scoring) ────────────────────────────────
 
 
-def _build_future_feature_frame(featured: pd.DataFrame, horizon: int) -> pd.DataFrame:
-    """Mirror the climatology-style future-feature builder used by populate_redis.
+def _overlay_weather_forecast(
+    future_df: pd.DataFrame,
+    featured: pd.DataFrame,
+    weather_df: pd.DataFrame,
+    horizon: int,
+) -> pd.DataFrame:
+    """Overlay actual Open-Meteo forecast values onto a climatology-built ``future_df``.
 
-    Uses per-(hour, dow) historical means for non-time features so the
-    forecast has sane exogenous inputs without external weather forecasts.
+    For future timestamps covered by ``weather_df`` (typically the next
+    ~16 days from Open-Meteo's ``/forecast`` endpoint), raw weather columns
+    are replaced with their forecasted values and the derived weather
+    features (CDD/HDD/wind_power/solar_capacity_factor/temp_x_hour/
+    temperature_deviation) are recomputed from those forecasted raw values.
+    Hours beyond the forecast horizon keep their (hour, dow) climatology
+    values from the existing builder. Returns a NEW DataFrame; does not
+    mutate inputs.
+
+    Why this exists (2026-05-20, PR-C of the forecast-pipeline audit):
+    pre-fix, ``_build_future_feature_frame`` populated future weather
+    features entirely from historical (hour, day-of-week) group means.
+    The model was trained on actual weather but served with climatology —
+    a train/serve gap that caused weather to barely move the demand
+    forecast in production. After this overlay, the first ~384 hours
+    of the forecast horizon use real Open-Meteo data; beyond that
+    we still fall back to climatology because Open-Meteo's free GFS
+    forecast caps at 16 days.
+    """
+    from config import WEATHER_VARIABLES
+    from data.feature_engineering import (
+        compute_cdd,
+        compute_hdd,
+        compute_solar_capacity_factor,
+        compute_temp_hour_interaction,
+        compute_temperature_deviation,
+        compute_wind_power,
+    )
+
+    future_df = future_df.copy()
+
+    if weather_df is None or weather_df.empty:
+        return future_df
+
+    wx = weather_df.copy()
+    wx["timestamp"] = pd.to_datetime(wx["timestamp"], utc=True)
+    wx = wx.drop_duplicates(subset="timestamp", keep="last")
+
+    # Restrict to the raw weather columns we actually use as model features.
+    raw_in_wx = [c for c in WEATHER_VARIABLES if c in wx.columns]
+    if not raw_in_wx:
+        return future_df
+
+    # Index by timestamp for fast point lookup
+    wx_indexed = wx.set_index("timestamp")[raw_in_wx]
+    ts = pd.to_datetime(future_df["timestamp"], utc=True)
+
+    # Coverage diagnostic — useful for confirming Open-Meteo forecast hours
+    # actually align with the demand forecast horizon in production logs.
+    n_covered = int(ts.isin(wx_indexed.index).sum())
+    log.info(
+        "future_frame_weather_forecast_coverage",
+        horizon=horizon,
+        forecast_covered_hours=n_covered,
+        climatology_fallback_hours=horizon - n_covered,
+    )
+
+    if n_covered == 0:
+        # Nothing to overlay — climatology stays as-is.
+        return future_df
+
+    # Overlay each raw weather column where forecast exists. Other rows
+    # keep their climatological value from the existing builder.
+    for col in raw_in_wx:
+        forecast_values = ts.map(
+            lambda t, c=col: (
+                float(wx_indexed.loc[t, c])
+                if t in wx_indexed.index and pd.notna(wx_indexed.loc[t, c])
+                else np.nan
+            )
+        )
+        if col not in future_df.columns:
+            future_df[col] = np.nan
+        mask = forecast_values.notna()
+        future_df.loc[mask, col] = forecast_values[mask].values
+
+    # Recompute derived weather features from the (now possibly-updated)
+    # raw values. Apply to the whole frame so derived columns stay
+    # internally consistent with raw columns regardless of which source
+    # (forecast or climatology) provided each row.
+    if "temperature_2m" in future_df.columns:
+        future_df["cooling_degree_days"] = compute_cdd(future_df["temperature_2m"]).values
+        future_df["heating_degree_days"] = compute_hdd(future_df["temperature_2m"]).values
+
+        # temperature_deviation = current_temp - 720h rolling mean. The
+        # rolling window must include historical context (the 30 days
+        # preceding `now`) or the deviation collapses to ~0 for all
+        # future rows. Concatenate hist + future, compute, take tail.
+        if "temperature_2m" in featured.columns and len(featured) > 0:
+            hist_temp = featured["temperature_2m"].reset_index(drop=True)
+            future_temp = future_df["temperature_2m"].reset_index(drop=True)
+            combined = pd.concat([hist_temp, future_temp], ignore_index=True)
+            deviation = compute_temperature_deviation(combined)
+            future_df["temperature_deviation"] = deviation.tail(horizon).values
+
+    if "wind_speed_80m" in future_df.columns:
+        future_df["wind_power_estimate"] = compute_wind_power(future_df["wind_speed_80m"]).values
+
+    if "shortwave_radiation" in future_df.columns:
+        future_df["solar_capacity_factor"] = compute_solar_capacity_factor(
+            future_df["shortwave_radiation"]
+        ).values
+
+    if "temperature_2m" in future_df.columns and "hour_sin" in future_df.columns:
+        future_df["temp_x_hour"] = compute_temp_hour_interaction(
+            future_df["temperature_2m"], future_df["hour_sin"]
+        ).values
+
+    return future_df
+
+
+def _build_future_feature_frame(
+    featured: pd.DataFrame,
+    horizon: int,
+    weather_df: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """Build a feature frame for the forecast horizon.
+
+    Two-stage build:
+
+    1. **Climatology baseline (always)** — every non-time feature column
+       in ``featured`` is filled from per-(hour, dow) historical group
+       means. This is the existing behavior; it produces a usable
+       feature frame even when no weather forecast is available.
+    2. **Weather-forecast overlay (when ``weather_df`` is provided)** —
+       for future timestamps covered by ``weather_df`` (typically the
+       next ~16 days from Open-Meteo), raw weather columns are
+       overwritten with actual forecast values and derived weather
+       features are recomputed. Hours beyond the forecast horizon keep
+       their climatology values.
+
+    Args:
+        featured: Engineered historical DataFrame (post-merge,
+            post-feature-engineering). Drives the climatology baseline
+            and provides historical temperature for the rolling
+            ``temperature_deviation`` window.
+        horizon: Number of future hours to build.
+        weather_df: Optional raw weather DataFrame (from
+            ``data.weather_client.fetch_weather``) covering both the
+            historical and forecast periods. Only the forecast portion
+            (timestamps after ``featured.timestamp.max()``) is used. When
+            ``None``, the function falls back to the pre-PR-C
+            climatology-only behavior.
+
+    Note on autoregressive features: ``demand_lag_*``, ``ramp_rate``,
+    and ``demand_roll_*`` are still filled from climatology in this PR.
+    PR-E will replace them with recursive computation from the model's
+    own prior predictions, mirroring what the training holdout does.
     """
     last_ts = featured["timestamp"].max()
     future_timestamps = pd.date_range(
@@ -426,6 +577,11 @@ def _build_future_feature_frame(featured: pd.DataFrame, horizon: int) -> pd.Data
     for col in feature_cols:
         if col not in future_df.columns:
             future_df[col] = 0
+
+    # Overlay actual Open-Meteo forecast where available. For hours
+    # beyond the forecast horizon (~day 16+), climatology stays.
+    if weather_df is not None and not weather_df.empty:
+        future_df = _overlay_weather_forecast(future_df, featured, weather_df, horizon)
 
     return future_df
 
@@ -527,7 +683,12 @@ def predict_and_write_forecast(
 
     try:
         featured = data.featured_df
-        future_df = _build_future_feature_frame(featured, FORECAST_HORIZON_HOURS)
+        # Pass the raw weather DataFrame so the future-feature builder can
+        # overlay actual Open-Meteo forecast values (next ~16 days) onto
+        # the climatology baseline. See ``_overlay_weather_forecast``.
+        future_df = _build_future_feature_frame(
+            featured, FORECAST_HORIZON_HOURS, weather_df=data.weather_df
+        )
         future_ts = future_df["timestamp"]
 
         # Run every model defensively — a single per-model failure can't
