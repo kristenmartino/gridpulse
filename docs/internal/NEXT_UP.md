@@ -6,9 +6,9 @@ _Living punchlist for work queued after the [shell redesign](.claude/plans/shell
 
 Each item below has explicit **acceptance criteria** and a **rough effort estimate** so it can be picked up cold.
 
-## V0 — Production verification (do first, before everything else)
+## V0 — Production verification (✅ shipped)
 
-Both option-B PRs are merged. Verification is the only thing left between the user-visible Forecast tab being honest end-to-end. **Don't ship UI-facing V1+ work (V1.β/γ) until V0.2/V0.3 close.** V1.α was config-only and shipped ahead in [#61](https://github.com/kristenmartino/gridpulse/pull/61) — see status board.
+V0 was historically the gating step for V1+; all three V0 substeps are now closed (see status board). The substep procedures are preserved below as runbook material — useful next time the scoring/training pipeline is touched or after a Redis flush. V0.3 was **re-verified 2026-05-19** end-to-end: all four model options (XGBoost / Prophet / ARIMA / Ensemble) render real forecasts for PJM. See §V4 for the model-spread observation that surfaced during that walkthrough.
 
 ### V0.1 — Trigger scoring run + verify
 
@@ -36,7 +36,7 @@ gcloud logging read 'resource.labels.job_name="gridpulse-scoring-job"' \
 ### V0.2 — Verify Redis carries all four model keys
 
 ```bash
-redis-cli GET wattcast:forecast:FPL:1h | python -c "
+redis-cli GET gridpulse:forecast:FPL:1h | python -c "
 import sys, json
 d = json.loads(sys.stdin.read())
 row0 = d['forecasts'][0]
@@ -183,8 +183,9 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 2. ~~**V3.α** Interchange flow visualization~~ — ✅ shipped 2026-05-01 ([#69](https://github.com/kristenmartino/gridpulse/pull/69))
 3. ~~**V3.ζ** Full-coverage BA expansion (16 → 51 BAs)~~ — ✅ shipped 2026-05-02 (~99% of US lower-48 demand vs ~85% before)
 4. ~~**V3.β** Real BA-polygon choropleth~~ — ✅ shipped 2026-05-02 (electricitymaps-contrib MIT-licensed source; ~165 KB asset, all 51 BAs covered)
-5. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
-6. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
+5. ~~**V3.η** Capacity figure for import-dominated BAs~~ — ✅ shipped 2026-05-02 (capacity corrections for 7 BAs + `IS_IMPORT_DOMINATED` frozenset + UI wiring across 5 callsites + dedicated test file)
+6. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
+7. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
 
 ### V3.ε — NEVP capacity verification — ✅ shipped 2026-05-01
 
@@ -198,33 +199,11 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 ---
 
-### V3.α — Interchange flow visualization
+### V3.α — Interchange flow visualization — ✅ shipped 2026-05-01
 
-**Why**: GridPulse already pulls hourly tie-line interchanges via [`fetch_interchange`](../data/eia_client.py) (returns `[timestamp, from_ba, to_ba, interchange_mw]`), but nothing in the UI surfaces them. Operators in PJM/MISO/SPP routinely care about net imports/exports — currently a blind spot.
+**What landed**: Per-region net interchange (MW signed) with top counterparty BAs rendered on the US Grid view, sourced from EIA's tie-line interchange endpoint via `fetch_interchange` and persisted as `gridpulse:interchange:{region}:1h` Redis keys by the hourly scoring job. Shipped in [#69](https://github.com/kristenmartino/gridpulse/pull/69). New `jobs.phases.write_interchange` phase mirrors the `write_generation` shape and runs per region. Empty payloads (sparse data for smaller BAs like NEVP / AZPS) handled gracefully — the UI omits the chip rather than rendering "—".
 
-**Goal**: Add an interchange overlay to the US Grid tab. For the active region (or all 16), show net import/export rate and the top 3 counterparty BAs.
-
-**Files**:
-- [`components/tab_us_grid.py`](../components/tab_us_grid.py) — new section + container IDs
-- [`components/callbacks.py`](../components/callbacks.py) — `update_us_grid_interchange` callback reading `wattcast:interchange:{region}:1h` (new Redis key)
-- [`jobs/phases.py`](../jobs/phases.py) — new phase `write_interchange` invoking `fetch_interchange` and serializing to Redis (mirror the existing `write_generation` shape)
-- [`jobs/scoring_job.py`](../jobs/scoring_job.py) — invoke the new phase per region
-- [`assets/custom.css`](../assets/custom.css) — interchange chip / panel styling
-- New `tests/unit/test_tab_us_grid_interchange.py` — fake Redis row, assert UI shape
-
-**Acceptance**:
-- Per-region net interchange (MW signed) renders on every region card.
-- Top 3 counterparties listed (e.g. PJM ↔ MISO −1,200 MW).
-- `wattcast:interchange:{region}:1h` populated by the next hourly scoring run.
-- New unit test green; existing 1377 tests still pass.
-
-**Effort**: ~1.5 days. Most work is UI + the new scoring phase; data plumbing already exists.
-
-**Risk**: EIA's interchange endpoint sometimes returns sparse data for smaller BAs (NEVP, AZPS). Handle empty payloads gracefully in the UI.
-
-**Open questions**:
-- Sankey across all 16 BAs vs per-region detail panel? Sankey is a stronger story but harder to read at 16 nodes; per-region detail is safer.
-- Show as a header chip on the US Grid card or as a separate full-width panel?
+**Open question resolution**: shipped as per-region detail panel (not Sankey). The 51-BA Sankey was tried during prototyping and rejected as illegible at that node count.
 
 ---
 
@@ -290,26 +269,27 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 ---
 
-### V3.η — Capacity figure for import-dominated BAs
+### V3.η — Capacity figure for import-dominated BAs — ✅ shipped 2026-05-02
 
-**Why**: V3.ζ surfaced a class of bug where ``REGION_CAPACITY_MW`` (sourced from EIA-860M, counting in-territory operating generators) is wildly low for utility BAs that import nearly all their power. CPLW (Duke Energy Progress West, NC mountains) has 42 MW of in-territory generators serving ~449 MW of demand → stress ratio of 10.71×. Same pattern likely affects HST (36 MW capacity), GVL (600 MW), and SPA (federal hydro marketer redistributing power across multiple states).
+**What landed**: Two complementary fixes in [`config.py`](../config.py) and [`components/_callbacks_us_grid.py`](../components/_callbacks_us_grid.py):
 
-**User impact (pre-patch)**: "Highest-Stress Region: CPLW · 1071%" / "Lowest Reserve: -971%" on the deployed US Grid metrics bar (reported 2026-05-02). Stop-gap shipped under the same fix that introduced the ``_STRESS_RELIABLE_CEILING = 2.0`` defensive filter — V3.η is the proper data fix.
+1. **Capacity corrections** — replaced EIA-860M generator capacity with `peak_demand_mw × 1.15` reserve margin for every BA where in-territory generation fell below served demand. Methodology: pulled 12-month max demand per BA via the existing `data/eia_client.fetch_demand` infrastructure. Affected BAs (with inline citations in `config.py`):
+   - V1.α net importers: SOCO (46,000 → 54,980), DUK (20,800 → 25,513), CPLE (13,700 → 16,478), PSCO (9,080 → 12,238). Capacity-to-peak ratios were 0.93–0.96 — modest under-counts.
+   - V3.ζ small-utility BAs: FMPP (3,908 → 4,574), HST (36 → 169 — a 4.08× understatement), CPLW (42 → 1,450 — a 30× understatement). HST and CPLW were the user-reported "Highest-Stress · 1071%" symptom.
 
-**Goal**: Replace EIA-860M generator capacity with a "demand-serving capacity" denominator for import-dominated BAs — annual peak demand × 1.15 reserve margin, or N/A if the BA is purely an importer (don't show stress at all).
+2. **`IS_IMPORT_DOMINATED` frozenset** at [`config.py`](../config.py) lines 469–478 = `{CPLW, HST, SPA}`. Inclusion criterion: in-territory generation < ~50 % of 12-month peak demand (multiplier ≥ 2×). SPA is included as a federal hydro marketer — its 2,559 MW nameplate is the federal-dam fleet, not the much larger contracted served load.
 
-**Files**:
-- [`config.py`](../config.py) — `REGION_CAPACITY_MW` for the ~5 affected BAs (CPLW, HST, GVL, SPA; verify TAL, TPWR, etc. as well)
-- New `scripts/derive_demand_serving_capacity.py` — one-shot script that pulls each BA's annual peak demand from EIA-930 and computes the corrected figure with reserve margin
+3. **UI wiring** across 5 callsites in [`components/_callbacks_us_grid.py`](../components/_callbacks_us_grid.py):
+   - Import + reference (lines 43, 164)
+   - Excluded from the "highest-stress region" KPI candidate pool (line 201) so a 30× multiplier doesn't always win
+   - Stress-ratio capping logic (line 366) — `IS_IMPORT_DOMINATED` or `> _STRESS_RELIABLE_CEILING` both trigger the cap
+   - Hover annotation `· imports` on polygon hover + card text (lines 480, 631) so users see the structural caveat inline
 
-**Acceptance**:
-- For every BA with EIA-860M capacity < BA peak demand, replace with `peak_demand_mw * 1.15`. Document inline.
-- Optionally: add a `IS_IMPORT_DOMINATED: set[str]` tag for BAs where the stress metric is intrinsically meaningless (federal marketers); UI hides their stress chip.
-- The ``_STRESS_RELIABLE_CEILING`` filter becomes a defense-in-depth safety net rather than the primary mechanism.
+4. **Tests** — [`tests/unit/test_import_dominated_bas.py`](../tests/unit/test_import_dominated_bas.py) covers: set type/contents, mutual exclusion of corrected vs. tagged BAs, ratio-band overrides, candidate-pool exclusion, and the "still filter even when ratio is reliable" property.
 
-**Effort**: ~2 hours (script + verification + config update).
+**Defensive filter status**: `_STRESS_RELIABLE_CEILING = 2.0` is retained as defense-in-depth — it catches future structural cases that aren't yet tagged. The two mechanisms are complementary, not redundant.
 
-**Risk**: Choosing the wrong reserve margin number could materially change downstream pricing/scenario results. Document the methodology clearly.
+**Follow-up worth noting**: re-evaluate `IS_IMPORT_DOMINATED` annually as new generators come online. CPLW especially could exit the set if Duke builds local generation in NC mountains; HST will likely stay tagged indefinitely.
 
 ---
 
@@ -353,7 +333,7 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 **Sketch** (when revived):
 - Auth via Auth0 or Clerk fronting Cloud Run with IAP, or a Supabase auth path matching the existing Supabase MCP.
-- Per-tenant Redis namespace: `wattcast:{tenant_id}:forecast:{region}:1h` instead of `wattcast:forecast:{region}:1h`.
+- Per-tenant Redis namespace: `gridpulse:{tenant_id}:forecast:{region}:1h` instead of `gridpulse:forecast:{region}:1h` (current single-tenant prefix migrated in [#114](https://github.com/kristenmartino/gridpulse/pull/114)).
 - Tenant-scoped region access list (some operators may only want the BAs they cover).
 - User profile / preferences scoped to the (user_id, tenant_id) pair, replacing the current localStorage-only `user-prefs-store`.
 - Scoring/training jobs need to either run per-tenant or remain shared with tenant-scoped Redis writes.
@@ -366,13 +346,13 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 ## Status board (updated when items complete)
 
-_All V0–V2 items shipped as of 2026-05-01. Verified live: the 2026-05-01 04:00 UTC training run wrote real holdout MAPEs for prophet (FPL: 7.88, PJM: 11.04) and ARIMA (FPL: 5.55, PJM: 5.19); the 2026-05-01 09:00 UTC scoring run produced skill-weighted ensembles like `{xgboost: 0.578, prophet: 0.293, arima: 0.130}` instead of the equal-weights fallback._
+_Snapshot 2026-05-19. **Path A (portfolio-grade complete) is shipped.** The repo currently has zero open issues and zero open PRs. V0–V3 are closed except V3.γ (Hawaii, blocked on data quality) and V3.δ (multi-tenant, deferred). V4 Path B is the next strategic investment, with model drift monitoring as the highest-leverage candidate — see §V4 for the day's PJM model-spread evidence._
 
 | Item | Status | PR / Doc |
 |---|---|---|
 | V0.1 Trigger scoring run + verify | ✅ shipped + verified live | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) [#59](https://github.com/kristenmartino/gridpulse/pull/59) [#60](https://github.com/kristenmartino/gridpulse/pull/60) |
 | V0.2 Verify Redis carries 4 model keys | ✅ shipped + verified via scoring logs | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
-| V0.3 UI walkthrough | ✅ shipped + manual walkthrough confirmed | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
+| V0.3 UI walkthrough | ✅ shipped + re-verified 2026-05-19 (all 4 model options render) | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
 | V1.α Region expansion (16 BAs) | ✅ shipped | [#61](https://github.com/kristenmartino/gridpulse/pull/61) |
 | V1.β US Grid small-multiples tab | ✅ shipped | [#64](https://github.com/kristenmartino/gridpulse/pull/64) |
 | V1.γ US Grid map overlay | ✅ shipped | [#64](https://github.com/kristenmartino/gridpulse/pull/64) |
@@ -380,16 +360,26 @@ _All V0–V2 items shipped as of 2026-05-01. Verified live: the 2026-05-01 04:00
 | V2.2 Brand spec addendum | ✅ shipped | [`docs/gridpulse_brand_system_spec.md`](./gridpulse_brand_system_spec.md) |
 | V2.3 PRD tab-list addendum | ✅ shipped | [`PRD.md`](../PRD.md) |
 | V2.4 PJM scoring investigation | ✅ auto-resolved by V0 — PJM now loads all 3 models hourly | [#57](https://github.com/kristenmartino/gridpulse/pull/57) [#58](https://github.com/kristenmartino/gridpulse/pull/58) |
+| V3.ε NEVP capacity verification | ✅ shipped 2026-05-01 | [config.py](../config.py) |
+| V3.α Interchange flow visualization | ✅ shipped 2026-05-01 | [#69](https://github.com/kristenmartino/gridpulse/pull/69) |
+| V3.ζ Full-coverage BA expansion (16 → 51) | ✅ shipped 2026-05-02 | [config.py](../config.py) |
+| V3.β Real BA-polygon choropleth | ✅ shipped 2026-05-02 | [`tests/unit/test_us_grid_choropleth.py`](../tests/unit/test_us_grid_choropleth.py) |
+| V3.η Import-dominated BA capacity + UI | ✅ shipped 2026-05-02 | [config.py](../config.py) + [components/_callbacks_us_grid.py](../components/_callbacks_us_grid.py) + [tests/unit/test_import_dominated_bas.py](../tests/unit/test_import_dominated_bas.py) |
+| #21 URL state + Save View (Path A) | ✅ closed 2026-05-06 | [#21](https://github.com/kristenmartino/gridpulse/issues/21) |
+| #25 Briefing background callback + diskcache (Path A) | ✅ closed 2026-05-18 | [#25](https://github.com/kristenmartino/gridpulse/issues/25) |
+| #87 callbacks.py decomposition (Path A) | ✅ closed 2026-05-18 (13-PR series) | [#99](https://github.com/kristenmartino/gridpulse/pull/99)–[#111](https://github.com/kristenmartino/gridpulse/pull/111) |
+| #91 Redis namespace `wattcast:` → `gridpulse:` (Path A) | ✅ closed 2026-05-18 | [#112](https://github.com/kristenmartino/gridpulse/pull/112) [#114](https://github.com/kristenmartino/gridpulse/pull/114) |
+| #26 Chart polish (PLOT_CONFIG, hover, axis) (Path A) | ✅ closed 2026-05-18 | [#115](https://github.com/kristenmartino/gridpulse/pull/115) [#117](https://github.com/kristenmartino/gridpulse/pull/117) |
+| 2026-05-19 sweep — cache-invalidating deploy playbook | ✅ shipped | [#116](https://github.com/kristenmartino/gridpulse/pull/116) |
+| 2026-05-19 sweep — region-count alignment to config.py | ✅ shipped | [#118](https://github.com/kristenmartino/gridpulse/pull/118) |
+| 2026-05-19 sweep — scenario simulator wind/solar→demand coupling | ✅ shipped | [#119](https://github.com/kristenmartino/gridpulse/pull/119) |
+| V3.γ Hawaii / Alaska coverage | 🔲 open (3–5 days, blocked on HECO data quality) | — |
+| V3.δ Multi-tenant per-user views | 🔲 deferred (weeks; awaits product-market signal) | — |
+| V4 Path B #1 — Model drift monitoring | 🔲 open · **recommended next investment** (1 week; see §V4 for PJM spread evidence) | — |
 
 ## Next: V3 backlog
 
-V3 was scoped on 2026-05-01. See §V3 above for the full plan per item. Recommended order:
-
-1. ~~**V3.ε** NEVP capacity verification~~ — ✅ shipped 2026-05-01
-2. **V3.α** Interchange flow visualization (~1.5 days)
-3. ~~**V3.β** Real BA-polygon choropleth~~ — ✅ shipped 2026-05-02
-4. **V3.γ** Hawaii coverage (3–5 days)
-5. **V3.δ** Multi-tenant — deferred
+V3 was scoped on 2026-05-01. The §V3 "Recommended order" list above is the canonical state — V3.α/β/ε/ζ/η all shipped. Only **V3.γ** (Hawaii / Alaska, 3–5 days, blocked on HECO data quality) and **V3.δ** (multi-tenant, deferred until product-market signal) remain open.
 
 ---
 
@@ -401,9 +391,17 @@ Open question (2026-05-06): the six-month audience for GridPulse isn't fixed. Tw
 
 **Audience**: recruiters, hiring managers, technical reviewers evaluating a portfolio piece. They click through the live URL, scan the GitHub repo, possibly read the case study.
 
-**State after the V3.ζ / V3.η / real-metrics work**: approximately done. The remaining backlog is the polish tail (#21 URL state refinements, #25 briefing background callback, #26 chart polish) plus #87 (`callbacks.py` decomposition) plus #91 (`wattcast:` Redis namespace rename). All are quality-of-life improvements; none changes what the project demonstrates.
+**State as of 2026-05-19**: **done.** The polish tail closed across the 2026-05-15 → 2026-05-19 sprint:
 
-**Time to "complete" if this is the audience**: ~1–2 days of focused work.
+- [#21](https://github.com/kristenmartino/gridpulse/issues/21) URL state + Save View — ✅ closed 2026-05-06
+- [#25](https://github.com/kristenmartino/gridpulse/issues/25) Briefing background callback + diskcache — ✅ closed 2026-05-18
+- [#26](https://github.com/kristenmartino/gridpulse/issues/26) Chart polish (PLOT_CONFIG, hover, axis) — ✅ closed via [#115](https://github.com/kristenmartino/gridpulse/pull/115) + [#117](https://github.com/kristenmartino/gridpulse/pull/117)
+- [#87](https://github.com/kristenmartino/gridpulse/issues/87) `callbacks.py` decomposition — ✅ closed via PRs [#99](https://github.com/kristenmartino/gridpulse/pull/99)–[#111](https://github.com/kristenmartino/gridpulse/pull/111) (13-PR series)
+- [#91](https://github.com/kristenmartino/gridpulse/issues/91) `wattcast:` → `gridpulse:` Redis namespace — ✅ closed via [#112](https://github.com/kristenmartino/gridpulse/pull/112) + [#114](https://github.com/kristenmartino/gridpulse/pull/114)
+
+Plus the 2026-05-19 sweep: [#116](https://github.com/kristenmartino/gridpulse/pull/116) cache-invalidating deploy playbook, [#118](https://github.com/kristenmartino/gridpulse/pull/118) region-count alignment to config.py source-of-truth, [#119](https://github.com/kristenmartino/gridpulse/pull/119) scenario simulator wind/solar demand coupling fix.
+
+There is no remaining Path A backlog. The repo currently shows **zero open issues** and **zero open PRs**.
 
 ### Path B — Real production system
 
@@ -412,6 +410,8 @@ Open question (2026-05-06): the six-month audience for GridPulse isn't fixed. Tw
 **Gap-list (in honest priority order):**
 
 1. **Model drift monitoring** — holdout metrics are training-time only. No continuous "this model's MAPE is degrading vs live actuals" loop. Without this, the inverse-MAPE ensemble weights become stale and the "real holdout metrics" claim becomes "real *when last trained*." Effort: ~1 week for scoring-job side comparison + alerting on drift threshold.
+
+   **Concrete evidence (2026-05-19 UI walkthrough)**: PJM 24h forecast showed a **47 GW model spread** at the same horizon and region — XGBoost 95,182 MW, Ensemble 106,081 MW, Prophet 122,542 MW, ARIMA 141,704 MW. Recent actuals ended at ~125–130 GW. XGBoost is predicting a sharp drop while ARIMA is predicting we climb. That's exactly the symptom this item is designed to detect — holdout MAPE wouldn't catch it because it's a between-training drift, not a training-time error. This single observation moves Model drift monitoring from "theoretically valuable" to "demonstrably needed." Recommended as the first Path B investment.
 2. **Observability infrastructure** — structured logs exist; no metrics dashboard for the data pipeline itself, no alerting on training-job failures or scoring-job staleness, no error-budget framework. Effort: ~3–5 days for Cloud Monitoring dashboards + alert policies + runbook.
 3. **Authentication + multi-tenant** — currently anonymous public read. No tenant scoping on Redis writes, no per-user state, no rate limiting. Effort: ~2 weeks (Workforce Identity Federation or Identity Platform + auth-gated callbacks + Redis namespacing + rate limiter).
 4. **API surface** — currently visualization only. A serious operator wants `GET /v1/forecast/{region}/{horizon}` to feed their own pipelines. Effort: ~1 week (FastAPI or extending Flask routes + OpenAPI spec + auth + rate limits).
