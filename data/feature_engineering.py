@@ -129,7 +129,28 @@ def engineer_exogenous_features(df: pd.DataFrame) -> pd.DataFrame:
 def add_autoregressive_demand_features(
     df: pd.DataFrame, target_col: str = "demand_mw"
 ) -> pd.DataFrame:
-    """Add demand-derived lag/rolling features that require historical demand."""
+    """Add demand-derived lag/rolling features that require historical demand.
+
+    All features are computed from rows STRICTLY BEFORE the current row —
+    never including the current row's ``demand_mw`` value. This matches the
+    inference-time behavior of ``compute_autoregressive_snapshot``, which
+    sees only ``demand_history[:t]`` when computing features for time t.
+
+    History (2026-05-20, PR-D / #134-followup): the previous version of
+    this function leaked the current row's target into ``ramp_rate``
+    (``demand[i] - demand[i-1]`` contains ``demand[i]``) and into the
+    ``demand_roll_{N}h_*`` features (pandas' default trailing rolling
+    window includes the current row). The model was trained on
+    contaminated data and learned to over-rely on these features —
+    ``demand_roll_24h_min`` was XGBoost's #2 feature for ERCOT per
+    ``docs/BACKTEST_RESULTS.md``. At inference time the features were
+    computed honestly via ``compute_autoregressive_snapshot``, creating a
+    train/inference distribution shift that hurt live drift MAPE.
+
+    The fix is a single ``.shift(1)`` before each rolling/diff: ensures
+    ``demand_roll_24h_mean[i]`` aggregates over ``demand[i-24..i-1]`` (the
+    24 hours BEFORE row i), exactly matching the inference snapshot.
+    """
     df = df.copy()
     if target_col not in df.columns:
         return df
@@ -138,11 +159,19 @@ def add_autoregressive_demand_features(
     df["demand_lag_3h"] = compute_lag(df[target_col], periods=3)
     df["demand_lag_24h"] = compute_lag(df[target_col], periods=24)
     df["demand_lag_168h"] = compute_lag(df[target_col], periods=168)
-    df["ramp_rate"] = compute_ramp_rate(df[target_col])
+
+    # Pre-shifted series — every downstream rolling / diff reads from
+    # this so the current row's demand is structurally invisible. Single
+    # source of truth instead of repeating ``.shift(1)`` per feature.
+    prior_demand = df[target_col].shift(1)
+
+    # ramp_rate[i] = demand[i-1] - demand[i-2] — matches snapshot's
+    # ``lag_1 - lag_2``. Before this fix: demand[i] - demand[i-1] leaked.
+    df["ramp_rate"] = compute_ramp_rate(prior_demand)
 
     for window in [24, 72, 168]:
         prefix = f"demand_roll_{window}h"
-        rolling = df[target_col].rolling(window=window, min_periods=1)
+        rolling = prior_demand.rolling(window=window, min_periods=1)
         df[f"{prefix}_mean"] = rolling.mean()
         df[f"{prefix}_std"] = rolling.std()
         df[f"{prefix}_min"] = rolling.min()

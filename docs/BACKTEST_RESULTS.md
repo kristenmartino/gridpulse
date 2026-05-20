@@ -1,6 +1,31 @@
 # Forecast Backtest Results
 
 > **Last validated:** 2026-02-21 — point-in-time reference snapshot. Daily training has run since this report, so live model performance may differ from the figures below. Current numbers are in the most recent Cloud Run training-job logs. The results captured here are the official validation reference at time of capture.
+>
+> ⚠ **2026-05-20 caveat (PR `fix/training-feature-leakage`):** the
+> numbers in this document were measured under a training-time feature
+> regime that included the current row's ``demand_mw`` value inside
+> ``ramp_rate`` and the ``demand_roll_{24,72,168}h_*`` aggregations
+> (pandas' default trailing rolling window includes the current row;
+> ``demand.diff()`` returns ``demand[i] - demand[i-1]``). That's direct
+> target leakage in the training data — the model could partially
+> reconstruct the target via ``ramp_rate + lag_1`` and saw "min/max
+> over current 24h" features that occasionally equalled the target
+> exactly. ``demand_roll_24h_min`` was XGBoost's #2 feature for ERCOT
+> per the table below, which matches the symptom.
+>
+> The fix ships in this PR: every autoregressive feature now reads from
+> ``demand.shift(1)`` before rolling/diffing, matching the inference-time
+> ``compute_autoregressive_snapshot`` definition row-for-row.
+>
+> The reported holdout MAPE in this doc is **probably not directly
+> inflated** because the holdout validation already used the honest
+> snapshot (``training.py:113-122`` overrides autoregressive features
+> per row). The contamination is in the model weights — the model
+> learned to over-rely on leaky features that have different statistics
+> at inference. Once the training job re-runs on the fix, fresh holdout
+> numbers will replace the table below. Until then, treat these figures
+> as historical reference, not current performance.
 
 **Date:** 2026-02-21
 **Holdout Period:** 21 days (504 hours)
