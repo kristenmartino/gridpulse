@@ -39,9 +39,9 @@ theatrical and should be partially reverted:
 
 ## Next 3 (priority order)
 
-1. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 2 — UI surfacing** (~1–2 days, `path-b`). Models tab gets a drift indicator panel + confidence badge degrades when live MAPE exceeds holdout MAPE by threshold. Reads from `gridpulse:drift:{region}` (this PR shipped the writer).
-2. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (~2–3 days, `path-b`). Decision: incorporate live MAPE into ensemble weights, OR surface a stale-weights warning when holdout-vs-live diverges past threshold. Decide based on what part 2 surfaces during use.
-3. **Run handoff quickstart on sift-news** (~60 min, satisfies (d) above + unblocks [#124](https://github.com/kristenmartino/gridpulse/issues/124) cross-linking). PR-C2 (`PITCH.md` + expanded STAR stories) is parked unless interview cycle demands it — currently no signal.
+1. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (~2–3 days, `path-b`). Decision: incorporate live MAPE into ensemble weights, OR surface a stale-weights warning when holdout-vs-live diverges past threshold. Decide based on the live drift signal once part 2 (this PR's panel) has accumulated ~7 days of records in production.
+2. **Run handoff quickstart on sift-news** (~60 min, satisfies (d) above + unblocks [#124](https://github.com/kristenmartino/gridpulse/issues/124) cross-linking).
+3. **PR-C2** (`PITCH.md` + expanded STAR stories) — parked unless interview cycle demands it. Currently no signal.
 
 ## Blocked / waiting on
 
@@ -66,7 +66,8 @@ theatrical and should be partially reverted:
 
 ## Recent decisions (last 7 days)
 
-- **2026-05-20** PR-D1 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 1 shipped. `models/drift.py` (continuous 1-hour-ahead drift measurement) + `jobs/phases.write_drift_metrics` (hourly Redis writes to `gridpulse:drift:{region}`) + 36 new unit tests. Full suite: 1,625 pass, 0 failures. [This PR]
+- **2026-05-20** PR-D2 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 2 shipped. Models tab drift panel: `_build_drift_panel` reads `gridpulse:drift:{region}` + holdout MAPEs, renders per-model status chips (on track / drifting / degraded) with mixed-state support. 15 new tests. Full suite: 1,640 pass. [This PR]
+- **2026-05-20** PR-D1 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 1 shipped. `models/drift.py` (continuous 1-hour-ahead drift measurement) + `jobs/phases.write_drift_metrics` (hourly Redis writes to `gridpulse:drift:{region}`) + 36 new unit tests. Full suite: 1,625 pass. [PR #126]
 - **2026-05-20** PR-C1 — Recall artifacts shipped. Real `HOW_IT_WORKS.md` + 5 Mermaid diagrams + populated `CANONICAL_FACTS.md` + `INTERVIEW_PREP.md` STAR-story content. [PR #125]
 - **2026-05-20** Wider replan after multi-perspective review: confirmed Position A, deferred Path B beyond #121, reordered PR sequence to C → B (conditional) → D (deferred), and split PR-C into C1 (recall) + C2 (communication). [PR #123]
 - **2026-05-19** Path A declared complete. [#120](https://github.com/kristenmartino/gridpulse/pull/120)
