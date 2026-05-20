@@ -1,14 +1,51 @@
 # CLAUDE.md — Project Conventions for GridPulse
 
+## Before recommending what's next
+
+Don't rely on memory, the system prompt, or `docs/internal/NEXT_UP.md`.
+Always run a state check at session start before suggesting work:
+
+```bash
+cat STATUS.md                # active focus + recent decisions + open question
+gh pr list --state open      # in-flight work
+gh issue list --state open   # committed queue
+```
+
+If `STATUS.md` contradicts what `gh` reports, **GitHub wins** — patch
+STATUS.md in the same session. `docs/internal/NEXT_UP.md` is the
+historical roadmap with acceptance criteria, **not** the operational
+queue.
+
+## End-of-PR explanatory-doc check
+
+For any non-trivial PR, before reporting "done":
+
+1. **Architecture changed** (new service, swapped tech, removed component)?
+   → update `docs/HOW_IT_WORKS.md` + relevant Mermaid diagrams in same PR
+2. **`CANONICAL_FACTS.md` value moved**? → update it in same PR
+3. **STAR-story trigger hit** (trade-off, debugging arc, surprising
+   decision, recovery, scope-cut)?
+   → draft the story in `docs/INTERVIEW_PREP.md` in same PR
+4. **`STATUS.md` active focus or next-3 changed**? → update STATUS.md
+   in the same PR
+
+Otherwise report: "no explanatory-doc impact."
+
+*(Note: `docs/HOW_IT_WORKS.md`, `CANONICAL_FACTS.md`, and
+`docs/INTERVIEW_PREP.md` will exist after the explanatory-docs Phase 1
+PR ships. Skip the relevant check until then.)*
+
 ## Start here
 
 This repo already has multiple context layers. Read them in this order:
 
-1. `CLAUDE.md` — architecture, conventions, code standards, execution guardrails
-2. `docs/internal/EXECUTION_BRIEF.md` — prioritization, redesign direction, product-shell changes, execution order
-3. `README.md` — current public framing and deployment overview
-4. `PRD.md` — product requirements, personas, ADRs, descoping rationale
-5. `TECHNICAL_SPEC.md` — data/model/system details
+1. `STATUS.md` — current focus, next 3, recent decisions (canonical state)
+2. `CLAUDE.md` — architecture, conventions, code standards, execution guardrails
+3. `docs/internal/EXECUTION_BRIEF.md` — prioritization, redesign direction, product-shell changes, execution order
+4. `README.md` — current public framing and deployment overview
+5. `PRD.md` — product requirements, personas, ADRs, descoping rationale
+6. `TECHNICAL_SPEC.md` — data/model/system details
+7. `docs/internal/NEXT_UP.md` — historical roadmap with acceptance criteria (reference, not queue)
 
 ### Agent objective
 
