@@ -19,6 +19,7 @@ import structlog
 from config import (
     CACHE_TTL_SECONDS,
     OPEN_METEO_BASE_URL,
+    OPEN_METEO_FORECAST_DAYS,
     REGION_COORDINATES,
     WEATHER_VARIABLES,
 )
@@ -33,7 +34,7 @@ REQUEST_TIMEOUT = 30
 def fetch_weather(
     region: str,
     past_days: int = 92,
-    forecast_days: int = 16,
+    forecast_days: int = OPEN_METEO_FORECAST_DAYS,
     use_cache: bool = True,
 ) -> pd.DataFrame:
     """
@@ -45,13 +46,14 @@ def fetch_weather(
     Args:
         region: Balancing authority code (e.g., "ERCOT", "FPL").
         past_days: Number of historical days to include (default 92 = ~3 months).
-        forecast_days: Number of forecast days (default 16 = Open-Meteo's GFS
+        forecast_days: Number of forecast days (default
+            ``config.OPEN_METEO_FORECAST_DAYS`` = 16 = Open-Meteo's free GFS
             forecast horizon; 384 hourly rows). Bumped from 7 → 16 on
-            2026-05-20 so the scoring job's 720-hour demand forecast can use
-            actual weather forecasts for the first ~53% of its horizon
-            instead of falling back to climatology for everything beyond
-            day 7. See PR-C of the forecast-pipeline audit
-            (``jobs/phases.py:_build_future_feature_frame``).
+            2026-05-20 (PR-C of the forecast-pipeline audit) so the scoring
+            job's 720-hour demand forecast can use actual weather forecasts
+            for the first ~53% of its horizon instead of falling back to
+            climatology for everything beyond day 7. The remaining 47%
+            (days 17-30) is climatology by design — see ADR-008 in PRD.md.
         use_cache: Whether to check cache first.
 
     Returns:

@@ -52,6 +52,7 @@ from components._callbacks_backtest import (
 )
 from components._callbacks_forecast import (
     _add_confidence_bands,  # noqa: F401 — re-export (callback now lives in _callbacks_forecast)
+    _add_forecast_horizon_divider,  # noqa: F401 — re-export (ADR-008 day-16 marker)
     _add_trailing_actuals,  # noqa: F401 — re-export (callback now lives in _callbacks_forecast)
     _confidence_half_width,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
     _create_future_features,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)

@@ -218,6 +218,49 @@ These items are intentionally not first-class priorities right now:
 | ADR-005 | XGBoost as primary model | Strong empirical performance on the current feature-engineered demand problem |
 | ADR-006 | Multi-view shell instead of one flat dashboard | Supports different operational questions without forking the product into separate tools |
 | ADR-007 | Scenario engine must avoid input mutation | Safer callback behavior and more predictable state handling |
+| ADR-008 | Climatology fallback for days 17-30 of the forecast horizon, labeled visibly | Open-Meteo's free `/forecast` endpoint covers 16 days; atmospheric chaos limits NWP skill past ~14 days regardless; the operational user value is in days 1-7, not 17-30 |
+
+### ADR-008 detail — Forecast horizon beyond Open-Meteo coverage (2026-05-20)
+
+**Context.** `FORECAST_HORIZON_HOURS = 720` (30 days). Open-Meteo's free `/forecast` endpoint provides 16 days (384 hours) of GFS-based weather forecast. That leaves 14 days (336 hours) of the demand forecast horizon without real weather inputs.
+
+**Decision.** Use per-(hour-of-day, day-of-week) climatological group means computed from the 92-day historical weather window to fill days 17-30. Render a visible day-16 boundary marker on the Forecast tab so users see the regime transition.
+
+**Alternatives considered.**
+
+1. **Shorten the horizon to 16 days.** Honest about the data, but loses the 30-day-view feature that's already shipped and used for monthly capacity-planning context. Net regression for some user workflows.
+2. **ECMWF subseasonal-to-seasonal (S2S) forecasts.** Open-Meteo paid tier or direct Copernicus access provides 46-day ensembles. Modest skill improvement over climatology (~10-20% MAE reduction in well-sampled regimes), but real recurring cost, more API complexity, and skill varies materially by region/season. Pre-revenue, not worth the ops burden.
+3. **Light conditional climatology (anomaly persistence).** Compute recent (last 30 days) weather anomaly vs long-term seasonal baseline; project that anomaly forward with exponential decay. ~10-15% MAE reduction at days 17-30, ~half day of work. Deferred — see below.
+4. **Heavy conditional climatology (teleconnection-based).** Filter historical samples by current ENSO/NAO/MJO state, take the mean. Requires 30+ years of weather history per region (we have 92 days). Multi-week research project with unclear regional payoff. Deferred indefinitely.
+
+**Rationale for raw climatology over Light conditional climatology.**
+
+Operational use cases concentrate at 24-168h:
+
+- Grid Ops: day-ahead unit commitment (24-72h)
+- Renewables Trader: intraday + week-ahead (24-168h)
+- Energy Trader: forward curves (24-168h)
+- Data Scientist: backtest / drift analysis, not point accuracy at day 25
+
+Days 17-30 exist primarily for visual completeness on the Forecast tab and as the longer horizon over which the scenario simulator can run hypothetical perturbations. A ~10-15% MAE improvement on a portion of the horizon that doesn't drive operational decisions is real but small. Engineering complexity (regional skill validation, anomaly-decay tuning) is not.
+
+**Honesty over accuracy.** The UI labels the boundary explicitly:
+
+- Dotted vertical divider at hour 384 (day 16)
+- "← Open-Meteo forecast" annotation on the left segment
+- "climatology baseline →" annotation on the right segment
+- Subtitle: "Days 1-16: real Open-Meteo forecast · Days 17-30: (hour-of-day, day-of-week) climatology baseline"
+- Faint background shade past the divider so the climatology segment reads as visually distinct
+
+Users seeing demand changes past day 16 can correctly interpret them as seasonal/diurnal patterns rather than forward-looking forecast signal.
+
+**Revisit triggers.** Light conditional climatology becomes worth doing if:
+
+- Production usage analytics show meaningful engagement with days 17-30 (e.g., persona views beyond Data Scientist regularly hitting the 30-day toggle), OR
+- A specific user-research signal indicates the climatology baseline is being mistaken for a real forecast despite the UI labels, OR
+- A live drift MAPE measurement at days 17-30 shows the climatology baseline is meaningfully worse than what a simple anomaly-persistence model would produce on the same regions.
+
+Heavy conditional climatology (S2S or teleconnection-conditioned) remains deferred until/unless GridPulse has paying customers with specific extended-range accuracy requirements.
 
 ---
 

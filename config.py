@@ -94,6 +94,14 @@ EIA_BASE_URL = "https://api.eia.gov/v2"
 OPEN_METEO_BASE_URL = "https://api.open-meteo.com/v1"
 OPEN_METEO_PARAMS = "&temperature_unit=fahrenheit&wind_speed_unit=mph"
 
+# Free-tier ``/forecast`` endpoint covers 16 days (GFS-based) hourly.
+# Single source of truth shared by ``data.weather_client.fetch_weather``
+# (forecast_days default) and ``components._callbacks_forecast`` (the
+# day-16 boundary marker on the Forecast tab where real-forecast data
+# transitions to climatological fallback). See ADR-008 in PRD.md.
+OPEN_METEO_FORECAST_DAYS = 16
+OPEN_METEO_FORECAST_HOURS = OPEN_METEO_FORECAST_DAYS * 24  # 384
+
 NOAA_BASE_URL = "https://api.weather.gov"
 
 # AI Briefing (Overview tab executive briefing via Claude)
