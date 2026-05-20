@@ -21,19 +21,18 @@ queue.
 For any non-trivial PR, before reporting "done":
 
 1. **Architecture changed** (new service, swapped tech, removed component)?
-   → update `docs/HOW_IT_WORKS.md` + relevant Mermaid diagrams in same PR
-2. **`CANONICAL_FACTS.md` value moved**? → update it in same PR
+   → update [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) + relevant
+   Mermaid diagrams in same PR
+2. **A cited fact moved** (value referenced across multiple docs)?
+   → update [`docs/CANONICAL_FACTS.md`](docs/CANONICAL_FACTS.md) in same PR
 3. **STAR-story trigger hit** (trade-off, debugging arc, surprising
    decision, recovery, scope-cut)?
-   → draft the story in `docs/INTERVIEW_PREP.md` in same PR
-4. **`STATUS.md` active focus or next-3 changed**? → update STATUS.md
-   in the same PR
+   → add the story to [`docs/INTERVIEW_PREP.md`](docs/INTERVIEW_PREP.md)
+   in same PR
+4. **`STATUS.md` active focus, next-3, blocked-on, or open question
+   changed**? → update [`STATUS.md`](STATUS.md) in the same PR
 
 Otherwise report: "no explanatory-doc impact."
-
-*(Note: `docs/HOW_IT_WORKS.md`, `CANONICAL_FACTS.md`, and
-`docs/INTERVIEW_PREP.md` will exist after the explanatory-docs Phase 1
-PR ships. Skip the relevant check until then.)*
 
 ## Start here
 

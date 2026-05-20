@@ -1,69 +1,65 @@
-# Status — updated 2026-05-19
+<!--
+How this file gets maintained:
+- Per-PR: updated in the same commit as material work that changes
+  active focus, next-3, blocked-on, or recent decisions
+- End-of-session: agent re-verifies against gh issue list / gh pr list
+- Pre-external-use: user re-reads top-to-bottom (~1 min)
+If this file disagrees with gh, the live sources win — patch in a
+follow-up commit.
+-->
+
+# Status — updated 2026-05-20
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
 > + the issue tracker are the single source of truth for project state.
 > See [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md) for the full
-> historical roadmap with acceptance criteria; see [`CLAUDE.md`](CLAUDE.md)
-> for the pre-session sanity-check ritual that keeps this file from
-> drifting.
+> historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
+> sanity-check ritual.
 
-## Active investment
+## Active focus + open question
 
-**None active.** Path A (portfolio-grade complete) was declared done
-2026-05-19 with the close of #115 / #117 / #118 / #119 / #120. The
-roadmap is awaiting a strategic decision: invest in Path B #1
-(Model drift monitoring) now, or pause.
+**Strategic position: A — Portfolio + targeted credibility investment.**
+GridPulse's portfolio-grade build is shipped. Next moves polish the
+recruiter-facing surface (PR-C1 in flight, PR-C2 next) AND close one
+Path B item ([#121](https://github.com/kristenmartino/gridpulse/issues/121)
+Model drift monitoring) as a high-quality interview asset. Path B
+items beyond #121 stay deferred — see [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md) §V4.
 
-The Path B #1 case is strengthened by a real observation —
-see §"Open question" below.
+**Open question — 14-day success criterion (by 2026-06-03):** at least
+2 of these must be true, or the PM infrastructure built this week is
+theatrical and should be partially reverted:
+
+- [x] (a) `docs/HOW_IT_WORKS.md` has real content (PR-C1, this PR)
+- [ ] (b) `docs/HOW_IT_WORKS.md` and `docs/INTERVIEW_PREP.md` have been used at least once for actual practice (PR-C1 ships real HOW_IT_WORKS + interview story list; full STAR drafts in PR-C2)
+- [ ] (c) [#121](https://github.com/kristenmartino/gridpulse/issues/121) has a draft PR or partial implementation
+- [ ] (d) The handoff quickstart has been run on sift-news or another repo
 
 ## Next 3 (priority order)
 
-1. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) — V4 Path B #1: Model drift monitoring** (~1 week, `path-b`, `effort-week`). Recommended next investment. Concrete evidence: 2026-05-19 PJM walkthrough surfaced a 47 GW spread between XGBoost / Ensemble / Prophet / ARIMA on the same horizon — exactly the symptom drift monitoring is designed to catch.
-2. **[#122](https://github.com/kristenmartino/gridpulse/issues/122) — V3.γ: Hawaii coverage** (3–5 days, `v3-open`, `effort-week`). Blocked on HECO data-quality assessment.
-3. **V4 Path B #2: Observability infrastructure** (3–5 days). Not yet promoted to an issue — sketch lives in [`docs/internal/NEXT_UP.md` §V4 Path B](docs/internal/NEXT_UP.md). Promote to issue when committing to start.
+1. **PR-C2 — Communication artifacts** (`docs/PITCH.md` 3 lengths + expand `docs/INTERVIEW_PREP.md` STAR stories from the 5 seed entries to full 90-second narratives, ~90 min). Next session.
+2. **[#121](https://github.com/kristenmartino/gridpulse/issues/121) — Model drift monitoring** (~1 week, `path-b`, `effort-week`). After PR-C2 lands. The 2026-05-19 PJM walkthrough surfaced a 47 GW model spread; closing this gap is real product work AND generates the strongest STAR story this project will produce.
+3. **[#122](https://github.com/kristenmartino/gridpulse/issues/122) — V3.γ Hawaii** (~3–5 days, `v3-open`, `effort-week`). Lower priority — blocked on HECO data-quality assessment, lower portfolio leverage than #121.
 
-The remaining 6 V4 Path B items (auth, API surface, alerting, DR,
-data-quality monitoring, cost monitoring) are sketches in NEXT_UP.md.
-They become issues when committed to, not before.
+## Blocked / waiting on
+
+- **Cross-link this Project to portfolio-v2 / sift-news / future repos**
+  ([#124](https://github.com/kristenmartino/gridpulse/issues/124)) —
+  wait until ≥2 repos have their own STATUS.md before linking makes
+  sense.
+- **PR-B (doc-drift CI) decision** — ship only if drift surfaces during
+  PR-C2 / #121 work. Otherwise stays deferred.
+- **PR-D (audit workflow)** — deferred indefinitely per [2026-05-20
+  wider replan](https://github.com/kristenmartino/gridpulse/pull/123).
+  Saved to [`claude-templates/DEFERRED_FOR_PRODUCTION.md`](https://github.com/kristenmartino/claude-templates/blob/main/DEFERRED_FOR_PRODUCTION.md)
+  for revisit if/when GridPulse becomes production-grade or continuously
+  updated.
 
 ## Recent decisions (last 7 days)
 
-- **Path A declared complete** (2026-05-19) — #21 / #25 / #26 / #87 / #91 all closed + the 2026-05-19 sweep (#116 / #118 / #119) merged. There is no remaining Path A backlog. [PR #120](https://github.com/kristenmartino/gridpulse/pull/120).
-- **Scenario simulator: heuristic over full-fidelity engine** (#119) — adding wind/solar→demand coupling to the existing analytical approximation rather than wiring the real `simulation/scenario_engine.py` to a server-side debounced callback. Full physics is parked as a follow-up if there's ever a real user.
-- **Big-bang Redis namespace flip over phased migration** (#114) — closed #91 by accepting ~1 hour of "warming" downtime instead of building a 4-phase zero-downtime cutover for a single-tenant portfolio app.
-- **Project-state lives in GitHub, not Markdown** (this PR) — STATUS.md + GitHub Projects + Issues are canonical. `docs/internal/NEXT_UP.md` keeps the historical roadmap with acceptance criteria but is no longer the operational queue.
-
-## Open question
-
-**Path B #1 (Model drift monitoring) now, or pause?**
-
-Arguments **for now**: the 2026-05-19 PJM spread is real evidence that
-the inverse-MAPE ensemble weights drift between trainings. Today's
-portfolio-grade product silently misrepresents forecast confidence in
-that condition. Building drift monitoring closes that gap.
-
-Arguments **for pause**: Path B is ~6–8 weeks of focused work end to
-end. The marginal portfolio-recruiter value of "I built drift
-monitoring" over the current shipped state is modest. The real return
-is when there's a paying user / interviewer who probes the ML
-operationalization story.
-
-Recommend: **decide before next session.** The cron-triggered doc
-audit will create an issue every month regardless — don't let the
-audit be the only thing in the queue.
-
-## How this file gets updated
-
-- Per-PR: updated **in the same commit** as material work that
-  changes active investment, next-3, or recent decisions
-- End-of-session: agent re-reads STATUS.md and verifies it matches
-  reality (PRs merged, issues closed, decisions made) — opens a
-  small touch-up commit if drift
-- Pre-external-use ritual (interview, networking event, portfolio
-  share): user re-reads top-to-bottom; ~1 minute
-
-If this file disagrees with `gh issue list` / `gh pr list` /
-`config.py` / merged PR bodies, **the live sources win** — fix
-STATUS.md in a follow-up commit.
+- **2026-05-20** PR-C1 — Recall artifacts shipped. Real `HOW_IT_WORKS.md` + 5 Mermaid diagrams + populated `CANONICAL_FACTS.md` + `INTERVIEW_PREP.md` STAR-story stubs. STATUS.md restructured per review §5; CLAUDE.md caveat removed. [This PR]
+- **2026-05-20** Wider replan after multi-perspective review: confirmed Position A, deferred Path B beyond #121, reordered PR sequence to C → B (conditional) → D (deferred), and split PR-C into C1 (recall) + C2 (communication). [PR #123]
+- **2026-05-19** Path A declared complete. [#120](https://github.com/kristenmartino/gridpulse/pull/120)
+- **2026-05-19** Scenario simulator: heuristic over full-fidelity engine. [#119](https://github.com/kristenmartino/gridpulse/pull/119)
+- **2026-05-19** Project-state lives in GitHub, not Markdown. [#123](https://github.com/kristenmartino/gridpulse/pull/123)
+- **2026-05-18** Big-bang Redis namespace flip over phased migration. [#114](https://github.com/kristenmartino/gridpulse/pull/114)
