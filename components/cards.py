@@ -319,7 +319,12 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
 
     Each item: ``{"label": str, "value": str, "unit": str | None,
                   "tone": "primary" | "secondary" | "positive" | "negative" | None,
-                  "hero": bool}``.
+                  "hero": bool, "subtext": str | None}``.
+
+    ``subtext`` (added 2026-05-20) renders a single muted line below the
+    value row — used by the Overview tab to surface freshness timestamps
+    ("as of 14:00 UTC") and label clarifications ("hourly mean") without
+    hijacking the label slot.
 
     Mirrors gridpulse-v2 components/MetricsBar.tsx:34. Up to 5 cells.
     Uses ``.tabular`` on values for aligned numerics.
@@ -329,6 +334,7 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
         tone = item.get("tone", "primary")
         hero = item.get("hero", False)
         unit = item.get("unit")
+        subtext = item.get("subtext")
         value_classes = ["gp-metric-value", "tabular"]
         if hero:
             value_classes.append("gp-metric-value--hero")
@@ -346,6 +352,8 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
                 className="gp-metric-value-row",
             ),
         ]
+        if subtext:
+            cell_children.append(html.Div(subtext, className="gp-metric-subtext"))
         cells.append(html.Div(cell_children, className="gp-metric-cell"))
     return html.Div(cells, className="gp-metrics-bar")
 

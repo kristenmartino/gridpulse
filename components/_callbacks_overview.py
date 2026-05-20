@@ -140,6 +140,64 @@ def _read_ensemble_forecast_from_redis(
     return timestamps, predictions, cached.get("scored_at")
 
 
+def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
+    """Resolve the most-honest MAPE to display alongside the forecast.
+
+    Returns ``(mape_value, source_label)`` where source_label is one of:
+
+    - ``"live 7d"`` — rolling 7-day MAPE from live forecast-vs-actual
+      observations stored in ``gridpulse:drift:{region}`` (the headline
+      number; reflects how the model is actually performing right now)
+    - ``"live 30d"`` — rolling 30-day MAPE (fallback when 7d window has
+      <24 records, e.g. first week post-deploy)
+    - ``"holdout"`` — training-time holdout MAPE from each pickle's
+      ``meta.extra["holdout_metrics"]`` (clearly labeled — this is what
+      the model claimed at training time, not how it's doing live)
+    - ``""`` (with value ``None``) — nothing reliable available; the
+      forecast clause drops the MAPE annotation entirely
+
+    The live drift data was written hourly to Redis by the scoring job
+    since PR #126. The Overview clause didn't read from it until this
+    PR — it was citing training holdout MAPE instead, which was
+    technically truthful but misleading because users read the MAPE
+    figure as "expected accuracy of this specific forecast."
+    """
+    # Layer 1: live 7d rolling MAPE
+    try:
+        drift_payload = redis_get(redis_key(f"drift:{region}"))
+        if isinstance(drift_payload, dict):
+            models = drift_payload.get("models") or {}
+            ens = models.get("ensemble") or {}
+            # Require a meaningful window — 24 hourly records minimum
+            # before the 7d MAPE is statistically defensible. Below that,
+            # the figure swings wildly on each new tick.
+            n_records = int(ens.get("n_records", 0) or 0)
+            mape_7d = ens.get("rolling_mape_7d")
+            mape_30d = ens.get("rolling_mape_30d")
+            if mape_7d is not None and n_records >= 24 and np.isfinite(float(mape_7d)):
+                return float(mape_7d), "live 7d"
+            if mape_30d is not None and n_records >= 24 and np.isfinite(float(mape_30d)):
+                return float(mape_30d), "live 30d"
+    except Exception as exc:  # pragma: no cover — defensive
+        log.debug("forecast_mape_drift_read_failed", region=region, error=str(exc))
+
+    # Layer 2: training-time holdout MAPE (existing path), clearly labeled
+    try:
+        from models.model_service import get_model_metrics
+
+        metrics_dict = get_model_metrics(region) or {}
+        ens_metrics = metrics_dict.get("ensemble") or metrics_dict.get("xgboost") or {}
+        mape = ens_metrics.get("mape")
+        if mape is not None:
+            mape_f = float(mape)
+            if mape_f > 0 and np.isfinite(mape_f):
+                return mape_f, "holdout"
+    except Exception:  # pragma: no cover — defensive
+        pass
+
+    return None, ""
+
+
 def _build_overview_title(region: str) -> html.Div:
     """Page-title block: region name + 1-line subtitle."""
 
@@ -161,7 +219,7 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
         return items
 
     df = demand_df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
     df = df.sort_values("timestamp")
 
     # Strip spurious zero-demand rows (EIA's missing-observation marker)
@@ -169,39 +227,118 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
     # especially for newer / smaller BAs like PSCO / NEVP / AZPS — those
     # rows arrive at the next hourly tick instead). The ``> 0`` check
     # filters both: NaN > 0 is False.
-    nonzero = df[df["demand_mw"] > 0]
+    nonzero = df[df["demand_mw"] > 0].reset_index(drop=True)
     last_7d = nonzero.tail(168)
 
     # ``now_value`` reads from ``nonzero`` rather than ``df`` so the
     # most recent NaN / zero hour doesn't surface as "nan" / "0" in the
     # hero metric. Falls back to "—" when no usable reading exists.
     now_value = float(nonzero["demand_mw"].iloc[-1]) if not nonzero.empty else None
+    now_ts = nonzero["timestamp"].iloc[-1] if not nonzero.empty else None
     peak_7d = float(last_7d["demand_mw"].max()) if not last_7d.empty else 0.0
     low_7d = float(last_7d["demand_mw"].min()) if not last_7d.empty else 0.0
     avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
 
-    # 24h trend uses the same NaN-aware source as ``now_value`` so a
-    # missing ago_24h hour doesn't poison the percentage with NaN.
-    if now_value is not None and len(nonzero) >= 25:
-        ago_24h = float(nonzero["demand_mw"].iloc[-25])
-        trend_pct = ((now_value - ago_24h) / ago_24h * 100.0) if ago_24h else 0.0
+    # 24h trend (#9 — 2026-05-20) — now uses TIMESTAMP-based lookup
+    # instead of ``iloc[-25]`` of non-zero rows. The previous index-based
+    # approach silently compared NOW against "the 25th-from-last published
+    # hour," which is only "24h ago" when there are zero publishing gaps
+    # in the last 24 hours. With EIA's 1-4h publishing lag and occasional
+    # mid-day gaps, the index approach drifted in practice.
+    #
+    # Trend semantics: compare NOW to the demand value at (now_ts - 24h).
+    # Tolerance window of ±90 min absorbs single-hour publishing gaps
+    # (EIA's most common gap profile — one missing hour, neighbors at
+    # exactly ±60 min from the 24h-ago target). Wider gaps surface "—"
+    # rather than fabricating a comparison against a 2h-or-more-off
+    # anchor.
+    trend_pct: float | None
+    trend_anchor_ts: pd.Timestamp | None = None
+    if now_value is not None and now_ts is not None:
+        target_ts = now_ts - pd.Timedelta(hours=24)
+        window_lo = target_ts - pd.Timedelta(minutes=90)
+        window_hi = target_ts + pd.Timedelta(minutes=90)
+        candidates = nonzero[
+            (nonzero["timestamp"] >= window_lo) & (nonzero["timestamp"] <= window_hi)
+        ]
+        if not candidates.empty:
+            # Pick the candidate closest to the exact 24h-ago target.
+            deltas = (candidates["timestamp"] - target_ts).abs()
+            closest_idx = deltas.idxmin()
+            ago_value = float(candidates.loc[closest_idx, "demand_mw"])
+            trend_anchor_ts = candidates.loc[closest_idx, "timestamp"]
+            trend_pct = ((now_value - ago_value) / ago_value * 100.0) if ago_value else None
+        else:
+            trend_pct = None
     else:
-        trend_pct = 0.0
+        trend_pct = None
+
     # Inverted semantic: rising demand reads as "warning" (negative tone),
     # falling demand reads as "positive" — matches v2 MetricsBar.tsx:64.
-    trend_tone = (
-        "negative" if trend_pct > 0.5 else ("positive" if trend_pct < -0.5 else "secondary")
-    )
+    if trend_pct is None:
+        trend_tone = "secondary"
+    elif trend_pct > 0.5:
+        trend_tone = "negative"
+    elif trend_pct < -0.5:
+        trend_tone = "positive"
+    else:
+        trend_tone = "secondary"
 
     now_display = f"{now_value:,.0f}" if now_value is not None else "—"
-    trend_display = f"{trend_pct:+.1f}%" if now_value is not None else "—"
+    trend_display = f"{trend_pct:+.1f}%" if trend_pct is not None else "—"
+
+    # Freshness subtext on NOW — "NOW" without context reads as
+    # wall-clock now; in practice it's the most recent EIA-published
+    # hour, which can be 1-4 hours behind because of EIA's publishing
+    # lag. Make that explicit.
+    now_subtext = f"as of {now_ts.strftime('%H:%M UTC')}" if now_ts is not None else None
+
+    # Trend anchor subtext — if the 24h-ago row was off-target by more
+    # than ~5 minutes (publishing gap absorbed by the ±30min tolerance),
+    # surface the actual anchor time so users can see the comparison
+    # isn't a perfect 24h.
+    trend_subtext = None
+    if trend_anchor_ts is not None and now_ts is not None:
+        exact_target = now_ts - pd.Timedelta(hours=24)
+        if abs((trend_anchor_ts - exact_target).total_seconds()) > 300:
+            trend_subtext = f"vs {trend_anchor_ts.strftime('%H:%M UTC')}"
 
     return [
-        {"label": "Now", "value": now_display, "unit": "MW", "hero": True},
-        {"label": "7d Peak", "value": f"{peak_7d:,.0f}", "unit": "MW", "tone": "secondary"},
-        {"label": "7d Low", "value": f"{low_7d:,.0f}", "unit": "MW", "tone": "secondary"},
-        {"label": "Average", "value": f"{avg_7d:,.0f}", "unit": "MW", "tone": "secondary"},
-        {"label": "24h Trend", "value": trend_display, "unit": None, "tone": trend_tone},
+        {
+            "label": "Now",
+            "value": now_display,
+            "unit": "MW",
+            "hero": True,
+            "subtext": now_subtext,
+        },
+        {
+            "label": "7d Peak",
+            "value": f"{peak_7d:,.0f}",
+            "unit": "MW",
+            "tone": "secondary",
+            "subtext": "hourly max",
+        },
+        {
+            "label": "7d Low",
+            "value": f"{low_7d:,.0f}",
+            "unit": "MW",
+            "tone": "secondary",
+            "subtext": "hourly min",
+        },
+        {
+            "label": "Average",
+            "value": f"{avg_7d:,.0f}",
+            "unit": "MW",
+            "tone": "secondary",
+            "subtext": "7d hourly mean",
+        },
+        {
+            "label": "24h Trend",
+            "value": trend_display,
+            "unit": None,
+            "tone": trend_tone,
+            "subtext": trend_subtext,
+        },
     ]
 
 
@@ -431,19 +568,36 @@ def _build_overview_insight(
                 # forward) and produced bogus peak times like "04:00".
                 f_peak_ts = forecast_ts_all[f_peak_idx]
 
-                # MAPE for the ensemble — sourced from the model service
-                # which resolves through training-time holdout
-                # meta.json. Falls back gracefully when unavailable.
-                try:
-                    from models.model_service import get_model_metrics
+                # MAPE for this forecast (#4 — 2026-05-20).
+                #
+                # Pre-fix this cited ``get_model_metrics`` which returns
+                # training-time HOLDOUT MAPE — the model's MAPE on its
+                # validation slice from yesterday's training run. That's
+                # not "how this specific 24h forecast is likely to do" —
+                # it's "how the model did on a frozen slice last night."
+                # Users reading "MAPE 1.6%" reasonably assumed the
+                # forecast itself was expected to be 1.6% off. Fluff.
+                #
+                # Honest replacement: LIVE rolling 7d MAPE from
+                # ``gridpulse:drift:{region}`` (#121 part 1, PR #126).
+                # This is computed by comparing every previous tick's
+                # 1-hour-ahead forecast against the now-known actual,
+                # rolled over the last 7 days. It tells the user how
+                # the model has actually been performing on real
+                # forecasts of similar horizon.
+                #
+                # Fall-back order:
+                #   1. Live 7d MAPE from drift (real, calibrated to
+                #      recent reality)
+                #   2. Live 30d MAPE from drift (more samples, slightly
+                #      staler — used only when 7d has too few records)
+                #   3. Training holdout MAPE (clearly labeled as such)
+                #   4. No MAPE clause at all (when nothing is available)
+                mape_value, mape_source = _resolve_forecast_mape(region)
 
-                    metrics_dict = get_model_metrics(region) or {}
-                    ens_metrics = metrics_dict.get("ensemble") or metrics_dict.get("xgboost") or {}
-                    mape = float(ens_metrics.get("mape", 0.0))
-                except Exception:  # pragma: no cover — defensive
-                    mape = 0.0
-
-                mape_clause = f" (MAPE {mape:.1f}%)" if mape > 0 else ""
+                mape_clause = ""
+                if mape_value is not None:
+                    mape_clause = f" ({mape_source} MAPE {mape_value:.1f}%)"
                 forecast_clause = (
                     f"Next-24h forecast peaks at {f_peak:,.0f} MW around "
                     f"{f_peak_ts.strftime('%H:%M')} UTC{mape_clause}."
@@ -451,11 +605,15 @@ def _build_overview_insight(
     except Exception as exc:  # pragma: no cover
         log.warning("overview_insight_forecast_failed", region=region, error=str(exc))
 
+    # #8 (2026-05-20): relabel "Recent peak" → "Last 24h peak" so the
+    # window is explicit and consistent with the "7d Peak" cell in the
+    # metrics bar above. The previous label was ambiguous about whether
+    # "recent" meant 24h or the current 7d-peak window.
     body = [
         "Demand is ",
         html.Span(f"{abs(delta_pct):.1f}% {direction}", className=delta_class),
         " the 7-day average. ",
-        "Recent peak: ",
+        "Last 24h peak: ",
         html.Span(peak_str, className="gp-insight-card__strong"),
         ". ",
         forecast_clause,
