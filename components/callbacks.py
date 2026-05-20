@@ -63,6 +63,7 @@ from components._callbacks_generation import (
     _generation_tab_from_redis,  # noqa: F401 — re-export (tests/unit/test_redis_fast_paths.py); fast path is currently orphaned in register_callbacks
 )
 from components._callbacks_models import (
+    _build_drift_panel,  # noqa: F401 — re-export (tests/unit/test_drift_panel.py — #121 part 2)
     _format_metric,  # noqa: F401 — re-export (callback now lives in _callbacks_models)
     _get_feature_importance,  # noqa: F401 — re-export (callback now lives in _callbacks_models)
     _models_tab_from_redis,  # noqa: F401 — re-export (callback now lives in _callbacks_models)

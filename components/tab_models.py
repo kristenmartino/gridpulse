@@ -172,6 +172,10 @@ def layout() -> html.Div:
                     html.Div(id="models-title"),
                     # 2. Model leaderboard MetricsBar (callback fills 5-up bar)
                     html.Div(id="models-leaderboard"),
+                    # 2b. Live drift panel — #121 part 2. Per-model rolling
+                    # 7d / 30d MAPE compared against training-time holdout.
+                    # Callback fills via _build_drift_panel.
+                    html.Div(id="models-drift-panel"),
                     # 3. Compare-models multi-select
                     _model_selector(),
                     # 4. Metrics table

@@ -623,6 +623,112 @@ def predict_and_write_forecast(
         return PhaseResult(region=region, ok=False, error=str(e))
 
 
+# ── Phase: drift (scoring) — #121 part 1 ─────────────────────
+
+
+def read_existing_forecast(region: str) -> dict[str, Any] | None:
+    """Read the *current* ``gridpulse:forecast:{region}:1h`` payload from Redis.
+
+    Called before ``predict_and_write_forecast`` overwrites the key so the
+    drift phase can compare the about-to-be-stale 1-hour-ahead prediction
+    against the now-known actual. Returns ``None`` for first-time scoring
+    or any Redis-side error — the caller treats absence as a no-op.
+    """
+    from data.redis_client import redis_get, redis_key
+
+    try:
+        payload = redis_get(redis_key(f"forecast:{region}:1h"))
+        if isinstance(payload, dict):
+            return payload
+        return None
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("drift_previous_forecast_read_failed", region=region, error=str(exc))
+        return None
+
+
+def write_drift_metrics(
+    region: str,
+    previous_forecast: dict[str, Any] | None,
+    demand_df: pd.DataFrame,
+) -> PhaseResult:
+    """Update the rolling per-model drift window at ``gridpulse:drift:{region}``.
+
+    #121 part 1: continuous 1-hour-ahead drift signal. At each scoring tick
+    the previous tick's forecast for the *current* hour has a knowable
+    actual; we compute the per-model absolute % error and append it to a
+    rolling window (default 30 days). Headline 7-day and 30-day MAPEs are
+    persisted alongside the underlying records so downstream UI / alerting
+    has both the summary and the series.
+
+    The phase is a no-op (``ok=True`` with ``details["skipped"]=...``) when:
+    - First-ever scoring tick for the region (``previous_forecast is None``)
+    - The previous forecast has no row matching any recent actual hour
+    - The actuals dataframe is empty / missing required columns
+
+    Failures here MUST NOT block the broader scoring run — drift is a
+    secondary signal, not a critical path.
+    """
+    from data.redis_client import redis_get, redis_key, redis_set
+    from models.drift import build_records_from_actuals, compute_drift_payload
+
+    if previous_forecast is None:
+        return PhaseResult(region=region, ok=True, details={"skipped": "no_previous_forecast"})
+
+    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+        return PhaseResult(region=region, ok=True, details={"skipped": "no_actuals"})
+
+    try:
+        # Build {timestamp_iso -> actual_mw} from the just-fetched demand
+        # frame. We only care about hours where the actual is finite —
+        # EIA's publishing-lag NaN rows can't anchor a drift record.
+        df = demand_df.copy()
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        df = df.dropna(subset=["demand_mw"])
+        actuals: dict[str, float] = {
+            row["timestamp"].isoformat(): float(row["demand_mw"])
+            for _, row in df.iterrows()
+            if np.isfinite(row["demand_mw"]) and float(row["demand_mw"]) > 0
+        }
+
+        new_records = build_records_from_actuals(previous_forecast, actuals)
+        if not new_records:
+            return PhaseResult(
+                region=region,
+                ok=True,
+                details={"skipped": "no_matchable_actual_hour"},
+            )
+
+        existing = redis_get(redis_key(f"drift:{region}"))
+        existing_payload = existing if isinstance(existing, dict) else None
+        payload = compute_drift_payload(region, existing_payload, new_records)
+
+        redis_set(redis_key(f"drift:{region}"), payload, ttl=REDIS_TTL)
+
+        # Compact summary for the scoring-job log line.
+        models_with_records = sorted(payload["models"].keys())
+        sample_model = models_with_records[0] if models_with_records else None
+        rolling_7d = payload["models"][sample_model]["rolling_mape_7d"] if sample_model else None
+        log.info(
+            "drift_updated",
+            region=region,
+            models=models_with_records,
+            new_record_ts=next(iter(new_records.values())).timestamp,
+            sample_rolling_7d=rolling_7d,
+        )
+        return PhaseResult(
+            region=region,
+            ok=True,
+            details={
+                "models": models_with_records,
+                "new_records": len(new_records),
+                "total_records": sum(m["n_records"] for m in payload["models"].values()),
+            },
+        )
+    except Exception as exc:
+        log.warning("drift_write_failed", region=region, error=str(exc))
+        return PhaseResult(region=region, ok=False, error=str(exc))
+
+
 # ── Phase: backtests (training) ──────────────────────────────
 
 

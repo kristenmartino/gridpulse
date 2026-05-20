@@ -49,10 +49,28 @@ def _score_region(region: str) -> dict:
         "weather_rows": len(region_data.weather_df),
     }
 
+    # #121 part 1: snapshot the about-to-be-overwritten forecast key
+    # BEFORE write_actuals_and_weather + predict_and_write_forecast run.
+    # The drift phase later in this function compares this previous
+    # forecast's 1-hour-ahead prediction against the now-known actuals.
+    # Read failure → drift phase becomes a no-op for this tick.
+    previous_forecast = phases.read_existing_forecast(region)
+
     actuals_res = phases.write_actuals_and_weather(region_data)
     summary["phases"]["actuals_weather"] = {
         "ok": actuals_res.ok,
         **(actuals_res.details if actuals_res.ok else {"error": actuals_res.error}),
+    }
+
+    # #121 part 1: continuous drift signal. Runs after actuals are
+    # written + before predict_and_write_forecast overwrites the
+    # forecast key. Failures are isolated — a drift-side error never
+    # blocks the broader scoring run because drift is a secondary
+    # signal, not a critical path.
+    drift_res = phases.write_drift_metrics(region, previous_forecast, region_data.demand_df)
+    summary["phases"]["drift"] = {
+        "ok": drift_res.ok,
+        **(drift_res.details if drift_res.ok else {"error": drift_res.error}),
     }
 
     gen_res = phases.write_generation(region)
