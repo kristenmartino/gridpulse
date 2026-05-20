@@ -77,9 +77,20 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
     than its siblings.
 
     Resolution order:
+    0. ``gridpulse:forecast:{region}:1h`` → ``model_metrics`` field —
+       written by the scoring job (#131, 2026-05-20) from each model's
+       ``meta.extra["holdout_metrics"]``. **This is the production
+       path:** the web-tier container has no meta.json files on local
+       disk (they live only on the Job container), so layers 1–3 and 5
+       below all fail in production. Without this layer, every
+       production page render falls all the way through to layer 6 —
+       the hardcoded simulated baseline — which is what triggered the
+       2026-05-20 "MAPE 1.6%" bug surfaced on the Overview model card.
     1. ``meta.extra["holdout_metrics"]`` per model — full {mape, rmse,
-       mae, r2} dict, real training-time holdout. This is the canonical
-       path for any BA whose models trained on the new code path.
+       mae, r2} dict, real training-time holdout. Canonical path for
+       any BA whose models trained on the new code path. Used in dev
+       (where meta.json is on local disk) and during training-job
+       in-process callbacks.
     2. Top-level ``meta.mape`` per model — backward-compat for pickles
        trained before this path landed (only MAPE is real; RMSE/MAE/R²
        are still supplemented from Redis below).
@@ -97,6 +108,40 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
         Dict of model_name → {mape?, rmse?, mae?, r2?}. Empty fields
         omitted; the UI tolerates partial dicts.
     """
+    # Layer 0: gridpulse:forecast:{region}:1h.model_metrics — written
+    # by the scoring job. This is the production read path. Falls
+    # through to layers 1-6 only when the field is empty/absent (offline
+    # dev, fresh deploy before first scoring tick, or pre-#131 forecasts
+    # still in Redis with their TTL not yet expired).
+    try:
+        from data.redis_client import redis_get, redis_key
+
+        forecast_payload = redis_get(redis_key(f"forecast:{region}:1h"))
+        if isinstance(forecast_payload, dict):
+            cached = forecast_payload.get("model_metrics")
+            if isinstance(cached, dict) and cached:
+                cleaned: dict[str, dict[str, float]] = {}
+                for model_name, metrics in cached.items():
+                    if not isinstance(metrics, dict):
+                        continue
+                    model_clean: dict[str, float] = {}
+                    for field in _HOLDOUT_FIELDS:
+                        val = metrics.get(field)
+                        if val is None:
+                            continue
+                        try:
+                            f = float(val)
+                        except (TypeError, ValueError):
+                            continue
+                        if np.isfinite(f):
+                            model_clean[field] = f
+                    if model_clean:
+                        cleaned[model_name] = model_clean
+                if cleaned:
+                    return cleaned
+    except Exception as e:  # pragma: no cover — defensive (Redis outage)
+        log.debug("get_model_metrics_redis_forecast_miss", region=region, error=str(e))
+
     out: dict[str, dict[str, float]] = {}
 
     # 1 + 2. Per-model holdout metrics from meta extras.
