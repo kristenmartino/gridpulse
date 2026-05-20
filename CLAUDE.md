@@ -121,6 +121,47 @@ the canonical list; expansion history is `Original 8 → V1.α +8 → V3.ζ +35`
 
 Setup + bootstrap procedure: `docs/SCHEDULED_JOBS.md`.
 
+### Web tier I/O guardrail (added 2026-05-20 after PR #130)
+
+The Cloud Run Service container is **stateless** and has **no trained
+models, no meta.json files, no pickles on disk**. Those files live only
+on the Cloud Run Job container after GCS pull. Any call from
+`components/` to a function that reads from local disk or GCS will
+silently fall back to a simulated/baseline path in production.
+
+**Watchlist** (functions that have a local-disk path):
+
+- `models.model_service.get_forecasts(region, df)` — falls back to
+  `_simulate_forecasts` (noisy actuals at forward timestamps) when
+  no local pickle is present
+- `models.model_service.is_trained(region)` — pre-2026-05-20 checked
+  local disk; now Redis-first with local-pickle as dev fallback
+- `models.model_service.get_model_metrics(region)` — 6-layer fallback
+  chain; layers 1–3 and 5 all require meta.json/pickle on local disk,
+  so in production always falls through to **layer 6 (simulated
+  baseline)**. See [#131](https://github.com/kristenmartino/gridpulse/issues/131)
+
+**The rule for component callbacks:**
+
+> If a component callback needs model output, feature data, or model
+> metadata in the request path, **it MUST read from Redis**, not from
+> `models.model_service` or anywhere that touches disk. The scoring
+> job is the only writer; the web tier is read-only.
+
+When adding a new callback that needs ML-side data, the default
+question is: **"is this value in a `gridpulse:*` Redis key
+somewhere?"** If yes, use it. If no, the scoring job needs to write
+it first — file an issue, don't paper over with an inline compute.
+
+Two real bugs caused by violating this guardrail, both surfaced
+2026-05-20 within one session:
+
+- [PR #130 commit 7832633](https://github.com/kristenmartino/gridpulse/pull/130/commits/7832633) — Overview hero chart was
+  rendering noisy historical actuals at forward timestamps for every
+  page load
+- [PR #130 commit c2d6c20](https://github.com/kristenmartino/gridpulse/pull/130/commits/c2d6c20) — Overview model card badge
+  always said "simulated" even when forecasts in Redis were real
+
 ### Active top-level tabs in the current shell
 - Overview
 - Historical Demand
