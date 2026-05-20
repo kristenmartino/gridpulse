@@ -222,6 +222,122 @@ class TestHeroChartReadsRedis:
         assert band_y.max() > 22_000
 
 
+# ────────────────────────────────────────────────────────────────────────
+# PR-B (2026-05-20) — empirical confidence interval on Overview hero chart
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestHeroChartEmpiricalConfidenceInterval:
+    """``_build_overview_hero_chart`` uses empirical residual quantiles when
+    enough backtest residuals exist; falls back to ±3 % heuristic otherwise.
+
+    PR-B (2026-05-20): replaces the always-heuristic ±3% band with the
+    same calibration the Forecast tab uses, so both surfaces show
+    intervals derived from the same residual distribution. See
+    ``components._callbacks_shared._empirical_interval_from_backtests``
+    for the data source and gating rules.
+    """
+
+    @patch("components._callbacks_overview._empirical_interval_from_backtests")
+    @patch("components._callbacks_overview.redis_get")
+    def test_empirical_band_used_when_residuals_available(self, mock_redis_get, mock_empirical):
+        """When backtest residuals exist (sample_size >= threshold), the
+        band is built from additive residual quantiles, NOT ±3 % of
+        each prediction. The band-trace name carries the source label
+        so the legend / debug can show calibration provenance."""
+        from components._callbacks_overview import _build_overview_hero_chart
+
+        mock_redis_get.return_value = _redis_forecast_payload()
+        # Asymmetric quantiles to distinguish from heuristic (which is
+        # symmetric ±3%): lower at -800 MW, upper at +1200 MW.
+        mock_empirical.return_value = {
+            "available": True,
+            "lower_error": -800.0,
+            "upper_error": 1200.0,
+            "sample_size": 144,
+            "target_coverage": 0.80,
+            "calibration_window_hours": 144,
+        }
+
+        fig = _build_overview_hero_chart("FPL", _demand_df())
+
+        band_traces = [t for t in fig.data if t.fill == "toself"]
+        # The toself band is the empirical interval (the actuals area
+        # uses fill="tozeroy"). Walk fig.data to find the band whose
+        # name contains "empirical".
+        emp_band = next(
+            (t for t in fig.data if t.name and "empirical" in t.name.lower()),
+            None,
+        )
+        assert emp_band is not None, (
+            f"No empirical band found. Trace names: {[t.name for t in band_traces]}"
+        )
+        # Band name carries sample size — surfaces calibration provenance
+        assert "n=144" in emp_band.name
+
+        # Band asymmetry verifies additive residual quantiles, not
+        # multiplicative ±x%. Upper offset (+1200) > lower offset (800)
+        # in absolute value → the band should sit higher above the
+        # ensemble than below.
+        band_y = np.array([v for v in emp_band.y if v is not None], dtype=float)
+        # The band's max should exceed ~22500 + 1200 ≈ 23700 (ensemble peak + upper_error)
+        assert band_y.max() > 23_500, (
+            f"Empirical band max {band_y.max()} doesn't reflect +1200 offset above ensemble peak"
+        )
+
+    @patch("components._callbacks_overview._empirical_interval_from_backtests")
+    @patch("components._callbacks_overview.redis_get")
+    def test_heuristic_fallback_when_residuals_insufficient(self, mock_redis_get, mock_empirical):
+        """When the calibration window is too small (first week
+        post-deploy / newly-added region), the helper returns
+        ``{available: False}`` and the chart falls back to the ±3 %
+        heuristic band, labeled as ``"±3% indicative range"`` so the
+        legend never claims a calibration it doesn't have."""
+        from components._callbacks_overview import _build_overview_hero_chart
+
+        mock_redis_get.return_value = _redis_forecast_payload()
+        mock_empirical.return_value = {"available": False}
+
+        fig = _build_overview_hero_chart("FPL", _demand_df())
+
+        # Should NOT have an empirical-labeled band
+        emp_bands = [t for t in fig.data if t.name and "empirical" in t.name.lower()]
+        assert emp_bands == [], (
+            f"Empirical band rendered despite insufficient residuals; "
+            f"names: {[t.name for t in fig.data]}"
+        )
+
+        # Should have the heuristic band, labeled honestly
+        heur_band = next(
+            (t for t in fig.data if t.name == "±3% indicative range"),
+            None,
+        )
+        assert heur_band is not None, (
+            f"Heuristic fallback band missing. Trace names: {[t.name for t in fig.data]}"
+        )
+
+    @patch("components._callbacks_overview._empirical_interval_from_backtests")
+    @patch("components._callbacks_overview.redis_get")
+    def test_empirical_helper_called_with_correct_args(self, mock_redis_get, mock_empirical):
+        """The hero chart shows a 24-hour ensemble forecast, so the
+        empirical helper must be called with model_name='ensemble' and
+        horizon_hours=24. Pinning the args prevents a future refactor
+        from silently querying a different residual bucket."""
+        from components._callbacks_overview import _build_overview_hero_chart
+
+        mock_redis_get.return_value = _redis_forecast_payload()
+        mock_empirical.return_value = {"available": False}
+
+        _build_overview_hero_chart("FPL", _demand_df())
+
+        mock_empirical.assert_called_once()
+        call_args = mock_empirical.call_args
+        # Positional args: (region, model_name, horizon_hours)
+        assert call_args[0][0] == "FPL"
+        assert call_args[0][1] == "ensemble"
+        assert call_args[0][2] == 24
+
+
 class TestInsightSummaryReadsRedis:
     """``_build_overview_insight``'s forecast clause uses real Redis timestamps."""
 
