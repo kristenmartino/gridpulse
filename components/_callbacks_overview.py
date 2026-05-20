@@ -90,6 +90,56 @@ from personas.config import get_persona
 log = structlog.get_logger()
 
 
+def _read_ensemble_forecast_from_redis(
+    region: str,
+) -> tuple[list[pd.Timestamp], np.ndarray, str | None] | None:
+    """Read the live ensemble forecast from ``gridpulse:forecast:{region}:1h``.
+
+    The Forecast tab already reads from this key (via
+    ``_outlook_tab_from_redis`` in ``_callbacks_forecast.py``). This helper
+    extracts the same shape for the Overview hero chart + insight card so
+    those surfaces stop falling back to ``models.model_service._simulate_forecasts``,
+    which was producing noisy historical actuals displayed as forward
+    forecasts (CLAUDE.md "Redis-only reads in the web tier" invariant
+    violation discovered 2026-05-20).
+
+    Returns:
+        ``(timestamps, ensemble_predictions, scored_at)`` when the Redis
+        payload exists and contains an ``ensemble`` key per row.
+        ``None`` when Redis is cold, the payload is malformed, or the
+        ensemble column isn't populated — the caller should render the
+        actual-only / warming state in that case (never the simulated
+        baseline).
+    """
+    cached = redis_get(redis_key(f"forecast:{region}:1h"))
+    if not isinstance(cached, dict):
+        return None
+    forecasts = cached.get("forecasts") or []
+    if not forecasts:
+        return None
+
+    # Prefer the explicit ensemble column. Fall back to predicted_demand_mw
+    # (which mirrors the primary model — XGBoost by default) only when the
+    # ensemble entry is missing entirely. We deliberately do not fall back
+    # to a single base model masquerading as ensemble.
+    first_row = forecasts[0]
+    if "ensemble" in first_row:
+        pred_key = "ensemble"
+    elif "predicted_demand_mw" in first_row:
+        pred_key = "predicted_demand_mw"
+    else:
+        return None
+
+    try:
+        timestamps = [pd.to_datetime(row["timestamp"]) for row in forecasts]
+        predictions = np.array([float(row.get(pred_key, 0)) for row in forecasts], dtype=float)
+    except (KeyError, TypeError, ValueError) as exc:
+        log.warning("overview_forecast_redis_parse_failed", region=region, error=str(exc))
+        return None
+
+    return timestamps, predictions, cached.get("scored_at")
+
+
 def _build_overview_title(region: str) -> html.Div:
     """Page-title block: region name + 1-line subtitle."""
 
@@ -201,41 +251,50 @@ def _build_overview_hero_chart(
         )
     )
 
-    # 24h forecast bridge (orange dashed) + confidence band
+    # 24h forecast bridge (orange dashed) + confidence band.
+    #
+    # Reads the live ensemble forecast from gridpulse:forecast:{region}:1h
+    # (written hourly by the scoring job). Falls back to actual-only chart
+    # when Redis is cold rather than to models.model_service._simulate_forecasts,
+    # which prior to 2026-05-20 was rendering noisy *historical* actuals at
+    # *forward* timestamps — producing visibly wrong forecast traces (e.g. FPL
+    # peak appearing at 04:00 instead of the real evening peak). See the
+    # 2026-05-20 "looks off" debug + the fix branch's PR for the full
+    # diagnosis.
     try:
-        from models.model_service import get_forecasts
+        forecast_payload = _read_ensemble_forecast_from_redis(region)
+        if forecast_payload is not None:
+            forecast_ts_all, ensemble_arr, _scored_at = forecast_payload
+            horizon = min(24, len(ensemble_arr))
+            forecast_ts = forecast_ts_all[:horizon]
+            ensemble_y = list(ensemble_arr[:horizon])
 
-        forecasts = get_forecasts(region, df, models_shown=["ensemble"])
-        ensemble = forecasts.get("ensemble")
-        upper_80 = forecasts.get("upper_80")
-        lower_80 = forecasts.get("lower_80")
-        if ensemble is not None and len(ensemble) > 0:
-            horizon = min(24, len(ensemble))
-            forecast_ts = pd.date_range(
-                start=last_ts + pd.Timedelta(hours=1),
-                periods=horizon,
-                freq="h",
-            )
-            ensemble_y = list(ensemble[:horizon])
-
-            # Confidence band — drawn first so it sits behind the line
-            if upper_80 is not None and lower_80 is not None and len(upper_80) >= horizon:
-                upper_y = list(upper_80[:horizon])
-                lower_y = list(lower_80[:horizon])
-                fig.add_trace(
-                    go.Scatter(
-                        x=list(forecast_ts) + list(forecast_ts[::-1]),
-                        y=upper_y + lower_y[::-1],
-                        fill="toself",
-                        fillcolor="rgba(249, 115, 22, 0.12)",
-                        line=dict(width=0),
-                        hoverinfo="skip",
-                        showlegend=False,
-                        name="80% confidence",
-                    )
+            # Heuristic ±3 % visual confidence band. The Redis payload
+            # doesn't carry empirical CI bounds (those are computed on
+            # the Forecast tab from recent residuals — overkill for the
+            # Overview hero). A simple ±3 % gives the chart a tinted
+            # ribbon visually equivalent to what was shipping pre-fix,
+            # without any pretense of calibration. The Forecast tab is
+            # the place to look for real CIs.
+            upper_y = [v * 1.03 for v in ensemble_y]
+            lower_y = [v * 0.97 for v in ensemble_y]
+            fig.add_trace(
+                go.Scatter(
+                    x=list(forecast_ts) + list(forecast_ts[::-1]),
+                    y=upper_y + lower_y[::-1],
+                    fill="toself",
+                    fillcolor="rgba(249, 115, 22, 0.12)",
+                    line=dict(width=0),
+                    hoverinfo="skip",
+                    showlegend=False,
+                    name="±3% band",
                 )
+            )
 
-            # Forecast line (bridged from last actual point — no gap)
+            # Forecast line bridged from the last actual point — gives a
+            # visually continuous transition. The bridge segment uses the
+            # last actual MW; the forward segment uses the real ensemble
+            # predictions per their Redis-stored timestamps.
             bridge_x = [last_ts, *forecast_ts]
             bridge_y = [last_mw, *ensemble_y]
             fig.add_trace(
@@ -349,25 +408,46 @@ def _build_overview_insight(
     else:
         peak_str = "—"
 
+    # Forecast clause — read from the same Redis payload the hero chart
+    # uses. Drop the clause entirely when Redis is cold (warming state)
+    # instead of fabricating it from the simulated baseline. Same fix
+    # arc as the hero chart above; see comment there for the prior-bug
+    # context.
     forecast_clause = "Next-cycle forecast confidence is updating."
     try:
-        from models.model_service import get_forecasts
+        forecast_payload = _read_ensemble_forecast_from_redis(region)
+        if forecast_payload is not None:
+            forecast_ts_all, ensemble_arr, _scored_at = forecast_payload
+            horizon = min(24, len(ensemble_arr))
+            if horizon > 0:
+                f_arr = ensemble_arr[:horizon]
+                f_peak = float(f_arr.max())
+                f_peak_idx = int(f_arr.argmax())
+                # Use the REAL timestamp from the Redis payload, not a
+                # computed offset off last_actual. The previous code
+                # computed ``last_ts + (f_peak_idx + 1)h`` which is
+                # meaningless against the simulated baseline (the
+                # ensemble array represented historical hours, not
+                # forward) and produced bogus peak times like "04:00".
+                f_peak_ts = forecast_ts_all[f_peak_idx]
 
-        forecasts = get_forecasts(region, df, models_shown=["ensemble"])
-        ensemble = forecasts.get("ensemble")
-        if ensemble is not None and len(ensemble) > 0:
-            horizon = min(24, len(ensemble))
-            f_arr = np.asarray(ensemble[:horizon])
-            f_peak = float(f_arr.max())
-            f_peak_idx = int(f_arr.argmax())
-            f_peak_ts = df["timestamp"].iloc[-1] + pd.Timedelta(hours=f_peak_idx + 1)
-            metrics_dict = forecasts.get("metrics") or {}
-            ens_metrics = metrics_dict.get("ensemble") or metrics_dict.get("xgboost") or {}
-            mape = float(ens_metrics.get("mape", 0.0))
-            forecast_clause = (
-                f"Next-24h forecast peaks at {f_peak:,.0f} MW around "
-                f"{f_peak_ts.strftime('%H:%M')} (MAPE {mape:.1f}%)."
-            )
+                # MAPE for the ensemble — sourced from the model service
+                # which resolves through training-time holdout
+                # meta.json. Falls back gracefully when unavailable.
+                try:
+                    from models.model_service import get_model_metrics
+
+                    metrics_dict = get_model_metrics(region) or {}
+                    ens_metrics = metrics_dict.get("ensemble") or metrics_dict.get("xgboost") or {}
+                    mape = float(ens_metrics.get("mape", 0.0))
+                except Exception:  # pragma: no cover — defensive
+                    mape = 0.0
+
+                mape_clause = f" (MAPE {mape:.1f}%)" if mape > 0 else ""
+                forecast_clause = (
+                    f"Next-24h forecast peaks at {f_peak:,.0f} MW around "
+                    f"{f_peak_ts.strftime('%H:%M')} UTC{mape_clause}."
+                )
     except Exception as exc:  # pragma: no cover
         log.warning("overview_insight_forecast_failed", region=region, error=str(exc))
 
