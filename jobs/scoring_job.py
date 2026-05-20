@@ -28,9 +28,89 @@ import structlog
 
 from config import PRECOMPUTE_DEFAULT_REGION, PRECOMPUTE_MAX_WORKERS
 from jobs import phases
-from models.persistence import load_model
+from models.persistence import ModelMetadata, load_model
 
 log = structlog.get_logger()
+
+
+_HOLDOUT_METRIC_FIELDS = ("mape", "rmse", "mae", "r2")
+
+
+def _extract_holdout_metrics(meta: ModelMetadata | None) -> dict[str, float]:
+    """Pull the per-model holdout metrics dict from a ``ModelMetadata``.
+
+    Resolution order (matches what ``models.model_service.get_model_metrics``
+    expects to find in Redis):
+
+    1. ``meta.extra["holdout_metrics"]`` — full {mape, rmse, mae, r2}
+       dict from the training job's evaluation pass.
+    2. Top-level ``meta.mape`` — legacy fallback for pickles trained
+       before the holdout_metrics block was added.
+
+    Returns an empty dict when no useful metrics are present.
+    #131 (2026-05-20) added this so the scoring job can write real
+    holdout metrics into the Redis forecast payload — without it the
+    web tier falls all the way through to the simulated baseline.
+    """
+    if meta is None:
+        return {}
+    extra = getattr(meta, "extra", None) or {}
+
+    out: dict[str, float] = {}
+    holdout = extra.get("holdout_metrics") if isinstance(extra, dict) else None
+    if isinstance(holdout, dict):
+        for field in _HOLDOUT_METRIC_FIELDS:
+            val = holdout.get(field)
+            if val is None:
+                continue
+            try:
+                f = float(val)
+            except (TypeError, ValueError):
+                continue
+            if f == f and f not in (float("inf"), float("-inf")):  # finite check
+                out[field] = f
+
+    if "mape" not in out:
+        top_level_mape = getattr(meta, "mape", None)
+        if top_level_mape is not None:
+            try:
+                f = float(top_level_mape)
+                if f > 0 and f == f:
+                    out["mape"] = f
+            except (TypeError, ValueError):
+                pass
+
+    return out
+
+
+def _extract_ensemble_metrics(xgb_meta: ModelMetadata | None) -> dict[str, float]:
+    """Pull ensemble metrics from xgboost's meta extras.
+
+    The training job writes the ensemble holdout under
+    ``xgb_meta.extra["ensemble_holdout_metrics"]`` — same convention
+    ``get_model_metrics`` already reads from. Returns an empty dict
+    when the field is absent (e.g. legacy pickle without the
+    ensemble row).
+    """
+    if xgb_meta is None:
+        return {}
+    extra = getattr(xgb_meta, "extra", None) or {}
+    ens = extra.get("ensemble_holdout_metrics") if isinstance(extra, dict) else None
+    if not isinstance(ens, dict):
+        return {}
+
+    out: dict[str, float] = {}
+    for field in _HOLDOUT_METRIC_FIELDS:
+        val = ens.get(field)
+        if val is None:
+            continue
+        try:
+            f = float(val)
+        except (TypeError, ValueError):
+            continue
+        if f == f and f not in (float("inf"), float("-inf")):
+            out[field] = f
+    return out
 
 
 def _score_region(region: str) -> dict:
@@ -105,26 +185,46 @@ def _score_region(region: str) -> dict:
     # to weight the ensemble inversely (lower MAPE → higher weight).
     # None values fall back to equal weights inside compute_ensemble_weights.
     model_mapes: dict[str, float | None] = {}
+    # #131: full per-model holdout metrics (MAPE / RMSE / MAE / R²)
+    # harvested from each meta's ``extra["holdout_metrics"]`` block so
+    # they can be persisted to Redis for the web tier. Ensemble row
+    # rides on xgb_meta's ``extra["ensemble_holdout_metrics"]`` (existing
+    # convention used by models.model_service.get_model_metrics).
+    model_metrics: dict[str, dict[str, float]] = {}
     if xgb_loaded is not None:
         xgb_model, xgb_meta = xgb_loaded
         loaded_models["xgboost"] = xgb_model
         model_mapes["xgboost"] = xgb_meta.mape
         summary["model_version"] = xgb_meta.version
+        xgb_metrics = _extract_holdout_metrics(xgb_meta)
+        if xgb_metrics:
+            model_metrics["xgboost"] = xgb_metrics
+        ensemble_metrics = _extract_ensemble_metrics(xgb_meta)
+        if ensemble_metrics:
+            model_metrics["ensemble"] = ensemble_metrics
     if prophet_loaded is not None:
         prophet_model, prophet_meta = prophet_loaded
         loaded_models["prophet"] = prophet_model
         model_mapes["prophet"] = prophet_meta.mape
         summary["prophet_version"] = prophet_meta.version
+        prophet_metrics = _extract_holdout_metrics(prophet_meta)
+        if prophet_metrics:
+            model_metrics["prophet"] = prophet_metrics
     if arima_loaded is not None:
         arima_model, arima_meta = arima_loaded
         loaded_models["arima"] = arima_model
         model_mapes["arima"] = arima_meta.mape
         summary["arima_version"] = arima_meta.version
+        arima_metrics = _extract_holdout_metrics(arima_meta)
+        if arima_metrics:
+            model_metrics["arima"] = arima_metrics
 
     has_features = phases.engineer_region_features(region_data) is not None
 
     if has_features and loaded_models:
-        fc_res = phases.predict_and_write_forecast(region_data, loaded_models, model_mapes)
+        fc_res = phases.predict_and_write_forecast(
+            region_data, loaded_models, model_mapes, model_metrics=model_metrics
+        )
         summary["phases"]["forecast"] = {
             "ok": fc_res.ok,
             **(fc_res.details if fc_res.ok else {"error": fc_res.error}),

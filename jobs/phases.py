@@ -483,6 +483,7 @@ def predict_and_write_forecast(
     data: RegionData,
     models: dict[str, Any] | None,
     model_mapes: dict[str, float | None] | None = None,
+    model_metrics: dict[str, dict[str, float]] | None = None,
 ) -> PhaseResult:
     """Run all loaded forward forecasters and write ``gridpulse:forecast:{region}:1h``.
 
@@ -498,11 +499,22 @@ def predict_and_write_forecast(
     Weights come from inverse MAPE (``compute_ensemble_weights``) over
     ``model_mapes``; missing MAPE values fall back to equal weighting.
 
+    #131 (2026-05-20): ``model_metrics`` rides along on the payload's
+    top-level so the web tier can read training-time holdout metrics
+    from Redis without needing meta.json files on its container disk
+    (which it doesn't have — those live only on this Job container).
+    See ``models.model_service.get_model_metrics`` Layer 0.
+
     Args:
         data: Per-region payload with ``featured_df`` populated.
         models: Mapping of model name → loaded model object.
         model_mapes: Optional mapping of model name → recent MAPE (%). Drives
             ensemble weighting when present.
+        model_metrics: Optional mapping of model name → full holdout dict
+            ``{mape, rmse, mae, r2}`` for that model, sourced from each
+            model's ``meta.extra["holdout_metrics"]`` plus the ensemble
+            row from ``xgb_meta.extra["ensemble_holdout_metrics"]``.
+            Persisted as the ``model_metrics`` field on the Redis payload.
     """
     from data.redis_client import redis_key, redis_set
     from models.ensemble import compute_ensemble_weights, ensemble_combine
@@ -600,6 +612,33 @@ def predict_and_write_forecast(
             redis_payload["ensemble_weights"] = {
                 k: round(v, 4) for k, v in ensemble_weights.items()
             }
+
+        # #131: write per-model holdout metrics into the forecast payload
+        # so the web tier can read them from Redis instead of falling
+        # through to ``_simulate_forecasts``-derived values via
+        # ``get_model_metrics``'s layer-6 fallback. Sanitize incoming
+        # values so a malformed model_metrics dict from the caller can't
+        # corrupt the payload.
+        if model_metrics:
+            sanitized: dict[str, dict[str, float]] = {}
+            for name, mvals in model_metrics.items():
+                if not isinstance(mvals, dict):
+                    continue
+                cleaned: dict[str, float] = {}
+                for field in ("mape", "rmse", "mae", "r2"):
+                    val = mvals.get(field)
+                    if val is None:
+                        continue
+                    try:
+                        f = float(val)
+                    except (TypeError, ValueError):
+                        continue
+                    if np.isfinite(f):
+                        cleaned[field] = f
+                if cleaned:
+                    sanitized[name] = cleaned
+            if sanitized:
+                redis_payload["model_metrics"] = sanitized
 
         redis_set(
             redis_key(f"forecast:{region}:1h"),
