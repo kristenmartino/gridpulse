@@ -47,6 +47,14 @@ The Next 3 is intentionally thin right now. Part 3 of #121 has a 7-day timing ga
 
 ## Blocked / waiting on
 
+- **Forecast tab chart 1–4h gap between actual end and forecast start**
+  ([#129](https://github.com/kristenmartino/gridpulse/issues/129)) —
+  EIA publishing lag visualized as empty. Fix is in
+  `jobs/phases.predict_and_write_forecast`: backfill predictions for
+  trailing NaN-demand rows so the forecast trace starts at
+  `last_actual_demand_hour + 1h` instead of `featured.timestamp.max() + 1h`.
+  Different code path than this PR; ~3–4 hours when picked up.
+
 - **Cross-link this Project to portfolio-v2 / sift / future repos**
   ([#124](https://github.com/kristenmartino/gridpulse/issues/124)) —
   trigger condition (≥2 repos with their own state-management setup)
@@ -73,7 +81,8 @@ The Next 3 is intentionally thin right now. Part 3 of #121 has a 7-day timing ga
 
 ## Recent decisions (last 7 days)
 
-- **2026-05-20** PR-D2 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 2 shipped. Models tab drift panel: `_build_drift_panel` reads `gridpulse:drift:{region}` + holdout MAPEs, renders per-model status chips (on track / drifting / degraded) with mixed-state support. 15 new tests. Full suite: 1,640 pass. [This PR]
+- **2026-05-20** Overview hero chart + insight: route to Redis instead of `_simulate_forecasts`. User-reported "looks off" surfaced that the Overview was rendering noisy historical actuals as forward forecasts (CLAUDE.md "Redis-only reads in web tier" invariant violation). Added `_read_ensemble_forecast_from_redis` helper; both surfaces now read `gridpulse:forecast:{region}:1h` (same key the Forecast tab uses). Drop simulated fallback entirely — render actual-only / drop forecast clause on cold cache. 12 new tests. Filed [#129](https://github.com/kristenmartino/gridpulse/issues/129) for the related Forecast-tab gap (separate code path). Full suite: 1,652 pass. [This PR]
+- **2026-05-20** PR-D2 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 2 shipped. Models tab drift panel: `_build_drift_panel` reads `gridpulse:drift:{region}` + holdout MAPEs, renders per-model status chips (on track / drifting / degraded) with mixed-state support. 15 new tests. Full suite: 1,640 pass. [PR #128]
 - **2026-05-20** PR-D1 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 1 shipped. `models/drift.py` (continuous 1-hour-ahead drift measurement) + `jobs/phases.write_drift_metrics` (hourly Redis writes to `gridpulse:drift:{region}`) + 36 new unit tests. Full suite: 1,625 pass. [PR #126]
 - **2026-05-20** PR-C1 — Recall artifacts shipped. Real `HOW_IT_WORKS.md` + 5 Mermaid diagrams + populated `CANONICAL_FACTS.md` + `INTERVIEW_PREP.md` STAR-story content. [PR #125]
 - **2026-05-20** Wider replan after multi-perspective review: confirmed Position A, deferred Path B beyond #121, reordered PR sequence to C → B (conditional) → D (deferred), and split PR-C into C1 (recall) + C2 (communication). [PR #123]
