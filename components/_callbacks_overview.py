@@ -70,6 +70,7 @@ from components._callbacks_shared import (
     _GENERATION_CACHE,
     _PREDICTION_CACHE,
     DEFAULT_BACKTEST_EXOG_MODE,
+    _empirical_interval_from_backtests,
     _empty_figure,
     _latest_real_demand,
     _layout,
@@ -406,15 +407,37 @@ def _build_overview_hero_chart(
             forecast_ts = forecast_ts_all[:horizon]
             ensemble_y = list(ensemble_arr[:horizon])
 
-            # Heuristic ±3 % visual confidence band. The Redis payload
-            # doesn't carry empirical CI bounds (those are computed on
-            # the Forecast tab from recent residuals — overkill for the
-            # Overview hero). A simple ±3 % gives the chart a tinted
-            # ribbon visually equivalent to what was shipping pre-fix,
-            # without any pretense of calibration. The Forecast tab is
-            # the place to look for real CIs.
-            upper_y = [v * 1.03 for v in ensemble_y]
-            lower_y = [v * 0.97 for v in ensemble_y]
+            # Confidence band (PR-B, 2026-05-20): prefer calibrated
+            # empirical quantiles of recent backtest residuals, fall back
+            # to a ±3 % heuristic only when the calibration window is too
+            # small (typically <24 residual samples — first week
+            # post-deploy, or for newly-added regions).
+            #
+            # The empirical method is the same one the Forecast tab uses
+            # (``_empirical_interval_from_backtests`` →
+            # ``apply_empirical_interval``); see
+            # ``components._callbacks_shared:385-409`` and
+            # ``components._callbacks_forecast:108-170``. Sharing the
+            # method across surfaces means both views show a band
+            # calibrated to the same residual distribution — no
+            # surface-specific tuning that would silently diverge.
+            interval_meta = _empirical_interval_from_backtests(region, "ensemble", horizon)
+            empirical_ok = bool(interval_meta.get("available"))
+            if empirical_ok:
+                # Additive bands: lower_error / upper_error are quantiles
+                # of (actual - predicted) residuals, so band_y = pred + q.
+                lower_err = float(interval_meta["lower_error"])
+                upper_err = float(interval_meta["upper_error"])
+                upper_y = [v + upper_err for v in ensemble_y]
+                lower_y = [v + lower_err for v in ensemble_y]
+                band_name = (
+                    f"80% prediction interval "
+                    f"(empirical, n={int(interval_meta.get('sample_size', 0))})"
+                )
+            else:
+                upper_y = [v * 1.03 for v in ensemble_y]
+                lower_y = [v * 0.97 for v in ensemble_y]
+                band_name = "±3% indicative range"
             fig.add_trace(
                 go.Scatter(
                     x=list(forecast_ts) + list(forecast_ts[::-1]),
@@ -424,7 +447,7 @@ def _build_overview_hero_chart(
                     line=dict(width=0),
                     hoverinfo="skip",
                     showlegend=False,
-                    name="±3% band",
+                    name=band_name,
                 )
             )
 
