@@ -1,11 +1,12 @@
 # Status — updated 2026-05-19
 
-> Canonical pointer for "where am I, what's next." This file + GitHub
-> Projects + the issue tracker are the single source of truth for
-> project state. See [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md)
-> for the full historical roadmap with acceptance criteria; see
-> [`CLAUDE.md`](CLAUDE.md) for the pre-session sanity-check ritual
-> that keeps this file from drifting.
+> Canonical pointer for "where am I, what's next." This file +
+> [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
+> + the issue tracker are the single source of truth for project state.
+> See [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md) for the full
+> historical roadmap with acceptance criteria; see [`CLAUDE.md`](CLAUDE.md)
+> for the pre-session sanity-check ritual that keeps this file from
+> drifting.
 
 ## Active investment
 
