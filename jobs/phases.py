@@ -510,10 +510,69 @@ def _overlay_weather_forecast(
     return future_df
 
 
+def _resolve_forecast_start(
+    featured: pd.DataFrame,
+    demand_df: pd.DataFrame,
+) -> pd.Timestamp:
+    """Pick the timestamp for hour 0 of the forecast.
+
+    Used by ``predict_and_write_forecast`` to close the EIA-publishing-lag
+    gap (#129) on the Forecast tab chart. Returns
+    ``last_real_demand_hour + 1h`` whenever a real-demand hour can be
+    identified — that anchor matches where the actuals trace ends, so
+    the forecast trace picks up immediately after it without a visible
+    multi-hour gap.
+
+    "Real demand" = non-NaN AND strictly positive. EIA-930 publishes
+    null for not-yet-available observations (which ``eia_client``
+    preserves as NaN). Literal zero is coerced to NaN upstream, but
+    we filter ``> 0`` defensively in case any zero-demand row slips
+    through (a balancing authority cannot have truly zero load).
+
+    Fallback chain when real demand can't be identified (degenerate
+    cases — empty demand_df, all-NaN demand, brand-new region during
+    first scoring tick):
+
+    1. Last real demand from ``demand_df`` (the desired anchor) — ``+ 1h``
+    2. Last timestamp in ``featured`` (pre-fix behavior, may leave a gap)
+    3. ``demand_df.timestamp.max() + 1h`` as the last-resort floor
+
+    Args:
+        featured: Engineered DataFrame (post-merge, post-dropna).
+        demand_df: Raw EIA demand DataFrame from ``data.demand_df``.
+
+    Returns:
+        Forecast-start timestamp (timezone-aware UTC).
+    """
+    last_featured_ts = featured["timestamp"].max()
+
+    if demand_df is None or demand_df.empty:
+        return last_featured_ts + pd.Timedelta(hours=1)
+
+    # Filter to real demand readings — must be non-NaN AND strictly
+    # positive. A balancing authority cannot have zero load; any zero
+    # is a missing-data artifact.
+    mask = demand_df["demand_mw"].notna() & (demand_df["demand_mw"] > 0)
+    real_demand = demand_df.loc[mask, "timestamp"]
+    if real_demand.empty:
+        return last_featured_ts + pd.Timedelta(hours=1)
+
+    last_real_demand = real_demand.max()
+
+    # Cap at last_featured so we don't generate a forecast row for
+    # which we can't compute autoregressive lag context. This means
+    # ``last_real > last_featured`` (theoretically possible if
+    # feature-engineering drops rows for reasons unrelated to demand
+    # NaN-ness) falls back to last_featured + 1h.
+    anchor = min(last_real_demand, last_featured_ts)
+    return anchor + pd.Timedelta(hours=1)
+
+
 def _build_future_feature_frame(
     featured: pd.DataFrame,
     horizon: int,
     weather_df: pd.DataFrame | None = None,
+    start_ts: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Build a feature frame for the forecast horizon.
 
@@ -539,9 +598,18 @@ def _build_future_feature_frame(
         weather_df: Optional raw weather DataFrame (from
             ``data.weather_client.fetch_weather``) covering both the
             historical and forecast periods. Only the forecast portion
-            (timestamps after ``featured.timestamp.max()``) is used. When
+            (timestamps after the forecast start) is used. When
             ``None``, the function falls back to the pre-PR-C
             climatology-only behavior.
+        start_ts: Optional explicit timestamp for hour 0 of the forecast.
+            When ``None``, defaults to ``featured["timestamp"].max() +
+            1h`` (the existing behavior). Passed explicitly by
+            ``predict_and_write_forecast`` to anchor the forecast at
+            ``last_real_demand_hour + 1h`` instead of
+            ``featured.timestamp.max() + 1h`` — closes the 1-4h gap
+            on the Forecast tab between the last EIA-published actual
+            and the start of the forecast trace when EIA's publishing
+            lag is non-zero. See #129.
 
     Note on autoregressive features: the climatology values placed here
     by this function are used **only as the long-horizon fallback** —
@@ -551,9 +619,10 @@ def _build_future_feature_frame(
     that hour the climatology values produced here are what the model
     actually sees. ARIMA and Prophet don't use these columns.
     """
-    last_ts = featured["timestamp"].max()
+    if start_ts is None:
+        start_ts = featured["timestamp"].max() + pd.Timedelta(hours=1)
     future_timestamps = pd.date_range(
-        start=last_ts + pd.Timedelta(hours=1),
+        start=start_ts,
         periods=horizon,
         freq="h",
     )
@@ -638,7 +707,17 @@ def _predict_xgboost_with_recursive_autoregressive(
     # Recursive zone: chain predictions hour by hour, seeded from recent
     # actuals. Each iteration: build the feature row from the growing
     # history, predict, append the prediction to history.
-    demand_history = featured["demand_mw"].tolist()
+    #
+    # Filter the seed to real demand readings (non-NaN, > 0). Zero or
+    # NaN trailing rows that slip through ``engineer_region_features``
+    # would corrupt the autoregressive lag/rolling features computed
+    # by ``compute_autoregressive_snapshot`` — a single zero in
+    # demand_history poisons the next 168 rolling-window features.
+    # See #129 for the production symptom.
+    raw_history = featured["demand_mw"].tolist()
+    demand_history: list[float] = [
+        float(v) for v in raw_history if v is not None and not pd.isna(v) and v > 0
+    ]
     recursive_preds: list[float] = []
     for i in range(n_recursive):
         row = future_df.iloc[[i]].copy()
@@ -762,11 +841,28 @@ def predict_and_write_forecast(
 
     try:
         featured = data.featured_df
+
+        # Anchor the forecast at ``last_real_demand_hour + 1h`` instead
+        # of ``featured.timestamp.max() + 1h`` (#129, 2026-05-21). When
+        # EIA's publishing lag is non-zero, ``featured`` can extend past
+        # the last hour with real demand — either via trailing zero rows
+        # that survive ``dropna(subset=["demand_mw"])`` or via the
+        # asymmetric publishing lag between EIA (demand) and Open-Meteo
+        # (weather). Anchoring on the last real demand reading closes
+        # the 1-4h gap that was visible on the Forecast tab chart
+        # between actuals end and forecast start. When there's no
+        # publishing-lag gap, this is a no-op:
+        # ``last_real_demand == featured.timestamp.max()``.
+        forecast_start = _resolve_forecast_start(featured, data.demand_df)
+
         # Pass the raw weather DataFrame so the future-feature builder can
         # overlay actual Open-Meteo forecast values (next ~16 days) onto
         # the climatology baseline. See ``_overlay_weather_forecast``.
         future_df = _build_future_feature_frame(
-            featured, FORECAST_HORIZON_HOURS, weather_df=data.weather_df
+            featured,
+            FORECAST_HORIZON_HOURS,
+            weather_df=data.weather_df,
+            start_ts=forecast_start,
         )
         future_ts = future_df["timestamp"]
 

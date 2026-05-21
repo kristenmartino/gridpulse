@@ -68,11 +68,13 @@ def _patch_predict_one(monkeypatch, predictions_by_name):
     monkeypatch.setattr(
         phases,
         "_build_future_feature_frame",
-        # PR-C (2026-05-20): function gained ``weather_df`` kwarg. Lambda
-        # accepts and ignores it — tests here exercise ``predict_and_write_forecast``
-        # ensemble logic, not the future-frame builder itself (which has
-        # its own dedicated test class below).
-        lambda featured, horizon, weather_df=None: pd.DataFrame(
+        # PR-C (2026-05-20): function gained ``weather_df`` kwarg.
+        # #129 (2026-05-21): function gained ``start_ts`` kwarg.
+        # Lambda accepts and ignores both — tests here exercise
+        # ``predict_and_write_forecast``'s ensemble logic, not the
+        # future-frame builder itself (which has its own dedicated
+        # test classes below).
+        lambda featured, horizon, weather_df=None, start_ts=None: pd.DataFrame(
             {"timestamp": pd.date_range("2024-02-01", periods=horizon, freq="h", tz="UTC")}
         ),
     )
@@ -628,3 +630,219 @@ class TestPredictXgboostRecursive:
         result = phases._predict_one("xgboost", model, featured, future_df, horizon=24)
         assert result is not None
         assert called["recursive"] is True
+
+
+# ────────────────────────────────────────────────────────────────────────
+# #129 — Forecast tab gap fix (anchor on last_real_demand_hour + 1h)
+# ────────────────────────────────────────────────────────────────────────
+
+
+class TestResolveForecastStart:
+    """``_resolve_forecast_start`` picks the timestamp for hour 0 of the
+    forecast. The normal case (no publishing-lag gap) returns
+    ``featured.timestamp.max() + 1h``; the gap case returns
+    ``last_real_demand_hour + 1h``. See #129.
+    """
+
+    @staticmethod
+    def _featured(end_ts: str, n_hours: int = 200) -> pd.DataFrame:
+        end = pd.Timestamp(end_ts, tz="UTC")
+        ts = pd.date_range(end=end, periods=n_hours, freq="h")
+        return pd.DataFrame({"timestamp": ts, "demand_mw": np.full(n_hours, 20_000.0)})
+
+    @staticmethod
+    def _demand_df(end_ts: str, n_hours: int = 200) -> pd.DataFrame:
+        end = pd.Timestamp(end_ts, tz="UTC")
+        ts = pd.date_range(end=end, periods=n_hours, freq="h")
+        return pd.DataFrame({"timestamp": ts, "demand_mw": np.full(n_hours, 20_000.0)})
+
+    def test_no_gap_returns_featured_max_plus_1h(self):
+        """Normal case: demand_df and featured end at the same timestamp
+        (EIA fully caught up). Forecast starts at that timestamp + 1h."""
+        from jobs.phases import _resolve_forecast_start
+
+        same_end = "2026-05-20 14:00"
+        featured = self._featured(same_end)
+        demand_df = self._demand_df(same_end)
+
+        forecast_start = _resolve_forecast_start(featured, demand_df)
+        assert forecast_start == pd.Timestamp(same_end, tz="UTC") + pd.Timedelta(hours=1)
+
+    def test_publishing_lag_gap_anchors_on_real_demand(self):
+        """Gap case: featured extends to 14:00 UTC but demand_df has
+        real readings only through 10:00 UTC (4-hour EIA publishing
+        lag — the production scenario from #129). Forecast must start
+        at 11:00 UTC, not 15:00 UTC."""
+        from jobs.phases import _resolve_forecast_start
+
+        featured = self._featured("2026-05-20 14:00")
+        demand_df = self._demand_df("2026-05-20 10:00")
+
+        forecast_start = _resolve_forecast_start(featured, demand_df)
+        assert forecast_start == pd.Timestamp("2026-05-20 11:00", tz="UTC")
+
+    def test_trailing_nan_demand_treated_as_missing(self):
+        """If demand_df includes trailing rows with NaN demand (EIA's
+        sentinel for unpublished hours), those don't count as 'real
+        demand' — the anchor is the last non-NaN hour."""
+        from jobs.phases import _resolve_forecast_start
+
+        featured = self._featured("2026-05-20 14:00")
+        demand_df = self._demand_df("2026-05-20 14:00")
+        # Last 4 hours have NaN demand (unpublished)
+        demand_df.loc[demand_df.index[-4:], "demand_mw"] = np.nan
+
+        forecast_start = _resolve_forecast_start(featured, demand_df)
+        # Last real demand hour = 10:00 UTC; forecast starts at 11:00 UTC
+        assert forecast_start == pd.Timestamp("2026-05-20 11:00", tz="UTC")
+
+    def test_trailing_zero_demand_treated_as_missing(self):
+        """Defense in depth: even though ``eia_client`` coerces 0 → NaN,
+        any zero rows that slip through (e.g., via cache from a
+        pre-fix version) are still treated as 'missing' since a BA
+        cannot have zero demand."""
+        from jobs.phases import _resolve_forecast_start
+
+        featured = self._featured("2026-05-20 14:00")
+        demand_df = self._demand_df("2026-05-20 14:00")
+        demand_df.loc[demand_df.index[-3:], "demand_mw"] = 0.0
+
+        forecast_start = _resolve_forecast_start(featured, demand_df)
+        # Last real demand = 11:00 UTC (last index minus 3 → 14:00 - 3h)
+        assert forecast_start == pd.Timestamp("2026-05-20 12:00", tz="UTC")
+
+    def test_empty_demand_df_falls_back_to_featured(self):
+        """Defensive — empty demand_df → fall back to old behavior."""
+        from jobs.phases import _resolve_forecast_start
+
+        featured = self._featured("2026-05-20 14:00")
+        empty = pd.DataFrame(columns=["timestamp", "demand_mw"])
+
+        forecast_start = _resolve_forecast_start(featured, empty)
+        assert forecast_start == pd.Timestamp("2026-05-20 15:00", tz="UTC")
+
+    def test_all_nan_demand_falls_back_to_featured(self):
+        """If every demand row is NaN (degenerate fetch failure), fall
+        back to ``featured.max + 1h`` rather than failing the phase."""
+        from jobs.phases import _resolve_forecast_start
+
+        featured = self._featured("2026-05-20 14:00")
+        demand_df = self._demand_df("2026-05-20 14:00")
+        demand_df["demand_mw"] = np.nan
+
+        forecast_start = _resolve_forecast_start(featured, demand_df)
+        assert forecast_start == pd.Timestamp("2026-05-20 15:00", tz="UTC")
+
+    def test_last_real_demand_after_featured_caps_at_featured(self):
+        """If last_real_demand somehow exceeds featured.max (e.g., feature
+        engineering dropped trailing rows for reasons unrelated to
+        demand-NaN), cap the anchor at featured.max so we don't
+        generate forecast rows without lag context."""
+        from jobs.phases import _resolve_forecast_start
+
+        featured = self._featured("2026-05-20 12:00")
+        demand_df = self._demand_df("2026-05-20 14:00")
+
+        forecast_start = _resolve_forecast_start(featured, demand_df)
+        assert forecast_start == pd.Timestamp("2026-05-20 13:00", tz="UTC")
+
+
+class TestBuildFutureFeatureFrameStartTs:
+    """``_build_future_feature_frame`` accepts an explicit ``start_ts``
+    kwarg (#129). Default behavior unchanged when ``start_ts=None``."""
+
+    def test_explicit_start_ts_anchors_first_row(self):
+        """When ``start_ts`` is provided, the first future row's
+        timestamp equals that anchor (NOT ``featured.max + 1h``)."""
+        from jobs.phases import _build_future_feature_frame
+
+        featured = _build_featured_hist(n_hours=168 * 2, last_ts="2026-05-20 14:00")
+        # Anchor forecast at 11:00 UTC (4 hours BEFORE featured.max)
+        anchor = pd.Timestamp("2026-05-20 11:00", tz="UTC")
+        future_df = _build_future_feature_frame(featured, horizon=24, start_ts=anchor)
+
+        assert pd.Timestamp(future_df["timestamp"].iloc[0]) == anchor
+
+    def test_no_start_ts_preserves_old_behavior(self):
+        """Without ``start_ts``, the function still anchors at
+        ``featured.max + 1h`` — pre-#129 behavior."""
+        from jobs.phases import _build_future_feature_frame
+
+        featured = _build_featured_hist(n_hours=168 * 2, last_ts="2026-05-20 14:00")
+        future_df = _build_future_feature_frame(featured, horizon=24)
+
+        expected_first = pd.Timestamp("2026-05-20 15:00", tz="UTC")
+        assert pd.Timestamp(future_df["timestamp"].iloc[0]) == expected_first
+
+
+class TestRecursivePredictDemandHistorySeed:
+    """``_predict_xgboost_with_recursive_autoregressive`` filters its
+    demand_history seed against NaN/zero values (#129). A single zero
+    or NaN trailing row would otherwise poison the next 168 rolling
+    features computed by ``compute_autoregressive_snapshot``.
+    """
+
+    def test_seed_filters_nan_and_zero_demand(self, monkeypatch):
+        """Build a ``featured`` whose last 4 rows have NaN/zero demand.
+        The recursive predict's first prediction should be seeded from
+        the LAST GOOD demand (20,000.0), not from NaN/zero."""
+        import jobs.phases as phases
+
+        # Fake predict_xgboost returns lag_1h × 1.02 — same as the
+        # PR-E test infrastructure. Lets us observe what got seeded.
+        def _fake_predict(model, df):
+            lag = df["demand_lag_1h"].fillna(-1.0).astype(float).values
+            return lag * 1.02
+
+        monkeypatch.setattr("models.xgboost_model.predict_xgboost", _fake_predict)
+
+        ts = pd.date_range("2026-05-01", periods=200, freq="h", tz="UTC")
+        # First 196 rows: real demand 20,000. Last 4 rows: NaN/zero noise.
+        demand = np.full(200, 20_000.0)
+        demand[-4:-2] = np.nan
+        demand[-2:] = 0.0
+        featured = pd.DataFrame({"timestamp": ts, "demand_mw": demand})
+
+        future_ts = pd.date_range("2026-05-20", periods=5, freq="h", tz="UTC")
+        future_df = pd.DataFrame(
+            {
+                "timestamp": future_ts,
+                "demand_lag_1h": np.full(5, 30_000.0),  # baseline overridden by recursion
+            }
+        )
+        # Add the autoregressive feature columns the snapshot fills
+        for col in [
+            "demand_lag_3h",
+            "demand_lag_24h",
+            "demand_lag_168h",
+            "ramp_rate",
+            "demand_momentum_short",
+            "demand_momentum_long",
+            "demand_ratio_24h",
+            "demand_ratio_168h",
+            "demand_roll_24h_mean",
+            "demand_roll_24h_std",
+            "demand_roll_24h_min",
+            "demand_roll_24h_max",
+            "demand_roll_72h_mean",
+            "demand_roll_72h_std",
+            "demand_roll_72h_min",
+            "demand_roll_72h_max",
+            "demand_roll_168h_mean",
+            "demand_roll_168h_std",
+            "demand_roll_168h_min",
+            "demand_roll_168h_max",
+        ]:
+            future_df[col] = 0.0
+
+        model = _FakeXgbModel(feature_names=list(future_df.columns))
+        preds = phases._predict_xgboost_with_recursive_autoregressive(
+            model, featured, future_df, horizon=5, recursive_hours=5
+        )
+
+        # First prediction = lag_1h × 1.02 = LAST REAL demand × 1.02
+        # = 20,000 × 1.02 = 20,400. NOT 0 × 1.02 = 0 (which would
+        # happen if NaN/zero values made it into demand_history).
+        assert preds[0] == pytest.approx(20_400.0, rel=1e-6)
+        # The chain continues at 1.02× per step
+        assert preds[1] == pytest.approx(20_808.0, rel=1e-6)
