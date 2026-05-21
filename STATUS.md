@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-05-20
+# Status — updated 2026-05-21
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -20,11 +20,21 @@ follow-up commit.
 ## Active focus + open question
 
 **Strategic position: A — Portfolio + targeted credibility investment.**
-GridPulse's portfolio-grade build is shipped. Next moves polish the
-recruiter-facing surface (PR-C1 in flight, PR-C2 next) AND close one
-Path B item ([#121](https://github.com/kristenmartino/gridpulse/issues/121)
-Model drift monitoring) as a high-quality interview asset. Path B
-items beyond #121 stay deferred — see [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md) §V4.
+The 2026-05-20 forecast-pipeline audit reframed the credibility surface
+substantially: six PRs (#134, #135, #136, #137, #138, #139) shipped in
+one day, aligning training, inference, and UI around honest signals.
+The audit work itself is now one of the strongest interview narratives
+in the repo — a story arc that goes "user reports MAPE looks too clean
+→ senior-staff audit → one real bug (training-time target leakage) +
+two architectural mismatches (train/serve climatology gap, calibration
+provenance) → six-PR sequenced rollout with empirical validation gates
++ visible UI labeling + an ADR." Recent decisions section below has
+the full bill of materials.
+
+**Status of the strategic position:** still A. The audit pivot didn't
+change the position; it produced more of the "targeted credibility
+investment" the position is named after. The recruiter-facing
+documentation surface (PR-C1 shipped, PR-C2 parked) is unchanged.
 
 **Open question — 14-day success criterion (by 2026-06-03):** at least
 2 of these must be true, or the PM infrastructure built this week is
@@ -39,28 +49,18 @@ theatrical and should be partially reverted:
 
 ## Next 3 (priority order)
 
-1. **De-leak training features** (this PR, in flight, ~3h). Shift ``ramp_rate`` and every ``demand_roll_*`` to read from ``demand.shift(1)`` so training-time autoregressive features match the inference-time ``compute_autoregressive_snapshot`` definition. 5 new regression tests pin the leakage absence at the unit level. New training pickles flow nightly; live drift MAPE should improve over the following ~7 days as the new model accumulates predictions.
-2. **PR-E — Recursive autoregressive features in production inference** (~3h, blocked on this PR landing + ≥1 training cycle). Replace climatological group-mean lag/rolling features in ``_build_future_feature_frame`` with recursive computation from recent actuals + prior predictions, mirroring the holdout-validation behavior. Closes the train/serve gap completely. Same-data parity test included.
-3. **PR-C — Real weather forecast in ``_build_future_feature_frame``** (~4h, independent of training-leakage PR but best landed after). Replace (hour, dow) group-mean weather features with actual Open-Meteo forecast values. Addresses original "temperature predictions can't matter much" concern — weather will actually move the demand forecast.
+1. **Watch live drift over the next ~7 days** (passive — no code work). The 2026-05-20 overnight training cycle (~04:00 UTC) was the first run with the audit fixes in place — PR-D's de-leaked features, PR-E's recursive inference, PR-C's real weather forecast, PR-B's empirical CI. Live drift MAPE in `gridpulse:drift:{region}.rolling_mape_7d` should drop notably for weather-sensitive regions (ERCOT, FPL, PJM, CAISO, MISO) as the new pickle accumulates predictions. **What to check Friday 2026-05-23:** rolling 7d MAPE on the Overview tab for top regions; Forecast-tab feature importance should no longer show `demand_roll_24h_min` in the top 5. If drift is stable or improved, the audit landed clean. If drift worsens, file an issue and investigate.
+2. **#129 Forecast-tab chart 1–4h gap** (~3-4h, `bug`). EIA publishing lag visualized as empty space between actual end and forecast start. The fix is in `jobs/phases.predict_and_write_forecast`: backfill predictions for trailing NaN-demand rows so the forecast trace starts at `last_actual_demand_hour + 1h` instead of `featured.timestamp.max() + 1h`. This was the only OTHER bug found during the audit window that didn't make it into a PR. Different code path than the audit fixes.
+3. **Practice the explanatory docs** (~10 min, off-keyboard). Read `HOW_IT_WORKS.md` aloud + pick one STAR story to rehearse. Satisfies criterion (b) of the 14-day success criterion. ADR-008 added to `HOW_IT_WORKS.md` §4 yesterday — practice now includes the audit narrative.
 
 **Queued behind those:**
 
-- **PR-B — Empirical confidence interval on Overview hero chart** (~2h). Polish: replace ±3% heuristic band with same calibrated empirical residual-quantile method the Forecast tab uses. Best done LAST so the band calibrates against the post-de-leak model rather than re-calibrating after every model fix.
-- **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (~2–3 days, `path-b`). Decision: incorporate live MAPE into ensemble weights, OR surface a stale-weights warning when holdout-vs-live diverges past threshold. **Timing-gated** — needs ~7 days of live records before the decision is data-informed. Don't start before 2026-05-27. The leakage fix may shift live MAPE meaningfully; revisit the decision criterion once the new model has accumulated ~7 days of post-fix predictions.
-- **Practice the explanatory docs** (~10 min, off-keyboard). Read `HOW_IT_WORKS.md` aloud + pick one STAR story to rehearse. Satisfies criterion (b) of the 14-day success criterion.
-- **PR-C2** (`PITCH.md` + expanded STAR stories) — parked unless interview cycle demands it.
+- **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (~2–3 days, `path-b`). Decision: incorporate live MAPE into ensemble weights, OR surface a stale-weights warning when holdout-vs-live diverges past threshold. **Timing-gated** — needs ~7 days of POST-AUDIT live records before the decision is data-informed. Don't start before 2026-05-28. The PR-D + PR-E changes will shift the residual distribution materially; the decision criterion needs to be re-evaluated against the new equilibrium.
+- **PR-C2** (`PITCH.md` + expanded STAR stories) — parked unless interview cycle demands it. The audit work is now PRD.md §10 (ADR-008) and `INTERVIEW_PREP.md` may want a new STAR story for it.
 
-The Next-3 is back-to-back substantive code work for the next ~12h of focused time. The audit-driven correctness fixes take priority over the timing-gated #121-part-3 work.
+The Next-3 is much thinner than yesterday's. The audit-driven correctness work is complete; the remaining open code work is one small bug (#129) plus passive monitoring. Good window for off-keyboard work (practice, polish) or to pick up a different project.
 
 ## Blocked / waiting on
-
-- **Overview model card MAPE shows simulated baseline values**
-  ([#131](https://github.com/kristenmartino/gridpulse/issues/131)) — the
-  `is_trained` badge was fixed in PR #130 (now reads Redis), but the
-  MAPE / RMSE / MAE / R² displayed on the card still come from
-  `_simulate_forecasts` because the web tier can't read meta.json from
-  the Job container's disk. Real fix: scoring job writes `model_metrics`
-  into the forecast Redis payload, web tier reads from there. ~4 hours.
 
 - **Forecast tab chart 1–4h gap between actual end and forecast start**
   ([#129](https://github.com/kristenmartino/gridpulse/issues/129)) —
@@ -68,7 +68,8 @@ The Next-3 is back-to-back substantive code work for the next ~12h of focused ti
   `jobs/phases.predict_and_write_forecast`: backfill predictions for
   trailing NaN-demand rows so the forecast trace starts at
   `last_actual_demand_hour + 1h` instead of `featured.timestamp.max() + 1h`.
-  Different code path than this PR; ~3–4 hours when picked up.
+  Different code path than the audit fixes; ~3-4 hours when picked up.
+  Surfaced in Next-3 above (#2).
 
 - **Cross-link this Project to portfolio-v2 / sift / future repos**
   ([#124](https://github.com/kristenmartino/gridpulse/issues/124)) —
@@ -86,19 +87,21 @@ The Next-3 is back-to-back substantive code work for the next ~12h of focused ti
   in the scoring job, preserves Redis-only web tier). Parked until a
   real user / interviewer signal demands physics correctness — see
   issue body for trigger conditions.
-- **PR-B (doc-drift CI) decision** — ship only if drift surfaces during
-  PR-C2 / #121 work. Otherwise stays deferred.
-- **PR-D (audit workflow)** — deferred indefinitely per [2026-05-20
-  wider replan](https://github.com/kristenmartino/gridpulse/pull/123).
-  Saved to [`claude-templates/DEFERRED_FOR_PRODUCTION.md`](https://github.com/kristenmartino/claude-templates/blob/main/DEFERRED_FOR_PRODUCTION.md)
-  for revisit if/when GridPulse becomes production-grade or continuously
-  updated.
+
+**Resolved 2026-05-20:**
+- ✅ [#131](https://github.com/kristenmartino/gridpulse/issues/131) — Overview model card MAPE showing simulated baseline values. Fixed by PR #132 (scoring job writes `model_metrics` into Redis payload; `get_model_metrics` reads them as Layer 0); reinforced by PR-A (#134) which switched Overview's MAPE clause to live drift MAPE.
 
 ## Recent decisions (last 7 days)
 
-- **2026-05-20** **ADR-008 logged: climatology fallback for forecast horizon beyond Open-Meteo's 16-day coverage.** `FORECAST_HORIZON_HOURS = 720` (30 days) is longer than Open-Meteo's free `/forecast` endpoint (384 hours = 16 days). For days 17-30, future weather features fall back to per-(hour-of-day, day-of-week) climatological group means from the last 92 days of history. Considered alternatives: shorten horizon to 16d (regression for monthly views), ECMWF S2S (paid + complex, modest payoff), light conditional climatology (anomaly persistence, ~half day of work, deferred until user signal). Chose raw climatology + visible UI labeling (dotted day-16 divider on the Forecast chart + subtitle annotation) so users can correctly interpret the regime split. Forecast-tab chart now renders the boundary marker on the 30-day view; 5 new unit tests. Follow-up to PR-C (#136); same audit-driven workstream.
-- **2026-05-20** **Forecast pipeline audit + four follow-up PRs queued + first three shipped.** Senior-staff audit of the per-model forecast calculations confirmed: (a) reported holdout MAPE is genuinely out-of-sample (last 168 hours, disjoint from train); (b) Prophet / ARIMA / live-drift paths are honest; (c) but XGBoost training features had direct target leakage — ``ramp_rate[i] = demand[i] - demand[i-1]`` and ``demand_roll_{24,72,168}h_*`` aggregations included the current row. Doesn't directly inflate the surfaced holdout MAPE (which uses the honest snapshot at val time), but contaminated model weights and created a train/serve distribution shift. Empirically confirmed via ``/tmp/leakage_demo.py``: leaky model trained to 0.11% MAPE (memorizing), honest model to 0.24% (must generalize). PR-D (#135, de-leak training) merged; PR-C (#136, real weather forecast in future features) merged; PR-E (recursive prod features) and PR-B (empirical CI bands) still queued.
-- **2026-05-20** [PR #134](https://github.com/kristenmartino/gridpulse/pull/134) — Overview tab "honest signals" pass. Five user-visible fixes in one PR: timestamp-based 24h trend (was ``iloc[-25]``, drifted with EIA publishing gaps), freshness subtext on NOW (``as of HH:MM UTC``), live drift MAPE in the forecast clause (was citing training-time holdout, misleading), label clarifications on 7d Peak/Low/Average, "Recent peak" → "Last 24h peak". New traceability audit script ``scripts/audit/verify_overview_metrics.py`` confirms all 5 spot-checked regions reconcile from raw EIA actuals. 12 new tests, 1690 total. **All four follow-up PRs from the audit are now queued, listed in Next-3 below.**
+- **2026-05-20** **Forecast pipeline audit closed — six PRs merged in one day.** User raised "those MAPE #s look too clean" → senior-staff audit found one real bug (training-time target leakage in `ramp_rate` and `demand_roll_*` features) and two architectural mismatches (train/serve climatology gap, mismatched confidence-band calibration across surfaces). Six PRs shipped:
+  - [#134](https://github.com/kristenmartino/gridpulse/pull/134) PR-A — Overview honest signals (timestamp-based trend, live drift MAPE, label clarifications). 12 tests.
+  - [#135](https://github.com/kristenmartino/gridpulse/pull/135) PR-D — De-leak training features (`shift(1)` before rolling/diff). 5 tests + empirical demo.
+  - [#136](https://github.com/kristenmartino/gridpulse/pull/136) PR-C — Real Open-Meteo forecast in `_build_future_feature_frame` (16 days). 9 tests.
+  - [#137](https://github.com/kristenmartino/gridpulse/pull/137) ADR-008 — Climatology fallback past day 16 + UI labeling (dotted divider on Forecast tab). 5 tests + full ADR in PRD.md §10.
+  - [#138](https://github.com/kristenmartino/gridpulse/pull/138) PR-E — Recursive autoregressive features in production (cap aligned with weather boundary at hour 384). 5 tests + empirical validation script.
+  - [#139](https://github.com/kristenmartino/gridpulse/pull/139) PR-B — Empirical CI on Overview hero chart (shared method with Forecast tab). 3 tests.
+
+  ADR-008 logged in PRD.md §10; full alternatives considered (shorten horizon, ECMWF S2S, light conditional climatology, heavy teleconnection-based) and why we chose climatology + visible labeling. Cumulative: **1,717 unit tests passing** (39 new), **all 6 Deploy → Production runs succeeded** (web service + scoring job + training job redeployed each merge per `.github/workflows/deploy-prod.yml`). Methodology re-validated on fresh data 2026-05-21 morning — FPL holdout MAPE consistent across runs, `demand_roll_24h_min` no longer in top-5 features. **Watching live drift MAPE for ~7 days to confirm production effect.**
 - **2026-05-20** [#131](https://github.com/kristenmartino/gridpulse/issues/131) closed — scoring job now writes per-model + ensemble holdout metrics into the `gridpulse:forecast:{region}:1h` payload as `model_metrics`. `get_model_metrics` reads them as Layer 0 (the production path; existing layers 1-6 remain as fallbacks). Eliminates the "MAPE 1.6%" simulated-baseline values the Overview model card had been showing in production. 18 new tests. Full suite: 1,670 pass. [This PR]
 - **2026-05-20** [PR #130](https://github.com/kristenmartino/gridpulse/pull/130) — Overview hero chart + insight + `is_trained` all route to Redis instead of `_simulate_forecasts` / local-disk checks. User-reported "looks off" surfaced two related bugs (chart rendered noisy historical as forward forecast; `[simulated]` badge always shown). CLAUDE.md "Web tier I/O guardrail" added documenting the architectural rule. Filed [#129](https://github.com/kristenmartino/gridpulse/issues/129) for the Forecast-tab gap (separate code path). 20 new tests. Full suite: 1,660 pass.
 - **2026-05-20** PR-D2 — [#121](https://github.com/kristenmartino/gridpulse/issues/121) part 2 shipped. Models tab drift panel: `_build_drift_panel` reads `gridpulse:drift:{region}` + holdout MAPEs, renders per-model status chips (on track / drifting / degraded) with mixed-state support. 15 new tests. Full suite: 1,640 pass. [PR #128]
