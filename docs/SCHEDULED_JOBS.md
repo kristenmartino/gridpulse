@@ -109,7 +109,8 @@ PROJECT=nextera-portfolio
 REGION=us-east1
 SA=gridpulse-scheduler@$PROJECT.iam.gserviceaccount.com
 
-# Hourly scoring
+# Hourly scoring — 1 retry covers a single transient 5xx without doubling up
+# the next scheduled tick (which is only an hour away anyway).
 gcloud scheduler jobs create http gridpulse-scoring-hourly \
   --project=$PROJECT --location=$REGION \
   --schedule="0 * * * *" \
@@ -117,9 +118,17 @@ gcloud scheduler jobs create http gridpulse-scoring-hourly \
   --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/gridpulse-scoring-job:run" \
   --http-method=POST \
   --oidc-service-account-email=$SA \
-  --oidc-token-audience="https://$REGION-run.googleapis.com/"
+  --oidc-token-audience="https://$REGION-run.googleapis.com/" \
+  --max-retry-attempts=1 \
+  --min-backoff=2m \
+  --max-backoff=5m
 
-# Daily training (04:00 UTC)
+# Daily training (04:00 UTC) — 3 retries with longer backoff covers
+# Cloud Run regional API blips up to ~1 hour. A miss here costs a full
+# day vs a missed scoring tick (1 hour), so we tolerate retries more
+# aggressively. See #141 — pre-2026-05-22 the default was zero retries
+# and a single transient 503 on 2026-05-21 silently skipped the day's
+# training cycle.
 gcloud scheduler jobs create http gridpulse-training-daily \
   --project=$PROJECT --location=$REGION \
   --schedule="0 4 * * *" \
@@ -127,7 +136,23 @@ gcloud scheduler jobs create http gridpulse-training-daily \
   --uri="https://$REGION-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/$PROJECT/jobs/gridpulse-training-job:run" \
   --http-method=POST \
   --oidc-service-account-email=$SA \
-  --oidc-token-audience="https://$REGION-run.googleapis.com/"
+  --oidc-token-audience="https://$REGION-run.googleapis.com/" \
+  --max-retry-attempts=3 \
+  --min-backoff=5m \
+  --max-backoff=30m
+```
+
+If you're updating an existing scheduler entry rather than creating it
+fresh, swap `create` for `update` and drop the create-only flags:
+
+```bash
+gcloud scheduler jobs update http gridpulse-training-daily \
+  --location=$REGION --project=$PROJECT \
+  --max-retry-attempts=3 --min-backoff=5m --max-backoff=30m
+
+gcloud scheduler jobs update http gridpulse-scoring-hourly \
+  --location=$REGION --project=$PROJECT \
+  --max-retry-attempts=1 --min-backoff=2m --max-backoff=5m
 ```
 
 Staging mirrors with `gridpulse-scoring-hourly-dev` /
