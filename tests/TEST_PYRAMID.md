@@ -23,7 +23,7 @@ Defines coverage targets, test scope, and critical user flows.
 |-------------|--------|----------------------------------------|---------|
 | Unit         | 80%+   | Pure functions, models, config, utils  | < 10s   |
 | Integration  | 70%+   | Data pipeline, callback contracts      | < 30s   |
-| E2E          | 100%   | Critical user flows (3 active tabs)    | < 60s   |
+| E2E          | 100%   | Critical user flows (5 visible tabs)   | < 60s   |
 
 ## Unit Tests (`tests/unit/`)
 
@@ -63,7 +63,7 @@ Test data flow between components.
 ### Key Contracts Tested
 - Demand JSON preserves timestamps after roundtrip
 - Weather + demand merge produces expected column set
-- All 8 regions produce valid merged data
+- All 51 balancing authorities in `REGION_COORDINATES` produce valid merged data
 - Callback outputs match layout IDs
 - Pipeline logger records all steps
 
@@ -75,9 +75,9 @@ Test complete user flows from UI to rendered output.
 
 | Flow | Description | Tests |
 |------|-------------|-------|
-| Tab Render | All 3 active tabs render without errors | test_dashboard_render.py |
+| Tab Render | All 5 visible tabs render without errors | test_dashboard_render.py |
 | Persona Switch | All 4 personas produce valid welcome + KPIs | test_dashboard_render.py |
-| Region Switch | All 8 regions load demo data successfully | test_dashboard_render.py |
+| Region Switch | All 51 BAs load data successfully | test_dashboard_render.py |
 | Scenario Presets | All 6 presets apply valid overrides (dormant) | test_dashboard_render.py |
 | Card Components | KPI, alert, welcome, chart cards render | test_dashboard_render.py |
 

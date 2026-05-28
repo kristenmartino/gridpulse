@@ -1,7 +1,7 @@
 [project]
-name = "energy-forecast"
+name = "gridpulse"
 version = "0.1.0"
-description = "Weather-aware energy demand forecasting dashboard"
+description = "GridPulse — weather-aware energy demand forecasting and grid intelligence platform"
 requires-python = ">=3.11"
 
 [tool.ruff]

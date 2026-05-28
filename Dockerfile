@@ -13,8 +13,8 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 # ─── Stage 2: Runtime ─────────────────────────────────────────
 FROM python:3.11-slim
 
-LABEL maintainer="Energy Forecast Dashboard"
-LABEL description="Weather-aware energy demand forecasting for 8 US BAs"
+LABEL maintainer="GridPulse"
+LABEL description="Weather-aware energy demand forecasting for 51 US balancing authorities (~100% of contiguous-US lower-48 load)"
 
 WORKDIR /app
 

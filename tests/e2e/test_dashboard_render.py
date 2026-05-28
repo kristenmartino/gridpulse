@@ -1,7 +1,7 @@
 """
 E2E tests for dashboard rendering.
 
-Tests that the 4 visible tabs (V2.1: Overview / Forecast / Risk / Models)
+Tests that the 5 visible tabs (Overview / US Grid / Forecast / Risk / Models)
 render without errors, persona switching produces correct KPIs and welcome
 cards, and scenario presets are well-formed.
 
@@ -109,7 +109,7 @@ class TestCardComponents:
 
 
 class TestDemoData:
-    """Test demo data generation for all 8 regions."""
+    """Test demo data generation for every balancing authority in REGION_COORDINATES (51 BAs)."""
 
     def test_demo_demand_all_regions(self):
         from config import REGION_COORDINATES

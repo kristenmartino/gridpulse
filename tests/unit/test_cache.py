@@ -120,8 +120,10 @@ class TestCacheConcurrency:
             cache.set(f"region_{i}", df)
             return cache.get(f"region_{i}") is not None
 
-        # 16 threads × 4 writes each matches the worst-case scoring-job fan-out
-        # (8 regions × demand + weather + generation + diagnostics writes).
+        # 16 threads × 4 writes each is a synthetic stress profile; the real
+        # scoring-job fan-out is wider still (51 regions × demand + weather +
+        # generation + diagnostics + drift writes per hour), so this exercises
+        # SQLite-WAL concurrency at a representative-but-tractable scale.
         with ThreadPoolExecutor(max_workers=16) as pool:
             results = list(pool.map(write, range(64)))
 
