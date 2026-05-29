@@ -156,19 +156,59 @@ jobs:
           echo "**Image:** \`${{ env.DEPLOY_SHA }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**CI run:** [#${{ github.event.workflow_run.run_number }}](${{ github.event.workflow_run.html_url }})" >> $GITHUB_STEP_SUMMARY
 
+      # Meaningful post-deploy smoke (PR-G3 / #147). Hits /health?deep=1
+      # and applies deploy-scoped assertions:
+      #   HARD FAIL when the fresh revision is not serving, or cannot
+      #     reach Redis — both are deploy-config problems (broken image,
+      #     wrong VPC connector, bad REDIS_HOST/secret).
+      #   WARN ONLY when data is stale/empty (last_scored old, forecast
+      #     sample empty) — those are NOT caused by the deploy; the next
+      #     scoring tick fixes them and continuous monitoring (#150)
+      #     alerts on them. Rolling back a good revision for a stale-data
+      #     condition would be wrong.
       - name: Production health check
         run: |
           URL="${{ steps.url.outputs.url }}"
-          echo "Testing $URL ..."
+          echo "Probing $URL/health?deep=1 ..."
+          BODY=""
           for i in 1 2 3 4 5 6; do
-            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/" || true)
-            if [ "$STATUS" = "200" ]; then
-              echo "Production is healthy (HTTP 200)"
-              exit 0
+            CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" "$URL/health?deep=1" || true)
+            if [ "$CODE" = "200" ]; then
+              echo "App is serving (HTTP 200)"
+              BODY=$(cat /tmp/health.json)
+              break
             fi
-            echo "Attempt $i: HTTP $STATUS - retrying in 15s..."
+            echo "Attempt $i: HTTP $CODE - retrying in 15s..."
             sleep 15
           done
-          echo "Production health check failed - ROLLBACK MAY BE NEEDED"
-          echo "Run: gcloud run services update-traffic ${{ env.SERVICE }} --to-revisions=PREVIOUS_REVISION=100 --region ${{ env.REGION }}"
-          exit 1
+
+          if [ -z "$BODY" ]; then
+            echo "::error::Production not serving — /health never returned 200"
+            echo "ROLLBACK: gcloud run services update-traffic ${{ env.SERVICE }} --to-revisions=PREVIOUS=100 --region ${{ env.REGION }}"
+            exit 1
+          fi
+
+          echo "$BODY" | python3 -c "
+          import json, sys
+          d = json.load(sys.stdin)
+          print(json.dumps(d, indent=2))
+          status = d.get('status')
+          checks = d.get('checks', {})
+          redis = checks.get('redis', {})
+
+          # HARD FAIL: fresh prod revision must reach Redis (deploy-config).
+          if redis.get('status') == 'degraded':
+              print('::error::Fresh revision cannot reach Redis — check VPC connector / REDIS_HOST / secret')
+              sys.exit(1)
+
+          # WARN-ONLY: stale/empty data is not deploy-caused.
+          if status != 'healthy':
+              degraded = {k: v for k, v in checks.items() if v.get('status') == 'degraded'}
+              print(f'::warning::Deploy is serving + Redis reachable, but health is degraded (monitoring concern, not a deploy failure): {list(degraded)}')
+
+          print('Deploy smoke passed: serving + Redis reachable.')
+          " || exit 1
+
+          {
+            echo "**Post-deploy health:** \`$(echo "$BODY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])')\`"
+          } >> $GITHUB_STEP_SUMMARY
