@@ -85,16 +85,41 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     if "temperature_2m" in df.columns and "hour_sin" in df.columns:
         df["temp_x_hour"] = compute_temp_hour_interaction(df["temperature_2m"], df["hour_sin"])
 
-    # --- Drop rows with NaN (from lag/rolling features at the start) ---
+    # --- Impute exogenous (weather) features, then drop only on the
+    #     demand-derived autoregressive warm-up (#161, 2026-05-29) ---
+    #
+    # Previously this did ``dropna(subset=<all feature cols>)``, which
+    # dropped a row if ANY of the ~50 features was NaN. That made a single
+    # sparse exogenous column able to collapse the entire row set: in the
+    # 2026-05-29 incident Open-Meteo's /forecast endpoint degraded its
+    # historical coverage and ``soil_temperature_0cm`` arrived non-null for
+    # only ~100 of ~2100 rows — dragging every region below the 168-row
+    # model threshold and taking down forecasts nationwide.
+    #
+    # A weather provider dropping one variable's coverage should degrade
+    # that feature, not zero out all forecasts. So: impute the exogenous
+    # (weather, raw + derived) columns — ffill → bfill → 0, the same
+    # NaN-defense Prophet/SARIMAX already apply to their regressors at
+    # predict time — and ``dropna`` only on the demand-derived
+    # autoregressive features, whose sole legitimate NaN is the lag/rolling
+    # warm-up prefix we genuinely want gone.
+    feature_cols = _get_feature_columns(df)
+    autoregressive = [c for c in AUTOREGRESSIVE_DEMAND_FEATURES if c in df.columns]
+    impute_cols = [c for c in feature_cols if c not in autoregressive]
+    if impute_cols:
+        df[impute_cols] = df[impute_cols].ffill().bfill().fillna(0.0)
+
     initial_rows = len(df)
-    df = df.dropna(subset=_get_feature_columns(df)).reset_index(drop=True)
+    drop_subset = autoregressive or feature_cols  # fall back if no AR cols present
+    df = df.dropna(subset=drop_subset).reset_index(drop=True)
     dropped = initial_rows - len(df)
 
     log.info(
         "feature_engineering_complete",
         output_rows=len(df),
         dropped_rows=dropped,
-        feature_count=len(_get_feature_columns(df)),
+        feature_count=len(feature_cols),
+        imputed_exogenous_cols=len(impute_cols),
     )
 
     return df

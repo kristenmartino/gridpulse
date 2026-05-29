@@ -255,6 +255,57 @@ class TestEngineerFeatures:
         result = engineer_features(pd.DataFrame())
         assert result.empty
 
+    # ── #161 regression: a sparse exogenous weather column must NOT
+    #    collapse the feature-row set below the model threshold ──
+
+    def test_fully_nan_weather_column_does_not_collapse_rows(self, merged_df):
+        """The 2026-05-29 P0: Open-Meteo served ``soil_temperature_0cm``
+        non-null for only ~100 of ~2100 rows. The old
+        ``dropna(subset=<all features>)`` collapsed every region below
+        the 168-row threshold → forecasts down nationwide.
+
+        With one weather column entirely NaN, the row count must stay
+        healthy (≈ input − warm-up), not collapse — that column is
+        imputed, not used to drop rows.
+        """
+        df = merged_df.copy()
+        df["soil_temperature_0cm"] = np.nan  # simulate the outage
+
+        result = engineer_features(df)
+
+        # Should keep ~all rows minus the ~168h autoregressive warm-up,
+        # NOT collapse to near-zero. Generous lower bound well above the
+        # 168-row model threshold.
+        assert len(result) > len(merged_df) - 250, (
+            f"sparse weather column collapsed rows to {len(result)} "
+            f"(input {len(merged_df)}) — #161 regression"
+        )
+        assert len(result) >= 168
+
+    def test_partially_sparse_weather_is_imputed(self, merged_df):
+        """A weather column missing its older 80% (the real incident
+        shape — recent data present, history dropped) must be imputed,
+        leaving no residual NaN and a healthy row count."""
+        df = merged_df.copy()
+        cutoff = int(len(df) * 0.8)
+        df.loc[df.index[:cutoff], "temperature_2m"] = np.nan
+
+        result = engineer_features(df)
+
+        feature_cols = [
+            c for c in result.select_dtypes(include=[np.number]).columns if c not in {"forecast_mw"}
+        ]
+        assert result[feature_cols].isna().sum().sum() == 0  # imputed, no residual NaN
+        assert len(result) >= 168
+
+    def test_autoregressive_warmup_still_dropped(self, merged_df):
+        """The fix must NOT stop dropping the legitimate lag/rolling
+        warm-up prefix — demand-derived features remain the drop subset."""
+        result = engineer_features(merged_df)
+        # demand_lag_168h is NaN for the first 168 rows; none should survive
+        assert result["demand_lag_168h"].isna().sum() == 0
+        assert len(result) < len(merged_df)  # warm-up was dropped
+
 
 class TestGetFeatureNames:
     """Feature name listing."""
