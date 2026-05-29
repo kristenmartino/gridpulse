@@ -49,16 +49,18 @@ theatrical and should be partially reverted:
 
 ## Next 3 (priority order)
 
-1. **[#161](https://github.com/kristenmartino/gridpulse/issues/161) option (C) — archive endpoint for historical weather** (~half day, the proper fix for the 2026-05-29 P0). Mitigation (A) is shipped + deployed + verified (service restored), so this is **not urgent** — but it's the real fix and it's fully designed in #161's comments (Option 1 chosen: stitch archive history + forecast recent/future; the 3 archive-missing vars — soil_temp, wind_80m/120m — stay imputed on deep history). **Best done as a focused fresh pass:** it refactors the weather-fetch path that just caused the P0, and the existing `test_weather_client` fallback tests are tightly coupled to exact `cache.get` call counts (see design note re: NOT reusing `fetch_historical_weather` internally). Execution plan is executable cold from #161.
-2. **Phase 2 PR-G10 ([#150](https://github.com/kristenmartino/gridpulse/issues/150)) — alerting on training/scheduler failures** (~2h, `gcloud` Cloud Monitoring). Fittingly, this would have auto-paged on both the 2026-05-21 silent training miss AND today's forecast outage instead of relying on manual checks. High operational value.
+1. **Phase 2 PR-G10 ([#150](https://github.com/kristenmartino/gridpulse/issues/150)) — alerting on training/scheduler failures** (~2h, `gcloud` Cloud Monitoring). Last Phase 2 item. Fittingly, this would have auto-paged on BOTH the 2026-05-21 silent training miss AND the 2026-05-29 forecast outage instead of relying on manual `/health` checks. Cloud Monitoring alert policies on Cloud Run Job `failed_executions` + scheduler `error_count`, email notification channel, runbook in `docs/SCHEDULED_JOBS.md`.
+2. **Phase 3 of `prod-readiness`** — [#148](https://github.com/kristenmartino/gridpulse/issues/148) strict prod fallback gating, [#149](https://github.com/kristenmartino/gridpulse/issues/149) Prophet interval honesty, [#142](https://github.com/kristenmartino/gridpulse/issues/142) LDWP/drift sMAPE.
 3. **Watch live drift** (passive). Post-audit + post-P0-fix, confirm `gridpulse:drift:{region}.rolling_mape_7d` is healthy for top regions on the Overview tab.
 
 **Queued behind those:**
 
-- **Phase 3 of `prod-readiness`** — [#148](https://github.com/kristenmartino/gridpulse/issues/148) strict prod fallback gating, [#149](https://github.com/kristenmartino/gridpulse/issues/149) Prophet interval honesty, [#155-ish] LDWP/drift sMAPE ([#142](https://github.com/kristenmartino/gridpulse/issues/142)).
 - **Phase 4 of `prod-readiness`** — engineering rigor ([#152](https://github.com/kristenmartino/gridpulse/issues/152) deps, [#153](https://github.com/kristenmartino/gridpulse/issues/153) mypy, [#154](https://github.com/kristenmartino/gridpulse/issues/154) typed Redis payloads, [#155](https://github.com/kristenmartino/gridpulse/issues/155) callbacks.py decomposition).
+- **[#164](https://github.com/kristenmartino/gridpulse/issues/164)** — drop archive-unstable weather vars (wind_80m/120m, soil_temp) + retrain, IF a feature-importance ablation shows they're deadweight. P0 #161 follow-up, low priority.
 - **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (`path-b`, timing-gated).
 - **PR-C2** (`PITCH.md` + expanded STAR stories) — parked unless interview cycle demands it.
+
+**P0 #161 fully resolved** (2026-05-29): mitigation (A, #162) + proper fix (C, #163, archive ERA5 stitch) both deployed + prod-verified. Historical weather coverage ~0 → 14/17 real vars; `/health?deep=1` healthy.
 
 **The production-readiness campaign keeps proving its own value:** PR-G3's deep `/health` (shipped 2026-05-29) caught a total forecast outage on its first production run — invisible to the `curl / → 200` check it replaced. Strongest STAR story in the set.
 
