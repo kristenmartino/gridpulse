@@ -1,7 +1,15 @@
 name: Deploy -> Production
 
+# Gated behind CI (PR-G2 / #146): this workflow only runs after the "CI"
+# workflow completes on main. The job-level ``if`` below requires CI to
+# have *succeeded* — ``workflow_run`` fires on completion regardless of
+# outcome, so the guard is what actually blocks a broken commit from
+# deploying. Previously this triggered on every push to main independent
+# of CI, so a red build could ship to production.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
 
 env:
@@ -10,6 +18,12 @@ env:
   SERVICE: gridpulse
   REPO: portfolio
   IMAGE: us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse
+  # Race-free deploy target: the exact commit CI validated, NOT main's
+  # current HEAD. Under ``workflow_run`` a newer commit may have landed
+  # on main between CI passing and this workflow starting; deploying
+  # ``github.sha`` (main HEAD) would ship un-validated code. Pin to the
+  # SHA the triggering CI run actually tested.
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
 
 concurrency:
   group: deploy-prod
@@ -19,6 +33,10 @@ jobs:
   deploy-production:
     name: Build & Deploy to Cloud Run (Production)
     runs-on: ubuntu-latest
+    # Only deploy when the triggering CI run SUCCEEDED. ``workflow_run``
+    # delivers failed + cancelled runs too; without this guard a red CI
+    # would still deploy.
+    if: github.event.workflow_run.conclusion == 'success'
     environment: production
     permissions:
       contents: read
@@ -26,6 +44,9 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Check out the exact commit CI validated (see DEPLOY_SHA note).
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -42,16 +63,16 @@ jobs:
       - name: Build and push Docker image
         run: |
           docker build \
-            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             -t ${{ env.IMAGE }}:prod-latest \
             .
-          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }}
           docker push ${{ env.IMAGE }}:prod-latest
 
       - name: Deploy to Cloud Run (Production)
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
-            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
@@ -73,7 +94,7 @@ jobs:
       - name: Deploy scoring job (Production)
         run: |
           gcloud run jobs deploy gridpulse-scoring-job \
-            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --vpc-connector wattcast-connector \
@@ -108,7 +129,7 @@ jobs:
         # where this one left off, don't waste a retry.
         run: |
           gcloud run jobs deploy gridpulse-training-job \
-            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --vpc-connector wattcast-connector \
@@ -132,7 +153,8 @@ jobs:
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "### Deployed to Production" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.DEPLOY_SHA }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**CI run:** [#${{ github.event.workflow_run.run_number }}](${{ github.event.workflow_run.html_url }})" >> $GITHUB_STEP_SUMMARY
 
       - name: Production health check
         run: |

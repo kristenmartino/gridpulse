@@ -1,7 +1,12 @@
 name: Deploy -> Dev
 
+# Gated behind CI (PR-G2 / #146): runs only after the "CI" workflow
+# completes on dev. The job-level ``if`` requires CI success — mirrors
+# the production gating so staging can't ship a red build either.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [dev]
 
 env:
@@ -10,6 +15,9 @@ env:
   SERVICE: gridpulse-dev
   REPO: portfolio
   IMAGE: us-east1-docker.pkg.dev/nextera-portfolio/portfolio/gridpulse-dev
+  # The exact commit CI validated — not dev's current HEAD. See the
+  # matching note in deploy-prod.yml.
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
 
 concurrency:
   group: deploy-dev
@@ -19,12 +27,15 @@ jobs:
   deploy-dev:
     name: Build & Deploy to Cloud Run (Dev)
     runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: read
       id-token: write
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -41,16 +52,16 @@ jobs:
       - name: Build and push Docker image
         run: |
           docker build \
-            -t ${{ env.IMAGE }}:${{ github.sha }} \
+            -t ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             -t ${{ env.IMAGE }}:dev-latest \
             .
-          docker push ${{ env.IMAGE }}:${{ github.sha }}
+          docker push ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }}
           docker push ${{ env.IMAGE }}:dev-latest
 
       - name: Deploy to Cloud Run (Dev)
         run: |
           gcloud run deploy ${{ env.SERVICE }} \
-            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
@@ -62,14 +73,14 @@ jobs:
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=staging,LOG_LEVEL=DEBUG,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379,REQUIRE_REDIS=true,PRECOMPUTE_ENABLED=false" \
-            --tag "sha-$(echo ${{ github.sha }} | cut -c1-7)"
+            --tag "sha-$(echo ${{ env.DEPLOY_SHA }} | cut -c1-7)"
 
       # Staging Cloud Run Jobs: same image, different entrypoint. Suffixed
       # -dev so they can coexist with the production jobs in the same region.
       - name: Deploy scoring job (Dev)
         run: |
           gcloud run jobs deploy gridpulse-scoring-job-dev \
-            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --vpc-connector wattcast-connector \
@@ -85,7 +96,7 @@ jobs:
       - name: Deploy training job (Dev)
         run: |
           gcloud run jobs deploy gridpulse-training-job-dev \
-            --image ${{ env.IMAGE }}:${{ github.sha }} \
+            --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
             --vpc-connector wattcast-connector \
@@ -107,7 +118,7 @@ jobs:
           echo "url=$URL" >> $GITHUB_OUTPUT
           echo "### Deployed to Dev" >> $GITHUB_STEP_SUMMARY
           echo "**URL:** $URL" >> $GITHUB_STEP_SUMMARY
-          echo "**Image:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Image:** \`${{ env.DEPLOY_SHA }}\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Smoke test dev
         run: |
