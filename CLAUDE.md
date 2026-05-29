@@ -34,6 +34,17 @@ For any non-trivial PR, before reporting "done":
 
 Otherwise report: "no explanatory-doc impact."
 
+### Verify every `Closes #N` / issue reference before writing it
+
+Before putting `Closes #N` (or `#N` for a tracked item) in a PR body,
+commit message, or STATUS.md, run `gh issue view <N> --json title,state`
+and confirm the title matches the work. A `Closes #N` written from
+memory can close the *wrong* issue and leave the right one open —
+silently corrupting the roadmap the project-state system exists to keep
+trustworthy. This bit us on 2026-05-29 (PR #165 said `Closes #150`
+when the alerting issue was #148; #150 was Prophet-interval honesty).
+One `gh issue view` per reference prevents it.
+
 ## Start here
 
 This repo already has multiple context layers. Read them in this order:

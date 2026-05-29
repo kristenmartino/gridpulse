@@ -1,4 +1,4 @@
-# Cloud Monitoring — alerting (PR-G10 / #150)
+# Cloud Monitoring — alerting (PR-G10 / #148)
 
 Policy-as-code for GridPulse's production alerting. These close the
 observability gap that let two 2026-05 incidents (the silent training
@@ -65,7 +65,7 @@ gcloud run jobs execute gridpulse-scoring-job --region=us-east1 \
 - **Cloud Scheduler error alert** — fiddlier (no clean error metric; alert
   on `cloudscheduler.googleapis.com/job/attempt_count` filtered to
   non-2xx `response_code`). Would catch a scheduler-side miss like the
-  2026-05-21 503 even when no execution is created. Tracked in #150.
+  2026-05-21 503 even when no execution is created. Tracked in #148.
 - **Deep-`/health` degraded alert** — an uptime check hitting
   `/health?deep=1` and alerting on `status != healthy` would have caught
   the 2026-05-29 forecast outage directly (it had healthy infra but no

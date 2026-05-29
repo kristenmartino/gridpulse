@@ -321,7 +321,7 @@ gcloud run jobs update gridpulse-training-job \
 | Backtest tab empty | `gridpulse:backtest:{exog_mode}:{region}:{horizon}` not populated — needs training tick (daily) or force-execute |
 | Model accuracy card SHOWS numbers but charts are empty | Expected: MAPE/RMSE/MAE/R² come from GCS `meta.json` (persisted at training time, independent of Redis). The card is reading from the durable source while the live data flows from Redis are still warming. Not a bug. |
 
-## Alerting + incident response (PR-G10 / #150)
+## Alerting + incident response (PR-G10 / #148)
 
 A Cloud Monitoring alert policy (`GridPulse — Cloud Run Job failed
 execution`, live since 2026-05-29) fires on a failed execution of either
