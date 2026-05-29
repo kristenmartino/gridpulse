@@ -129,11 +129,12 @@ class TestEnvironmentConfig:
             assert flag in FEATURE_FLAGS, f"Missing feature flag: {flag}"
 
     def test_feature_enabled_helper(self):
-        """feature_enabled() returns True for known flags, True for unknown."""
+        """feature_enabled() returns the flag's value for known flags,
+        and False for unknown flags (fail-closed, PR-G8 / #145)."""
         from config import FEATURE_FLAGS, feature_enabled
 
         assert feature_enabled("tab_forecast") == FEATURE_FLAGS["tab_forecast"]
-        assert feature_enabled("nonexistent_flag") is True  # unknown = enabled
+        assert feature_enabled("nonexistent_flag") is False  # unknown = disabled
 
 
 # ── H2: ML MODEL ACCURACY THRESHOLDS ──────────────────────────

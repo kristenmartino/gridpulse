@@ -742,5 +742,28 @@ FEATURE_FLAGS: dict[str, bool] = {
 
 
 def feature_enabled(flag: str) -> bool:
-    """Check if a feature flag is enabled. Unknown flags default to True."""
-    return FEATURE_FLAGS.get(flag, True)
+    """Check if a feature flag is enabled.
+
+    Unknown flags default to ``False`` (fail-closed). A typo in a flag
+    name should never silently *enable* behavior — it should disable it
+    and surface a warning so the typo is caught. Every flag actually
+    read in the codebase has an explicit entry in ``FEATURE_FLAGS``, so
+    this default only fires on a genuine mistake.
+
+    Changed 2026-05-29 (PR-G8 / #145) from fail-open to fail-closed per
+    the production-readiness review: ``FEATURE_FLAGS.get(flag, True)``
+    meant an unregistered flag silently turned a feature ON.
+    """
+    if flag not in FEATURE_FLAGS:
+        # Lazy import keeps config.py free of a module-level logging
+        # dependency (it's imported very early, by nearly everything).
+        import structlog
+
+        structlog.get_logger().warning(
+            "feature_flag_unknown",
+            flag=flag,
+            known_flags=sorted(FEATURE_FLAGS.keys()),
+            defaulting_to=False,
+        )
+        return False
+    return FEATURE_FLAGS[flag]
