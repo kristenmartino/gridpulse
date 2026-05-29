@@ -158,13 +158,45 @@ gcloud scheduler jobs update http gridpulse-scoring-hourly \
 Staging mirrors with `gridpulse-scoring-hourly-dev` /
 `gridpulse-training-daily-dev` pointing at the `-dev` jobs.
 
+## Deploy gating (CI → deploy)
+
+Deploys are **gated behind CI** (PR-G2 / #146). The `deploy-prod.yml` /
+`deploy-dev.yml` workflows do **not** run on push directly — they run on
+`workflow_run` after the **CI** workflow completes, and only when CI
+*succeeded*:
+
+```
+push to main ──▶ CI (security · lint · test · coverage · docker)
+                  │
+                  ├─ red  ──▶ deploy SKIPPED (if: conclusion == 'success')
+                  └─ green ─▶ Deploy → Production
+                              builds image tagged with the *exact* SHA
+                              CI validated (workflow_run.head_sha), not
+                              main's current HEAD — so a commit that lands
+                              after CI passed can't ride out un-validated.
+```
+
+Before PR-G2 the deploy fired on every push to `main` independent of CI,
+so a red build could ship. Now a failing test, lint error, or broken
+Docker build blocks the deploy.
+
+**One operational note:** under `workflow_run` the GitHub OIDC token's
+`event_name` claim is `workflow_run` rather than `push`. If the GCP
+Workload Identity Federation provider ever gets an attribute condition
+pinned on `event_name`, deploy auth would break — the standard
+`google-github-actions` WIF setup binds on `repository`, not event, so
+this is not currently a problem. If a deploy ever fails at the
+"Authenticate to Google Cloud" step right after this change, that's the
+first thing to check. Rollback is a one-line revert of the `on:` trigger.
+
 ## Bootstrap (first deploy)
 
 Models must exist in GCS before scoring can produce forecasts. First
 deploy:
 
-1. Push to the target branch → CI builds + deploys the web service and
-   both Cloud Run Jobs.
+1. Push to the target branch → CI runs; **on green**, the deploy
+   workflow builds + ships the web service and both Cloud Run Jobs.
+   (A red CI blocks the deploy — see "Deploy gating" above.)
 2. Run the training job once manually so GCS has models:
 
    ```bash
