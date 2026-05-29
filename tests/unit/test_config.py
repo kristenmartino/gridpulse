@@ -76,6 +76,86 @@ class TestTabs:
             assert tab_id in TAB_LABELS
 
 
+class TestFeatureFlags:
+    """``feature_enabled`` fail-closed semantics (PR-G8 / #145).
+
+    Unknown flags must default to ``False`` so a typo disables rather
+    than silently enables behavior. Every flag actually read in the
+    codebase has an explicit entry, so this default only fires on a
+    genuine mistake.
+    """
+
+    def test_known_flag_returns_its_value(self):
+        from config import FEATURE_FLAGS, feature_enabled
+
+        # An explicitly-True flag
+        assert feature_enabled("tab_forecast") is FEATURE_FLAGS["tab_forecast"] is True
+        # An explicitly-False flag (forecast_replay is disabled in the dict)
+        assert feature_enabled("forecast_replay") is FEATURE_FLAGS["forecast_replay"] is False
+
+    def test_unknown_flag_defaults_false(self):
+        from config import feature_enabled
+
+        assert feature_enabled("definitely_not_a_real_flag") is False
+        assert feature_enabled("") is False
+
+    def test_unknown_flag_logs_warning(self):
+        """An unknown flag emits a ``feature_flag_unknown`` warning so a
+        typo is caught rather than silently swallowed."""
+        from unittest.mock import MagicMock, patch
+
+        import config
+
+        mock_logger = MagicMock()
+        with patch("structlog.get_logger", return_value=mock_logger):
+            result = config.feature_enabled("typo_flag_xyz")
+
+        assert result is False
+        mock_logger.warning.assert_called_once()
+        # The warning carries the offending flag name for debuggability
+        _, kwargs = mock_logger.warning.call_args
+        assert kwargs.get("flag") == "typo_flag_xyz"
+
+    def test_known_flag_does_not_log(self):
+        """A registered flag must NOT emit the unknown-flag warning."""
+        from unittest.mock import MagicMock, patch
+
+        import config
+
+        mock_logger = MagicMock()
+        with patch("structlog.get_logger", return_value=mock_logger):
+            config.feature_enabled("tab_forecast")
+
+        mock_logger.warning.assert_not_called()
+
+    def test_every_flag_read_in_code_is_defined(self):
+        """Regression guard for the fail-closed flip: every flag string
+        passed to ``feature_enabled()`` anywhere in the production code
+        must exist in ``FEATURE_FLAGS``. If someone adds a
+        ``feature_enabled("new_flag")`` call without registering the
+        flag, the fail-closed default would silently disable it — this
+        test catches that at PR time instead.
+        """
+        from config import FEATURE_FLAGS
+
+        # Flags read in production code as of PR-G8. Keep in sync when a
+        # new feature_enabled() call site is added.
+        flags_read_in_code = {
+            "forecast_quality_gate",  # models/model_service.py
+            "cross_tab_links",  # components/insights.py
+            "inline_tooltips",  # components/_callbacks_forecast.py
+            "forecast_replay",  # components/_callbacks_forecast.py
+            "what_changed",  # components/callbacks.py
+            "smart_defaults",  # components/callbacks.py
+        }
+        missing = flags_read_in_code - set(FEATURE_FLAGS.keys())
+        assert not missing, (
+            f"These flags are read via feature_enabled() but not defined "
+            f"in FEATURE_FLAGS: {missing}. With fail-closed defaults, that "
+            f"silently disables them. Register them in config.FEATURE_FLAGS."
+        )
+
+
 class TestConstants:
     def test_cdd_baseline(self):
         assert CDD_HDD_BASELINE_F == 65.0
