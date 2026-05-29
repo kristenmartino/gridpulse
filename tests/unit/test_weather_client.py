@@ -305,9 +305,12 @@ class TestFetchWeather:
         pd.testing.assert_frame_equal(result, gcs_df)
 
     @patch("data.weather_client.get_cache")
-    def test_api_called_with_correct_params(self, mock_get_cache, mock_weather_response):
-        """API request uses correct coordinates, variables, and units."""
-        from data.weather_client import fetch_weather
+    def test_calls_both_endpoints_with_correct_params(self, mock_get_cache, mock_weather_response):
+        """fetch_weather now hits TWO endpoints (#161): /forecast for
+        recent+future, archive for deep history. Verify each is called
+        with the right params — coords/units shared, forecast uses a
+        short past_days + forecast_days, archive uses start/end dates."""
+        from data.weather_client import ARCHIVE_LAG_DAYS, fetch_weather
 
         mock_cache = MagicMock()
         mock_cache.get.return_value = None
@@ -323,16 +326,33 @@ class TestFetchWeather:
         ):
             fetch_weather("ERCOT", past_days=30, forecast_days=3)
 
-        _, kwargs = mock_get.call_args
-        params = kwargs["params"]
-        assert params["latitude"] == 31.0
-        assert params["longitude"] == -97.0
-        assert params["past_days"] == 30
-        assert params["forecast_days"] == 3
-        assert params["temperature_unit"] == "fahrenheit"
-        assert params["wind_speed_unit"] == "mph"
-        assert params["timezone"] == "UTC"
-        assert "temperature_2m" in params["hourly"]
+        # Two HTTP calls: forecast first, archive second.
+        assert mock_get.call_count == 2
+        forecast_call, archive_call = mock_get.call_args_list
+
+        # Forecast endpoint: short past_days (overlap only), the requested
+        # forecast horizon, shared coords/units.
+        f_url = forecast_call.args[0] if forecast_call.args else forecast_call.kwargs.get("url", "")
+        f_params = forecast_call.kwargs["params"]
+        assert "/forecast" in f_url
+        assert f_params["latitude"] == 31.0
+        assert f_params["longitude"] == -97.0
+        assert f_params["past_days"] == ARCHIVE_LAG_DAYS + 2
+        assert f_params["forecast_days"] == 3
+        assert f_params["temperature_unit"] == "fahrenheit"
+        assert f_params["wind_speed_unit"] == "mph"
+        assert "temperature_2m" in f_params["hourly"]
+
+        # Archive endpoint: start/end dates instead of past_days, same
+        # coords/units.
+        a_url = archive_call.args[0] if archive_call.args else archive_call.kwargs.get("url", "")
+        a_params = archive_call.kwargs["params"]
+        assert "archive" in a_url
+        assert "start_date" in a_params
+        assert "end_date" in a_params
+        assert "past_days" not in a_params
+        assert a_params["latitude"] == 31.0
+        assert a_params["temperature_unit"] == "fahrenheit"
 
     @patch("data.weather_client.get_cache")
     def test_http_500_triggers_fallback_chain(self, mock_get_cache):
@@ -468,3 +488,149 @@ class TestFetchHistoricalWeather:
 
         with pytest.raises(ValueError, match="Invalid start_date format"):
             fetch_historical_weather("ERCOT", None, "2024-01-31")
+
+
+# ---------------------------------------------------------------------------
+# #161 (C): archive + forecast stitch
+# ---------------------------------------------------------------------------
+
+
+class TestStitchWeather:
+    """Unit tests for _stitch_weather — boundary split + dedup."""
+
+    @staticmethod
+    def _df(start: str, n: int, temp: float) -> pd.DataFrame:
+        ts = pd.date_range(start, periods=n, freq="h", tz="UTC")
+        return pd.DataFrame({"timestamp": ts, "temperature_2m": [temp] * n})
+
+    def test_archive_before_boundary_forecast_after(self):
+        from data.weather_client import _stitch_weather
+
+        boundary = pd.Timestamp("2026-05-20 23:00", tz="UTC")
+        archive = self._df("2026-05-19 00:00", 48, temp=70.0)  # spans the boundary
+        forecast = self._df("2026-05-20 00:00", 72, temp=99.0)  # spans + after
+
+        out = _stitch_weather(archive, forecast, boundary)
+        before = out[out["timestamp"] <= boundary]
+        after = out[out["timestamp"] > boundary]
+        # Everything <= boundary came from archive (70), everything after
+        # from forecast (99).
+        assert (before["temperature_2m"] == 70.0).all()
+        assert (after["temperature_2m"] == 99.0).all()
+        # No duplicate timestamps across the seam.
+        assert out["timestamp"].is_unique
+        assert out["timestamp"].is_monotonic_increasing
+
+    def test_archive_none_returns_forecast_after_boundary(self):
+        from data.weather_client import _stitch_weather
+
+        boundary = pd.Timestamp("2026-05-20 23:00", tz="UTC")
+        forecast = self._df("2026-05-21 00:00", 24, temp=88.0)
+        out = _stitch_weather(None, forecast, boundary)
+        assert len(out) == 24
+        assert (out["temperature_2m"] == 88.0).all()
+
+    def test_empty_inputs_return_empty_frame(self):
+        from data.weather_client import _stitch_weather
+
+        out = _stitch_weather(None, pd.DataFrame(), pd.Timestamp("2026-05-20", tz="UTC"))
+        assert out.empty
+        assert "timestamp" in out.columns
+
+
+class TestFetchWeatherStitchOrchestration:
+    """fetch_weather's archive-enrichment orchestration (#161)."""
+
+    @patch("data.weather_client.get_cache")
+    def test_archive_failure_degrades_to_forecast_only(self, mock_get_cache):
+        """If the archive endpoint fails, keep the forecast result rather
+        than dropping to the stale/GCS fallback — forecast is the data the
+        model actually consumes."""
+        from data.weather_client import fetch_weather
+
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_get_cache.return_value = mock_cache
+
+        fc = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-05-25", periods=10, freq="h", tz="UTC"),
+                "temperature_2m": [80.0] * 10,
+            }
+        )
+
+        with (
+            patch("data.weather_client._fetch_forecast_endpoint", return_value=fc),
+            patch(
+                "data.weather_client._fetch_archive_endpoint",
+                side_effect=requests.ConnectionError("archive down"),
+            ),
+            patch("data.gcs_store.write_parquet"),
+        ):
+            result = fetch_weather("ERCOT", use_cache=False)
+
+        # Forecast-only result, no exception, cached normally.
+        assert not result.empty
+        assert len(result) == 10
+        mock_cache.set.assert_called_once()
+
+    @patch("data.weather_client.get_cache")
+    def test_combines_archive_history_with_forecast(self, mock_get_cache):
+        """Happy path: deep archive history + recent/future forecast are
+        stitched into one frame covering both."""
+        from data.weather_client import fetch_weather
+
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_get_cache.return_value = mock_cache
+
+        # Archive: 60 days ago up to ~now-5d. Forecast: ~now-7d into future.
+        archive = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-03-01", periods=500, freq="h", tz="UTC"),
+                "temperature_2m": [60.0] * 500,
+            }
+        )
+        forecast = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-05-29", periods=200, freq="h", tz="UTC"),
+                "temperature_2m": [95.0] * 200,
+            }
+        )
+
+        with (
+            patch("data.weather_client._fetch_forecast_endpoint", return_value=forecast),
+            patch("data.weather_client._fetch_archive_endpoint", return_value=archive),
+            patch("data.gcs_store.write_parquet"),
+        ):
+            result = fetch_weather("ERCOT", use_cache=False)
+
+        # Result should contain BOTH the deep-history archive rows and the
+        # recent/future forecast rows — far more than either alone could
+        # provide under the degraded single-endpoint path.
+        assert len(result) > 500
+        assert result["timestamp"].is_unique
+        # Has both temperature regimes (archive 60, forecast 95).
+        temps = set(result["temperature_2m"].unique())
+        assert 60.0 in temps and 95.0 in temps
+
+    @patch("data.weather_client.get_cache")
+    def test_forecast_failure_uses_fallback_chain(self, mock_get_cache):
+        """If the FORECAST endpoint fails, the stale-cache fallback runs
+        (archive is never reached) — preserves the original contract."""
+        from data.weather_client import fetch_weather
+
+        stale = pd.DataFrame({"timestamp": [1], "temperature_2m": [50.0]})
+        mock_cache = MagicMock()
+        mock_cache.get.side_effect = [None, stale]  # fresh miss, stale hit
+        mock_get_cache.return_value = mock_cache
+
+        with patch(
+            "data.weather_client._fetch_forecast_endpoint",
+            side_effect=requests.Timeout("forecast down"),
+        ):
+            result = fetch_weather("ERCOT")
+
+        pd.testing.assert_frame_equal(result, stale)
+        assert mock_cache.get.call_count == 2
+        assert mock_cache.get.call_args_list[1][1] == {"allow_stale": True}
