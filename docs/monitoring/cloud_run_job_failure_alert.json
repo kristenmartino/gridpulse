@@ -1,0 +1,29 @@
+{
+  "displayName": "GridPulse — Cloud Run Job failed execution",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "A GridPulse Cloud Run Job recorded a **failed execution**.\n\nThis fires on `run.googleapis.com/job/completed_execution_count{result=\"failed\"}` > 0 for `gridpulse-training-job` or `gridpulse-scoring-job`, summed hourly per job.\n\n**Runbook:** see `docs/SCHEDULED_JOBS.md` → \"Alerting + incident response\". TL;DR:\n1. `bash scripts/audit/check_overnight_training.sh` for training; check `gcloud run jobs executions list` for scoring.\n2. Tail the failed execution's logs for the per-region cause.\n3. Training miss → trigger a make-up run (`gcloud run jobs execute ...`). Scoring miss → next hourly tick self-heals; force one if urgent.\n4. If a real data/code fault, file an issue and roll back the image if needed."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "training or scoring job failed execution (hourly)",
+      "conditionThreshold": {
+        "filter": "resource.type = \"cloud_run_job\" AND metric.type = \"run.googleapis.com/job/completed_execution_count\" AND metric.labels.result = \"failed\" AND (resource.labels.job_name = \"gridpulse-training-job\" OR resource.labels.job_name = \"gridpulse-scoring-job\")",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 0,
+        "duration": "0s",
+        "trigger": { "count": 1 },
+        "aggregations": [
+          {
+            "alignmentPeriod": "3600s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "groupByFields": ["resource.labels.job_name"]
+          }
+        ]
+      }
+    }
+  ],
+  "alertStrategy": { "autoClose": "604800s" }
+}

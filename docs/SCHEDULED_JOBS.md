@@ -321,13 +321,53 @@ gcloud run jobs update gridpulse-training-job \
 | Backtest tab empty | `gridpulse:backtest:{exog_mode}:{region}:{horizon}` not populated — needs training tick (daily) or force-execute |
 | Model accuracy card SHOWS numbers but charts are empty | Expected: MAPE/RMSE/MAE/R² come from GCS `meta.json` (persisted at training time, independent of Redis). The card is reading from the durable source while the live data flows from Redis are still warming. Not a bug. |
 
+## Alerting + incident response (PR-G10 / #150)
+
+A Cloud Monitoring alert policy (`GridPulse — Cloud Run Job failed
+execution`, live since 2026-05-29) fires on a failed execution of either
+job and emails `kristen.e.martino@gmail.com`. Policy-as-code +
+re-apply commands live in [`docs/monitoring/`](monitoring/README.md).
+
+This closes the gap behind two 2026-05 incidents that were found by
+manual check rather than alert: the silent training-scheduler miss
+(#141) and the all-region forecast outage (#161).
+
+**One-time:** the email channel needs a verification click (sent on
+creation) — confirm `gcloud beta monitoring channels describe <id>
+--format='value(verificationStatus)'` reads `VERIFIED`.
+
+### When the job-failure alert fires
+
+1. **Identify**: `bash scripts/audit/check_overnight_training.sh`
+   (training) or `gcloud run jobs executions list --job=gridpulse-scoring-job
+   --region=us-east1` (scoring) — find the failed execution.
+2. **Diagnose**: tail the failed execution's logs for the per-region
+   cause (`scoring_job_region_crashed`, `job_insufficient_feature_rows`,
+   `all_models_failed`, etc.).
+3. **Mitigate**:
+   - Training miss → trigger a make-up run:
+     `gcloud run jobs execute gridpulse-training-job --region=us-east1`.
+   - Scoring miss → the next hourly tick self-heals; force one now if
+     urgent: `gcloud run jobs execute gridpulse-scoring-job --region=us-east1`.
+   - Systemic (all regions) → check `/health?deep=1`, suspect a
+     data-source or feature-pipeline fault (cf. #161), roll back the
+     image via `latest.json` if code-caused.
+4. **Confirm recovery**: `curl "$PROD_URL/health?deep=1"` →
+   `status: healthy`, `forecast_sample: ok`.
+
+Known follow-ups (see `docs/monitoring/README.md`): a Cloud Scheduler
+error alert (catches a scheduler-side miss even when no execution is
+created) and a deep-`/health` degraded uptime alert (would catch a
+#161-style outage where infra is healthy but no forecasts exist).
+
 ## Operations
 
 - **Redis staleness**: `gridpulse:meta:last_scored.updated_at` should be
-  within the last ~90 minutes. Consider a Cloud Monitoring alert on
-  absence.
+  within the last ~90 minutes. Surfaced by `/health` `last_scored` check;
+  a dedicated absence alert is a documented follow-up (above).
 - **Job failure**: Cloud Run Jobs exit non-zero only when every region
-  fails. Watch the per-execution logs for per-region
+  fails — but the alert policy (above) fires on ANY failed execution.
+  Watch per-execution logs for per-region
   `scoring_job_region_crashed` / `training_job_region_crashed` entries.
 - **Model promotion**: the training job updates
   `gs://.../cache/models/latest.json` last — this is the atomic pointer.
