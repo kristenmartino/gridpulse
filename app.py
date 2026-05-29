@@ -176,18 +176,21 @@ if PRECOMPUTE_ENABLED:
 # ── Health check for Cloud Run ─────────────────────────────────
 @server.route("/health")
 def health():
-    from components.callbacks import _BACKTEST_CACHE, _MODEL_CACHE, _PREDICTION_CACHE
+    """Health endpoint (PR-G3 / #147).
 
-    return jsonify(
-        {
-            "status": "healthy",
-            "precompute": {
-                "models_cached": len(_MODEL_CACHE),
-                "predictions_cached": len(_PREDICTION_CACHE),
-                "backtests_cached": len(_BACKTEST_CACHE),
-            },
-        }
-    ), 200
+    Shallow by default (process + caches + Redis ping + last-scored
+    freshness); pass ``?deep=1`` to additionally validate a real
+    forecast payload. Always HTTP 200 — health is carried in the
+    ``status`` body field so a degraded-but-serving instance isn't
+    killed by the load balancer. See ``health.build_health_report``.
+    """
+    from flask import request as flask_request
+
+    from health import build_health_report
+
+    deep = flask_request.args.get("deep", "").lower() in ("1", "true", "yes")
+    body, code = build_health_report(deep=deep)
+    return jsonify(body), code
 
 
 # ── Performance metrics endpoint (internal only) ───────────────
