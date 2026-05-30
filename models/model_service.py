@@ -56,7 +56,21 @@ def get_forecasts(
     if model_data is not None:
         return _predict_from_trained(model_data, demand_df, models_shown)
 
-    # Fall back to deterministic simulated forecasts
+    # No trained models on local disk. In production/staging
+    # (``REQUIRE_REDIS``) we must NOT fabricate plausible-looking
+    # simulated forecasts — the web tier reads real forecasts from Redis,
+    # and any inline-compute path reaching here means the real data is
+    # genuinely unavailable. Return an explicit ``unavailable`` marker
+    # (empty predictions) so the caller renders a warming/degraded state
+    # instead of fake numbers. Simulated forecasts stay available only in
+    # development / offline demo (``REQUIRE_REDIS=False``). (#149)
+    from config import REQUIRE_REDIS
+
+    if REQUIRE_REDIS:
+        log.info("get_forecasts_unavailable_prod", region=region)
+        return {"source": "unavailable", "metrics": {}, "weights": {}}
+
+    # Dev / demo: deterministic simulated forecasts.
     return _simulate_forecasts(region, actual, models_shown)
 
 
@@ -192,6 +206,25 @@ def get_model_metrics(region: str) -> dict[str, dict[str, float]]:
 
     if ensemble_from_xgb_meta:
         out["ensemble"] = ensemble_from_xgb_meta
+
+    # ── Production strict-fallback gate (#149) ───────────────────────
+    # Layers 0-3 above are the only REAL metric sources: Redis
+    # ``model_metrics`` (layer 0) and the per-model meta holdout
+    # (layers 1-3). Layers 4-6 below are either ``_simulate_forecasts``-
+    # derived (layer 4 diagnostics in production), dev-only local pickle
+    # (layer 5), or a hardcoded baseline (layer 6). In production /
+    # staging (``REQUIRE_REDIS``) a viewer must see real holdout metrics
+    # or NOTHING — never a plausible-looking simulated/hardcoded value
+    # (the failure mode behind the 2026-05-20 "MAPE 1.6%" model-card
+    # bug). Returning ``{}`` here lets the model card render a
+    # warming/unavailable state; every caller already does
+    # ``get_model_metrics(region) or {}``.
+    from config import REQUIRE_REDIS
+
+    if REQUIRE_REDIS:
+        if not out:
+            log.info("get_model_metrics_unavailable_prod", region=region)
+        return out
 
     # 4. Redis diagnostics — supplements ONLY fields the meta path
     # didn't provide. In production this is currently

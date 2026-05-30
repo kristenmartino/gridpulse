@@ -168,3 +168,86 @@ class TestIsTrained:
     def test_returns_false_when_no_models(self):
         # No models saved on disk in test env
         assert is_trained("FPL") is False
+
+
+class TestStrictProdFallbackGating:
+    """#149 — in production (``REQUIRE_REDIS``), model_service must never
+    return plausible-looking simulated / hardcoded values. It returns
+    real data or an explicit unavailable signal; the simulated/hardcoded
+    fallbacks stay available only in dev (``REQUIRE_REDIS=False``).
+    """
+
+    def test_get_forecasts_prod_no_models_is_unavailable(self, sample_demand):
+        """Prod + no trained models → ``source: unavailable``, NO fabricated
+        prediction series (not ``simulated``)."""
+        from unittest.mock import patch
+
+        with patch("config.REQUIRE_REDIS", True):
+            result = get_forecasts("FPL", sample_demand)
+
+        assert result["source"] == "unavailable"
+        assert result["metrics"] == {}
+        # No fabricated per-model or ensemble series.
+        for k in ("prophet", "arima", "xgboost", "ensemble", "upper_80", "lower_80"):
+            assert k not in result
+
+    def test_get_forecasts_dev_no_models_is_simulated(self, sample_demand):
+        """Dev (REQUIRE_REDIS=False) keeps the deterministic simulated path."""
+        from unittest.mock import patch
+
+        with patch("config.REQUIRE_REDIS", False):
+            result = get_forecasts("FPL", sample_demand)
+
+        assert result["source"] == "simulated"
+        assert "ensemble" in result
+
+    def test_get_model_metrics_prod_cold_returns_empty(self):
+        """Prod + no real source (Redis layer-0 empty, no meta) → ``{}``,
+        NOT the hardcoded simulated baseline (the 2026-05-20 bug)."""
+        from unittest.mock import patch
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("data.redis_client.redis_get", return_value=None),
+            patch("models.persistence.get_model_metadata", return_value=None),
+        ):
+            metrics = get_model_metrics("FPL")
+
+        assert metrics == {}
+
+    def test_get_model_metrics_dev_cold_returns_baseline(self):
+        """Dev + no real source → hardcoded baseline preserved (offline demo)."""
+        from unittest.mock import patch
+
+        with (
+            patch("config.REQUIRE_REDIS", False),
+            patch("data.redis_client.redis_get", return_value=None),
+            patch("models.persistence.get_model_metadata", return_value=None),
+        ):
+            metrics = get_model_metrics("FPL")
+
+        # Layer 6 hardcoded baseline.
+        assert metrics["xgboost"]["mape"] == 2.1
+        assert metrics["ensemble"]["mape"] == 1.9
+
+    def test_get_model_metrics_prod_real_layer0_returns_real(self):
+        """Prod + real Redis ``model_metrics`` (layer 0) → returns the real
+        values, gate does not suppress them."""
+        from unittest.mock import patch
+
+        real_payload = {
+            "model_metrics": {
+                "xgboost": {"mape": 4.2, "rmse": 900.0, "mae": 600.0, "r2": 0.95},
+                "ensemble": {"mape": 3.8, "rmse": 820.0, "mae": 540.0, "r2": 0.96},
+            }
+        }
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("data.redis_client.redis_get", return_value=real_payload),
+        ):
+            metrics = get_model_metrics("FPL")
+
+        assert metrics["xgboost"]["mape"] == 4.2
+        assert metrics["ensemble"]["mape"] == 3.8
+        # Not the hardcoded baseline.
+        assert metrics["xgboost"]["mape"] != 2.1
