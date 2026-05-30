@@ -136,7 +136,16 @@ def predict_prophet(
         periods: Number of hourly periods to forecast (default: 168 = 7 days).
 
     Returns:
-        Dict with keys: 'forecast', 'lower_80', 'upper_80', 'lower_95', 'upper_95'
+        Dict with keys: 'forecast', 'lower_80', 'upper_80', 'timestamps'.
+
+        ``lower_80``/``upper_80`` are Prophet's genuine 80% posterior
+        prediction interval (``yhat_lower``/``yhat_upper`` at the model's
+        default ``interval_width=0.80``). We deliberately do **not** emit a
+        95% band: the prior ``yhat_lower*0.95`` / ``yhat_upper*1.05`` was an
+        uncalibrated visual heuristic, not a real 95% interval, so it was
+        removed (#150). Displayed forecast intervals use empirical residual
+        quantiles via ``models.evaluation`` (see the Overview/Forecast tabs);
+        a calibrated 95% would belong there, not as a scaled 80%.
     """
     future = model.make_future_dataframe(periods=periods, freq="h")
 
@@ -190,9 +199,9 @@ def predict_prophet(
 
     return {
         "forecast": fc["yhat"].values,
+        # Prophet's real 80% posterior interval (interval_width defaults to
+        # 0.80). No fabricated 95% band — see the function docstring (#150).
         "lower_80": fc["yhat_lower"].values,
         "upper_80": fc["yhat_upper"].values,
-        "lower_95": fc["yhat_lower"].values * 0.95,  # Approximate 95% from 80%
-        "upper_95": fc["yhat_upper"].values * 1.05,
         "timestamps": pd.to_datetime(fc["ds"]).values,
     }

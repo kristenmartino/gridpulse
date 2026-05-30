@@ -184,14 +184,19 @@ class TestPredictProphet:
 
         result = predict_prophet(instance, feature_df, periods=168)
 
-        for key in ("forecast", "lower_80", "upper_80", "lower_95", "upper_95", "timestamps"):
+        for key in ("forecast", "lower_80", "upper_80", "timestamps"):
             assert key in result
         assert len(result["forecast"]) == 168
         assert len(result["timestamps"]) == 168
 
-    def test_predict_95_intervals_widen_80(self, feature_df, mock_prophet_class):
-        """The 95% interval is approximated as 80% × 0.95 / × 1.05.
-        Sanity-check that 95% bounds are at least as wide as 80%."""
+    def test_predict_emits_no_fabricated_95_interval(self, feature_df, mock_prophet_class):
+        """#150: predict_prophet must NOT emit a fabricated 95% band.
+
+        The old output scaled the real 80% bounds (``yhat_lower*0.95`` /
+        ``yhat_upper*1.05``) and labelled it 95% — an uncalibrated heuristic.
+        The honest output keeps only Prophet's genuine 80% posterior, which
+        must bracket the point forecast.
+        """
         from models.prophet_model import predict_prophet
 
         _, instance = mock_prophet_class
@@ -210,5 +215,9 @@ class TestPredictProphet:
 
         result = predict_prophet(instance, feature_df, periods=24)
 
-        assert (result["upper_95"] >= result["upper_80"]).all()
-        assert (result["lower_95"] <= result["lower_80"]).all()
+        # No fabricated 95% claim survives anywhere in the output.
+        assert "lower_95" not in result
+        assert "upper_95" not in result
+        # The honest 80% posterior brackets the point forecast.
+        assert (result["upper_80"] >= result["forecast"]).all()
+        assert (result["lower_80"] <= result["forecast"]).all()
