@@ -493,8 +493,10 @@ class TestProphetModel:
         assert "forecast" in result
         assert "lower_80" in result
         assert "upper_80" in result
-        assert "lower_95" in result
-        assert "upper_95" in result
+        # #150: the fabricated 95% band was removed — only the honest 80%
+        # posterior remains.
+        assert "lower_95" not in result
+        assert "upper_95" not in result
         assert "timestamps" in result
         assert len(result["forecast"]) == periods
 
@@ -523,7 +525,7 @@ class TestProphetModel:
         df = _make_small_feature_df(100)
         result = predict_prophet(mock_model, df, periods=periods)
 
-        for key in ["forecast", "lower_80", "upper_80", "lower_95", "upper_95"]:
+        for key in ["forecast", "lower_80", "upper_80"]:
             assert len(result[key]) == periods, f"{key} has wrong length"
 
 
