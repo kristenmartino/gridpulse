@@ -51,15 +51,26 @@ def _drift_payload(
     n_records: int = 168,
     rolling_mape_7d: float | None = 4.2,
     rolling_mape_30d: float | None = 4.5,
+    rolling_smape_7d: float | None = None,
+    rolling_smape_30d: float | None = None,
 ) -> dict:
-    """Build a realistic gridpulse:drift:{region} payload for tests."""
+    """Build a realistic gridpulse:drift:{region} payload for tests.
+
+    sMAPE fields are added only when supplied, so callers that pass only the
+    MAPE fields exercise the resolver's pre-PR-G9 fallback path.
+    """
     payload: dict = {"region": "PJM", "models": {}}
-    payload["models"]["ensemble"] = {
+    ens: dict = {
         "n_records": n_records,
         "rolling_mape_7d": rolling_mape_7d,
         "rolling_mape_30d": rolling_mape_30d,
         "records": [],
     }
+    if rolling_smape_7d is not None:
+        ens["rolling_smape_7d"] = rolling_smape_7d
+    if rolling_smape_30d is not None:
+        ens["rolling_smape_30d"] = rolling_smape_30d
+    payload["models"]["ensemble"] = ens
     return payload
 
 
@@ -153,6 +164,36 @@ class TestFreshnessSubtext:
 class TestResolveForecastMape:
     @patch("components._callbacks_overview.redis_get")
     def test_returns_live_7d_when_window_sufficient(self, mock_redis_get):
+        from components._callbacks_overview import _resolve_forecast_mape
+
+        mock_redis_get.return_value = _drift_payload(
+            n_records=168, rolling_mape_7d=4.2, rolling_mape_30d=4.5
+        )
+        mape, source = _resolve_forecast_mape("PJM")
+        assert mape == pytest.approx(4.2)
+        assert source == "live 7d"
+
+    @patch("components._callbacks_overview.redis_get")
+    def test_prefers_smape_over_mape_when_present(self, mock_redis_get):
+        """PR-G9: when the payload carries sMAPE, it is the headline metric —
+        the bounded number wins over raw MAPE so a near-zero-actual region
+        (LDWP) shows a plausible drift figure rather than ~200%."""
+        from components._callbacks_overview import _resolve_forecast_mape
+
+        mock_redis_get.return_value = _drift_payload(
+            n_records=168,
+            rolling_mape_7d=190.0,  # raw MAPE still inflated by artifacts
+            rolling_mape_30d=185.0,
+            rolling_smape_7d=18.0,  # bounded sMAPE — the honest headline
+            rolling_smape_30d=19.0,
+        )
+        mape, source = _resolve_forecast_mape("PJM")
+        assert mape == pytest.approx(18.0)
+        assert source == "live 7d"
+
+    @patch("components._callbacks_overview.redis_get")
+    def test_falls_back_to_mape_when_smape_absent(self, mock_redis_get):
+        """Pre-G9 payloads (no sMAPE field) still resolve via rolling MAPE."""
         from components._callbacks_overview import _resolve_forecast_mape
 
         mock_redis_get.return_value = _drift_payload(

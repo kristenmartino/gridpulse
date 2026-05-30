@@ -146,11 +146,13 @@ def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
 
     Returns ``(mape_value, source_label)`` where source_label is one of:
 
-    - ``"live 7d"`` — rolling 7-day MAPE from live forecast-vs-actual
+    - ``"live 7d"`` — rolling 7-day live drift error from forecast-vs-actual
       observations stored in ``gridpulse:drift:{region}`` (the headline
-      number; reflects how the model is actually performing right now)
-    - ``"live 30d"`` — rolling 30-day MAPE (fallback when 7d window has
-      <24 records, e.g. first week post-deploy)
+      number; reflects how the model is actually performing right now).
+      Prefers sMAPE (bounded, robust to near-zero-actual artifacts — #142/
+      PR-G9), falling back to rolling MAPE for pre-G9 payloads.
+    - ``"live 30d"`` — rolling 30-day live drift error (fallback when 7d
+      window has <24 records, e.g. first week post-deploy)
     - ``"holdout"`` — training-time holdout MAPE from each pickle's
       ``meta.extra["holdout_metrics"]`` (clearly labeled — this is what
       the model claimed at training time, not how it's doing live)
@@ -163,22 +165,29 @@ def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
     technically truthful but misleading because users read the MAPE
     figure as "expected accuracy of this specific forecast."
     """
-    # Layer 1: live 7d rolling MAPE
+    # Layer 1: live rolling drift error. Prefer sMAPE (bounded; a near-zero
+    # actual can't pin the headline at ~200% the way raw MAPE did for LDWP —
+    # #142/PR-G9), falling back to the now-filtered rolling MAPE for payloads
+    # written before G9 (which carry no sMAPE field).
     try:
         drift_payload = redis_get(redis_key(f"drift:{region}"))
         if isinstance(drift_payload, dict):
             models = drift_payload.get("models") or {}
             ens = models.get("ensemble") or {}
-            # Require a meaningful window — 24 hourly records minimum
-            # before the 7d MAPE is statistically defensible. Below that,
-            # the figure swings wildly on each new tick.
+            # Require a meaningful window — 24 hourly records minimum before
+            # the 7d figure is statistically defensible. Below that, it swings
+            # wildly on each new tick.
             n_records = int(ens.get("n_records", 0) or 0)
-            mape_7d = ens.get("rolling_mape_7d")
-            mape_30d = ens.get("rolling_mape_30d")
-            if mape_7d is not None and n_records >= 24 and np.isfinite(float(mape_7d)):
-                return float(mape_7d), "live 7d"
-            if mape_30d is not None and n_records >= 24 and np.isfinite(float(mape_30d)):
-                return float(mape_30d), "live 30d"
+            live_7d = ens.get("rolling_smape_7d")
+            if live_7d is None:
+                live_7d = ens.get("rolling_mape_7d")
+            live_30d = ens.get("rolling_smape_30d")
+            if live_30d is None:
+                live_30d = ens.get("rolling_mape_30d")
+            if live_7d is not None and n_records >= 24 and np.isfinite(float(live_7d)):
+                return float(live_7d), "live 7d"
+            if live_30d is not None and n_records >= 24 and np.isfinite(float(live_30d)):
+                return float(live_30d), "live 30d"
     except Exception as exc:  # pragma: no cover — defensive
         log.debug("forecast_mape_drift_read_failed", region=region, error=str(exc))
 
