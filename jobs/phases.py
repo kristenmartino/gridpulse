@@ -1082,13 +1082,15 @@ def write_drift_metrics(
         # Compact summary for the scoring-job log line.
         models_with_records = sorted(payload["models"].keys())
         sample_model = models_with_records[0] if models_with_records else None
-        rolling_7d = payload["models"][sample_model]["rolling_mape_7d"] if sample_model else None
+        sample = payload["models"][sample_model] if sample_model else {}
         log.info(
             "drift_updated",
             region=region,
             models=models_with_records,
             new_record_ts=next(iter(new_records.values())).timestamp,
-            sample_rolling_7d=rolling_7d,
+            sample_rolling_smape_7d=sample.get("rolling_smape_7d"),
+            sample_rolling_mape_7d=sample.get("rolling_mape_7d"),
+            sample_low_actual_excluded_7d=sample.get("n_low_actual_excluded_7d"),
         )
         return PhaseResult(
             region=region,
