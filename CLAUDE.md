@@ -45,6 +45,22 @@ trustworthy. This bit us on 2026-05-29 (PR #165 said `Closes #150`
 when the alerting issue was #148; #150 was Prophet-interval honesty).
 One `gh issue view` per reference prevents it.
 
+**The backtick/quote trap (this bit us twice on 2026-05-29):** GitHub
+scans *commit messages and PR bodies* for close-keywords and **ignores
+backticks, code spans, and surrounding prose** — it does not scan file
+contents. So even writing `` `Closes #NNN` `` inside a commit message to
+*quote* or *describe* a bad reference still closes `#NNN`. The very
+commit that documented the PR #165 mistake re-closed the issue it had
+just reopened, because its message quoted the offending close-keyword.
+Two rules follow:
+1. Flip issue state with `gh issue reopen|close <N>` — a pure API action
+   no later commit can undo. Never rely on keyword edits to reopen.
+2. When a commit/PR must *mention* a close-keyword it does **not** intend
+   to fire, break the pattern: write the keyword and number
+   non-adjacently (e.g. "the close-keyword for 150") or use a placeholder
+   like `#NNN`. Never put a live close-keyword next to an issue you don't
+   mean to close.
+
 ## Start here
 
 This repo already has multiple context layers. Read them in this order:
