@@ -144,13 +144,21 @@ silently fall back to a simulated/baseline path in production.
 
 - `models.model_service.get_forecasts(region, df)` — falls back to
   `_simulate_forecasts` (noisy actuals at forward timestamps) when
-  no local pickle is present
+  no local pickle is present. **Strict-gated since #149 (2026-05-29):**
+  when `REQUIRE_REDIS` is set (staging/prod) and no trained models are
+  on disk, returns `{"source": "unavailable", ...}` with NO fabricated
+  series instead of simulated. Simulated output is dev/demo-only.
 - `models.model_service.is_trained(region)` — pre-2026-05-20 checked
   local disk; now Redis-first with local-pickle as dev fallback
 - `models.model_service.get_model_metrics(region)` — 6-layer fallback
-  chain; layers 1–3 and 5 all require meta.json/pickle on local disk,
-  so in production always falls through to **layer 6 (simulated
-  baseline)**. See [#131](https://github.com/kristenmartino/gridpulse/issues/131)
+  chain; layers 1–3 and 5 require meta.json/pickle on local disk.
+  **Strict-gated since #149:** when `REQUIRE_REDIS` is set, only the
+  real sources (layer 0 Redis `model_metrics` + layers 1–3 meta
+  holdout) are returned; the simulated/hardcoded fallbacks (layer 4
+  diagnostics, layer 5 pickle, layer 6 baseline) are skipped, so a
+  cold web tier returns `{}` (warming state) rather than the
+  `MAPE 1.6%`-style **baseline** that surfaced the
+  [#131](https://github.com/kristenmartino/gridpulse/issues/131) bug.
 
 **The rule for component callbacks:**
 
