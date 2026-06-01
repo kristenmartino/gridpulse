@@ -347,8 +347,20 @@ creation) — confirm `gcloud beta monitoring channels describe <id>
 3. **Mitigate**:
    - Training miss → trigger a make-up run:
      `gcloud run jobs execute gridpulse-training-job --region=us-east1`.
-   - Scoring miss → the next hourly tick self-heals; force one now if
-     urgent: `gcloud run jobs execute gridpulse-scoring-job --region=us-east1`.
+   - Scoring miss (single, transient) → the next hourly tick self-heals;
+     force one now if urgent: `gcloud run jobs execute gridpulse-scoring-job
+     --region=us-east1`.
+   - **Repeated timeouts** (≥2 consecutive ticks; logs show "Terminating
+     task because it has reached the maximum timeout" and each attempt
+     reaches only a *partial* BA set) → the run has outgrown its
+     `--task-timeout`, not a data fault. Bump it live (`gcloud run jobs
+     update gridpulse-scoring-job --region=us-east1 --task-timeout=<n>`),
+     force a make-up run, then make the bump durable in
+     `deploy-prod.yml` + `deploy-dev.yml` so CI doesn't revert it. The
+     healthy budget is the last good `scoring_job_complete elapsed_s=…`
+     log line — keep ≥2× headroom, stay under the hourly cadence. First
+     hit 2026-06-01 (854s crept over the 900s cap → 1800s; [#171](https://github.com/kristenmartino/gridpulse/issues/171));
+     the training job hit the same wall 2026-05-03.
    - Systemic (all regions) → check `/health?deep=1`, suspect a
      data-source or feature-pipeline fault (cf. #161), roll back the
      image via `latest.json` if code-caused.
