@@ -46,6 +46,7 @@ def _reset_eia_circuit_breaker():
     yield
     _circuit_breaker.reset()
 
+
 # ---------------------------------------------------------------------------
 # _get_eia_code
 # ---------------------------------------------------------------------------
@@ -934,9 +935,7 @@ class TestRequestWithBackoffCircuitBreaker:
         ok.status_code = 200
         ok.json.return_value = {"response": {"data": []}}
         # Enough failures to trip (full retry budget each), then OK for probes.
-        mock_get.side_effect = [fail] * (EIA_CIRCUIT_TRIP_THRESHOLD * MAX_RETRIES) + [
-            ok
-        ] * 3
+        mock_get.side_effect = [fail] * (EIA_CIRCUIT_TRIP_THRESHOLD * MAX_RETRIES) + [ok] * 3
 
         for _ in range(EIA_CIRCUIT_TRIP_THRESHOLD):
             _request_with_backoff("https://api.eia.gov/v2/test", {})
@@ -963,9 +962,7 @@ class TestGenerationGcsFallback:
             {"period": "2024-01-01T00", "fueltype": "NG", "value": 15000},
         ]
 
-        df = fetch_generation_by_fuel(
-            "ERCOT", start="2024-01-01T00", end="2024-01-01T23"
-        )
+        df = fetch_generation_by_fuel("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
 
         assert not df.empty
         mock_write.assert_called_once()
@@ -990,9 +987,7 @@ class TestGenerationGcsFallback:
         )
         mock_read.return_value = gcs_df
 
-        df = fetch_generation_by_fuel(
-            "ERCOT", start="2024-01-01T00", end="2024-01-01T23"
-        )
+        df = fetch_generation_by_fuel("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
 
         pd.testing.assert_frame_equal(df, gcs_df)
         mock_read.assert_called_once_with("generation", "ERCOT")

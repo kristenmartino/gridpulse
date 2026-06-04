@@ -401,9 +401,7 @@ class _EIACircuitBreaker:
         self._suppressed_since_probe = 0
 
 
-_circuit_breaker = _EIACircuitBreaker(
-    EIA_CIRCUIT_TRIP_THRESHOLD, EIA_CIRCUIT_PROBE_INTERVAL
-)
+_circuit_breaker = _EIACircuitBreaker(EIA_CIRCUIT_TRIP_THRESHOLD, EIA_CIRCUIT_PROBE_INTERVAL)
 
 
 def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
