@@ -17,7 +17,12 @@ import pandas as pd
 import pytest
 
 from data.eia_client import (
+    EIA_CIRCUIT_PROBE_INTERVAL,
+    EIA_CIRCUIT_TRIP_THRESHOLD,
     EIA_REGION_CODES,
+    MAX_RETRIES,
+    _circuit_breaker,
+    _EIACircuitBreaker,
     _get_eia_code,
     _paginated_fetch,
     _parse_demand_records,
@@ -28,6 +33,19 @@ from data.eia_client import (
     fetch_generation_by_fuel,
     fetch_interchange,
 )
+
+
+@pytest.fixture(autouse=True)
+def _reset_eia_circuit_breaker():
+    """Reset the module-level EIA circuit breaker around every test.
+
+    The breaker carries process-local state; without this, a test that
+    exhausts retries would leak failure counts into later tests.
+    """
+    _circuit_breaker.reset()
+    yield
+    _circuit_breaker.reset()
+
 
 # ---------------------------------------------------------------------------
 # _get_eia_code
@@ -812,3 +830,209 @@ class TestFetchInterchange:
 
         assert not df.empty
         mock_pf.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Circuit breaker (EIA outage resilience, #174)
+# ---------------------------------------------------------------------------
+
+
+class TestEIACircuitBreaker:
+    """Unit tests for the EIA circuit-breaker state machine."""
+
+    def test_starts_closed(self):
+        cb = _EIACircuitBreaker(trip_threshold=3, probe_interval=30)
+        assert cb.tripped is False
+        assert cb.allow_request() is True
+
+    def test_trips_after_threshold_consecutive_failures(self):
+        cb = _EIACircuitBreaker(trip_threshold=3, probe_interval=30)
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.tripped is False  # below threshold
+        cb.record_failure()
+        assert cb.tripped is True  # 3rd consecutive trips it
+
+    def test_success_resets_consecutive_failures(self):
+        cb = _EIACircuitBreaker(trip_threshold=3, probe_interval=30)
+        cb.record_failure()
+        cb.record_failure()
+        cb.record_success()  # resets the counter
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.tripped is False  # only 2 consecutive since the reset
+
+    def test_tripped_breaker_fails_fast(self):
+        cb = _EIACircuitBreaker(trip_threshold=2, probe_interval=30)
+        cb.record_failure()
+        cb.record_failure()
+        assert cb.tripped is True
+        assert cb.allow_request() is False  # no probe yet -> fail fast
+
+    def test_probe_allowed_every_interval(self):
+        cb = _EIACircuitBreaker(trip_threshold=1, probe_interval=3)
+        cb.record_failure()  # trips (threshold=1)
+        assert cb.allow_request() is False  # 1 suppressed
+        assert cb.allow_request() is False  # 2 suppressed
+        assert cb.allow_request() is True  # 3rd -> probe permitted
+        assert cb.allow_request() is False  # counter reset -> suppress again
+
+    def test_success_after_trip_closes_breaker(self):
+        cb = _EIACircuitBreaker(trip_threshold=1, probe_interval=30)
+        cb.record_failure()
+        assert cb.tripped is True
+        cb.record_success()
+        assert cb.tripped is False
+        assert cb.allow_request() is True
+
+    def test_reset_clears_state(self):
+        cb = _EIACircuitBreaker(trip_threshold=1, probe_interval=30)
+        cb.record_failure()
+        assert cb.tripped is True
+        cb.reset()
+        assert cb.tripped is False
+        assert cb.allow_request() is True
+
+
+class TestRequestWithBackoffCircuitBreaker:
+    """The breaker bounds EIA cost during a sustained outage."""
+
+    @patch("data.eia_client.time.sleep")
+    @patch("data.eia_client.requests.get")
+    def test_trips_after_consecutive_exhausted_calls(self, mock_get, mock_sleep):
+        fail = MagicMock()
+        fail.status_code = 503
+        mock_get.return_value = fail
+
+        for _ in range(EIA_CIRCUIT_TRIP_THRESHOLD):
+            assert _request_with_backoff("https://api.eia.gov/v2/test", {}) is None
+        assert _circuit_breaker.tripped is True
+
+    @patch("data.eia_client.time.sleep")
+    @patch("data.eia_client.requests.get")
+    def test_tripped_breaker_short_circuits_network(self, mock_get, mock_sleep):
+        """Once tripped, calls fast-fail without further network attempts."""
+        fail = MagicMock()
+        fail.status_code = 503
+        mock_get.return_value = fail
+
+        for _ in range(EIA_CIRCUIT_TRIP_THRESHOLD):
+            _request_with_backoff("https://api.eia.gov/v2/test", {})
+        calls_after_trip = mock_get.call_count
+
+        # Several suppressed calls (fewer than the probe interval) add no
+        # network calls — proving the retry budget is short-circuited.
+        for _ in range(EIA_CIRCUIT_PROBE_INTERVAL - 1):
+            assert _request_with_backoff("https://api.eia.gov/v2/test", {}) is None
+        assert mock_get.call_count == calls_after_trip
+
+    @patch("data.eia_client.time.sleep")
+    @patch("data.eia_client.requests.get")
+    def test_probe_success_closes_breaker(self, mock_get, mock_sleep):
+        fail = MagicMock()
+        fail.status_code = 503
+        ok = MagicMock()
+        ok.status_code = 200
+        ok.json.return_value = {"response": {"data": []}}
+        # Enough failures to trip (full retry budget each), then OK for probes.
+        mock_get.side_effect = [fail] * (EIA_CIRCUIT_TRIP_THRESHOLD * MAX_RETRIES) + [ok] * 3
+
+        for _ in range(EIA_CIRCUIT_TRIP_THRESHOLD):
+            _request_with_backoff("https://api.eia.gov/v2/test", {})
+        assert _circuit_breaker.tripped is True
+
+        # Force the next call to be a probe; it succeeds and closes the breaker.
+        _circuit_breaker._suppressed_since_probe = EIA_CIRCUIT_PROBE_INTERVAL - 1
+        result = _request_with_backoff("https://api.eia.gov/v2/test", {})
+        assert result == {"response": {"data": []}}
+        assert _circuit_breaker.tripped is False
+
+
+class TestGenerationGcsFallback:
+    """Generation falls back to GCS on an EIA outage and persists on success."""
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_writes_to_gcs_on_success(self, mock_pf, mock_cache_fn, mock_write):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "fueltype": "NG", "value": 15000},
+        ]
+
+        df = fetch_generation_by_fuel("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        assert not df.empty
+        mock_write.assert_called_once()
+        assert mock_write.call_args.args[1] == "generation"
+
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_falls_back_to_gcs_on_outage(self, mock_pf, mock_cache_fn, mock_read):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None  # cold cache, no stale either
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = []  # EIA outage -> no records
+
+        gcs_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "fuel_type": ["NG"],
+                "generation_mw": [15000.0],
+                "region": ["ERCOT"],
+            }
+        )
+        mock_read.return_value = gcs_df
+
+        df = fetch_generation_by_fuel("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        pd.testing.assert_frame_equal(df, gcs_df)
+        mock_read.assert_called_once_with("generation", "ERCOT")
+
+
+class TestInterchangeGcsFallback:
+    """Interchange falls back to GCS on an EIA outage and persists on success."""
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_writes_to_gcs_on_success(self, mock_pf, mock_cache_fn, mock_write):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP", "value": 500},
+        ]
+
+        df = fetch_interchange("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        assert not df.empty
+        mock_write.assert_called_once()
+        assert mock_write.call_args.args[1] == "interchange"
+
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_falls_back_to_gcs_on_outage(self, mock_pf, mock_cache_fn, mock_read):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = []
+
+        gcs_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "from_ba": ["ERCO"],
+                "to_ba": ["SWPP"],
+                "interchange_mw": [500.0],
+            }
+        )
+        mock_read.return_value = gcs_df
+
+        df = fetch_interchange("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        pd.testing.assert_frame_equal(df, gcs_df)
+        mock_read.assert_called_once_with("interchange", "ERCOT")

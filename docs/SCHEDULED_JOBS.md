@@ -361,6 +361,16 @@ creation) — confirm `gcloud beta monitoring channels describe <id>
      log line — keep ≥2× headroom, stay under the hourly cadence. First
      hit 2026-06-01 (854s crept over the 900s cap → 1800s; [#171](https://github.com/kristenmartino/gridpulse/issues/171));
      the training job hit the same wall 2026-05-03.
+     **But first check *why* it timed out** — `grep` the failed execution for
+     `eia_server_error status=504` / `eia_request_exception ... Read timed
+     out` / `eia_max_retries_exceeded`. If present, the cause is an **upstream
+     EIA outage, not runtime creep** — do **not** bump the timeout (a bigger
+     ceiling won't help when EIA is down). Since [#174](https://github.com/kristenmartino/gridpulse/issues/174) the EIA circuit
+     breaker self-mitigates this (fail-fast to last-known GCS data after a few
+     consecutive failures), so an EIA outage should now self-heal on the next
+     tick rather than recur; if it *doesn't*, EIA is hard-down — wait it out,
+     `last_scored` will catch up when EIA recovers. This bit us 2026-06-04
+     (03:00–04:00 UTC, EIA 504s; normal runtime was a healthy ~700s).
    - Systemic (all regions) → check `/health?deep=1`, suspect a
      data-source or feature-pipeline fault (cf. #161), roll back the
      image via `latest.json` if code-caused.

@@ -107,6 +107,21 @@ Result: Production recovered within one make-up run; `/health` back to healthy. 
 
 **Lesson to convey**: *A slowly-creeping resource limit gives zero warning until the instant it crosses — and then the alert tells you "the job failed," not "the job was never given margin." When you mitigate by raising a ceiling, say out loud that it's mitigation, not a fix, and file the real one — otherwise the ceiling-raise becomes permanent and you're back here in a month with a bigger number.*
 
+### 7. "Tell me about a time you resisted the obvious fix."
+**The second scoring failure that wasn't the first one ([#174](https://github.com/kristenmartino/gridpulse/issues/174)).**
+
+Situation: Three days after I fixed a scoring-job timeout by raising the Cloud Run task limit 900→1800s, the same failure alert fired again — two hourly ticks timed out. The obvious move, the one my own last PR practically scripted, was "bump the timeout again."
+
+Investigation: I didn't. Two facts argued against it. First, it had **self-healed** — every tick after the two failures ran a healthy ~700s, nowhere near the 1800s cap. A creeping-runtime problem doesn't recover on its own. Second, the failed run's logs showed `api.eia.gov` returning `HTTP 504` and 30s read-timeouts for ~2 hours. This wasn't our runtime growing into the ceiling (the previous incident); it was an **external EIA API outage**. Bumping the timeout would have done almost nothing — during a hard upstream outage the job can't get data no matter how long you wait.
+
+The real defect was how the job *handled* the outage: each EIA call retried 5×30s + backoff (~150s) **before** any fallback engaged, and across 51 BAs × 3 endpoints that retry budget overran the task limit. Worse, `fetch_demand` fell back to cached GCS data but `fetch_generation`/`fetch_interchange` didn't — they just returned empty.
+
+Action: Built a process-local **circuit breaker** — after a few consecutive hard failures it trips and fail-fasts subsequent calls straight to the fallback (with a periodic single-attempt probe to recover mid-run), so a total EIA outage completes fast on last-known data instead of timing out. Plus a uniform GCS write/read fallback for the two endpoints that lacked it. 21 tests; full suite green.
+
+Result: The job now degrades gracefully through an EIA outage rather than dying. And I filed it as a *separate* issue from the timeout-margin one, because they're different failure modes that happened to trip the same alert.
+
+**Lesson to convey**: *The most dangerous moment after an incident is the next incident that looks identical. The same alert fired both times, but one was "our runtime outgrew its budget" and the other was "an upstream dependency vanished" — and the right fix for the first (more headroom) does nothing for the second (graceful degradation). Read the new evidence before reaching for the last fix.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
