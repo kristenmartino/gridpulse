@@ -35,6 +35,16 @@ EIA_PAGE_SIZE = 5000
 MAX_RETRIES = 5
 INITIAL_BACKOFF_SECONDS = 2.0
 
+# Circuit breaker (see _EIACircuitBreaker). During a sustained EIA outage the
+# MAX_RETRIES x 30s + backoff retry loop costs ~150s per failing call; across
+# 51 BAs x 3 endpoints that overruns the scoring job's task timeout long before
+# the per-call fallbacks (stale cache / GCS) can serve last-known data. The
+# breaker trips after this many consecutive hard failures, then fail-fasts
+# subsequent calls (one probe every PROBE_INTERVAL suppressed calls lets it
+# recover mid-run). State is process-local and resets every fresh job process.
+EIA_CIRCUIT_TRIP_THRESHOLD = 3
+EIA_CIRCUIT_PROBE_INTERVAL = 30
+
 # Map internal region names to EIA API respondent codes
 # EIA uses abbreviated codes that differ from common names
 EIA_REGION_CODES = {
@@ -236,10 +246,19 @@ def fetch_generation_by_fuel(
         stale = cache.get(cache_key, allow_stale=True)
         if stale is not None:
             return stale
+        from data.gcs_store import read_parquet
+
+        gcs_df = read_parquet("generation", region)
+        if gcs_df is not None and not gcs_df.empty:
+            log.info("eia_generation_gcs_fallback", region=region, rows=len(gcs_df))
+            return gcs_df
         return pd.DataFrame(columns=["timestamp", "fuel_type", "generation_mw", "region"])
 
     df = _parse_generation_records(all_records, region)
     cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
+    from data.gcs_store import write_parquet
+
+    write_parquet(df, "generation", region)
     log.info("eia_generation_cached", region=region, rows=len(df))
     return df
 
@@ -293,16 +312,98 @@ def fetch_interchange(
         stale = cache.get(cache_key, allow_stale=True)
         if stale is not None:
             return stale
+        from data.gcs_store import read_parquet
+
+        gcs_df = read_parquet("interchange", region)
+        if gcs_df is not None and not gcs_df.empty:
+            log.info("eia_interchange_gcs_fallback", region=region, rows=len(gcs_df))
+            return gcs_df
         return pd.DataFrame(columns=["timestamp", "from_ba", "to_ba", "interchange_mw"])
 
     df = _parse_interchange_records(all_records)
     cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
+    from data.gcs_store import write_parquet
+
+    write_parquet(df, "interchange", region)
     return df
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+class _EIACircuitBreaker:
+    """Process-local circuit breaker that fail-fasts EIA calls during an outage.
+
+    The retry/backoff loop in :func:`_request_with_backoff` costs ~150s per
+    failing call (``MAX_RETRIES`` x 30s + backoff). Across 51 BAs x 3 endpoints
+    that overruns the scoring job's task timeout before the per-call fallbacks
+    (stale cache / GCS) can serve last-known data. This breaker trips after a
+    few consecutive hard failures and then short-circuits subsequent calls to
+    ~0s so callers fall back immediately and the run completes within budget.
+    A periodic single-attempt probe lets it close again if EIA recovers
+    mid-run. State is module-level and resets every fresh (per-tick) job
+    process; :meth:`reset` exists for tests and explicit run boundaries.
+    """
+
+    def __init__(self, trip_threshold: int, probe_interval: int) -> None:
+        self._trip_threshold = trip_threshold
+        self._probe_interval = probe_interval
+        self._consecutive_failures = 0
+        self._tripped = False
+        self._suppressed_since_probe = 0
+
+    @property
+    def tripped(self) -> bool:
+        """True while the breaker is open (calls should fail fast)."""
+        return self._tripped
+
+    def record_success(self) -> None:
+        """Register a successful request; closes the breaker."""
+        if self._tripped:
+            log.info("eia_circuit_closed")
+        self._consecutive_failures = 0
+        self._tripped = False
+        self._suppressed_since_probe = 0
+
+    def record_failure(self) -> None:
+        """Register a hard failure (retries exhausted); may trip the breaker."""
+        self._consecutive_failures += 1
+        if not self._tripped and self._consecutive_failures >= self._trip_threshold:
+            self._tripped = True
+            log.warning(
+                "eia_circuit_tripped",
+                consecutive_failures=self._consecutive_failures,
+                trip_threshold=self._trip_threshold,
+            )
+
+    def allow_request(self) -> bool:
+        """Whether to attempt a network call now.
+
+        Returns True normally. When tripped, returns False (fail fast) except
+        once every ``probe_interval`` suppressed calls, when it lets a single
+        recovery probe through.
+        """
+        if not self._tripped:
+            return True
+        self._suppressed_since_probe += 1
+        if self._suppressed_since_probe >= self._probe_interval:
+            self._suppressed_since_probe = 0
+            log.debug("eia_circuit_probe")
+            return True
+        return False
+
+    def reset(self) -> None:
+        """Reset all state (test helper / explicit run boundary)."""
+        self._consecutive_failures = 0
+        self._tripped = False
+        self._suppressed_since_probe = 0
+
+
+_circuit_breaker = _EIACircuitBreaker(
+    EIA_CIRCUIT_TRIP_THRESHOLD, EIA_CIRCUIT_PROBE_INTERVAL
+)
 
 
 def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
@@ -338,37 +439,58 @@ def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
 
 
 def _request_with_backoff(url: str, params: dict) -> dict | None:
-    """Make an HTTP GET with exponential backoff on 429/5xx."""
+    """Make an HTTP GET with exponential backoff on 429/5xx.
+
+    Guarded by a process-local circuit breaker (:data:`_circuit_breaker`): once
+    EIA has returned several consecutive hard failures in this run, calls fail
+    fast (return ``None`` without touching the network) so callers fall back to
+    last-known data and the job completes within its task budget instead of
+    timing out. While tripped, a call that is let through is a single-attempt
+    recovery probe rather than the full retry budget.
+    """
+    if not _circuit_breaker.allow_request():
+        log.debug("eia_circuit_open_skip", url=url)
+        return None
+
+    # While tripped, a permitted call is a recovery probe: one attempt, not the
+    # full retry budget, so a continued outage stays cheap.
+    max_attempts = 1 if _circuit_breaker.tripped else MAX_RETRIES
     backoff = INITIAL_BACKOFF_SECONDS
 
-    for attempt in range(1, MAX_RETRIES + 1):
+    for attempt in range(1, max_attempts + 1):
         try:
             resp = requests.get(url, params=params, timeout=30)
 
             if resp.status_code == 200:
+                _circuit_breaker.record_success()
                 return resp.json()
             elif resp.status_code == 429:
                 log.warning("eia_rate_limited", attempt=attempt, backoff=backoff)
-                time.sleep(backoff)
-                backoff *= 2
+                if attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff *= 2
             elif resp.status_code >= 500:
                 log.warning("eia_server_error", status=resp.status_code, attempt=attempt)
-                time.sleep(backoff)
-                backoff *= 2
+                if attempt < max_attempts:
+                    time.sleep(backoff)
+                    backoff *= 2
             else:
                 # Sanitize response body to avoid leaking API keys in logs
                 import re
 
                 sanitized = re.sub(r"api_key=[^&\s\"']+", "api_key=***", resp.text[:200])
                 log.error("eia_request_failed", status=resp.status_code, body=sanitized)
+                # A 4xx is a request problem, not a transient outage — return
+                # without tripping the breaker.
                 return None
 
         except requests.RequestException as e:
             log.error("eia_request_exception", error=str(e), attempt=attempt)
-            if attempt < MAX_RETRIES:
+            if attempt < max_attempts:
                 time.sleep(backoff)
                 backoff *= 2
 
+    _circuit_breaker.record_failure()
     log.error("eia_max_retries_exceeded", url=url)
     return None
 

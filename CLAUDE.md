@@ -335,6 +335,21 @@ Scopes: data, models, sim, personas, ui, infra
 On API failure: prefer serving stale real data with warning logs when available.
 Do not overwrite real cached data with fake/demo data during production failure paths.
 
+**Upstream-outage resilience (added 2026-06-04 after #174).** A *sustained*
+upstream outage is different from a one-off failure: retry-to-exhaustion
+(`MAX_RETRIES × timeout + backoff` per call) multiplied across 51 BAs ×
+multiple endpoints can overrun a job's task timeout before per-call fallbacks
+engage — this is what failed the scoring job on 2026-06-04 during a 2h EIA
+504 outage. Two rules follow:
+1. The fallback to last-known data (stale cache → GCS) must be **uniform
+   across every endpoint** in a client, not just the primary one. `eia_client`
+   writes *and* reads GCS for demand, generation, **and** interchange.
+2. Guard the retry loop with a **process-local circuit breaker**
+   (`data.eia_client._EIACircuitBreaker`): after K consecutive hard failures it
+   fail-fasts subsequent calls straight to the fallback (periodic probe to
+   recover mid-run), bounding total runtime during an outage. Per-process
+   state, resets every fresh job run.
+
 ### Feature engineering
 All features are backward-looking only (no future data leakage).
 Temperature in °F, wind in mph, CDD/HDD baseline = 65°F.
