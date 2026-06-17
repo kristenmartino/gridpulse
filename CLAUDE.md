@@ -246,7 +246,7 @@ data/
   noaa_client.py          → NOAA/NWS: severe weather alerts
   news_client.py          → External news feed integration
   preprocessing.py        → Merge, align UTC, interpolate gaps <6h, flag gaps ≥6h
-  feature_engineering.py  → 43 derived features: CDD/HDD, wind power, solar CF, lags, rolling
+  feature_engineering.py  → 49 features (17 raw + 32 derived): CDD/HDD, wind power, solar CF, lags, rolling
   demo_data.py            → Synthetic data generator for offline/demo mode where explicitly used
   audit.py                → Forecast audit trail (model version, data hash, feature hash)
 models/
@@ -353,7 +353,7 @@ engage — this is what failed the scoring job on 2026-06-04 during a 2h EIA
 ### Feature engineering
 All features are backward-looking only (no future data leakage).
 Temperature in °F, wind in mph, CDD/HDD baseline = 65°F.
-43 total features: 17 raw weather + 25+ derived.
+49 total features: 17 raw weather + 32 derived.
 
 ### Scenario engine
 ALWAYS copy the feature matrix. NEVER mutate input. Recompute ALL derived features after override.

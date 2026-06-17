@@ -193,7 +193,14 @@ source venv/bin/activate
 python scripts/backtest.py --region ERCOT --holdout-days 21
 python scripts/backtest.py --region FPL --holdout-days 21
 
-# Available regions: ERCOT, FPL, CAISO, PJM, MISO, NYISO, ISONE, SPP
+# Any of the 51 BAs in config.REGION_COORDINATES (ERCOT, FPL, CAISO, PJM, ...)
+
+# Backtest many BAs at once (re-trains per BA — slow, hours for all 51):
+python scripts/backtest_all.py --regions all --holdout-days 21 --out-md docs/_backtest_all.md
+
+# Or export the CURRENT per-BA holdout metrics the training job already
+# computed — reads GCS meta.json, no retraining (minutes, covers all 51):
+python scripts/export_holdout_metrics.py --out-md docs/_holdout_table.md --out-csv holdout.csv
 ```
 
 ## Test Environment

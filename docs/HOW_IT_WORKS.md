@@ -101,7 +101,7 @@ flowchart TB
     Daily -. updates models that .-> Hourly
 ```
 
-Hourly scoring runs **~5 minutes** for all 51 BAs and produces fresh forecasts within ~90 minutes of any new EIA-published actual. Daily training runs **~3 hours** (recently bumped to a 5-hour Cloud Run task timeout after measuring) and refreshes the inverse-MAPE ensemble weights based on the most recent week's holdout performance.
+Hourly scoring runs **~14 minutes** for all 51 BAs and produces fresh forecasts within ~90 minutes of any new EIA-published actual. Daily training runs **~3 hours** (recently bumped to a 5-hour Cloud Run task timeout after measuring) and refreshes the inverse-MAPE ensemble weights based on the most recent week's holdout performance.
 
 The atomic pointer for "which model is current" is `gs://.../models/{region}/{model}/latest.json`. Training writes the new version and updates `latest.json` last; scoring reads `latest.json` on every tick. Rollback is as simple as editing `latest.json` to point at an older version.
 
@@ -111,9 +111,9 @@ Three base models, one ensemble, four selectable forecasts in the UI.
 
 ```mermaid
 flowchart LR
-    subgraph Input["43 features"]
+    subgraph Input["49 features"]
         Raw[17 raw weather vars<br/>temperature · wind · solar · humidity · ...]
-        Derived[26 derived features<br/>CDD · HDD · wind power · solar CF · lags · rolling stats]
+        Derived[32 derived features<br/>CDD · HDD · wind power · solar CF · lags · rolling stats]
     end
 
     subgraph Models["3 base models"]

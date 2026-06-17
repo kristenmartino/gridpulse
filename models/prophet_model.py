@@ -2,7 +2,7 @@
 Prophet forecasting model with weather regressors.
 
 Configured per spec §Model 1:
-- Multiplicative seasonality (energy demand scales multiplicatively)
+- Additive seasonality (``seasonality_mode='additive'``); weather regressors added as additive too
 - Daily, weekly, yearly seasonality
 - Weather regressors: temperature, apparent temp, wind, solar, CDD, HDD, holiday
 - Rolling window training: 365 days → forecast 7 days

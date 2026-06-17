@@ -26,7 +26,7 @@
 | Base ML models | **3**: Prophet, SARIMAX, XGBoost | [`models/`](../models/) |
 | Ensemble method | Inverse-MAPE weighted (`weight_i = 1/MAPE_i`, normalized) | [`models/ensemble.py`](../models/ensemble.py) |
 | User-selectable forecasts in UI | **4**: XGBoost, Prophet, ARIMA, Ensemble | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |
-| Total engineered features | **43** (17 raw weather + 26 derived) | [`data/feature_engineering.py`](../data/feature_engineering.py) |
+| Total engineered features | **49** (17 raw weather + 32 derived) | [`data/feature_engineering.py`](../data/feature_engineering.py) |
 | Forecast horizons | 24h, 7d, 30d (UI selectable) | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |
 | Confidence interval | 80% empirical, last 120h calibration window | [`models/evaluation.py`](../models/evaluation.py) |
 
@@ -74,8 +74,12 @@
 | FPL | 24h | 7.88% | 5.55% |
 | PJM | 24h | 11.04% | 5.19% |
 
-(Source: 2026-05-01 training run. Wider MAPE table for all 51 BAs / all
-horizons lives in [`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md).)
+(Source: 2026-05-01 training run. Per-region holdout metrics for **all 51
+BAs** are produced every daily training run and persisted to each model's
+GCS `meta.json` — and surfaced live in the Models tab via Redis
+`model_metrics`. Regenerate the full per-BA table with
+`scripts/export_holdout_metrics.py`. [`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md)
+holds only the point-in-time reference backtest for ERCOT and FPL.)
 
 Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`.
