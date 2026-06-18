@@ -602,3 +602,71 @@ class TestEnsembleHoldoutMetrics:
             }
         )
         assert result is None
+
+
+class TestResumeBackfillsMissingEnsemble:
+    """#176: ``_skip_if_data_hash_matches`` declines to resume when the
+    xgboost meta is data-hash-current but missing ``ensemble_holdout_metrics``
+    while an ensemble is achievable (>=2 per-model holdouts present) — forcing
+    a recompute that backfills the metric. Single-model regions still resume.
+    """
+
+    @staticmethod
+    def _meta(*, ensemble: bool, holdout: bool):
+        from unittest.mock import MagicMock
+
+        extra: dict = {}
+        if holdout:
+            extra["holdout_metrics"] = {"mape": 2.0, "rmse": 1.0, "mae": 1.0, "r2": 0.9}
+        if ensemble:
+            extra["ensemble_holdout_metrics"] = {"mape": 1.8, "rmse": 1.0, "mae": 1.0, "r2": 0.9}
+        return MagicMock(version="v1", data_hash="abc123", extra=extra)
+
+    def _patch(self, monkeypatch, metas: dict) -> None:
+        monkeypatch.setattr(
+            "models.persistence.get_model_metadata",
+            lambda region, model_name: metas[model_name],
+        )
+
+    def test_declines_resume_when_ensemble_missing_and_two_holdouts(self, monkeypatch) -> None:
+        from jobs import training_job
+
+        metas = {
+            "xgboost": self._meta(ensemble=False, holdout=True),
+            "prophet": self._meta(ensemble=False, holdout=True),
+            "arima": self._meta(ensemble=False, holdout=True),
+        }
+        self._patch(monkeypatch, metas)
+        assert training_job._skip_if_data_hash_matches("PJM", "abc123") is None
+
+    def test_resumes_when_ensemble_present(self, monkeypatch) -> None:
+        from jobs import training_job
+
+        metas = {
+            "xgboost": self._meta(ensemble=True, holdout=True),
+            "prophet": self._meta(ensemble=False, holdout=True),
+            "arima": self._meta(ensemble=False, holdout=True),
+        }
+        self._patch(monkeypatch, metas)
+        assert training_job._skip_if_data_hash_matches("PJM", "abc123") == {
+            "xgboost": "v1",
+            "prophet": "v1",
+            "arima": "v1",
+        }
+
+    def test_resumes_single_model_region_without_ensemble(self, monkeypatch) -> None:
+        # Only xgboost has a per-model holdout; an ensemble is not achievable,
+        # so a missing ensemble metric is legitimate and the region resumes.
+        from jobs import training_job
+
+        metas = {
+            "xgboost": self._meta(ensemble=False, holdout=True),
+            "prophet": self._meta(ensemble=False, holdout=False),
+            "arima": self._meta(ensemble=False, holdout=False),
+        }
+        self._patch(monkeypatch, metas)
+        assert training_job._skip_if_data_hash_matches("PJM", "abc123") == {
+            "xgboost": "v1",
+            "prophet": "v1",
+            "arima": "v1",
+        }
