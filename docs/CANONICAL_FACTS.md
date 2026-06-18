@@ -26,7 +26,7 @@
 | Base ML models | **3**: Prophet, SARIMAX, XGBoost | [`models/`](../models/) |
 | Ensemble method | Inverse-MAPE weighted (`weight_i = 1/MAPE_i`, normalized) | [`models/ensemble.py`](../models/ensemble.py) |
 | User-selectable forecasts in UI | **4**: XGBoost, Prophet, ARIMA, Ensemble | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |
-| Total engineered features | **43** (17 raw weather + 26 derived) | [`data/feature_engineering.py`](../data/feature_engineering.py) |
+| Total engineered features | **49** (17 raw weather + 32 derived) | [`data/feature_engineering.py`](../data/feature_engineering.py) |
 | Forecast horizons | 24h, 7d, 30d (UI selectable) | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |
 | Confidence interval | 80% empirical, last 120h calibration window | [`models/evaluation.py`](../models/evaluation.py) |
 
@@ -69,13 +69,27 @@
 
 ## Forecast accuracy (from holdout backtests)
 
-| Region | Horizon | Prophet MAPE | ARIMA MAPE |
-|---|---|---|---|
-| FPL | 24h | 7.88% | 5.55% |
-| PJM | 24h | 11.04% | 5.19% |
+Accuracy is **per-BA** — never quote a single pooled "across-51" number.
+Distribution of each BA's **best base model** (lowest of XGBoost / Prophet /
+ARIMA), 168h holdout, all 51 BAs:
 
-(Source: 2026-05-01 training run. Wider MAPE table for all 51 BAs / all
-horizons lives in [`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md).)
+| Stat | Best-base MAPE |
+|---|---|
+| min | 0.79% (ERCOT) |
+| median | 2.28% |
+| mean | 3.38% |
+| p90 | 6.57% |
+| max | 21.00% (SPA) |
+
+XGBoost is best base for 50 of 51 BAs (ARIMA for AZPS). **Ensemble holdout
+metric: pending** — `extra.ensemble_holdout_metrics` isn't persisted yet, so
+no ensemble accuracy is quoted (do not infer it from base models).
+
+(Source: generated 2026-06-17 from production GCS via
+`scripts/export_holdout_metrics.py`; models trained 2026-06-17. Per-BA holdout
+metrics are produced every daily training run, persisted to each model's GCS
+`meta.json`, and surfaced live in the Models tab via Redis `model_metrics`.
+Full per-BA, per-model table: [`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md).)
 
 Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`.

@@ -584,16 +584,22 @@ class TestFetchWeatherStitchOrchestration:
         mock_cache.get.return_value = None
         mock_get_cache.return_value = mock_cache
 
-        # Archive: 60 days ago up to ~now-5d. Forecast: ~now-7d into future.
+        # Dates are RELATIVE to now() — the stitch boundary is the current
+        # time (archive kept for ts <= now, forecast for ts > now), so the
+        # forecast must extend past now or the test rots. Hardcoded absolute
+        # dates did exactly that: once "now" passed the old 2026-05-29..06-06
+        # forecast window, every forecast row fell in the past and the stitch
+        # returned archive-only (500 rows), tripping `assert len > 500`.
+        now = pd.Timestamp.now(tz="UTC").floor("h")
         archive = pd.DataFrame(
             {
-                "timestamp": pd.date_range("2026-03-01", periods=500, freq="h", tz="UTC"),
+                "timestamp": pd.date_range(now - pd.Timedelta(days=60), periods=500, freq="h"),
                 "temperature_2m": [60.0] * 500,
             }
         )
         forecast = pd.DataFrame(
             {
-                "timestamp": pd.date_range("2026-05-29", periods=200, freq="h", tz="UTC"),
+                "timestamp": pd.date_range(now - pd.Timedelta(days=2), periods=200, freq="h"),
                 "temperature_2m": [95.0] * 200,
             }
         )
