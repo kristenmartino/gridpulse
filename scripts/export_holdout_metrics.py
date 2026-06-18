@@ -106,9 +106,7 @@ def _headline_mape(row: dict[str, Any]) -> float | None:
     if isinstance(xgb.get("mape"), int | float):
         return xgb["mape"]
     cand = [
-        m["mape"]
-        for m in row["models"].values()
-        if m and isinstance(m.get("mape"), int | float)
+        m["mape"] for m in row["models"].values() if m and isinstance(m.get("mape"), int | float)
     ]
     return min(cand) if cand else None
 

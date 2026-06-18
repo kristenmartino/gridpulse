@@ -101,7 +101,9 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--limit", type=int, default=None, help="Only the first N regions.")
     parser.add_argument("--out-md", default=None, help="Write the markdown table here.")
     parser.add_argument("--out-csv", default=None, help="Write the full CSV here.")
-    parser.add_argument("-q", "--quiet", action="store_true", help="Suppress per-run backtest logs.")
+    parser.add_argument(
+        "-q", "--quiet", action="store_true", help="Suppress per-run backtest logs."
+    )
     args = parser.parse_args(argv)
 
     from config import REGION_COORDINATES, REGION_NAMES
