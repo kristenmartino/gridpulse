@@ -401,6 +401,7 @@ def _skip_if_data_hash_matches(region: str, current_hash: str) -> dict | None:
         from models.persistence import get_model_metadata
 
         versions: dict[str, str | None] = {}
+        metas: dict[str, object] = {}
         for model_name in ("xgboost", "prophet", "arima"):
             try:
                 meta = get_model_metadata(region, model_name)
@@ -410,7 +411,31 @@ def _skip_if_data_hash_matches(region: str, current_hash: str) -> dict | None:
                 return None
             if getattr(meta, "data_hash", None) != current_hash:
                 return None
+            metas[model_name] = meta
             versions[model_name] = meta.version
+
+        # #176 self-heal: the ensemble holdout metric is written post-hoc
+        # (write_extra_to_meta) onto the xgboost meta AFTER all three models
+        # save. If that write didn't land on a prior run, the xgboost meta is
+        # data-hash-current but missing ``ensemble_holdout_metrics`` — and
+        # resuming would preserve that gap forever. Decline the resume when an
+        # ensemble is achievable (>=2 per-model holdouts present) but its metric
+        # is absent, so the full path recomputes and persists it. Single-model
+        # regions (no achievable ensemble) still resume.
+        xgb_extra = getattr(metas["xgboost"], "extra", None) or {}
+        if not xgb_extra.get("ensemble_holdout_metrics"):
+            n_holdouts = 0
+            for m in metas.values():
+                ex = getattr(m, "extra", None)
+                if isinstance(ex, dict) and ex.get("holdout_metrics"):
+                    n_holdouts += 1
+            if n_holdouts >= 2:
+                log.info(
+                    "training_resume_declined_missing_ensemble",
+                    region=region,
+                    n_model_holdouts=n_holdouts,
+                )
+                return None
         return versions
     except Exception as e:  # pragma: no cover — defensive (GCS outage)
         log.debug("training_resume_check_failed", region=region, error=str(e))
@@ -490,6 +515,29 @@ def _train_region(region: str, force: bool = False) -> dict:
             "arima": arima_holdout,
         }
     )
+    if ensemble_summary is None:
+        # Surface WHY there's no ensemble metric to persist (#176) — silence
+        # here is how the gap went undiagnosed. Either <2 per-model holdouts
+        # succeeded, or the combined metric was non-finite.
+        _valid_holdouts = [
+            name
+            for name, h in (
+                ("xgboost", xgb_holdout),
+                ("prophet", prophet_holdout),
+                ("arima", arima_holdout),
+            )
+            if h is not None
+        ]
+        log.warning(
+            "ensemble_holdout_unavailable",
+            region=region,
+            valid_holdouts=_valid_holdouts,
+            reason=(
+                "fewer_than_two_holdouts"
+                if len(_valid_holdouts) < 2
+                else "ensemble_metric_nonfinite"
+            ),
+        )
 
     xgb_version = _train_xgboost(region_data, holdout=xgb_holdout)
     summary["models"]["xgboost"] = xgb_version
@@ -507,7 +555,7 @@ def _train_region(region: str, force: bool = False) -> dict:
         try:
             from models.persistence import write_extra_to_meta
 
-            write_extra_to_meta(
+            persisted = write_extra_to_meta(
                 region=region,
                 model_name="xgboost",
                 version=xgb_version,
@@ -516,10 +564,28 @@ def _train_region(region: str, force: bool = False) -> dict:
                     "ensemble_weights": ensemble_weights,
                 },
             )
+            if persisted:
+                log.info(
+                    "ensemble_holdout_persisted",
+                    region=region,
+                    xgb_version=xgb_version,
+                    mape=round(ensemble_metrics["mape"], 3),
+                )
+            else:
+                # write_extra_to_meta returns False (no exception) when GCS is
+                # disabled or the just-saved meta blob is unexpectedly missing.
+                # Surface it — a silent False here is exactly how #176 stayed
+                # undiagnosed across every BA.
+                log.warning(
+                    "ensemble_holdout_persist_returned_false",
+                    region=region,
+                    xgb_version=xgb_version,
+                )
             summary["ensemble"] = {
                 "mape": round(ensemble_metrics["mape"], 3),
                 "rmse": round(ensemble_metrics["rmse"], 1),
                 "weights": ensemble_weights,
+                "persisted": bool(persisted),
             }
         except Exception as e:
             log.warning(
