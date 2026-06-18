@@ -1,212 +1,153 @@
 # Forecast Backtest Results
 
-> **Last validated:** 2026-02-21 — point-in-time reference snapshot. Daily training has run since this report, so live model performance may differ from the figures below. Current numbers are in the most recent Cloud Run training-job logs. The results captured here are the official validation reference at time of capture.
->
-> ⚠ **2026-05-20 caveat (PR `fix/training-feature-leakage`):** the
-> numbers in this document were measured under a training-time feature
-> regime that included the current row's ``demand_mw`` value inside
-> ``ramp_rate`` and the ``demand_roll_{24,72,168}h_*`` aggregations
-> (pandas' default trailing rolling window includes the current row;
-> ``demand.diff()`` returns ``demand[i] - demand[i-1]``). That's direct
-> target leakage in the training data — the model could partially
-> reconstruct the target via ``ramp_rate + lag_1`` and saw "min/max
-> over current 24h" features that occasionally equalled the target
-> exactly. ``demand_roll_24h_min`` was XGBoost's #2 feature for ERCOT
-> per the table below, which matches the symptom.
->
-> The fix ships in this PR: every autoregressive feature now reads from
-> ``demand.shift(1)`` before rolling/diffing, matching the inference-time
-> ``compute_autoregressive_snapshot`` definition row-for-row.
->
-> The reported holdout MAPE in this doc is **probably not directly
-> inflated** because the holdout validation already used the honest
-> snapshot (``training.py:113-122`` overrides autoregressive features
-> per row). The contamination is in the model weights — the model
-> learned to over-rely on leaky features that have different statistics
-> at inference. Once the training job re-runs on the fix, fresh holdout
-> numbers will replace the table below. Until then, treat these figures
-> as historical reference, not current performance.
+> **Provenance:** Generated 2026-06-17 from production GCS via
+> `scripts/export_holdout_metrics.py` (per-BA rolling 7-day / 168h holdout).
+> Models trained 2026-06-17. The full `{mape, rmse, mae, r2}` per BA per
+> model lives in the **regenerable** `holdout_metrics.csv` (untracked by
+> design — it goes stale every training run; regenerate it, don't read it
+> from git). This document holds the human-readable MAPE summary.
 
-**Date:** 2026-02-21
-**Holdout Period:** 21 days (504 hours)
-**Training Period:** ~43 days
-**Test Period:** 2026-01-31 to 2026-02-20
+> **Leakage caveat (now resolved — kept for history).** Figures in the
+> *previous* version of this doc (the 2026-02-21 ERCOT+FPL snapshot) were
+> measured under a training regime that leaked the current row's
+> `demand_mw` into `ramp_rate` and the `demand_roll_{24,72,168}h_*`
+> aggregations (pandas' trailing rolling window includes the current row;
+> `demand.diff()` returns `demand[i] - demand[i-1]`). That was fixed in
+> `fix/training-feature-leakage` ([#135](https://github.com/kristenmartino/gridpulse/issues/135)):
+> every autoregressive feature now reads from `demand.shift(1)` before
+> rolling/diffing, matching the inference-time
+> `compute_autoregressive_snapshot` definition row-for-row. **The numbers
+> below are the current, post-leakage-fix reference** — produced by daily
+> training runs on the de-leaked feature definitions.
 
-## Summary
+## Methodology
 
-Backtested forecast accuracy for Prophet, ARIMA, and XGBoost models against actual EIA demand data using a 21-day holdout period.
+- **Holdout:** the final **168 hours (7 days)** of each region's training
+  data, held out and scored every daily training run.
+- **Metrics:** MAPE / RMSE / MAE / R² per base model (XGBoost, Prophet,
+  ARIMA), computed in `jobs/training_job.py` and persisted to each model's
+  GCS `meta.json` under `extra.holdout_metrics`. The same numbers surface
+  live in the **Models tab** via Redis `model_metrics`.
+- **Coverage:** all **51** balancing authorities (`config.REGION_COORDINATES`).
 
-| Region | Best Model | MAPE | RMSE (MW) | R² |
-|--------|------------|------|-----------|-----|
-| **ERCOT** | XGBoost | **3.13%** | 2,198 | 0.853 |
-| **FPL** | XGBoost | **7.51%** | 2,106 | 0.649 |
+## Accuracy distribution (best base per BA)
 
-**Key Finding:** XGBoost significantly outperforms Prophet and ARIMA for both regions.
+Accuracy is **per-BA** — a single pooled "across-51" figure hides the tail
+(e.g. SPA, AZPS), so we report the **distribution** of each BA's *best base
+model* (the lowest MAPE of XGBoost / Prophet / ARIMA for that BA):
 
----
+| Statistic | Best-base MAPE |
+|---|---|
+| n | 51 |
+| min | **0.79%** (ERCOT) |
+| median | **2.28%** |
+| mean | **3.38%** |
+| p90 | **6.57%** |
+| max | **21.00%** (SPA) |
 
-## ERCOT Results
+**Worst 5 BAs (by best-base MAPE):** SPA 21.00% (xgboost) · AZPS 11.90%
+(arima) · SEC 9.36% (xgboost) · LDWP 8.99% (xgboost) · WALC 6.61% (xgboost).
 
-**Mean Actual Demand:** 50,101 MW
-**Std Actual Demand:** 5,729 MW
+**Best base model:** XGBoost wins **50 of 51** BAs; ARIMA wins **AZPS** (1).
+Reporting best-base rather than XGBoost-only matters for the tail — AZPS is
+29.42% on XGBoost but 11.90% on ARIMA, which also pulls the distribution max
+down from 29.42% to 21.00%.
 
-### Model Performance
+## Ensemble holdout — pending (not currently persisted)
 
-| Model | MAPE % | RMSE (MW) | MAE (MW) | R² |
-|-------|--------|-----------|----------|-----|
-| Prophet | 50.18 | 29,891 | 24,544 | -26.22 |
-| ARIMA | 40.51 | 20,779 | 19,313 | -12.15 |
-| **XGBoost** | **3.13** | **2,198** | **1,544** | **0.853** |
-| Ensemble | 3.87 | 2,461 | 1,915 | 0.815 |
+The ensemble column is intentionally **blank**: `extra.ensemble_holdout_metrics`
+is absent from every XGBoost `meta.json` in GCS, so there are no ensemble
+holdout numbers to report. **These are not fabricated or inferred from the
+base models.** (The post-hoc `write_extra_to_meta` ensemble write in
+`jobs/training_job.py` isn't landing; root cause is tracked separately.) The
+live ensemble forecast still runs — only its *holdout backtest metric* is
+missing here.
 
-### Ensemble Weights (1/MAPE)
-- Prophet: 0.05
-- ARIMA: 0.07
-- XGBoost: 0.88
+## Per-BA holdout MAPE (current)
 
-### XGBoost Top Features
-1. heating_degree_days
-2. demand_roll_24h_min
-3. demand_lag_24h
-4. temperature_2m
-5. apparent_temperature
+Per-model MAPE plus the best base and that model's R². Full RMSE/MAE/R² for
+every model is in `holdout_metrics.csv`.
 
-### Daily MAPE Analysis
+| BA | Region | XGBoost | Prophet | ARIMA | Best base | Best-base R² |
+|---|---|---|---|---|---|---|
+| AECI | Missouri (AECI) | 1.86% | 17.48% | 20.05% | xgboost | 0.989 |
+| AVA | Spokane (Avista) | 1.70% | 3.85% | 3.77% | xgboost | 0.967 |
+| AZPS | Arizona (APS) | 29.42% | 19.51% | 11.90% | arima | 0.296 |
+| BANC | Sacramento (BANC) | 4.25% | 12.94% | 10.73% | xgboost | 0.908 |
+| BPAT | Pacific NW (BPA) | 1.69% | 4.05% | 4.83% | xgboost | 0.927 |
+| CAISO | California (CAISO) | 5.39% | 14.48% | 16.23% | xgboost | 0.668 |
+| CHPD | Chelan County PUD | 2.09% | 8.89% | 5.42% | xgboost | 0.962 |
+| CPLE | Carolinas East (DEP) | 2.97% | 9.99% | 12.45% | xgboost | 0.941 |
+| CPLW | DEP-West (NC mountains) | 3.89% | 8.30% | 12.23% | xgboost | 0.889 |
+| DOPD | Douglas County PUD | 1.64% | 8.81% | 9.19% | xgboost | 0.957 |
+| DUK | Carolinas West (DEC) | 2.61% | 13.97% | 14.44% | xgboost | 0.956 |
+| EPE | El Paso (EPE) | 2.12% | 9.98% | 5.09% | xgboost | 0.986 |
+| ERCOT | Texas (ERCOT) | 0.79% | 10.15% | 16.55% | xgboost | 0.994 |
+| FMPP | Florida Muni Pool | 2.09% | 6.19% | 7.70% | xgboost | 0.973 |
+| FPC | Florida (Duke FL) | 1.48% | 18.14% | 5.80% | xgboost | 0.992 |
+| FPL | Florida (FPL/NextEra) | 1.55% | 3.27% | 3.85% | xgboost | 0.990 |
+| GCPD | Grant County PUD | 1.33% | 10.54% | 3.17% | xgboost | 0.911 |
+| GVL | Gainesville (GRU) | 1.64% | 7.63% | 8.37% | xgboost | 0.986 |
+| HST | Homestead | 1.89% | 5.43% | 5.58% | xgboost | 0.983 |
+| IID | Imperial Valley (IID) | 6.57% | 21.65% | 17.27% | xgboost | 0.937 |
+| IPCO | Idaho (Idaho Power) | 1.52% | 6.45% | 5.74% | xgboost | 0.962 |
+| ISONE | New England (ISO-NE) | 3.51% | 14.32% | 12.35% | xgboost | 0.885 |
+| JEA | Jacksonville (JEA) | 2.14% | 6.42% | 5.98% | xgboost | 0.972 |
+| LDWP | Los Angeles (LADWP) | 8.99% | 12.04% | 12.85% | xgboost | 0.576 |
+| LGEE | Kentucky (LG&E + KU) | 2.74% | 20.40% | 11.19% | xgboost | 0.928 |
+| MISO | Midwest (MISO) | 1.88% | 13.26% | 4.83% | xgboost | 0.960 |
+| NEVP | Southern Nevada (NV Energy) | 3.68% | 6.84% | 5.71% | xgboost | 0.897 |
+| NWMT | Montana (NorthWestern) | 1.08% | 2.99% | 4.30% | xgboost | 0.978 |
+| NYISO | New York (NYISO) | 2.52% | 14.61% | 10.58% | xgboost | 0.928 |
+| PACE | Inland West (PacifiCorp E) | 2.26% | 7.49% | 3.98% | xgboost | 0.954 |
+| PACW | Pacific NW (PacifiCorp W) | 3.67% | 7.09% | 5.16% | xgboost | 0.802 |
+| PGE | Portland General | 2.89% | 4.37% | 4.24% | xgboost | 0.861 |
+| PJM | Mid-Atlantic (PJM) | 2.10% | 15.09% | 61.32% | xgboost | 0.937 |
+| PNM | New Mexico (PNM) | 2.74% | 8.77% | 3.60% | xgboost | 0.922 |
+| PSCO | Colorado (Xcel) | 3.34% | 10.94% | 11.21% | xgboost | 0.956 |
+| PSEI | Puget Sound Energy | 1.45% | 5.31% | 5.76% | xgboost | 0.970 |
+| SC | Santee Cooper | 2.71% | 6.04% | 14.66% | xgboost | 0.938 |
+| SCEG | Carolinas Mid (Dominion SC) | 4.21% | 6.26% | 14.81% | xgboost | 0.886 |
+| SCL | Seattle (SCL) | 2.28% | 6.11% | 7.76% | xgboost | 0.940 |
+| SEC | Seminole Electric | 9.36% | 14.26% | 10.51% | xgboost | 0.375 |
+| SOCO | Southeast (Southern Co.) | 1.17% | 6.35% | 7.99% | xgboost | 0.991 |
+| SPA | SW Power Admin | 21.00% | 42.56% | 48.17% | xgboost | 0.093 |
+| SPP | Southwest (SPP) | 1.16% | 8.50% | 8.77% | xgboost | 0.988 |
+| SRP | Phoenix (SRP) | 5.58% | 26.11% | 21.17% | xgboost | 0.890 |
+| TAL | Tallahassee | 2.47% | 9.73% | 6.38% | xgboost | 0.963 |
+| TEC | Tampa Bay (TECO) | 1.16% | 7.30% | 3.51% | xgboost | 0.994 |
+| TEPC | Tucson (TEP) | 2.42% | 4.86% | 3.82% | xgboost | 0.968 |
+| TIDC | Turlock ID | 2.31% | 7.29% | 19.28% | xgboost | 0.968 |
+| TPWR | Tacoma Power | 2.07% | 7.17% | 9.04% | xgboost | 0.958 |
+| TVA | Tennessee Valley (TVA) | 2.06% | 16.11% | 4.77% | xgboost | 0.961 |
+| WALC | Desert SW (WAPA-DSW) | 6.61% | 19.99% | 18.11% | xgboost | 0.794 |
 
-**Best Days:**
-- 2026-02-12: 1.24%
-- 2026-02-11: 1.32%
-- 2026-02-13: 1.42%
-- 2026-02-10: 1.91%
-- 2026-02-14: 2.12%
+## Why XGBoost dominates the base models
 
-**Worst Days:**
-- 2026-02-07: 9.27%
-- 2026-02-03: 8.48%
-- 2026-02-06: 7.11%
-- 2026-02-08: 6.33%
-- 2026-02-02: 4.77%
+1. **Feature engineering.** XGBoost uses all 49 engineered features —
+   lagged demand (24h/168h), rolling statistics, degree-days (CDD/HDD), and
+   calendar features — capturing non-linear weather↔demand interactions that
+   Prophet (7 regressors) and ARIMA (no weather) miss.
+2. **Tail behaviour.** Where XGBoost struggles it is usually a low-load or
+   data-quality regime (SPA, LDWP, SEC) rather than a modelling gap; in one
+   such case (AZPS) ARIMA's smoother extrapolation wins, which is exactly why
+   the headline uses best-base-per-BA.
+3. **No-leakage validation.** Post-#135, the holdout uses the honest
+   `demand.shift(1)` autoregressive snapshot, so these numbers reflect true
+   forward-prediction skill, not reconstructed targets.
 
-### Error by Hour of Day
-
-**Highest Error Hours:** 13:00-14:00, 08:00-10:00 (morning ramp-up, afternoon peak)
-**Lowest Error Hours:** 01:00-03:00, 17:00-18:00 (overnight stable, evening)
-
----
-
-## FPL (Florida Power & Light) Results
-
-**Mean Actual Demand:** 14,979 MW
-**Std Actual Demand:** 3,555 MW
-
-### Model Performance
-
-| Model | MAPE % | RMSE (MW) | MAE (MW) | R² |
-|-------|--------|-----------|----------|-----|
-| Prophet | 24.51 | 4,932 | 3,743 | -0.925 |
-| ARIMA | 15.81 | 3,661 | 2,690 | -0.061 |
-| **XGBoost** | **7.51** | **2,106** | **1,282** | **0.649** |
-| Ensemble | 10.39 | 2,648 | 1,778 | 0.445 |
-
-### Ensemble Weights (1/MAPE)
-- Prophet: 0.17
-- ARIMA: 0.27
-- XGBoost: 0.56
-
-### XGBoost Top Features
-1. demand_lag_24h
-2. demand_lag_168h
-3. demand_roll_24h_min
-4. cooling_degree_days
-5. demand_roll_24h_max
-
-### Daily MAPE Analysis
-
-**Best Days:**
-- 2026-02-07: 3.05%
-- 2026-02-10: 3.20%
-- 2026-02-11: 3.59%
-- 2026-02-12: 4.07%
-- 2026-02-09: 4.26%
-
-**Worst Days:**
-- 2026-02-01: 26.66%
-- 2026-02-02: 24.67%
-- 2026-02-03: 20.41%
-- 2026-02-20: 19.97%
-- 2026-02-19: 16.57%
-
-### Error by Hour of Day
-
-**Highest Error Hours:** 12:00-16:00 (afternoon peak demand)
-**Lowest Error Hours:** 00:00, 06:00-08:00, 23:00 (overnight/early morning)
-
----
-
-## Analysis & Recommendations
-
-### Why XGBoost Outperforms
-
-1. **Feature Engineering:** XGBoost leverages 43 engineered features including:
-   - Lagged demand (24h, 168h)
-   - Rolling statistics (min, max, mean)
-   - Temperature-derived features (CDD, HDD)
-   - Calendar features (hour, day of week)
-
-2. **Non-linear Relationships:** Captures complex interactions between weather and demand that linear models miss.
-
-3. **Cross-Validation:** 5-fold TimeSeriesSplit prevents data leakage and ensures robust validation.
-
-### Why Prophet/ARIMA Underperform
-
-1. **Limited Training Data:** Only 43 days of training may be insufficient for capturing seasonal patterns that Prophet and ARIMA rely on.
-
-2. **No Weather Integration:** ARIMA doesn't use weather features; Prophet only uses 7 regressors vs XGBoost's 43.
-
-3. **Cold Start:** Prophet performs better with 1-2+ years of historical data to learn yearly seasonality.
-
-### Recommendations
-
-1. **Production Deployment:** Use XGBoost as the primary model with higher ensemble weight (0.8+).
-
-2. **Retrain Frequency:** Weekly retraining recommended to capture recent demand patterns.
-
-3. **Feature Importance:** Focus on maintaining data quality for:
-   - 24-hour lag features (most predictive)
-   - Temperature and degree-day calculations
-   - Rolling statistics
-
-4. **Model Improvement:**
-   - Collect more historical data (6+ months) for Prophet
-   - Consider LSTM or Transformer models for sequence learning
-   - Add external features: holidays, economic indicators, major events
-
----
-
-## Running the Backtest
+## Regenerating this table
 
 ```bash
-# Activate virtual environment
-source venv/bin/activate
-
-# Run backtest for a specific region
-python scripts/backtest.py --region ERCOT --holdout-days 21
-python scripts/backtest.py --region FPL --holdout-days 21
-
-# Any of the 51 BAs in config.REGION_COORDINATES (ERCOT, FPL, CAISO, PJM, ...)
-
-# Backtest many BAs at once (re-trains per BA — slow, hours for all 51):
-python scripts/backtest_all.py --regions all --holdout-days 21 --out-md docs/_backtest_all.md
-
-# Or export the CURRENT per-BA holdout metrics the training job already
-# computed — reads GCS meta.json, no retraining (minutes, covers all 51):
-python scripts/export_holdout_metrics.py --out-md docs/_holdout_table.md --out-csv holdout.csv
+# Reads the live per-BA holdout metrics straight from the GCS model store.
+# No training, no EIA/weather fetch — runs in minutes across all 51 BAs.
+gcloud auth application-default login            # if ADC not already set
+ENVIRONMENT=production GCS_BUCKET_NAME=nextera-portfolio-energy-cache \
+  python scripts/export_holdout_metrics.py \
+    --out-md docs/_holdout_table.md --out-csv holdout_metrics.csv
 ```
 
-## Test Environment
-
-- Python: 3.13
-- XGBoost: 3.2.0
-- Prophet: 1.3.0
-- pmdarima: 2.1.1
-- scikit-learn: 1.8.0
+`scripts/backtest.py --region <BA> --holdout-days 21` still exists for an
+*independent* from-scratch recompute on a 21-day holdout (different
+methodology — fetches 90 days, retrains locally), useful for spot-checking a
+single BA but not for refreshing this table.

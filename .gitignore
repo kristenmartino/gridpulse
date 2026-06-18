@@ -42,6 +42,11 @@ models/*.joblib
 *.sqlite
 *.sqlite3
 
+# Holdout-metrics export (regenerated from GCS every training run — numbers
+# live in docs/BACKTEST_RESULTS.md, not in git). See scripts/export_holdout_metrics.py
+holdout_metrics.csv
+docs/_holdout_table.md
+
 # OS
 .DS_Store
 Thumbs.db
