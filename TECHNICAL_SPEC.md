@@ -231,7 +231,7 @@ Examples include:
 1. No future leakage — all engineered features are backward-looking only.
 2. Lag-induced NaNs are handled explicitly.
 3. Timestamps are aligned to hourly cadence.
-4. Resulting model matrix is roughly 43 features depending on path.
+4. The canonical feature list (`feature_engineering.get_feature_names()`) is 49 features: 17 raw weather + 32 derived. The exact model matrix can vary slightly by path.
 
 ---
 
@@ -241,17 +241,23 @@ Examples include:
 
 **Library:** `xgboost.XGBRegressor`
 
-### Typical hyperparameter profile
-| Parameter | Representative Value |
+### Default hyperparameters (`models/xgboost_model.DEFAULT_PARAMS`)
+| Parameter | Value |
 |---|---|
-| `n_estimators` | 500 |
-| `max_depth` | 6 |
-| `learning_rate` | 0.05 |
-| `subsample` | 0.8 |
-| `colsample_bytree` | 0.8 |
-| `reg_alpha` | 0.1 |
-| `reg_lambda` | 1.0 |
+| `n_estimators` | 6000 |
+| `max_depth` | 8 |
+| `learning_rate` | 0.015 |
+| `early_stopping_rounds` | 100 |
+| `subsample` | 0.7 |
+| `colsample_bytree` | 0.7 |
+| `colsample_bylevel` | 0.8 |
+| `min_child_weight` | 5 |
+| `reg_alpha` | 0.01 |
+| `reg_lambda` | 0.5 |
+| `gamma` | 0.05 |
+| `max_bin` | 512 |
 | `random_state` | 42 |
+| `n_jobs` | -1 |
 
 ### Validation approach
 - time-series-aware cross-validation
