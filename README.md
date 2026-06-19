@@ -33,7 +33,7 @@ Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) 
 
 ## Models
 
-- **XGBoost** — 43 engineered features, TimeSeriesSplit CV, SHAP explanations. Reference run: 3.13% MAPE on ERCOT 21-day holdout (Feb 2026).
+- **XGBoost** — 49 engineered features, TimeSeriesSplit CV, SHAP explanations. Best base model for 48 of 51 BAs; reference run 0.98% MAPE on ERCOT (168-hour holdout, 2026-06-19).
 - **Prophet** — weather regressors with logistic growth + floor=0 (structurally prevents negative forecasts). Daily / weekly / yearly seasonality.
 - **SARIMAX** — auto-order selection via `pmdarima` on cold runs; cached `(p,d,q)(P,D,Q,m)` order on warm runs (skips the auto-select stepwise search, ~10× speedup on daily refresh).
 - **Ensemble** — inverse-MAPE weighted combination (self-correcting; underperforming models lose weight automatically).
