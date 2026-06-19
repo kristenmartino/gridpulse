@@ -244,3 +244,86 @@ class TestArimaConstants:
             "Seasonal D must be >= 1; D=0 produces drifting forecasts"
         )
         assert DEFAULT_SEASONAL_ORDER[3] == 24, "Daily seasonality (m=24) expected"
+
+
+class TestGetExogNaNHandling:
+    """``_get_exog`` feeds SARIMAX's exogenous matrix. SARIMAX cannot
+    fit/forecast with NaN in exog, so the function must return a clean
+    float array. The archive-unstable ``wind_speed_80m`` column (#164)
+    can arrive object-dtype with ``None``/``NaN`` — which made the old
+    ``np.isnan`` guard raise ``ufunc 'isnan' not supported ... casting
+    rule 'safe'`` *before* the fill ran, dropping ARIMA from every
+    region's holdout ensemble (#176)."""
+
+    def test_object_dtype_with_none_does_not_raise_and_is_nan_free(self):
+        from models.arima_model import _get_exog
+
+        n = 48
+        df = pd.DataFrame(
+            {
+                "temperature_2m": np.full(n, 20.0),
+                # object-dtype column: floats interspersed with None.
+                "wind_speed_80m": pd.Series(
+                    [None, None] + [5.0] * (n - 4) + [None, None], dtype=object
+                ),
+                "shortwave_radiation": np.full(n, 0.5),
+                "cooling_degree_days": np.zeros(n),
+                "heating_degree_days": np.zeros(n),
+            }
+        )
+        # Sanity: the column really is object dtype (the crash precondition).
+        assert df["wind_speed_80m"].dtype == object
+
+        exog = _get_exog(df)
+
+        assert exog is not None
+        assert exog.dtype == np.float64
+        assert not np.isnan(exog).any(), (
+            "exog reaching SARIMAX must be NaN-free; object-dtype None/NaN "
+            "in an archive-unstable regressor would otherwise drop ARIMA "
+            "from the holdout ensemble (#176)."
+        )
+
+    def test_interior_nan_is_forward_filled(self):
+        from models.arima_model import _get_exog
+
+        n = 24
+        wind = np.full(n, 5.0)
+        wind[10:13] = np.nan
+        df = pd.DataFrame(
+            {
+                "temperature_2m": np.full(n, 20.0),
+                "wind_speed_80m": wind,
+                "shortwave_radiation": np.full(n, 0.5),
+                "cooling_degree_days": np.zeros(n),
+                "heating_degree_days": np.zeros(n),
+            }
+        )
+
+        exog = _get_exog(df)
+
+        assert not np.isnan(exog).any()
+        # Forward-fill carries the last good value (5.0) across the gap.
+        wind_col = exog[:, 1]
+        assert wind_col[10] == pytest.approx(5.0)
+        assert wind_col[12] == pytest.approx(5.0)
+
+    def test_all_nan_column_degrades_to_zero(self):
+        from models.arima_model import _get_exog
+
+        n = 24
+        df = pd.DataFrame(
+            {
+                "temperature_2m": np.full(n, 20.0),
+                "wind_speed_80m": np.full(n, np.nan),
+                "shortwave_radiation": np.full(n, 0.5),
+                "cooling_degree_days": np.zeros(n),
+                "heating_degree_days": np.zeros(n),
+            }
+        )
+
+        exog = _get_exog(df)
+
+        assert not np.isnan(exog).any()
+        # An all-NaN column can't be ff/bfilled; it zeroes out.
+        assert (exog[:, 1] == 0.0).all()

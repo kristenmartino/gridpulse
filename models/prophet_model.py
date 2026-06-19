@@ -107,10 +107,21 @@ def train_prophet(
     train_df["cap"] = demand_cap
     train_df["floor"] = 0
 
-    # Add regressor columns
+    # Add regressor columns. Prophet's fit rejects any NaN in a regressor
+    # ("Found NaN in column 'wind_speed_80m'", #176) — an archive-unstable
+    # weather column (#164) carries NaN in recent rows. Sanitize the same
+    # way predict_prophet already does (coerce -> ffill -> bfill -> 0) so a
+    # gappy regressor degrades gracefully instead of dropping Prophet from
+    # the ensemble. A clean numeric column is unchanged by this.
     for regressor_name, _ in PROPHET_REGRESSORS:
         if regressor_name in df.columns:
-            train_df[regressor_name] = df[regressor_name].values
+            train_df[regressor_name] = (
+                pd.to_numeric(df[regressor_name], errors="coerce")
+                .ffill()
+                .bfill()
+                .fillna(0.0)
+                .to_numpy()
+            )
         else:
             log.warning("prophet_missing_regressor", regressor=regressor_name)
             train_df[regressor_name] = 0.0
