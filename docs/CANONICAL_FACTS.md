@@ -70,26 +70,33 @@
 ## Forecast accuracy (from holdout backtests)
 
 Accuracy is **per-BA** — never quote a single pooled "across-51" number.
-Distribution of each BA's **best base model** (lowest of XGBoost / Prophet /
-ARIMA), 168h holdout, all 51 BAs:
+Distributions over all 51 BAs, 168h holdout (three views):
 
-| Stat | Best-base MAPE |
-|---|---|
-| min | 0.79% (ERCOT) |
-| median | 2.28% |
-| mean | 3.38% |
-| p90 | 6.57% |
-| max | 21.00% (SPA) |
+| Stat | XGBoost-only | Best-base per BA | Ensemble (served) |
+|---|---|---|---|
+| min | 0.98% (ERCOT) | 0.98% (ERCOT) | 1.70% (NWMT) |
+| median | 2.32% | 2.30% | 3.48% |
+| mean | 3.79% | 3.61% | 4.92% |
+| p90 | 6.57% | 6.57% | 8.37% |
+| max | 33.97% (AZPS) | 26.68% (AZPS) | 27.40% (AZPS) |
 
-XGBoost is best base for 50 of 51 BAs (ARIMA for AZPS). **Ensemble holdout
-metric: pending** — `extra.ensemble_holdout_metrics` isn't persisted yet, so
-no ensemble accuracy is quoted (do not infer it from base models).
+XGBoost is best base for 48 of 51 BAs (ARIMA for AZPS + GCPD, Prophet for
+SPA). **The ensemble trails best-base in aggregate** (median 3.48% vs 2.30%)
+and beats XGBoost-alone on only 4 of 51 BAs — the inverse-MAPE blend (ADR-004)
+still weights the weaker Prophet/ARIMA, so it lands above the strongest single
+model; its value is tail variance-reduction (AZPS 33.97% → 27.40%), not a
+headline-accuracy win. Quote the ensemble for *what production serves*,
+best-base for *best achievable per BA*. Tail BAs swing run-to-run (AZPS was
+11.90% best-base on 2026-06-17, 26.68% here).
 
-(Source: generated 2026-06-17 from production GCS via
-`scripts/export_holdout_metrics.py`; models trained 2026-06-17. Per-BA holdout
-metrics are produced every daily training run, persisted to each model's GCS
-`meta.json`, and surfaced live in the Models tab via Redis `model_metrics`.
-Full per-BA, per-model table: [`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md).)
+(Source: generated 2026-06-19 from production GCS via
+`scripts/export_holdout_metrics.py`; models trained 2026-06-19. Ensemble
+holdout column populated for all 51 BAs since
+[#176](https://github.com/kristenmartino/gridpulse/issues/176) fixed the
+holdout-NaN crash. Per-BA holdout metrics are produced every daily training
+run, persisted to each model's GCS `meta.json`, and surfaced live in the
+Models tab via Redis `model_metrics`. Full per-BA, per-model table:
+[`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md).)
 
 Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`.
