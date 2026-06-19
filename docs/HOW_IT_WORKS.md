@@ -189,7 +189,7 @@ Pulled from [`CANONICAL_FACTS.md`](CANONICAL_FACTS.md):
 - 51 US balancing authorities (~100% of contiguous-US lower-48 load)
 - 3 base ML models (Prophet, SARIMAX, XGBoost) + 1 inverse-MAPE weighted ensemble
 - 4 user-selectable forecasts in the UI (the 3 base + the ensemble)
-- 43 features (17 raw weather + 26 derived)
+- 49 features (17 raw weather + 32 derived)
 - Hourly scoring + daily training at 04:00 UTC
 - Redis-only reads in the web tier; degraded warming state when cold
-- 63 EIA-930 BAs in the contiguous US — we cover 51 of them (~80% by BA count, ~100% by demand-weighted load)
+- 63 EIA-930 BAs in the contiguous US — we cover 51 of them (~81% by BA count, ~100% by demand-weighted load)
