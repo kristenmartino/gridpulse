@@ -154,6 +154,43 @@ class TestTrainProphet:
         assert "is_holiday" in train_df.columns
         assert (train_df["is_holiday"] == 0.0).all()
 
+    def test_nan_in_regressor_is_filled_not_passed_to_fit(self, feature_df, mock_prophet_class):
+        """A NaN in a present regressor (e.g. the archive-unstable
+        ``wind_speed_80m``, #164/#176) must not reach ``fit`` — Prophet
+        raises "Found NaN in column ...", which silently dropped Prophet
+        from every region's holdout ensemble. The fit frame's regressors
+        must be NaN-free after ffill/bfill/zero sanitation."""
+        from models.prophet_model import PROPHET_REGRESSORS, train_prophet
+
+        df_gappy = feature_df.copy()
+        # Leading + interior NaNs (bfill covers the lead, ffill the interior).
+        df_gappy.loc[df_gappy.index[:3], "wind_speed_80m"] = np.nan
+        df_gappy.loc[df_gappy.index[40:45], "wind_speed_80m"] = np.nan
+
+        _, instance = mock_prophet_class
+        train_prophet(df_gappy)
+
+        train_df = instance.fit.call_args.args[0]
+        for regressor_name, _mode in PROPHET_REGRESSORS:
+            assert not train_df[regressor_name].isna().any(), (
+                f"regressor {regressor_name!r} reached Prophet.fit with NaN — "
+                "Prophet would raise and drop this model from the ensemble."
+            )
+
+    def test_all_nan_regressor_degrades_to_zero(self, feature_df, mock_prophet_class):
+        """An entirely-NaN regressor column can't be ff/bfilled; it must
+        degrade to zero (signal dropped) rather than crash fit."""
+        from models.prophet_model import train_prophet
+
+        df_gappy = feature_df.copy()
+        df_gappy["wind_speed_80m"] = np.nan
+
+        _, instance = mock_prophet_class
+        train_prophet(df_gappy)
+
+        train_df = instance.fit.call_args.args[0]
+        assert (train_df["wind_speed_80m"] == 0.0).all()
+
 
 class TestPredictProphet:
     """The predict path returns a structured dict with point + interval

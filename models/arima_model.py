@@ -266,7 +266,13 @@ def _get_exog(df: pd.DataFrame, n_rows: int | None = None) -> np.ndarray | None:
     if not available:
         return None
 
-    exog = df[available].values.copy()
+    # Coerce to float up front. An archive-unstable weather column
+    # (e.g. wind_speed_80m, #164) can arrive object-dtype with None/NaN;
+    # ``df[available].values`` would then yield an object array and the
+    # ``np.isnan`` check below raises "ufunc 'isnan' not supported ...
+    # casting rule 'safe'" before any NaN-fill runs (#176). to_numeric
+    # turns non-numeric entries into np.nan so the existing fill applies.
+    exog = df[available].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float, copy=True)
 
     # Fill NaN in exog — SARIMAX cannot handle NaN in exogenous variables
     if np.isnan(exog).any():
