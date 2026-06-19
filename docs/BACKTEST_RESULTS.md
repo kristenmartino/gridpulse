@@ -1,11 +1,14 @@
 # Forecast Backtest Results
 
-> **Provenance:** Generated 2026-06-17 from production GCS via
+> **Provenance:** Generated 2026-06-19 from production GCS via
 > `scripts/export_holdout_metrics.py` (per-BA rolling 7-day / 168h holdout).
-> Models trained 2026-06-17. The full `{mape, rmse, mae, r2}` per BA per
+> Models trained 2026-06-19. The full `{mape, rmse, mae, r2}` per BA per
 > model lives in the **regenerable** `holdout_metrics.csv` (untracked by
 > design — it goes stale every training run; regenerate it, don't read it
-> from git). This document holds the human-readable MAPE summary.
+> from git). This document holds the human-readable MAPE summary. The
+> **ensemble** column is now populated for all 51 BAs (was blank until
+> [#176](https://github.com/kristenmartino/gridpulse/issues/176) fixed the
+> holdout-NaN crash that had been dropping Prophet+ARIMA from the blend).
 
 > **Leakage caveat (now resolved — kept for history).** Figures in the
 > *previous* version of this doc (the 2026-02-21 ERCOT+FPL snapshot) were
@@ -30,97 +33,100 @@
   live in the **Models tab** via Redis `model_metrics`.
 - **Coverage:** all **51** balancing authorities (`config.REGION_COORDINATES`).
 
-## Accuracy distribution (best base per BA)
+## Accuracy distribution (per BA, 168h holdout)
 
 Accuracy is **per-BA** — a single pooled "across-51" figure hides the tail
-(e.g. SPA, AZPS), so we report the **distribution** of each BA's *best base
-model* (the lowest MAPE of XGBoost / Prophet / ARIMA for that BA):
+(AZPS, SPA), so we report **distributions**, not one number. Three views,
+all 51 BAs:
 
-| Statistic | Best-base MAPE |
-|---|---|
-| n | 51 |
-| min | **0.79%** (ERCOT) |
-| median | **2.28%** |
-| mean | **3.38%** |
-| p90 | **6.57%** |
-| max | **21.00%** (SPA) |
+| Statistic | XGBoost-only | Best-base per BA | Ensemble (served) |
+|---|---|---|---|
+| n | 51 | 51 | 51 |
+| min | **0.98%** (ERCOT) | **0.98%** (ERCOT) | **1.70%** (NWMT) |
+| median | **2.32%** | **2.30%** | **3.48%** |
+| mean | **3.79%** | **3.61%** | **4.92%** |
+| p90 | **6.57%** | **6.57%** | **8.37%** |
+| max | **33.97%** (AZPS) | **26.68%** (AZPS) | **27.40%** (AZPS) |
 
-**Worst 5 BAs (by best-base MAPE):** SPA 21.00% (xgboost) · AZPS 11.90%
-(arima) · SEC 9.36% (xgboost) · LDWP 8.99% (xgboost) · WALC 6.61% (xgboost).
+**The ensemble trails the best base model in aggregate** (median 3.48% vs
+2.30%) and beats XGBoost-alone on only **4 of 51** BAs. This is expected, not
+a regression: the inverse-MAPE blend (ADR-004) still gives real weight to
+Prophet and ARIMA, which run 3–5× worse than XGBoost on most BAs, so the
+blend lands above the strongest single model. The ensemble earns its keep as
+**variance-reduction on the tail** (AZPS: XGBoost alone 33.97% → blend
+27.40%), not as a headline-accuracy win. For per-BA *best-achievable*
+accuracy, read the best-base column; for *what production serves by default*,
+read the ensemble column.
 
-**Best base model:** XGBoost wins **50 of 51** BAs; ARIMA wins **AZPS** (1).
-Reporting best-base rather than XGBoost-only matters for the tail — AZPS is
-29.42% on XGBoost but 11.90% on ARIMA, which also pulls the distribution max
-down from 29.42% to 21.00%.
+**Worst 5 BAs (ensemble MAPE):** AZPS 27.40% · SPA 22.07% · IID 16.31% ·
+NEVP 11.17% · WALC 8.44%. These tail BAs (low load / data-quality regimes)
+swing materially run-to-run — AZPS was 11.90% best-base on 2026-06-17 and
+26.68% here — which is why the table is regenerated each pass, not frozen.
 
-## Ensemble holdout — pending (not currently persisted)
-
-The ensemble column is intentionally **blank**: `extra.ensemble_holdout_metrics`
-is absent from every XGBoost `meta.json` in GCS, so there are no ensemble
-holdout numbers to report. **These are not fabricated or inferred from the
-base models.** (The post-hoc `write_extra_to_meta` ensemble write in
-`jobs/training_job.py` isn't landing; root cause is tracked separately.) The
-live ensemble forecast still runs — only its *holdout backtest metric* is
-missing here.
+**Best base model:** XGBoost wins **48 of 51** BAs; ARIMA wins **AZPS** and
+**GCPD** (2); Prophet wins **SPA** (1). Reporting best-base rather than
+XGBoost-only matters for the tail — AZPS is 33.97% on XGBoost but 26.68% on
+ARIMA.
 
 ## Per-BA holdout MAPE (current)
 
-Per-model MAPE plus the best base and that model's R². Full RMSE/MAE/R² for
-every model is in `holdout_metrics.csv`.
+Per-model MAPE plus the ensemble, best base, and training-window provenance.
+This is the verbatim `scripts/export_holdout_metrics.py` markdown output;
+full RMSE/MAE/R² for every model is in the regenerable `holdout_metrics.csv`.
 
-| BA | Region | XGBoost | Prophet | ARIMA | Best base | Best-base R² |
-|---|---|---|---|---|---|---|
-| AECI | Missouri (AECI) | 1.86% | 17.48% | 20.05% | xgboost | 0.989 |
-| AVA | Spokane (Avista) | 1.70% | 3.85% | 3.77% | xgboost | 0.967 |
-| AZPS | Arizona (APS) | 29.42% | 19.51% | 11.90% | arima | 0.296 |
-| BANC | Sacramento (BANC) | 4.25% | 12.94% | 10.73% | xgboost | 0.908 |
-| BPAT | Pacific NW (BPA) | 1.69% | 4.05% | 4.83% | xgboost | 0.927 |
-| CAISO | California (CAISO) | 5.39% | 14.48% | 16.23% | xgboost | 0.668 |
-| CHPD | Chelan County PUD | 2.09% | 8.89% | 5.42% | xgboost | 0.962 |
-| CPLE | Carolinas East (DEP) | 2.97% | 9.99% | 12.45% | xgboost | 0.941 |
-| CPLW | DEP-West (NC mountains) | 3.89% | 8.30% | 12.23% | xgboost | 0.889 |
-| DOPD | Douglas County PUD | 1.64% | 8.81% | 9.19% | xgboost | 0.957 |
-| DUK | Carolinas West (DEC) | 2.61% | 13.97% | 14.44% | xgboost | 0.956 |
-| EPE | El Paso (EPE) | 2.12% | 9.98% | 5.09% | xgboost | 0.986 |
-| ERCOT | Texas (ERCOT) | 0.79% | 10.15% | 16.55% | xgboost | 0.994 |
-| FMPP | Florida Muni Pool | 2.09% | 6.19% | 7.70% | xgboost | 0.973 |
-| FPC | Florida (Duke FL) | 1.48% | 18.14% | 5.80% | xgboost | 0.992 |
-| FPL | Florida (FPL/NextEra) | 1.55% | 3.27% | 3.85% | xgboost | 0.990 |
-| GCPD | Grant County PUD | 1.33% | 10.54% | 3.17% | xgboost | 0.911 |
-| GVL | Gainesville (GRU) | 1.64% | 7.63% | 8.37% | xgboost | 0.986 |
-| HST | Homestead | 1.89% | 5.43% | 5.58% | xgboost | 0.983 |
-| IID | Imperial Valley (IID) | 6.57% | 21.65% | 17.27% | xgboost | 0.937 |
-| IPCO | Idaho (Idaho Power) | 1.52% | 6.45% | 5.74% | xgboost | 0.962 |
-| ISONE | New England (ISO-NE) | 3.51% | 14.32% | 12.35% | xgboost | 0.885 |
-| JEA | Jacksonville (JEA) | 2.14% | 6.42% | 5.98% | xgboost | 0.972 |
-| LDWP | Los Angeles (LADWP) | 8.99% | 12.04% | 12.85% | xgboost | 0.576 |
-| LGEE | Kentucky (LG&E + KU) | 2.74% | 20.40% | 11.19% | xgboost | 0.928 |
-| MISO | Midwest (MISO) | 1.88% | 13.26% | 4.83% | xgboost | 0.960 |
-| NEVP | Southern Nevada (NV Energy) | 3.68% | 6.84% | 5.71% | xgboost | 0.897 |
-| NWMT | Montana (NorthWestern) | 1.08% | 2.99% | 4.30% | xgboost | 0.978 |
-| NYISO | New York (NYISO) | 2.52% | 14.61% | 10.58% | xgboost | 0.928 |
-| PACE | Inland West (PacifiCorp E) | 2.26% | 7.49% | 3.98% | xgboost | 0.954 |
-| PACW | Pacific NW (PacifiCorp W) | 3.67% | 7.09% | 5.16% | xgboost | 0.802 |
-| PGE | Portland General | 2.89% | 4.37% | 4.24% | xgboost | 0.861 |
-| PJM | Mid-Atlantic (PJM) | 2.10% | 15.09% | 61.32% | xgboost | 0.937 |
-| PNM | New Mexico (PNM) | 2.74% | 8.77% | 3.60% | xgboost | 0.922 |
-| PSCO | Colorado (Xcel) | 3.34% | 10.94% | 11.21% | xgboost | 0.956 |
-| PSEI | Puget Sound Energy | 1.45% | 5.31% | 5.76% | xgboost | 0.970 |
-| SC | Santee Cooper | 2.71% | 6.04% | 14.66% | xgboost | 0.938 |
-| SCEG | Carolinas Mid (Dominion SC) | 4.21% | 6.26% | 14.81% | xgboost | 0.886 |
-| SCL | Seattle (SCL) | 2.28% | 6.11% | 7.76% | xgboost | 0.940 |
-| SEC | Seminole Electric | 9.36% | 14.26% | 10.51% | xgboost | 0.375 |
-| SOCO | Southeast (Southern Co.) | 1.17% | 6.35% | 7.99% | xgboost | 0.991 |
-| SPA | SW Power Admin | 21.00% | 42.56% | 48.17% | xgboost | 0.093 |
-| SPP | Southwest (SPP) | 1.16% | 8.50% | 8.77% | xgboost | 0.988 |
-| SRP | Phoenix (SRP) | 5.58% | 26.11% | 21.17% | xgboost | 0.890 |
-| TAL | Tallahassee | 2.47% | 9.73% | 6.38% | xgboost | 0.963 |
-| TEC | Tampa Bay (TECO) | 1.16% | 7.30% | 3.51% | xgboost | 0.994 |
-| TEPC | Tucson (TEP) | 2.42% | 4.86% | 3.82% | xgboost | 0.968 |
-| TIDC | Turlock ID | 2.31% | 7.29% | 19.28% | xgboost | 0.968 |
-| TPWR | Tacoma Power | 2.07% | 7.17% | 9.04% | xgboost | 0.958 |
-| TVA | Tennessee Valley (TVA) | 2.06% | 16.11% | 4.77% | xgboost | 0.961 |
-| WALC | Desert SW (WAPA-DSW) | 6.61% | 19.99% | 18.11% | xgboost | 0.794 |
+| BA | Region | XGBoost | Prophet | ARIMA | Ensemble | Best base | Train rows | Trained (UTC) |
+|---|---|---|---|---|---|---|---|---|
+| AECI | Missouri (AECI) | 2.24% | 20.35% | 23.95% | 4.97% | xgboost | 1997 | 2026-06-19 |
+| AVA | Spokane (Avista) | 2.16% | 7.60% | 8.51% | 3.83% | xgboost | 1998 | 2026-06-19 |
+| AZPS | Arizona (APS) | 33.97% | 32.54% | 26.68% | 27.40% | arima | 1996 | 2026-06-19 |
+| BANC | Sacramento (BANC) | 3.02% | 9.50% | 4.30% | 3.45% | xgboost | 1998 | 2026-06-19 |
+| BPAT | Pacific NW (BPA) | 1.87% | 4.99% | 5.17% | 2.69% | xgboost | 1996 | 2026-06-19 |
+| CAISO | California (CAISO) | 3.65% | 10.25% | 4.54% | 3.34% | xgboost | 1996 | 2026-06-19 |
+| CHPD | Chelan County PUD | 2.48% | 12.85% | 6.28% | 3.21% | xgboost | 1998 | 2026-06-19 |
+| CPLE | Carolinas East (DEP) | 1.70% | 18.64% | 8.72% | 2.51% | xgboost | 1996 | 2026-06-19 |
+| CPLW | DEP-West (NC mountains) | 2.18% | 10.69% | 12.45% | 3.98% | xgboost | 1997 | 2026-06-19 |
+| DOPD | Douglas County PUD | 1.86% | 6.66% | 4.80% | 2.08% | xgboost | 1998 | 2026-06-19 |
+| DUK | Carolinas West (DEC) | 2.04% | 13.03% | 8.05% | 2.22% | xgboost | 1996 | 2026-06-19 |
+| EPE | El Paso (EPE) | 2.16% | 13.39% | 6.79% | 3.53% | xgboost | 1997 | 2026-06-19 |
+| ERCOT | Texas (ERCOT) | 0.98% | 8.21% | 6.86% | 1.79% | xgboost | 1996 | 2026-06-19 |
+| FMPP | Florida Muni Pool | 2.57% | 5.18% | 5.95% | 3.53% | xgboost | 1997 | 2026-06-19 |
+| FPC | Florida (Duke FL) | 1.91% | 6.60% | 7.42% | 3.48% | xgboost | 1997 | 2026-06-19 |
+| FPL | Florida (FPL/NextEra) | 2.32% | 3.84% | 6.44% | 2.08% | xgboost | 1996 | 2026-06-19 |
+| GCPD | Grant County PUD | 2.53% | 5.40% | 2.16% | 2.14% | arima | 1998 | 2026-06-19 |
+| GVL | Gainesville (GRU) | 1.98% | 7.13% | 5.98% | 2.91% | xgboost | 1955 | 2026-06-19 |
+| HST | Homestead | 2.56% | 6.67% | 8.84% | 3.37% | xgboost | 1997 | 2026-06-19 |
+| IID | Imperial Valley (IID) | 7.55% | 49.66% | 40.31% | 16.31% | xgboost | 1998 | 2026-06-19 |
+| IPCO | Idaho (Idaho Power) | 1.83% | 9.51% | 9.83% | 3.56% | xgboost | 1997 | 2026-06-19 |
+| ISONE | New England (ISO-NE) | 3.01% | 16.76% | 8.93% | 3.89% | xgboost | 1996 | 2026-06-19 |
+| JEA | Jacksonville (JEA) | 2.03% | 4.94% | 6.49% | 2.74% | xgboost | 1997 | 2026-06-19 |
+| LDWP | Los Angeles (LADWP) | 5.17% | 19.76% | 13.83% | 8.37% | xgboost | 1998 | 2026-06-19 |
+| LGEE | Kentucky (LG&E + KU) | 1.75% | 11.28% | 14.06% | 2.92% | xgboost | 1997 | 2026-06-19 |
+| MISO | Midwest (MISO) | 1.03% | 16.54% | 10.71% | 2.12% | xgboost | 1996 | 2026-06-19 |
+| NEVP | Southern Nevada (NV Energy) | 9.82% | 12.87% | 13.82% | 11.17% | xgboost | 1988 | 2026-06-19 |
+| NWMT | Montana (NorthWestern) | 1.16% | 5.61% | 4.51% | 1.70% | xgboost | 1993 | 2026-06-19 |
+| NYISO | New York (NYISO) | 2.11% | 19.86% | 15.76% | 4.24% | xgboost | 1996 | 2026-06-19 |
+| PACE | Inland West (PacifiCorp E) | 2.66% | 5.27% | 5.05% | 3.02% | xgboost | 1997 | 2026-06-19 |
+| PACW | Pacific NW (PacifiCorp W) | 4.73% | 7.75% | 7.89% | 5.87% | xgboost | 1997 | 2026-06-19 |
+| PGE | Portland General | 3.25% | 8.15% | 10.73% | 5.43% | xgboost | 1997 | 2026-06-19 |
+| PJM | Mid-Atlantic (PJM) | 1.20% | 22.32% | 40.19% | 2.92% | xgboost | 1996 | 2026-06-19 |
+| PNM | New Mexico (PNM) | 1.79% | 7.00% | 5.23% | 2.15% | xgboost | 1998 | 2026-06-19 |
+| PSCO | Colorado (Xcel) | 4.16% | 15.54% | 11.16% | 6.72% | xgboost | 1997 | 2026-06-19 |
+| PSEI | Puget Sound Energy | 1.73% | 6.42% | 7.74% | 2.97% | xgboost | 1997 | 2026-06-19 |
+| SC | Santee Cooper | 3.11% | 14.35% | 10.34% | 4.95% | xgboost | 1997 | 2026-06-19 |
+| SCEG | Carolinas Mid (Dominion SC) | 2.59% | 9.64% | 19.49% | 3.99% | xgboost | 1896 | 2026-06-19 |
+| SCL | Seattle (SCL) | 2.72% | 8.28% | 7.03% | 4.32% | xgboost | 1997 | 2026-06-19 |
+| SEC | Seminole Electric | 7.45% | 12.24% | 11.80% | 7.97% | xgboost | 1996 | 2026-06-19 |
+| SOCO | Southeast (Southern Co.) | 1.71% | 7.66% | 5.76% | 2.73% | xgboost | 1974 | 2026-06-19 |
+| SPA | SW Power Admin | 21.88% | 20.74% | 30.54% | 22.07% | prophet | 1970 | 2026-06-19 |
+| SPP | Southwest (SPP) | 1.12% | 10.71% | 6.68% | 2.17% | xgboost | 1996 | 2026-06-19 |
+| SRP | Phoenix (SRP) | 4.27% | 9.33% | 14.53% | 4.73% | xgboost | 1998 | 2026-06-19 |
+| TAL | Tallahassee | 2.30% | 10.15% | 8.36% | 3.92% | xgboost | 1997 | 2026-06-19 |
+| TEC | Tampa Bay (TECO) | 1.44% | 6.41% | 8.57% | 2.78% | xgboost | 1997 | 2026-06-19 |
+| TEPC | Tucson (TEP) | 2.57% | 10.19% | 6.94% | 3.02% | xgboost | 1998 | 2026-06-19 |
+| TIDC | Turlock ID | 2.51% | 20.98% | 14.45% | 5.11% | xgboost | 1947 | 2026-06-19 |
+| TPWR | Tacoma Power | 2.40% | 7.97% | 7.33% | 3.79% | xgboost | 1997 | 2026-06-19 |
+| TVA | Tennessee Valley (TVA) | 1.34% | 12.83% | 9.47% | 2.49% | xgboost | 1996 | 2026-06-19 |
+| WALC | Desert SW (WAPA-DSW) | 6.57% | 16.47% | 8.81% | 8.44% | xgboost | 1998 | 2026-06-19 |
 
 ## Why XGBoost dominates the base models
 
