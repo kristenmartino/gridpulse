@@ -415,6 +415,35 @@ class TestModelsTabFromRedis:
         assert _models_tab_from_redis("FPL", selected_models=["prophet"]) is None
 
     @patch("components._callbacks_models.redis_get")
+    def test_default_full_selection_uses_fast_path(self, mock_rg):
+        """Default full selection (distinct list, not the sentinel) → fast path.
+
+        Regression: the Models tab callback passes the checklist's *value*
+        — a fresh list equal to the default but a different object — so an
+        identity check (``is not default_models``) wrongly dropped the
+        default view to the web-tier compute path, which is strict-gated to
+        "unavailable" in production (#149) and rendered "No residual
+        diagnostics available" instead of the real ensemble charts. Match by
+        value so the default view serves the cached charts.
+        """
+        mock_rg.return_value = _diagnostics_payload()
+
+        from components.callbacks import _models_tab_from_redis
+
+        # A distinct object, exactly what the callback hands in.
+        selection = ["prophet", "arima", "xgboost", "ensemble"]
+        result = _models_tab_from_redis("FPL", selected_models=selection)
+        assert result is not None
+        assert len(result) == 6
+        table, *figs = result
+        assert isinstance(table, html.Table)
+        for fig in figs:
+            assert isinstance(fig, go.Figure)
+        # Residual-over-time figure carries real data, not an empty placeholder.
+        assert len(figs[0].data) >= 1
+        assert len(figs[0].data[0].y) > 0
+
+    @patch("components._callbacks_models.redis_get")
     def test_table_has_4_rows(self, mock_rg):
         """Metrics table has 4 rows: Prophet, SARIMAX, XGBoost, Ensemble."""
         mock_rg.return_value = _diagnostics_payload()
