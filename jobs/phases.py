@@ -1266,24 +1266,54 @@ def write_weather_correlation(data: RegionData) -> PhaseResult:
 
 
 def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
-    """Write the model-diagnostics payload (actuals vs ensemble, residuals, importance)."""
+    """Write the model-diagnostics payload (actuals, predictions, residuals, importance).
+
+    Residuals are the in-sample error of ``xgb_model`` — the XGBoost model the
+    scoring job already loaded from GCS — over the engineered historical frame.
+    When no real model or features are available the phase skips the Redis
+    write (returns ``ok=False``) rather than fabricating a zero-residual
+    "perfect model" payload; the web tier then renders its warming state.
+    """
     from data.redis_client import redis_key, redis_set
-    from models.model_service import get_forecasts
+    from models.xgboost_model import predict_xgboost
 
     region = data.region
     try:
-        diag = get_forecasts(region, data.demand_df)
-        diag_metrics = diag.get("metrics", {})
-        diag_ensemble = diag.get("ensemble", data.demand_df["demand_mw"].values)
-        if not isinstance(diag_ensemble, np.ndarray):
-            diag_ensemble = (
-                np.array(diag_ensemble)
-                if diag_ensemble is not None
-                else data.demand_df["demand_mw"].values
+        # Residuals come from the XGBoost model THIS job already loaded from
+        # GCS (passed in as ``xgb_model``), scored in-sample over the
+        # engineered historical frame.
+        #
+        # We deliberately do NOT route through ``model_service.get_forecasts``
+        # here. That re-loads models via ``models.training.load_models`` — a
+        # local-disk path the Job container never populates (the Job loads
+        # through ``models.persistence`` from GCS). In production that re-load
+        # missed, ``get_forecasts`` returned ``{"source": "unavailable"}`` with
+        # no ``ensemble``, and the old ``diag.get("ensemble", actual)`` default
+        # silently used the ACTUALS as the prediction → ``residuals = actual -
+        # actual = 0``. That fabricated a misleading "perfect model" diagnostic
+        # (flat-zero residuals, single-bin distribution, empty error-by-hour)
+        # while SHAP — sourced from this same real ``xgb_model`` — looked fine.
+        featured = data.featured_df
+        if (
+            not isinstance(xgb_model, dict)
+            or "model" not in xgb_model
+            or featured is None
+            or featured.empty
+        ):
+            # No real model/features to score. Do NOT fabricate — skip the
+            # write so the web tier renders the warming/placeholder state
+            # rather than a fake zero-residual chart.
+            return PhaseResult(
+                region=region, ok=False, error="no_model_or_features_for_diagnostics"
             )
-        diag_actual = data.demand_df["demand_mw"].values[: len(diag_ensemble)]
-        diag_residuals = diag_actual - diag_ensemble
-        diag_ts = data.demand_df["timestamp"].iloc[: len(diag_ensemble)]
+
+        diag_df = featured.dropna(subset=["demand_mw"]).reset_index(drop=True)
+        diag_pred = np.asarray(predict_xgboost(xgb_model, diag_df), dtype=float)
+        n = min(len(diag_pred), len(diag_df))
+        diag_pred = diag_pred[:n]
+        diag_actual = diag_df["demand_mw"].to_numpy()[:n]
+        diag_residuals = diag_actual - diag_pred
+        diag_ts = pd.to_datetime(diag_df["timestamp"].iloc[:n])
         hours_of_day = diag_ts.dt.hour
         error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(diag_residuals)})
         hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
@@ -1314,11 +1344,16 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
             redis_key(f"diagnostics:{region}"),
             {
                 "region": region,
+                # Diagnostics score the XGBoost primary model (ADR-005)
+                # in-sample. The ``ensemble`` key carries that predicted series
+                # for back-compat with the web fast path's residuals-vs-predicted
+                # axis; ``diagnostics_model`` records what actually produced it.
+                "diagnostics_model": "xgboost",
                 "timestamps": _ts_list(diag_ts),
                 "actual": diag_actual.tolist(),
-                "ensemble": diag_ensemble.tolist(),
+                "ensemble": diag_pred.tolist(),
                 "residuals": diag_residuals.tolist(),
-                "metrics": dict(diag_metrics),
+                "metrics": {},
                 "hourly_error": {
                     "hours": hourly_error.index.tolist(),
                     "values": hourly_error.values.tolist(),
@@ -1330,7 +1365,7 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
         return PhaseResult(
             region=region,
             ok=True,
-            details={"metrics": list(diag_metrics), "points": len(diag_ensemble)},
+            details={"points": int(n), "model": "xgboost"},
         )
     except Exception as e:
         log.warning("job_diagnostics_failed", region=region, error=str(e))

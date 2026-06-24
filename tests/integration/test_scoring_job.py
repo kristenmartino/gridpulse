@@ -157,22 +157,16 @@ class TestScoringJob:
             lambda region, model_name: (fake_model, fake_meta),
         )
 
-        # Patch predict_xgboost to bypass feature alignment complexity.
+        # Patch predict_xgboost to bypass feature alignment complexity. The
+        # constant 41_000 prediction (vs the ~40_000±5_000 synthetic demand)
+        # gives clearly non-zero residuals — the diagnostics phase computes
+        # residuals directly from this loaded model, never from get_forecasts.
         import models.xgboost_model as xgb_mod
 
         monkeypatch.setattr(
             xgb_mod,
             "predict_xgboost",
             lambda model, x: np.full(len(x), 41_000.0),
-        )
-
-        # Patch the diagnostics path's forecast service to avoid training.
-        import models.model_service as model_service
-
-        monkeypatch.setattr(
-            model_service,
-            "get_forecasts",
-            lambda region, df: {"ensemble": df["demand_mw"].values, "metrics": {}},
         )
 
         from jobs import scoring_job
@@ -198,6 +192,21 @@ class TestScoringJob:
         meta = fake_redis["gridpulse:meta:last_scored"]
         assert meta["regions_scored"] == 1
         assert meta["mode"] == "scoring-job"
+
+        # Diagnostics residuals must be REAL (actual - model prediction), not
+        # the old fabricated zero from `ensemble = actual`. The predicted
+        # series equals the patched model output (41_000), distinct from the
+        # synthetic ~40_000±5_000 actuals, so residuals are non-trivial.
+        diag = fake_redis["gridpulse:diagnostics:ERCOT"]
+        assert diag["diagnostics_model"] == "xgboost"
+        ensemble = np.asarray(diag["ensemble"], dtype=float)
+        residuals = np.asarray(diag["residuals"], dtype=float)
+        actual = np.asarray(diag["actual"], dtype=float)
+        assert len(residuals) > 0
+        assert np.allclose(ensemble, 41_000.0)  # predicted series, not actuals
+        assert not np.allclose(ensemble, actual)  # would be the fabricated bug
+        assert np.abs(residuals).mean() > 1.0  # residuals are not all ~0
+        assert np.allclose(residuals, actual - ensemble)
 
     def test_scoring_job_missing_model_still_writes_actuals(
         self,
