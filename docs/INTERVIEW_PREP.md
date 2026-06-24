@@ -122,6 +122,21 @@ Result: The job now degrades gracefully through an EIA outage rather than dying.
 
 **Lesson to convey**: *The most dangerous moment after an incident is the next incident that looks identical. The same alert fired both times, but one was "our runtime outgrew its budget" and the other was "an upstream dependency vanished" — and the right fix for the first (more headroom) does nothing for the second (graceful degradation). Read the new evidence before reaching for the last fix.*
 
+### 8. "Walk me through a subtle bug — and how a safety improvement exposed it."
+**The identity check that ate the default Models view.**
+
+Situation: The Models tab's residual charts rendered the placeholder "No residual diagnostics available for the selected model(s)." on production for the *default* view — every model selected, the state a user lands on. The same charts worked fine in dev. The screenshot even *looked* like a CSS bug: the message was clipped to its middle slice in the narrow 3-up cards.
+
+Investigation: The clipping was a red herring — a one-line Plotly annotation overflowing a narrow card. The real question was why the placeholder showed at all. The Models tab has a Redis fast path that serves cached ensemble residuals, gated by `if selected_models is not default_models and set(selected_models) != {"ensemble"}: return None`. That `is not` is an **identity** check. The callback passes the checklist's *value* — `["prophet","arima","xgboost","ensemble"]`, a fresh list that *equals* `default_models` but is a different object — so the identity check was always true, and the default view always fell through to the compute path.
+
+Why it only broke in production: that compute path calls `get_forecasts`, which #149 had recently **strict-gated** to return `unavailable` (no fabricated series) under `REQUIRE_REDIS`. In dev the fallthrough still produced simulated residuals, so the charts filled in and the bug stayed invisible. The honesty fix didn't *cause* the bug — it *revealed* a latent one that fake data had been masking.
+
+Action: Compared by value, not identity (`if set(selected_models) not in ({"ensemble"}, set(default_models))`), so the default view serves the real ensemble charts that were in Redis all along. Added a regression test that passes the default selection as a distinct object (the exact call shape that fooled the identity check), and hardened the placeholder annotation to wrap so a genuine warming state never clips again.
+
+Result: The default Models view renders real charts in production. One-line gate fix; full unit suite green.
+
+**Lesson to convey**: *`is` is not `==`. An identity check on a value that's reconstructed on every callback is a time bomb — it works in the one test that passes the sentinel object and fails everywhere real. And removing fake fallbacks is double-edged: it makes you honest, but it also strips the camouflage off every latent bug the fake data was quietly covering. Budget for the bugs an honesty fix will surface.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

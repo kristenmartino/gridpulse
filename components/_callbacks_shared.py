@@ -229,11 +229,19 @@ def _empty_figure(message: str = "") -> go.Figure:
                 dict(
                     text=message,
                     showarrow=False,
-                    font=dict(size=14, color="#A8B3C7"),
+                    font=dict(size=13, color="#A8B3C7"),
                     xref="paper",
                     yref="paper",
                     x=0.5,
                     y=0.5,
+                    # Plotly annotations don't wrap by default — a one-line
+                    # message wider than the plot overflows the figure and is
+                    # clipped on both ends (only the centered middle shows).
+                    # ``width`` forces wrapping so the placeholder stays
+                    # readable even in narrow cards (e.g. the 3-up residual
+                    # grid on the Models tab).
+                    width=240,
+                    align="center",
                 )
             ],
             xaxis=dict(visible=False),

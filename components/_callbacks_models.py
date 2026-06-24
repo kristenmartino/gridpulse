@@ -82,9 +82,21 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     """
     default_models = ["prophet", "arima", "xgboost", "ensemble"]
     selected_models = selected_models or default_models
-    # Current Redis diagnostics payload is ensemble-only for residual charts.
-    # Keep this fast path only when callback explicitly requests ensemble-only.
-    if selected_models is not default_models and set(selected_models) != {"ensemble"}:
+    # The Redis diagnostics payload carries ENSEMBLE residual series only, so
+    # this fast path can satisfy exactly two selections: the default full
+    # model set (the Models tab's initial state) and an ensemble-only
+    # selection. Any narrower per-model subset needs per-model residuals this
+    # payload lacks, so it falls through to compute.
+    #
+    # Compare by VALUE, not identity. The callback passes the checklist's
+    # value — a distinct list object that *equals* ``default_models`` but is
+    # not the same object — so the old ``is not default_models`` identity
+    # check never matched the default view. That silently dropped the default
+    # Models tab to the v1 compute path, which on the stateless web tier is
+    # strict-gated to "unavailable" (#149) and produces no per-model
+    # residuals → the "No residual diagnostics available" placeholder instead
+    # of the real ensemble charts that were sitting in Redis the whole time.
+    if set(selected_models) not in ({"ensemble"}, set(default_models)):
         return None
 
     cached = redis_get(redis_key(f"diagnostics:{region}"))
