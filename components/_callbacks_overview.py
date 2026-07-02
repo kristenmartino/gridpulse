@@ -89,11 +89,27 @@ from config import (
     REGION_CAPACITY_MW,
     REGION_NAMES,
     REQUIRE_REDIS,
+    mape_grade,
 )
 from data.redis_client import redis_get, redis_key
 from personas.config import get_persona
 
 log = structlog.get_logger()
+
+# Leaderboard MAPEs are 168h-holdout numbers → grade them on the 7d governance
+# band (config.MAPE_BY_HORIZON). Map the H2 grade to a MetricsBar tone so a
+# model's color on the live surface matches the governance rule for the very
+# metric shown, instead of ad-hoc 2.5/5.0 literals (2026-07 review P2-24).
+_MAPE_GRADE_TONE = {
+    "excellent": "positive",
+    "target": "positive",
+    "acceptable": "secondary",
+    "rollback": "negative",
+}
+
+
+def _leaderboard_mape_tone(mape: float) -> str:
+    return _MAPE_GRADE_TONE.get(mape_grade(mape, "7d"), "secondary")
 
 
 def _read_ensemble_forecast_from_redis(
@@ -1132,8 +1148,9 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
     """5-up MetricsBar leaderboard — Prophet / SARIMAX / XGBoost / Ensemble / EIA.
 
     Hero highlight goes to the model with the lowest MAPE. Sub-line shows
-    MAE; tone reflects the MAPE grade band (positive ≤ 2.5%, secondary
-    ≤ 5%, negative > 5%).
+    MAE; tone comes from the H2 governance grade (``mape_grade`` on the 7d
+    band, since these are 168h-holdout MAPEs) via ``_leaderboard_mape_tone``
+    — not ad-hoc thresholds, so the color matches governance (#P2-24).
     """
     region = region or "FPL"
     try:
@@ -1180,12 +1197,7 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
             continue
         mape = float(m["mape"])
         mae = m.get("mae")
-        if mape <= 2.5:
-            tone = "positive"
-        elif mape <= 5.0:
-            tone = "secondary"
-        else:
-            tone = "negative"
+        tone = _leaderboard_mape_tone(mape)
         items.append(
             {
                 "label": display_names.get(key, key.title()),
