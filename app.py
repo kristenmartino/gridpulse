@@ -199,10 +199,13 @@ def metrics():
     allowed = [ip.strip() for ip in os.getenv("METRICS_ALLOWED_IPS", "127.0.0.1,::1").split(",")]
     from flask import request as flask_request
 
-    # Use X-Forwarded-For when behind a proxy, fall back to remote_addr
-    remote = flask_request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-    if not remote:
-        remote = flask_request.remote_addr or ""
+    # Spoof-resistant caller IP: rightmost (edge-appended) X-Forwarded-For hop,
+    # not the client-controlled leftmost (2026-07 review P2-52).
+    from observability import untrusted_client_ip
+
+    remote = untrusted_client_ip(
+        flask_request.headers.get("X-Forwarded-For"), flask_request.remote_addr
+    )
     if remote not in allowed and os.getenv("ENVIRONMENT", "development") != "development":
         log.warning("metrics_access_denied", remote_ip=remote)
         return jsonify({"error": "forbidden"}), 403

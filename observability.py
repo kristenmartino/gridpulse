@@ -58,6 +58,21 @@ def configure_logging(json_output: bool | None = None) -> None:
     )
 
 
+def untrusted_client_ip(xff_header: str | None, remote_addr: str | None) -> str:
+    """Resolve the caller IP for allowlist checks, spoof-resistantly.
+
+    ``X-Forwarded-For`` is client-controlled on its LEFT — a caller can prepend
+    any IP. The trusted edge (e.g. Cloud Run's load balancer) appends the REAL
+    source on the RIGHT, so we take the rightmost hop; a prepended
+    ``127.0.0.1`` can't slip past an allowlist that way (2026-07 review P2-52).
+    Falls back to ``remote_addr`` (the TCP peer) when there is no XFF.
+    """
+    hops = [h.strip() for h in (xff_header or "").split(",") if h.strip()]
+    if hops:
+        return hops[-1]
+    return remote_addr or ""
+
+
 def add_request_logging(server) -> None:
     """
     Add request logging middleware to the Flask server.
