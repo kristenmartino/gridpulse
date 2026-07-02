@@ -19,38 +19,45 @@ follow-up commit.
 
 ## Active focus + open question
 
-**2026-07-02 — Critical-review remediation (workstream A: alert-feed honesty).**
-A 35-agent adversarially-verified review of the whole codebase at `5000d6a`
-(report: `docs/internal/CRITICAL_REVIEW_2026-07.md`) confirmed 2 P0 + 10 P1
-new findings beyond the #181–#189 elegance audit. Headline P0s: (1) the
-scoring job published `generate_demo_alerts()` content hourly as real,
-NOAA-attributed alerts; (2) Prophet/SARIMAX forecasts are time-mislabeled up
-to ~24h (train-end-anchored predictions written at scoring-tick timestamps).
-This session shipped the P0-1 mitigation (workstream A): `write_alerts` is
-honest-empty outside demo mode (`alerts_source="unavailable"`), demo alerts
-are disclosed end-to-end, `update_alerts_tab` gained the missing
-`REQUIRE_REDIS` warming gate, NOAA attribution removed until the client is
-actually wired, absent metrics render as "—" not `0.0%`. **Workstream B
-(trust-signal measurement) also shipped this session:** freshness measured
-from each payload's own `scored_at` (never hardcoded `fresh`; P1-3), the
-Overview hero/insight surface `scored_at` and mark stale forecasts (P1-4),
-empirical interval bands disclose their calibration model when it differs
-from the displayed model (P1-2), and sMAPE values are labeled sMAPE (P1-8).
-All 11 P0/P1 findings filed as #193–#203; P2/P3 folded into the #189
-tracker. PRs open: [#191](https://github.com/kristenmartino/gridpulse/pull/191)
-(workstream A), [#192](https://github.com/kristenmartino/gridpulse/pull/192)
-(workstream B, stacked on A).
+**2026-07-02 — Critical-review remediation: CODE COMPLETE, DEPLOY-PENDING.**
+A 35-agent adversarially-verified review at `5000d6a`
+(report: `docs/internal/CRITICAL_REVIEW_2026-07.md`) confirmed **2 P0 + 10 P1**
+new findings beyond the #181–#189 elegance audit. **Both P0s and 9 of 10 P1s
+are now merged to `main`** across PRs #191, #192, #204, #205, #207, #208,
+#209, #210:
 
-**NOAA alerts now wired for real (sidestep from the P0-1 mitigation).** The
-scoring job fetches live NWS alerts per BA (`data/noaa_client` →
-`alerts_source="noaa"`, `gridpulse:alerts:{region}`), with stale-cache +
-circuit-breaker outage resilience and an honest `unavailable` degrade; the
-Risk tab renders real alerts with NOAA attribution restored. Branch
-`feat/wire-noaa-alerts` (stacked on B) — the real fix behind #193.
+- **P0-1** (scoring job published `generate_demo_alerts()` as real,
+  NOAA-attributed alerts) → honest-empty mitigation (#191) + real live-NOAA
+  wiring (#204) + cache-datetime fix (#205). Issue #193.
+- **P0-2** (Prophet/SARIMAX forecasts time-mislabeled up to ~24h) → explicit
+  `start_ts` anchor + gap-spanning frame (#208). Issue #194.
+- **P1s shipped:** freshness measured from `scored_at` (#192, #197), scored_at
+  surfaced (#198), interval calibration disclosed (#192, #196-partial), sMAPE
+  labeled (#202), alerts warming gate (#200), fabricated-perfection → "—" on
+  Overview (#191) + Forecast card (#210, #201), Models-tab zero-residual
+  honesty (#207/#166-interim), National-Peak math (#210, #203), generation
+  Redis-first no request-path EIA (#210, #199), recursive commensurable
+  XGBoost holdout (#209, #195).
 
-Remaining: workstream C (forecast time-alignment #194 + commensurable
-holdout #195 — re-examine #170/#181 after it lands); #199 (EIA fetch in
-request path); #203 (National Peak math).
+**Issues #193–#203 stay OPEN pending prod deploy-verify** (repo convention;
+close after verification). P2/P3 folded into the #189 tracker.
+
+**THE KEYSTONE — next action is a deploy + re-measurement (yours, needs prod
+GCS/Cloud Run):** (1) deploy `main`; (2) force a `gridpulse-training-job` run
+with `force=True` so every BA re-scores its holdout recursively (#195's resume
+short-circuit keys on data-hash, not code version — unchanged BAs keep stale
+teacher-forced weights otherwise); (3) `scripts/export_holdout_metrics.py`
+against prod GCS → refresh `docs/BACKTEST_RESULTS.md` / `_holdout_table.md` /
+`CANONICAL_FACTS.md` / `README.md` (~13 values move); (4) watch
+`drift:{region}.rolling_smape_7d` for Prophet/ARIMA — #170's per-model live
+drift should drop now that they're time-aligned. This re-measurement is the
+gate for the remaining follow-ups (below) and supplies the evidence for the
+INTERVIEW_PREP STAR stories (§9–§11).
+
+**Remaining after re-measurement:** #196 per-model residual calibration
+(disclosure shipped; real per-model residuals need the backtest-payload work
+#181 also needs); #195 variance-smoothing fast-follow; weather-realism
+follow-up; revisit **#170/#181** on the commensurable, time-aligned data.
 
 **Strategic position: A — Portfolio + targeted credibility investment.**
 The 2026-05-20 forecast-pipeline audit reframed the credibility surface
@@ -82,38 +89,29 @@ theatrical and should be partially reverted:
 
 ## Next 3 (priority order)
 
-**Context: the 2026-07 critical review** (`docs/internal/CRITICAL_REVIEW_2026-07.md`)
-confirmed 2 P0 + 10 P1 findings beyond the #181–#189 elegance audit, filed as
-#193–#203. Shipped so far: #191 (alert honesty + warming gate #200 + fabricated-
-perfection #201 slice), #192 (freshness #197, scored_at #198, interval disclosure
-#196, sMAPE label #202), #204 (live NOAA wiring, the real fix behind #193).
-**Fixed-pending-prod-verify** (open only for the close-after-verify convention):
-#197, #198, #200, #202. Full status map lives in the review report.
+The 2026-07 critical-review remediation is **code-complete and merged**
+(#191/#192/#204/#205/#207/#208/#209/#210). The whole board now hinges on one
+deploy + re-measurement — see the Active-focus block above for the full
+per-finding map.
 
-1. **Merge [#205](https://github.com/kristenmartino/gridpulse/pull/205) → finish P0-1.**
-   Completes #193: fixes the NOAA cache-round-trip datetime bug that degraded the
-   Risk tab to "unavailable" on every cache-hit BA, plus professionalizes the
-   unavailable-state copy. Verified end-to-end against the live NOAA API (CAISO/
-   NYISO carry real alerts; ERCOT/FPL legitimately empty). After merge: prod-
-   verify on a region with active alerts, then close #193.
-2. **Workstream C — the last P0 (largest remaining chunk).** Plan:
-   `docs/internal/WORKSTREAM_C_PLAN.md`.
-   [#194](https://github.com/kristenmartino/gridpulse/issues/194)
-   (P0-2: Prophet/SARIMAX forecasts time-mislabeled up to ~24h — anchored at the
-   pickled model's training-end but written at scoring-tick timestamps) —
-   **IMPLEMENTED, PR [#208](https://github.com/kristenmartino/gridpulse/pull/208)**:
-   predict functions gain an explicit `start_ts` anchor (byte-identical when
-   None) and the scoring job feeds a gap-spanning feature frame; verified
-   end-to-end against real Prophet/SARIMAX (ARIMA exact, gap=18). Deploy note:
-   legacy ARIMA pickles fall back to gap=0 for one retrain cycle (Prophet
-   corrects immediately). **Still open — [#195](https://github.com/kristenmartino/gridpulse/issues/195)**
-   (P1-1: XGBoost's "168h holdout" is teacher-forced one-step-ahead while
-   Prophet/ARIMA are multi-step — incommensurable). PR 2; gated on human
-   decisions (holdout variance, training wall-clock, force-run on deploy — see
-   the plan's §7). **Dependency:** after #194 deploys, re-measure live drift and
-   revisit [#170](https://github.com/kristenmartino/gridpulse/issues/170) +
-   [#181](https://github.com/kristenmartino/gridpulse/issues/181) — both rest on
-   the misaligned data.
+1. **DEPLOY + RE-MEASURE (the keystone — yours, needs prod GCS/Cloud Run).**
+   Deploy `main`; force a `gridpulse-training-job` run (`force=True`) so every
+   BA re-scores its holdout recursively (#195/#209 — the resume short-circuit
+   keys on data-hash, not code version); run
+   `scripts/export_holdout_metrics.py` against prod GCS and refresh the
+   published tables (`BACKTEST_RESULTS.md` / `_holdout_table.md` /
+   `CANONICAL_FACTS.md` / `README.md`, ~13 values); watch
+   `drift:{region}.rolling_smape_7d` for Prophet/ARIMA to confirm #194's
+   time-alignment dropped their live drift. **Capture the before/after numbers**
+   — they close #170/#181 re-analysis and fill the INTERVIEW_PREP STAR stories.
+   Deploy note: legacy ARIMA pickles fall back to gap=0 for one retrain cycle
+   (Prophet corrects immediately).
+2. **Close the verified findings + follow-ups (after #1).** Close #193–#203 as
+   prod-verification confirms each; then the gated follow-ups: #196 per-model
+   residual calibration, #195 variance-smoothing, weather-realism, and the
+   **#170/#181** revisit on the now-commensurable, time-aligned data.
+3. **P2/P3 elegance backlog (#189)** and product-forward work
+   (`docs/internal/EXECUTION_BRIEF.md`) once the remediation loop is fully shut.
 3. **Close out partials + loose P1s (small–medium).** [#201](https://github.com/kristenmartino/gridpulse/issues/201)
    remainder (`_callbacks_forecast.py:1107` still renders `MAPE 0.0%`); [#203](https://github.com/kristenmartino/gridpulse/issues/203)
    (National Peak = max of per-BA maxima, not a true national peak); [#199](https://github.com/kristenmartino/gridpulse/issues/199)
