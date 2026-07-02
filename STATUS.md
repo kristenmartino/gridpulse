@@ -96,16 +96,24 @@ perfection #201 slice), #192 (freshness #197, scored_at #198, interval disclosur
    unavailable-state copy. Verified end-to-end against the live NOAA API (CAISO/
    NYISO carry real alerts; ERCOT/FPL legitimately empty). After merge: prod-
    verify on a region with active alerts, then close #193.
-2. **Workstream C — the last P0 (largest remaining chunk).** [#194](https://github.com/kristenmartino/gridpulse/issues/194)
-   (P0-2: Prophet/SARIMAX forecasts time-mislabeled up to ~24h — predictions
-   anchored at the pickled model's training-end are written at scoring-tick
-   timestamps) **+** [#195](https://github.com/kristenmartino/gridpulse/issues/195)
-   (P1-1: XGBoost's "168h holdout" is teacher-forced one-step-ahead while Prophet/
-   ARIMA are multi-step — the published numbers are incommensurable). Do together;
-   both touch the scoring/training core. **Dependency:** after landing, re-measure
-   live drift and revisit [#170](https://github.com/kristenmartino/gridpulse/issues/170)
-   + [#181](https://github.com/kristenmartino/gridpulse/issues/181) — both currently
-   rest on the misaligned data, so their diagnoses may change.
+2. **Workstream C — the last P0 (largest remaining chunk).** Plan:
+   `docs/internal/WORKSTREAM_C_PLAN.md`.
+   [#194](https://github.com/kristenmartino/gridpulse/issues/194)
+   (P0-2: Prophet/SARIMAX forecasts time-mislabeled up to ~24h — anchored at the
+   pickled model's training-end but written at scoring-tick timestamps) —
+   **IMPLEMENTED, PR [#208](https://github.com/kristenmartino/gridpulse/pull/208)**:
+   predict functions gain an explicit `start_ts` anchor (byte-identical when
+   None) and the scoring job feeds a gap-spanning feature frame; verified
+   end-to-end against real Prophet/SARIMAX (ARIMA exact, gap=18). Deploy note:
+   legacy ARIMA pickles fall back to gap=0 for one retrain cycle (Prophet
+   corrects immediately). **Still open — [#195](https://github.com/kristenmartino/gridpulse/issues/195)**
+   (P1-1: XGBoost's "168h holdout" is teacher-forced one-step-ahead while
+   Prophet/ARIMA are multi-step — incommensurable). PR 2; gated on human
+   decisions (holdout variance, training wall-clock, force-run on deploy — see
+   the plan's §7). **Dependency:** after #194 deploys, re-measure live drift and
+   revisit [#170](https://github.com/kristenmartino/gridpulse/issues/170) +
+   [#181](https://github.com/kristenmartino/gridpulse/issues/181) — both rest on
+   the misaligned data.
 3. **Close out partials + loose P1s (small–medium).** [#201](https://github.com/kristenmartino/gridpulse/issues/201)
    remainder (`_callbacks_forecast.py:1107` still renders `MAPE 0.0%`); [#203](https://github.com/kristenmartino/gridpulse/issues/203)
    (National Peak = max of per-BA maxima, not a true national peak); [#199](https://github.com/kristenmartino/gridpulse/issues/199)
