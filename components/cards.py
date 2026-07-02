@@ -429,8 +429,13 @@ def build_page_footer(
     sources: list[str] | None = None,
     note: str | None = None,
 ) -> html.Div:
-    """Small attribution footer at the bottom of the linear stack."""
-    sources = sources or ["EIA", "Open-Meteo", "NOAA"]
+    """Small attribution footer at the bottom of the linear stack.
+
+    NOAA is deliberately absent from the default: the NOAA client exists but
+    is not wired into any data path yet, so crediting it would misattribute
+    the alerts content.
+    """
+    sources = sources or ["EIA", "Open-Meteo"]
     parts: list = [html.Span(" · ".join(sources), className="gp-footer__sources")]
     if note:
         parts.append(html.Span(note, className="gp-footer__note"))

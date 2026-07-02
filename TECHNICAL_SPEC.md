@@ -140,8 +140,9 @@ Generation-by-fuel data is also fetched for supply-side context, fuel mix views,
 
 **Source:** NOAA / National Weather Service  
 **Purpose:** severe weather and alert context for regions  
+**Status (2026-07):** client implemented (`data/noaa_client.py`) but **not yet wired** into the scoring pipeline or any UI path. In production the Risk tab's alert feed publishes an explicitly-empty payload (`alerts_source="unavailable"`); demo alerts appear only in demo mode and are labeled as demo. The UI does not attribute alert content to NOAA until this integration lands.
 
-This source supports alert- and extreme-event-oriented views. It is not the primary weather forecasting source but provides risk context layered over energy and forecast views.
+This source is intended to support alert- and extreme-event-oriented views. It is not the primary weather forecasting source but provides risk context layered over energy and forecast views.
 
 ---
 

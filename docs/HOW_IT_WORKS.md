@@ -7,7 +7,7 @@
 
 GridPulse is an **energy intelligence platform**: weather-aware electricity demand forecasting plus the supporting context (grid generation, severe-weather alerts, scenario simulation, model validation) for **51 US balancing authorities** covering ~100% of contiguous-US lower-48 load. The product surface is a Dash/Plotly web app; the operational machinery is a small set of Cloud Run services and scheduled jobs.
 
-The design principle that shapes everything below: **the web tier never does heavy work in the request path.** Cache misses degrade gracefully to a "warming" state instead of triggering inline model loads or third-party API calls. All the expensive work — fetching data from EIA / Open-Meteo / NOAA, training models, computing forecasts — happens out-of-band in scheduled jobs that write to Redis. The web service reads only.
+The design principle that shapes everything below: **the web tier never does heavy work in the request path.** Cache misses degrade gracefully to a "warming" state instead of triggering inline model loads or third-party API calls. All the expensive work — fetching data from EIA / Open-Meteo, training models, computing forecasts — happens out-of-band in scheduled jobs that write to Redis. (A NOAA/NWS alerts client exists in `data/noaa_client.py` but is not wired into any pipeline yet; the Risk tab's alert feed is explicitly "unavailable" in production until it is.) The web service reads only.
 
 ## §1 — System architecture
 
@@ -18,7 +18,7 @@ flowchart LR
     subgraph External["External APIs"]
         EIA[EIA API v2<br/>demand · generation · interchange]
         OM[Open-Meteo<br/>17 weather vars]
-        NOAA[NOAA NWS<br/>severe alerts]
+        NOAA[NOAA NWS<br/>severe alerts — client built,<br/>not yet wired]
     end
 
     subgraph GCP["Google Cloud Platform"]
@@ -38,7 +38,7 @@ flowchart LR
     CS -- triggers --> TJ
     SJ -- fetch --> EIA
     SJ -- fetch --> OM
-    SJ -- fetch --> NOAA
+    SJ -. planned .-> NOAA
     TJ -- fetch --> EIA
     TJ -- fetch --> OM
     SJ -- read models --> GCS
@@ -82,7 +82,7 @@ Two jobs, two cadences, two outputs.
 flowchart TB
     subgraph Hourly["Hourly scoring — gridpulse-scoring-job"]
         H1[Cloud Scheduler fires<br/>at :00 each hour]
-        H2[For each of 51 BAs:<br/>fetch EIA + Open-Meteo + NOAA]
+        H2[For each of 51 BAs:<br/>fetch EIA + Open-Meteo]
         H3[Load latest XGBoost/Prophet/ARIMA<br/>from GCS]
         H4[Predict 24h ahead<br/>+ compute inverse-MAPE ensemble]
         H5[Write to Redis:<br/>forecast · alerts · diagnostics · weather-correlation]

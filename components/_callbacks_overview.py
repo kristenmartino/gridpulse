@@ -525,11 +525,19 @@ def _build_overview_model_card(region: str) -> html.Div:
         return html.Div()
 
     m = metrics_dict[primary_key]
+
+    def _fmt(key: str, spec: str, suffix: str = "") -> str:
+        # An absent metric must render as unavailable, not as a perfect score.
+        value = m.get(key)
+        if value is None:
+            return "—"
+        return f"{value:{spec}}{suffix}"
+
     formatted = {
-        "MAPE": f"{m.get('mape', 0.0):.1f}%",
-        "RMSE": f"{m.get('rmse', 0.0):,.0f} MW",
-        "MAE": f"{m.get('mae', 0.0):,.0f} MW",
-        "R²": f"{m.get('r2', 0.0):.3f}",
+        "MAPE": _fmt("mape", ".1f", "%"),
+        "RMSE": _fmt("rmse", ",.0f", " MW"),
+        "MAE": _fmt("mae", ",.0f", " MW"),
+        "R²": _fmt("r2", ".3f"),
     }
     name = "XGBoost" if primary_key == "xgboost" else primary_key.title()
     badge = "trained" if is_trained(region) else "simulated"
@@ -1058,8 +1066,20 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
         if key not in metrics_dict:
             continue
         m = metrics_dict[key]
-        mape = float(m.get("mape", 0.0))
-        mae = float(m.get("mae", 0.0))
+        if m.get("mape") is None:
+            # An absent metric must render as unavailable, not as 0.0%.
+            items.append(
+                {
+                    "label": display_names.get(key, key.title()),
+                    "value": "—",
+                    "unit": "metrics unavailable",
+                    "tone": "secondary",
+                    "hero": key == hero_key,
+                }
+            )
+            continue
+        mape = float(m["mape"])
+        mae = m.get("mae")
         if mape <= 2.5:
             tone = "positive"
         elif mape <= 5.0:
@@ -1070,7 +1090,7 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
             {
                 "label": display_names.get(key, key.title()),
                 "value": f"{mape:.1f}%",
-                "unit": f"MAE {mae:,.0f}",
+                "unit": f"MAE {float(mae):,.0f}" if mae is not None else "",
                 "tone": tone,
                 "hero": key == hero_key,
             }
@@ -1141,7 +1161,7 @@ def _build_risk_insight(
         anomaly_clause,
         " ",
         weather_clause,
-        " Check the timeline above for active NOAA alerts.",
+        " Check the timeline above for active alerts.",
     ]
     return build_insight_card("Risk summary", body)
 
@@ -1663,13 +1683,16 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
     source_config = {
         "demand": {"label": "EIA Demand", "icon": "⚡"},
         "weather": {"label": "Weather", "icon": "☁"},
-        "alerts": {"label": "NOAA Alerts", "icon": "⚠"},
+        # No live alert feed is wired yet (noaa_client has no scoring-path
+        # caller) — do not attribute the alerts payload to NOAA.
+        "alerts": {"label": "Alerts", "icon": "⚠"},
     }
 
     status_colors = {
         "fresh": "#2BD67B",
         "stale": "#FFB84D",
         "demo": "#A8B3C7",
+        "unavailable": "#A8B3C7",
         "error": "#FF5C7A",
     }
 
