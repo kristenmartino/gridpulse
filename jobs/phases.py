@@ -1348,9 +1348,8 @@ def write_alerts(data: RegionData) -> PhaseResult:
     ``alerts_source="demo"`` so the UI can disclose them. The anomaly and
     temperature sections are always real (derived from fetched demand/weather).
     """
-    from data.redis_client import redis_key, redis_set
-
     import config as _config
+    from data.redis_client import redis_key, redis_set
 
     region = data.region
     try:

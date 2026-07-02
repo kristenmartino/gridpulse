@@ -23,11 +23,9 @@ import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 import pytest
-from dash import html
 
 import config
 from jobs import phases
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -182,7 +180,9 @@ class TestAlertsTabRedisRendering:
         """Pre-fix payloads only ever carried demo content — disclose them."""
         from components import _callbacks_alerts as mod
 
-        payload = _payload("demo", [{"event": "X", "headline": "y", "severity": "info"}], 20, "Normal")
+        payload = _payload(
+            "demo", [{"event": "X", "headline": "y", "severity": "info"}], 20, "Normal"
+        )
         del payload["alerts_source"]
         with patch.object(mod, "redis_get", return_value=payload):
             result = mod._alerts_tab_from_redis("FPL")
@@ -228,9 +228,7 @@ class TestAlertsWarmingGate:
 
         monkeypatch.setattr(mod, "REQUIRE_REDIS", True)
         with patch.object(mod, "redis_get", return_value=None):
-            result = callbacks["update_alerts_tab"](
-                "ERCOT", None, None, "tab-alerts"
-            )
+            result = callbacks["update_alerts_tab"]("ERCOT", None, None, "tab-alerts")
 
         text = _collect_text(result[0])
         assert "warming" in text.lower()
@@ -246,9 +244,7 @@ class TestAlertsWarmingGate:
             patch.object(mod, "redis_get", return_value=None),
             patch("data.demo_data.generate_demo_alerts", return_value=fake_alerts),
         ):
-            result = callbacks["update_alerts_tab"](
-                "FPL", None, None, "tab-alerts"
-            )
+            result = callbacks["update_alerts_tab"]("FPL", None, None, "tab-alerts")
 
         text = _collect_text(result[0])
         assert "Demo data" in text

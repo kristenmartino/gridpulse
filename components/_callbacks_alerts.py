@@ -390,7 +390,16 @@ def register_alerts_callbacks(app):
                     "the next scoring run."
                 ),
             )
-            return ([warming], "—", html.Span("Warming"), html.Div(), empty, empty, empty, html.Div())
+            return (
+                [warming],
+                "—",
+                html.Span("Warming"),
+                html.Div(),
+                empty,
+                empty,
+                empty,
+                html.Div(),
+            )
 
         # ── v1 compute fallback (dev/demo only) ─────────────
         from data.demo_data import generate_demo_alerts
