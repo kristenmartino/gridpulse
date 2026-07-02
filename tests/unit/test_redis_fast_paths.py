@@ -842,6 +842,19 @@ class TestBacktestTabFromRedis:
         assert "MW" in mae_str
 
     @patch("components._callbacks_backtest.redis_get")
+    def test_no_circular_coverage_or_zero_hour_caption(self, mock_rg):
+        """P2-28: the self-validating 'Recent coverage' stat is gone, and the
+        interval caption never renders the 'last 0h' bug (it's gated on the
+        interval actually being available)."""
+        mock_rg.return_value = _backtest_payload(24)
+
+        from components.callbacks import _backtest_tab_from_redis
+
+        _, _, _, _, _, explanation, _ = _backtest_tab_from_redis("FPL", 24, "xgboost", "grid_ops")
+        assert "Recent coverage" not in explanation
+        assert "last 0h" not in explanation
+
+    @patch("components._callbacks_backtest.redis_get")
     def test_cache_miss_returns_none(self, mock_rg):
         """Cache miss → returns None."""
         mock_rg.return_value = None
