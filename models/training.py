@@ -21,7 +21,10 @@ import pandas as pd
 import structlog
 
 from config import MODEL_DIR, REGION_COORDINATES
-from data.feature_engineering import compute_autoregressive_snapshot, engineer_exogenous_features
+from data.feature_engineering import (
+    engineer_exogenous_features,
+    recursive_autoregressive_forecast,
+)
 from models.arima_model import predict_arima, train_arima
 from models.ensemble import compute_ensemble_weights
 from models.evaluation import compute_all_metrics
@@ -109,17 +112,12 @@ def train_all_models(
     # --- XGBoost ---
     try:
         xgb_result = train_xgboost(train_df, target_col=target_col)
-        demand_history = train_df[target_col].tolist()
-        xgb_steps: list[float] = []
-        for i in range(len(val_df)):
-            row = val_df.iloc[[i]].copy()
-            for col, val in compute_autoregressive_snapshot(demand_history).items():
-                row[col] = val
-            row = row.ffill().bfill().fillna(0)
-            pred = float(predict_xgboost(xgb_result, row)[0])
-            xgb_steps.append(pred)
-            demand_history.append(pred)
-        xgb_forecast = np.array(xgb_steps[: len(y_val)], dtype=float)
+        # Recursive multi-step holdout via the shared protocol — same one
+        # production scoring uses, so this MAPE is commensurable with the
+        # Prophet/SARIMAX multi-step holdouts (#195, single source of truth).
+        xgb_forecast = recursive_autoregressive_forecast(
+            xgb_result, train_df[target_col].tolist(), val_df, predict_xgboost
+        )[: len(y_val)]
         metrics["xgboost"] = compute_all_metrics(y_val, xgb_forecast)
         results["xgboost"] = {"model": xgb_result, "predictions": xgb_forecast}
         log.info(

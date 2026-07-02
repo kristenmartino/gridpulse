@@ -47,11 +47,21 @@ def _holdout_metrics_xgboost(featured_df, region: str) -> dict | None:
     forecast: ndarray, actual: ndarray}`` or ``None`` if the window is too
     short / the holdout fit fails.
 
+    Scored RECURSIVELY (#195): each step's autoregressive lags come from the
+    model's own prior predictions, not observed in-window actuals — the same
+    protocol production serves. Before #195 this used
+    ``predict_xgboost(model, val_df)`` directly, which is teacher-forced
+    one-step-ahead (val_df already carries real-demand lag features) and is
+    NOT commensurable with the Prophet/SARIMAX multi-step holdouts. For one
+    release both the recursive (headline) and the old teacher-forced MAPE are
+    logged so the shift is observable before it drives weights/gates.
+
     The forecast / actual arrays are kept on the return so the ensemble metric
     can be computed from the SAME holdout predictions later, no recomputation.
     """
     import numpy as np
 
+    from data.feature_engineering import recursive_autoregressive_forecast
     from models.evaluation import compute_all_metrics
     from models.xgboost_model import predict_xgboost, train_xgboost
 
@@ -61,17 +71,34 @@ def _holdout_metrics_xgboost(featured_df, region: str) -> dict | None:
     val_df = featured_df.iloc[-_HOLDOUT_HOURS:]
     try:
         holdout_model = train_xgboost(train_df, n_splits=3)
-        forecast = np.asarray(predict_xgboost(holdout_model, val_df), dtype=float)[: len(val_df)]
         y_val = np.asarray(val_df["demand_mw"].values, dtype=float)
+        # Recursive multi-step (the honest, production-matching score).
+        forecast = recursive_autoregressive_forecast(
+            holdout_model, train_df["demand_mw"].tolist(), val_df, predict_xgboost
+        )[: len(val_df)]
         if not np.isfinite(forecast).all():
             return None
         metrics = compute_all_metrics(y_val, forecast)
         if not np.isfinite(metrics["mape"]) or metrics["mape"] <= 0:
             return None
+
+        # One-release observability: the old teacher-forced number alongside
+        # the new recursive one, so the accuracy shift is visible in logs
+        # before it moves ensemble weights / the visibility gate.
+        mape_teacher_forced: float | None = None
+        try:
+            tf = np.asarray(predict_xgboost(holdout_model, val_df), dtype=float)[: len(val_df)]
+            if np.isfinite(tf).all():
+                mape_teacher_forced = round(float(compute_all_metrics(y_val, tf)["mape"]), 3)
+        except Exception:  # pragma: no cover — comparison-only, never fatal
+            mape_teacher_forced = None
+
         log.info(
             "training_xgboost_holdout_metrics",
             region=region,
             mape=round(metrics["mape"], 3),
+            mape_teacher_forced=mape_teacher_forced,
+            protocol="recursive",
             rmse=round(metrics["rmse"], 1),
             mae=round(metrics["mae"], 1),
             r2=round(metrics["r2"], 4),
