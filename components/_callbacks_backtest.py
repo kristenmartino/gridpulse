@@ -226,15 +226,10 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     else:
         metrics = {"mape": 0, "rmse": 0, "mae": 0, "r2": 0}
     residuals = actual - predictions
-    interval_monitor = {"recent_coverage": 0.0, "drift": -0.8}
     interval_window = 0
     interval_available = False
     try:
-        from models.evaluation import (
-            apply_empirical_interval,
-            compute_interval_coverage_drift,
-            empirical_error_quantiles,
-        )
+        from models.evaluation import apply_empirical_interval, empirical_error_quantiles
 
         interval_window = int(min(len(residuals), max(horizon_hours * 5, 120)))
         recent_resid = residuals[-interval_window:] if interval_window else residuals
@@ -242,10 +237,14 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
         lower_band, upper_band = apply_empirical_interval(
             predictions, q["lower_error"], q["upper_error"]
         )
-        interval_monitor = compute_interval_coverage_drift(actual, lower_band, upper_band, 0.80)
         interval_available = bool(q.get("sample_size", 0) > 0)
     except Exception:
         lower_band, upper_band = predictions, predictions
+
+    # No "coverage_monitor" here: calibrating quantiles on the same residuals we
+    # then measure coverage against is self-validating (~80% for any forecast,
+    # even a bad one) — a misleading stat, removed with its "last 0h" caption
+    # (2026-07 review P2-28).
 
     # Build the chart
     fig = go.Figure()
@@ -335,9 +334,6 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     rmse_str = f"{metrics.get('rmse', 0):,.0f} MW{mode_suffix}"
     mae_str = f"{metrics.get('mae', 0):,.0f} MW{mode_suffix}"
     r2_str = f"{metrics.get('r2', 0):.3f}{mode_suffix}"
-    coverage_str = f"{interval_monitor.get('recent_coverage', 0.0) * 100:.1f}%"
-    drift_pp = interval_monitor.get("drift", 0.0) * 100.0
-
     from components.insights import build_insight_card, generate_tab3_insights
 
     persona = persona_id or "grid_ops"
@@ -362,9 +358,13 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
         mae_str,
         r2_str,
         (
-            f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}. "
-            f"Interval: 80% empirical prediction interval (calibration window: last {interval_window}h). "
-            f"Recent coverage: {coverage_str} (drift vs 80% target: {drift_pp:+.1f} pp)."
+            f"{explanations.get(horizon_hours, '')} Exogenous mode: {exog_caption}."
+            + (
+                f" Interval: 80% empirical prediction interval "
+                f"(calibration window: last {interval_window}h)."
+                if interval_available
+                else ""
+            )
         ),
         insight_card,
     )
@@ -499,7 +499,6 @@ def _run_backtest_for_horizon(
     from models.evaluation import (
         apply_empirical_interval,
         compute_all_metrics,
-        compute_interval_coverage_drift,
         empirical_error_quantiles,
     )
 
@@ -685,8 +684,12 @@ def _run_backtest_for_horizon(
     lower_interval, upper_interval = apply_empirical_interval(
         predictions, q["lower_error"], q["upper_error"]
     )
-    interval_monitor = compute_interval_coverage_drift(actual, lower_interval, upper_interval, 0.80)
 
+    # No "coverage_monitor" persisted: measuring interval coverage on the same
+    # residuals the quantiles were calibrated on is self-validating (~80% for
+    # any forecast), and the value was write-only anyway (dropped by
+    # write_backtests, and the renderer recomputes its own). Removed with its
+    # misleading drift warning (2026-07 review P2-27).
     result = {
         "timestamps": timestamps,
         "actual": actual,
@@ -705,7 +708,6 @@ def _run_backtest_for_horizon(
             "upper_error": float(q["upper_error"]),
             "lower": lower_interval,
             "upper": upper_interval,
-            "coverage_monitor": interval_monitor,
         },
     }
 
@@ -717,19 +719,7 @@ def _run_backtest_for_horizon(
         exog_mode=exog_mode,
         folds=len(fold_boundaries),
         mape=round(metrics["mape"], 2),
-        interval_recent_coverage=round(interval_monitor["recent_coverage"], 4),
-        interval_drift_pp=round(interval_monitor["drift"] * 100.0, 2),
     )
-    if abs(interval_monitor["drift"]) > 0.05:
-        log.warning(
-            "prediction_interval_coverage_drift",
-            region=region,
-            horizon=horizon_hours,
-            model=model_name,
-            recent_coverage=round(interval_monitor["recent_coverage"], 4),
-            target=0.80,
-            drift_pp=round(interval_monitor["drift"] * 100.0, 2),
-        )
 
     # Cache the result (in-memory)
     _BACKTEST_CACHE[cache_key] = (result, data_hash, time.time())
