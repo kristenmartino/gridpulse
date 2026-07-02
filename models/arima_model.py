@@ -67,6 +67,16 @@ def train_arima(
     train_df = df.tail(max_training_rows).copy()
     y = train_df[target_col].values
 
+    # Capture the training-end timestamp so predict can re-anchor a forecast
+    # to an explicit start (the pickled model's forecast origin is train_end;
+    # the hourly scoring job runs later, so a forward forecast must skip the
+    # train_end→forecast_start gap — see #194).
+    train_end = (
+        str(pd.Timestamp(train_df["timestamp"].iloc[-1]))
+        if "timestamp" in train_df.columns and len(train_df)
+        else None
+    )
+
     exog = _get_exog(train_df)
 
     # Fill any NaN in exog to prevent SARIMAX fitting failures
@@ -204,6 +214,7 @@ def train_arima(
         "exog_cols": ARIMA_EXOG_COLS,
         "tail_y": tail_y,
         "tail_exog": tail_exog,
+        "train_end": train_end,
     }
 
 
@@ -211,7 +222,8 @@ def predict_arima(
     model_dict: dict[str, Any],
     future_exog: pd.DataFrame,
     periods: int = 168,
-) -> np.ndarray:
+    start_ts: Any | None = None,
+) -> Any:
     """
     Generate forecasts from a SARIMAX model payload.
 
@@ -223,13 +235,45 @@ def predict_arima(
     Args:
         model_dict: Output from train_arima() (lean) or a legacy dict with
             a fitted ``SARIMAXResults`` under ``"model"``.
-        future_exog: DataFrame with exogenous variable values for forecast period.
+        future_exog: DataFrame with exogenous variable values for forecast
+            period. When ``start_ts`` is given, this must cover the whole
+            ``train_end+1h .. start_ts+(periods-1)h`` span (gap + horizon),
+            in row order, so the sliced horizon lines up with real exog.
         periods: Number of hourly steps to forecast.
+        start_ts: Optional explicit forecast-origin timestamp. The pickled
+            model forecasts from its ``train_end``; when the caller needs the
+            window to begin at a later ``start_ts`` (the scoring tick runs
+            after the daily training), we forecast across the gap and slice
+            the ``periods``-long window starting at ``start_ts`` (#194).
 
     Returns:
-        Forecast array of length `periods`.
+        When ``start_ts`` is None (legacy/refit-then-predict callers):
+        a forecast array of length ``periods`` — byte-identical to before.
+        When ``start_ts`` is given: a dict
+        ``{"forecast": ndarray[periods], "timestamps": DatetimeIndex[periods]}``
+        whose timestamps start at ``start_ts``.
     """
-    exog = _get_exog(future_exog, n_rows=periods)
+    # Zero-gap or unknown-anchor → number of steps to forecast is just periods
+    # and the slice offset is 0 (today's behavior). With an explicit start_ts
+    # and a known train_end, extend across the gap and slice.
+    gap = 0
+    train_end = model_dict.get("train_end")
+    if start_ts is not None:
+        st = pd.Timestamp(start_ts)
+        if train_end is not None:
+            te = pd.Timestamp(train_end)
+            # Normalize tz so the subtraction is well-defined.
+            if st.tz is not None and te.tz is None:
+                te = te.tz_localize(st.tz)
+            elif st.tz is None and te.tz is not None:
+                st = st.tz_localize(te.tz)
+            offset_hours = int(round((st - te) / pd.Timedelta(hours=1)))
+            gap = max(offset_hours - 1, 0)
+        else:
+            log.warning("arima_predict_no_anchor", periods=periods)
+
+    total_steps = gap + periods
+    exog = _get_exog(future_exog, n_rows=total_steps)
 
     try:
         if "params" in model_dict:
@@ -247,14 +291,26 @@ def predict_arima(
         else:
             fitted = model_dict["model"]
 
-        forecast = fitted.forecast(steps=periods, exog=exog)
+        forecast = fitted.forecast(steps=total_steps, exog=exog)
         # Clamp negative forecasts to 0 (demand can't be negative)
-        forecast = np.maximum(forecast, 0)
-        log.debug("arima_forecast_generated", periods=periods)
-        return forecast
+        forecast = np.maximum(np.asarray(forecast), 0)
+        forecast = forecast[gap : gap + periods]
+        log.debug("arima_forecast_generated", periods=periods, gap=gap)
+
+        if start_ts is None:
+            return forecast
+        return {
+            "forecast": forecast,
+            "timestamps": pd.date_range(pd.Timestamp(start_ts), periods=periods, freq="h"),
+        }
     except Exception as e:
         log.error("arima_forecast_failed", error=str(e))
-        return np.full(periods, np.nan)
+        if start_ts is None:
+            return np.full(periods, np.nan)
+        return {
+            "forecast": np.full(periods, np.nan),
+            "timestamps": pd.date_range(pd.Timestamp(start_ts), periods=periods, freq="h"),
+        }
 
 
 def _get_exog(df: pd.DataFrame, n_rows: int | None = None) -> np.ndarray | None:

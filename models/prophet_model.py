@@ -137,17 +137,27 @@ def predict_prophet(
     model: Any,
     df: pd.DataFrame,
     periods: int = 168,
+    start_ts: Any | None = None,
 ) -> dict[str, np.ndarray]:
     """
     Generate forecasts from a fitted Prophet model.
 
     Args:
         model: Fitted Prophet model.
-        df: DataFrame with future timestamps and regressor values.
+        df: DataFrame with future timestamps and regressor values. When
+            ``start_ts`` is given this should span the gap + horizon so the
+            gap hours get real (not forward-filled) regressor values.
         periods: Number of hourly periods to forecast (default: 168 = 7 days).
+        start_ts: Optional explicit forecast-origin timestamp. Prophet's
+            ``make_future_dataframe`` anchors on the model's training history
+            end; when the caller needs the window to begin at a later
+            ``start_ts`` (the scoring tick runs after daily training), we
+            extend the future frame across the gap and return the
+            ``periods``-long window starting at ``start_ts`` (#194).
 
     Returns:
         Dict with keys: 'forecast', 'lower_80', 'upper_80', 'timestamps'.
+        ``timestamps`` begins at ``start_ts`` when it is supplied.
 
         ``lower_80``/``upper_80`` are Prophet's genuine 80% posterior
         prediction interval (``yhat_lower``/``yhat_upper`` at the model's
@@ -158,7 +168,23 @@ def predict_prophet(
         quantiles via ``models.evaluation`` (see the Overview/Forecast tabs);
         a calibrated 95% would belong there, not as a scaled 80%.
     """
-    future = model.make_future_dataframe(periods=periods, freq="h")
+    # Anchor handling (#194): Prophet appends future rows after its training
+    # history end. To make the returned window start at an explicit start_ts,
+    # extend the future frame across the train_end→start_ts gap, then select
+    # the periods rows at/after start_ts.
+    total_periods = periods
+    start_naive = None
+    if start_ts is not None:
+        hist_end = pd.Timestamp(model.history["ds"].max())
+        start_naive = pd.Timestamp(start_ts)
+        if start_naive.tz is not None:
+            start_naive = start_naive.tz_localize(None)
+        offset_hours = int(round((start_naive - hist_end) / pd.Timedelta(hours=1)))
+        # +periods rows from start_ts, plus the gap to reach it. One extra
+        # step of slack is harmless (sliced off by the head(periods) below).
+        total_periods = max(offset_hours, 0) + periods
+
+    future = model.make_future_dataframe(periods=total_periods, freq="h")
 
     # Logistic growth requires cap and floor on future DataFrame
     demand_cap = getattr(model, "_demand_cap", 50000)
@@ -205,8 +231,13 @@ def predict_prophet(
 
     forecast = model.predict(future)
 
-    # Extract the forecast period (last N rows)
-    fc = forecast.tail(periods)
+    # Extract the forecast window. With an explicit start_ts, take the first
+    # ``periods`` rows at/after start_ts (its own label); otherwise the last
+    # N rows (byte-identical to the pre-#194 behavior).
+    if start_naive is not None:
+        fc = forecast[pd.to_datetime(forecast["ds"]) >= start_naive].head(periods)
+    else:
+        fc = forecast.tail(periods)
 
     return {
         "forecast": fc["yhat"].values,
