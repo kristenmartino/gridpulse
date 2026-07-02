@@ -171,7 +171,8 @@ class TestResolveForecastMape:
         )
         mape, source = _resolve_forecast_mape("PJM")
         assert mape == pytest.approx(4.2)
-        assert source == "live 7d"
+        # Metric-name honesty (2026-07 review P1-8): label names the metric used.
+        assert source == "live 7d MAPE"
 
     @patch("components._callbacks_overview.redis_get")
     def test_prefers_smape_over_mape_when_present(self, mock_redis_get):
@@ -189,7 +190,8 @@ class TestResolveForecastMape:
         )
         mape, source = _resolve_forecast_mape("PJM")
         assert mape == pytest.approx(18.0)
-        assert source == "live 7d"
+        # An sMAPE value must be LABELED sMAPE (P1-8).
+        assert source == "live 7d sMAPE"
 
     @patch("components._callbacks_overview.redis_get")
     def test_falls_back_to_mape_when_smape_absent(self, mock_redis_get):
@@ -201,7 +203,7 @@ class TestResolveForecastMape:
         )
         mape, source = _resolve_forecast_mape("PJM")
         assert mape == pytest.approx(4.2)
-        assert source == "live 7d"
+        assert source == "live 7d MAPE"
 
     @patch("components._callbacks_overview.redis_get")
     def test_falls_back_to_30d_when_7d_records_insufficient(self, mock_redis_get):
@@ -222,7 +224,7 @@ class TestResolveForecastMape:
         # mocked, so falls all the way through to (None, "").
         # The function as written gates BOTH 7d and 30d on n_records >= 24.
         # If we want 30d to be more lenient, that's a separate decision.
-        assert source == "" or source == "holdout"  # depends on which layer fires
+        assert source == "" or source == "holdout MAPE"  # depends on which layer fires
 
     @patch("models.model_service.get_model_metrics")
     @patch("components._callbacks_overview.redis_get")
@@ -233,7 +235,7 @@ class TestResolveForecastMape:
         mock_get_metrics.return_value = {"ensemble": {"mape": 4.7, "rmse": 1000}}
         mape, source = _resolve_forecast_mape("PJM")
         assert mape == pytest.approx(4.7)
-        assert source == "holdout"
+        assert source == "holdout MAPE"
 
     @patch("models.model_service.get_model_metrics")
     @patch("components._callbacks_overview.redis_get")
@@ -257,7 +259,7 @@ class TestResolveForecastMape:
         mape, source = _resolve_forecast_mape("PJM")
         # 7d is NaN → falls through to 30d
         assert mape == pytest.approx(4.5)
-        assert source == "live 30d"
+        assert source == "live 30d MAPE"
 
 
 # ── Insight body label change (Recent peak → Last 24h peak) ──────────
