@@ -345,6 +345,33 @@ class TestLiveNOAAWiring:
         assert captured["payload"]["alerts_total"] == 1
         assert len(captured["payload"]["alerts"]) == 1
 
+    def test_cache_reconstructed_alerts_do_not_degrade_to_unavailable(self, monkeypatch):
+        """Regression: alerts returned from the client's cache path carry
+        onset/expires as reconstructed objects, not raw strings. Before the
+        _alert_from_dict fix, write_alerts crashed on ``.expires.isoformat()``
+        / ``.tzinfo`` and silently degraded every cache-hit BA to
+        ``alerts_source="unavailable"`` — which is exactly what surfaced on
+        the Risk tab. This exercises the real round-trip."""
+        from data.noaa_client import _alert_from_dict, _alert_to_dict
+
+        monkeypatch.setattr(config, "USE_DEMO_DATA", False)
+        # Simulate what fetch_alerts_for_region returns on a cache hit.
+        cache_shaped = [_alert_from_dict(_alert_to_dict(_weather_alert(1, "warning")))]
+        captured: dict = {}
+        with (
+            patch(
+                "data.redis_client.redis_set",
+                side_effect=lambda k, p, ttl=None: captured.update(payload=p) or True,
+            ),
+            patch("data.noaa_client.fetch_alerts_for_region", return_value=cache_shaped),
+        ):
+            result = phases.write_alerts(_region_data("ERCOT"))
+
+        assert result.ok
+        assert captured["payload"]["alerts_source"] == "noaa"
+        assert captured["payload"]["alerts_total"] == 1
+        assert captured["payload"]["alerts"][0]["event"] == "Heat Advisory"
+
     def test_cap_is_disclosed_not_silent(self, monkeypatch):
         monkeypatch.setattr(config, "USE_DEMO_DATA", False)
         captured: dict = {}

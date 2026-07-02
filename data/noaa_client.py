@@ -133,7 +133,7 @@ def fetch_alerts_for_region(
     if use_cache:
         cached = cache.get(cache_key)
         if cached is not None:
-            return [WeatherAlert(**a) for a in cached]
+            return [_alert_from_dict(a) for a in cached]
 
     states = STATE_TO_BA[region]
     log.info("noaa_fetching_alerts", region=region, states=states)
@@ -157,7 +157,7 @@ def fetch_alerts_for_region(
         stale = cache.get(cache_key, allow_stale=True)
         if stale is not None:
             log.warning("noaa_serving_stale_alerts", region=region, count=len(stale))
-            return [WeatherAlert(**a) for a in stale]
+            return [_alert_from_dict(a) for a in stale]
         raise NOAAAlertsUnavailableError(
             f"All {len(states)} state fetches failed for {region} and no cached alerts exist"
         )
@@ -206,12 +206,12 @@ def _fetch_state_alerts(state: str) -> list[WeatherAlert] | None:
     state_key = f"noaa_state_{state}"
     cached = cache.get(state_key)
     if cached is not None:
-        return [WeatherAlert(**a) for a in cached]
+        return [_alert_from_dict(a) for a in cached]
 
     if not _breaker.allow_request():
         stale = cache.get(state_key, allow_stale=True)
         if stale is not None:
-            return [WeatherAlert(**a) for a in stale]
+            return [_alert_from_dict(a) for a in stale]
         return None
 
     url = f"{NOAA_BASE_URL}/alerts/active"
@@ -228,7 +228,7 @@ def _fetch_state_alerts(state: str) -> list[WeatherAlert] | None:
         stale = cache.get(state_key, allow_stale=True)
         if stale is not None:
             log.warning("noaa_serving_stale_state", state=state, count=len(stale))
-            return [WeatherAlert(**a) for a in stale]
+            return [_alert_from_dict(a) for a in stale]
         return None
 
     features = data.get("features", [])
@@ -296,3 +296,19 @@ def _alert_to_dict(alert: WeatherAlert) -> dict:
         "states": alert.states,
         "balancing_authorities": alert.balancing_authorities,
     }
+
+
+def _alert_from_dict(d: dict) -> WeatherAlert:
+    """Rebuild a WeatherAlert from a cached dict, inverting ``_alert_to_dict``.
+
+    Critically, ``onset``/``expires`` are re-parsed back to ``datetime`` so
+    the ``WeatherAlert`` contract (``expires: datetime | None``) holds on the
+    cache-hit path too. Reconstructing with the raw ISO strings (as a bare
+    ``WeatherAlert(**d)`` would) leaves them as ``str`` and crashes any
+    consumer that treats them as datetimes — which silently degraded the
+    scoring job's alerts phase to "unavailable" on every cache hit.
+    """
+    fields = dict(d)
+    fields["onset"] = _parse_datetime(fields.get("onset"))
+    fields["expires"] = _parse_datetime(fields.get("expires"))
+    return WeatherAlert(**fields)
