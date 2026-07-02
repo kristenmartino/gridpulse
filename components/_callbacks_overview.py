@@ -1337,13 +1337,19 @@ def _build_scenarios_panel(
             demand_df = pd.read_json(io.StringIO(demand_json))
             demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
             demand_df = demand_df.sort_values("timestamp")
-            from models.model_service import get_forecasts
 
-            forecasts = get_forecasts(region, demand_df, models_shown=["ensemble"])
-            ens = forecasts.get("ensemble")
-            if ens is not None and len(ens) >= horizon:
-                base_y = np.asarray(ens[:horizon], dtype=float)
-                last_actual_ts = demand_df["timestamp"].iloc[-1]
+            # Baseline = the real scored ensemble from Redis (the scoring job's
+            # own output), not model_service.get_forecasts — which on the
+            # stateless web tier is strict-gated to "unavailable" in prod
+            # (#149) and echoed actuals as a fake forecast in dev when only
+            # "ensemble" is requested (2026-07 review P2-31). This is the same
+            # reader the Overview hero uses.
+            forecast_payload = _read_ensemble_forecast_from_redis(region)
+            if forecast_payload is not None:
+                _fc_ts, ensemble_arr, _scored_at = forecast_payload
+                if ensemble_arr is not None and len(ensemble_arr) >= horizon:
+                    base_y = np.asarray(ensemble_arr[:horizon], dtype=float)
+                    last_actual_ts = demand_df["timestamp"].iloc[-1]
         except Exception as exc:  # pragma: no cover
             log.warning("forecast_scenario_baseline_failed", region=region, error=str(exc))
 
