@@ -608,9 +608,13 @@ class TestAlertsTabFromRedis:
         assert result is not None
         assert len(result) == 8
         alert_cards = result[0]
-        assert len(alert_cards) == 1
+        # 1 alert card + 1 leading "Demo data" disclosure: a legacy payload
+        # without alerts_source only ever carried demo content, so it must
+        # be disclosed (alert-feed honesty fix, 2026-07 review P0-1).
+        assert len(alert_cards) == 2
+        assert "Demo data" in str(getattr(alert_cards[0], "children", ""))
         # Each card is an html.Div from build_alert_card
-        assert isinstance(alert_cards[0], html.Div)
+        assert isinstance(alert_cards[1], html.Div)
 
     @patch("components._callbacks_alerts.redis_get")
     def test_no_alerts_placeholder(self, mock_rg):

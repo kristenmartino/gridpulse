@@ -1338,18 +1338,38 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
 
 
 def write_alerts(data: RegionData) -> PhaseResult:
-    """Write the alerts / stress / anomaly payload for the Risk tab."""
-    from data.demo_data import generate_demo_alerts
+    """Write the alerts / stress / anomaly payload for the Risk tab.
+
+    Alert-feed honesty: no live alert feed is wired yet (``data/noaa_client``
+    exists but has no scoring-path caller), so outside demo mode this phase
+    publishes an explicitly-empty payload (``alerts_source="unavailable"``,
+    ``stress_score=None``) rather than fabricated advisories. Demo alerts are
+    emitted only when ``config.USE_DEMO_DATA`` is set, and are labeled
+    ``alerts_source="demo"`` so the UI can disclose them. The anomaly and
+    temperature sections are always real (derived from fetched demand/weather).
+    """
+    import config as _config
     from data.redis_client import redis_key, redis_set
 
     region = data.region
     try:
-        alerts = generate_demo_alerts(region)
-        n_crit = sum(1 for a in alerts if a["severity"] == "critical")
-        n_warn = sum(1 for a in alerts if a["severity"] == "warning")
-        n_info = sum(1 for a in alerts if a["severity"] == "info")
-        stress = min(100, n_crit * 30 + n_warn * 15 + 20)
-        stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
+        stress: int | None
+        if _config.USE_DEMO_DATA:
+            from data.demo_data import generate_demo_alerts
+
+            alerts = generate_demo_alerts(region)
+            alerts_source = "demo"
+            n_crit = sum(1 for a in alerts if a["severity"] == "critical")
+            n_warn = sum(1 for a in alerts if a["severity"] == "warning")
+            n_info = sum(1 for a in alerts if a["severity"] == "info")
+            stress = min(100, n_crit * 30 + n_warn * 15 + 20)
+            stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
+        else:
+            alerts = []
+            alerts_source = "unavailable"
+            n_crit = n_warn = n_info = 0
+            stress = None
+            stress_label = "Unavailable"
 
         recent = data.demand_df.tail(168).copy()
         rolling_mean = recent["demand_mw"].rolling(24).mean()
@@ -1367,6 +1387,7 @@ def write_alerts(data: RegionData) -> PhaseResult:
         payload: dict[str, Any] = {
             "region": region,
             "alerts": alerts,
+            "alerts_source": alerts_source,
             "stress_score": stress,
             "stress_label": stress_label,
             "alert_counts": {"critical": n_crit, "warning": n_warn, "info": n_info},

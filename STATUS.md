@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-06-04
+# Status — updated 2026-07-02
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,22 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-07-02 — Critical-review remediation (workstream A: alert-feed honesty).**
+A 35-agent adversarially-verified review of the whole codebase at `5000d6a`
+(report: `docs/internal/CRITICAL_REVIEW_2026-07.md`) confirmed 2 P0 + 10 P1
+new findings beyond the #181–#189 elegance audit. Headline P0s: (1) the
+scoring job published `generate_demo_alerts()` content hourly as real,
+NOAA-attributed alerts; (2) Prophet/SARIMAX forecasts are time-mislabeled up
+to ~24h (train-end-anchored predictions written at scoring-tick timestamps).
+This session shipped the P0-1 mitigation (workstream A): `write_alerts` is
+honest-empty outside demo mode (`alerts_source="unavailable"`), demo alerts
+are disclosed end-to-end, `update_alerts_tab` gained the missing
+`REQUIRE_REDIS` warming gate, NOAA attribution removed until the client is
+actually wired, absent metrics render as "—" not `0.0%`. Remaining: file the
+11 drafted P0/P1 issues (drafts in the report), workstream B (trust-signal
+measurement), workstream C (forecast time-alignment + commensurable holdout —
+re-examine #170/#181 after it lands).
 
 **Strategic position: A — Portfolio + targeted credibility investment.**
 The 2026-05-20 forecast-pipeline audit reframed the credibility surface

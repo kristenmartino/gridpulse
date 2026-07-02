@@ -46,6 +46,7 @@ from components._callbacks_shared import (
     _layout,
 )
 from components.cards import build_alert_card
+from config import REQUIRE_REDIS
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -64,8 +65,10 @@ def _alerts_tab_from_redis(region):
     empty = _empty_figure("Loading...")
     log.info("alerts_redis_hit", region=region)
     alerts = cached.get("alerts", [])
-    stress = cached.get("stress_score", 20)
-    stress_label = cached.get("stress_label", "Normal")
+    # Legacy payloads (pre-alerts_source) only ever carried demo content.
+    alerts_source = cached.get("alerts_source", "demo")
+    stress = cached.get("stress_score")
+    stress_label = cached.get("stress_label", "Unavailable")
     counts = cached.get("alert_counts", {})
     anomaly = cached.get("anomaly", {})
     temp_data = cached.get("temperature", {})
@@ -73,6 +76,14 @@ def _alerts_tab_from_redis(region):
     # Build alert cards
     alert_cards = []
     if alerts:
+        if alerts_source == "demo":
+            alert_cards.append(
+                html.P(
+                    "Demo data — not a live alert feed",
+                    className="gp-demo-disclosure",
+                    style={"color": "#FFB84D", "fontSize": "0.75rem", "textAlign": "center"},
+                )
+            )
         for a in alerts:
             alert_cards.append(
                 build_alert_card(
@@ -82,6 +93,14 @@ def _alerts_tab_from_redis(region):
                     expires=a.get("expires", "")[:16] if a.get("expires") else None,
                 )
             )
+    elif alerts_source == "unavailable":
+        alert_cards = [
+            html.P(
+                "No live alert feed connected — severe-weather alerts are not "
+                "yet integrated. Demand anomalies below are computed from real data.",
+                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
+            )
+        ]
     else:
         alert_cards = [
             html.P(
@@ -90,7 +109,10 @@ def _alerts_tab_from_redis(region):
             )
         ]
 
-    stress_color = "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
+    if stress is None:
+        stress_color = "neutral"
+    else:
+        stress_color = "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
     n_crit = counts.get("critical", 0)
     n_warn = counts.get("warning", 0)
     n_info = counts.get("info", 0)
@@ -119,7 +141,7 @@ def _alerts_tab_from_redis(region):
     if not alerts:
         breakdown_items.append(
             html.Div(
-                "No active alerts",
+                "No alert feed" if alerts_source == "unavailable" else "No active alerts",
                 style={"fontSize": "0.75rem", "color": "#A8B3C7"},
             )
         )
@@ -247,7 +269,7 @@ def _alerts_tab_from_redis(region):
 
     return (
         alert_cards,
-        str(stress),
+        "—" if stress is None else str(stress),
         html.Span(stress_label, className=f"kpi-delta {stress_color}"),
         breakdown,
         fig_anomaly,
@@ -352,13 +374,47 @@ def register_alerts_callbacks(app):
             if redis_result is not None:
                 return redis_result
 
-        # ── v1 compute fallback ─────────────────────────────
+        # ── warming gate (REQUIRE_REDIS deployments) ────────
+        # The scoring job owns alert-payload generation in staging/prod;
+        # a Redis miss there means the pipeline is warming, and the demo
+        # fallback below must never render as real data.
+        if REQUIRE_REDIS:
+            from components.error_handling import warming_state
+
+            log.info("alerts_warming_gate", region=region)
+            warming = warming_state(
+                title="Risk data is warming up",
+                message=(
+                    "The scheduled pipeline has not published alert/anomaly "
+                    "data for this region yet. This page will populate after "
+                    "the next scoring run."
+                ),
+            )
+            return (
+                [warming],
+                "—",
+                html.Span("Warming"),
+                html.Div(),
+                empty,
+                empty,
+                empty,
+                html.Div(),
+            )
+
+        # ── v1 compute fallback (dev/demo only) ─────────────
         from data.demo_data import generate_demo_alerts
 
         alerts = generate_demo_alerts(region)
 
         alert_cards = []
         if alerts:
+            alert_cards.append(
+                html.P(
+                    "Demo data — not a live alert feed",
+                    className="gp-demo-disclosure",
+                    style={"color": "#FFB84D", "fontSize": "0.75rem", "textAlign": "center"},
+                )
+            )
             for a in alerts:
                 alert_cards.append(
                     build_alert_card(

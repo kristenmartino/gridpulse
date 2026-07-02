@@ -899,7 +899,10 @@ class TestAlertsTabV1:
             fig_timeline,
             weather_ctx,
         ) = result
-        assert len(alert_cards) == 2
+        # 2 alert cards + 1 leading "Demo data" disclosure line (alert-feed
+        # honesty fix: demo alerts must always be disclosed as demo).
+        assert len(alert_cards) == 3
+        assert "Demo data" in str(getattr(alert_cards[0], "children", ""))
         assert int(stress) > 0
         assert isinstance(fig_anomaly, go.Figure)
         assert isinstance(fig_temp, go.Figure)
