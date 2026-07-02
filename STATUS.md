@@ -30,10 +30,15 @@ This session shipped the P0-1 mitigation (workstream A): `write_alerts` is
 honest-empty outside demo mode (`alerts_source="unavailable"`), demo alerts
 are disclosed end-to-end, `update_alerts_tab` gained the missing
 `REQUIRE_REDIS` warming gate, NOAA attribution removed until the client is
-actually wired, absent metrics render as "—" not `0.0%`. Remaining: file the
-11 drafted P0/P1 issues (drafts in the report), workstream B (trust-signal
-measurement), workstream C (forecast time-alignment + commensurable holdout —
-re-examine #170/#181 after it lands).
+actually wired, absent metrics render as "—" not `0.0%`. **Workstream B
+(trust-signal measurement) also shipped this session:** freshness measured
+from each payload's own `scored_at` (never hardcoded `fresh`; P1-3), the
+Overview hero/insight surface `scored_at` and mark stale forecasts (P1-4),
+empirical interval bands disclose their calibration model when it differs
+from the displayed model (P1-2), and sMAPE values are labeled sMAPE (P1-8).
+Remaining: file the 11 drafted P0/P1 issues (drafts in the report),
+workstream C (forecast time-alignment + commensurable holdout — re-examine
+#170/#181 after it lands).
 
 **Strategic position: A — Portfolio + targeted credibility investment.**
 The 2026-05-20 forecast-pipeline audit reframed the credibility surface

@@ -345,11 +345,25 @@ def _compute_data_hash(demand_df, weather_df, region: str) -> str:
 # cross-tab dependencies.
 
 
-def _collect_backtest_residuals(region: str, model_name: str, horizon_hours: int) -> np.ndarray:
-    """Collect recent backtest residuals by model/region/horizon from cache layers."""
-    residual_chunks: list[np.ndarray] = []
+def _collect_backtest_residuals(
+    region: str, model_name: str, horizon_hours: int
+) -> tuple[np.ndarray, str | None]:
+    """Collect recent backtest residuals by model/region/horizon from cache layers.
 
-    # In-memory cache (most recent in-process compute path)
+    Returns ``(residuals, calibration_model)``. The production backtest
+    payload only carries XGBoost predictions (``jobs/phases.py`` writer), so
+    a request for e.g. ``"ensemble"`` residuals may be answered with a
+    substitute model's residuals — ``calibration_model`` names the model
+    whose residuals were actually used so callers can label the interval
+    honestly instead of implying it was calibrated on the displayed model
+    (2026-07 critical-review finding P1-2). Residuals from the exact
+    requested model always take precedence over substitutes.
+    """
+    exact_chunks: list[np.ndarray] = []
+    substitute_chunks: list[np.ndarray] = []
+    substitute_model: str | None = None
+
+    # In-memory cache (most recent in-process compute path) — exact matches only
     for (r, h, m, _mode), (cached_result, _hash, _time) in _BACKTEST_CACHE.items():
         if r != region or h != horizon_hours:
             continue
@@ -359,7 +373,7 @@ def _collect_backtest_residuals(region: str, model_name: str, horizon_hours: int
         pred = np.asarray(cached_result.get("predictions", []), dtype=float)
         n = min(len(actual), len(pred))
         if n > 0:
-            residual_chunks.append(actual[:n] - pred[:n])
+            exact_chunks.append(actual[:n] - pred[:n])
 
     # Redis pre-computed backtests (common production path)
     for key in (
@@ -374,20 +388,32 @@ def _collect_backtest_residuals(region: str, model_name: str, horizon_hours: int
         if isinstance(preds_map, dict):
             if model_name in preds_map:
                 pred = np.asarray(preds_map.get(model_name, []), dtype=float)
+                chunk_model = model_name
             elif "ensemble" in preds_map:
                 pred = np.asarray(preds_map.get("ensemble", []), dtype=float)
+                chunk_model = "ensemble"
             elif preds_map:
-                pred = np.asarray(next(iter(preds_map.values())), dtype=float)
+                chunk_model = next(iter(preds_map.keys()))
+                pred = np.asarray(preds_map[chunk_model], dtype=float)
             else:
                 pred = np.array([], dtype=float)
+                chunk_model = None
             n = min(len(actual), len(pred))
             if n > 0:
-                residual_chunks.append(actual[:n] - pred[:n])
+                if chunk_model == model_name:
+                    exact_chunks.append(actual[:n] - pred[:n])
+                else:
+                    substitute_chunks.append(actual[:n] - pred[:n])
+                    substitute_model = chunk_model
 
-    if not residual_chunks:
-        return np.array([], dtype=float)
-    residuals = np.concatenate(residual_chunks)
-    return residuals[np.isfinite(residuals)]
+    if exact_chunks:
+        chunks, calibration_model = exact_chunks, model_name
+    elif substitute_chunks:
+        chunks, calibration_model = substitute_chunks, substitute_model
+    else:
+        return np.array([], dtype=float), None
+    residuals = np.concatenate(chunks)
+    return residuals[np.isfinite(residuals)], calibration_model
 
 
 def _empirical_interval_from_backtests(
@@ -396,10 +422,16 @@ def _empirical_interval_from_backtests(
     horizon_hours: int,
     target_coverage: float = 0.80,
 ) -> dict[str, float | int | bool]:
-    """Estimate empirical prediction interval from recent backtest residuals."""
+    """Estimate empirical prediction interval from recent backtest residuals.
+
+    ``calibration_model`` in the returned dict names the model whose
+    residuals actually calibrated the interval — it may differ from
+    ``model_name`` (see ``_collect_backtest_residuals``), and callers must
+    disclose that in the band label.
+    """
     from models.evaluation import empirical_error_quantiles
 
-    residuals = _collect_backtest_residuals(region, model_name, horizon_hours)
+    residuals, calibration_model = _collect_backtest_residuals(region, model_name, horizon_hours)
     if residuals.size < max(24, horizon_hours // 2):
         return {"available": False}
 
@@ -414,6 +446,7 @@ def _empirical_interval_from_backtests(
         "sample_size": int(q["sample_size"]),
         "target_coverage": float(target_coverage),
         "calibration_window_hours": tail_size,
+        "calibration_model": calibration_model,
     }
 
 

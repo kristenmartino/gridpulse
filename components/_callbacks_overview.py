@@ -84,7 +84,7 @@ from components.cards import (
     build_news_feed,
     build_page_title,
 )
-from config import REGION_CAPACITY_MW, REGION_NAMES
+from config import FRESHNESS_FRESH_MAX_AGE_HOURS, REGION_CAPACITY_MW, REGION_NAMES
 from data.redis_client import redis_get, redis_key
 from personas.config import get_persona
 
@@ -144,9 +144,12 @@ def _read_ensemble_forecast_from_redis(
 def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
     """Resolve the most-honest MAPE to display alongside the forecast.
 
-    Returns ``(mape_value, source_label)`` where source_label is one of:
+    Returns ``(mape_value, source_label)`` where source_label carries both
+    the window and the METRIC NAME actually used (e.g. ``"live 7d sMAPE"``,
+    ``"live 30d MAPE"``, ``"holdout MAPE"``) — callers render it verbatim so
+    an sMAPE value is never presented as MAPE:
 
-    - ``"live 7d"`` — rolling 7-day live drift error from forecast-vs-actual
+    - ``"live 7d …"`` — rolling 7-day live drift error from forecast-vs-actual
       observations stored in ``gridpulse:drift:{region}`` (the headline
       number; reflects how the model is actually performing right now).
       Prefers sMAPE (bounded, robust to near-zero-actual artifacts — #142/
@@ -178,16 +181,24 @@ def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
             # the 7d figure is statistically defensible. Below that, it swings
             # wildly on each new tick.
             n_records = int(ens.get("n_records", 0) or 0)
+            # Track WHICH metric supplied the value — an sMAPE number must
+            # never be labeled "MAPE" (2026-07 critical-review finding P1-8;
+            # for artifact-prone BAs the two can differ by an order of
+            # magnitude, e.g. LDWP sMAPE ~13% vs raw MAPE ~190%).
             live_7d = ens.get("rolling_smape_7d")
+            metric_7d = "sMAPE"
             if live_7d is None:
                 live_7d = ens.get("rolling_mape_7d")
+                metric_7d = "MAPE"
             live_30d = ens.get("rolling_smape_30d")
+            metric_30d = "sMAPE"
             if live_30d is None:
                 live_30d = ens.get("rolling_mape_30d")
+                metric_30d = "MAPE"
             if live_7d is not None and n_records >= 24 and np.isfinite(float(live_7d)):
-                return float(live_7d), "live 7d"
+                return float(live_7d), f"live 7d {metric_7d}"
             if live_30d is not None and n_records >= 24 and np.isfinite(float(live_30d)):
-                return float(live_30d), "live 30d"
+                return float(live_30d), f"live 30d {metric_30d}"
     except Exception as exc:  # pragma: no cover — defensive
         log.debug("forecast_mape_drift_read_failed", region=region, error=str(exc))
 
@@ -201,7 +212,7 @@ def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
         if mape is not None:
             mape_f = float(mape)
             if mape_f > 0 and np.isfinite(mape_f):
-                return mape_f, "holdout"
+                return mape_f, "holdout MAPE"
     except Exception:  # pragma: no cover — defensive
         pass
 
@@ -411,7 +422,7 @@ def _build_overview_hero_chart(
     try:
         forecast_payload = _read_ensemble_forecast_from_redis(region)
         if forecast_payload is not None:
-            forecast_ts_all, ensemble_arr, _scored_at = forecast_payload
+            forecast_ts_all, ensemble_arr, scored_at_iso = forecast_payload
             horizon = min(24, len(ensemble_arr))
             forecast_ts = forecast_ts_all[:horizon]
             ensemble_y = list(ensemble_arr[:horizon])
@@ -439,9 +450,15 @@ def _build_overview_hero_chart(
                 upper_err = float(interval_meta["upper_error"])
                 upper_y = [v + upper_err for v in ensemble_y]
                 lower_y = [v + lower_err for v in ensemble_y]
+                # Disclose the calibration source when the residuals came
+                # from a substitute model (the prod backtest payload only
+                # carries XGBoost predictions), so the band never implies
+                # it was calibrated on the displayed ensemble.
+                calib = interval_meta.get("calibration_model")
+                calib_note = "" if calib in (None, "ensemble") else f", {calib}-calibrated"
                 band_name = (
                     f"80% prediction interval "
-                    f"(empirical, n={int(interval_meta.get('sample_size', 0))})"
+                    f"(empirical, n={int(interval_meta.get('sample_size', 0))}{calib_note})"
                 )
             else:
                 upper_y = [v * 1.03 for v in ensemble_y]
@@ -478,6 +495,29 @@ def _build_overview_hero_chart(
                     ),
                 )
             )
+
+            # Surface the payload's own scored_at instead of discarding it —
+            # a stale forecast must not render as the current outlook
+            # (2026-07 critical-review finding P1-4).
+            if scored_at_iso:
+                scored_dt = pd.Timestamp(scored_at_iso)
+                if scored_dt.tzinfo is None:
+                    scored_dt = scored_dt.tz_localize("UTC")
+                age_h = (pd.Timestamp.now(tz="UTC") - scored_dt).total_seconds() / 3600.0
+                is_stale = age_h > FRESHNESS_FRESH_MAX_AGE_HOURS
+                note = f"forecast scored {scored_dt.strftime('%b %d %H:%M')} UTC"
+                if is_stale:
+                    note += f" · {age_h:.0f}h ago — stale"
+                fig.add_annotation(
+                    xref="paper",
+                    yref="paper",
+                    x=0.99,
+                    y=1.06,
+                    xanchor="right",
+                    showarrow=False,
+                    text=note,
+                    font=dict(size=10, color="#FFB84D" if is_stale else "#71717a"),
+                )
     except Exception as exc:  # pragma: no cover — fall back to actual-only chart
         log.warning("overview_hero_forecast_failed", region=region, error=str(exc))
 
@@ -594,7 +634,7 @@ def _build_overview_insight(
     try:
         forecast_payload = _read_ensemble_forecast_from_redis(region)
         if forecast_payload is not None:
-            forecast_ts_all, ensemble_arr, _scored_at = forecast_payload
+            forecast_ts_all, ensemble_arr, scored_at_iso = forecast_payload
             horizon = min(24, len(ensemble_arr))
             if horizon > 0:
                 f_arr = ensemble_arr[:horizon]
@@ -637,10 +677,23 @@ def _build_overview_insight(
 
                 mape_clause = ""
                 if mape_value is not None:
-                    mape_clause = f" ({mape_source} MAPE {mape_value:.1f}%)"
+                    mape_clause = f" ({mape_source} {mape_value:.1f}%)"
+
+                # A stale forecast must not narrate as the current outlook
+                # (P1-4): disclose the scoring age once it exceeds the
+                # missed-tick tolerance.
+                stale_clause = ""
+                if scored_at_iso:
+                    scored_dt = pd.Timestamp(scored_at_iso)
+                    if scored_dt.tzinfo is None:
+                        scored_dt = scored_dt.tz_localize("UTC")
+                    age_h = (pd.Timestamp.now(tz="UTC") - scored_dt).total_seconds() / 3600.0
+                    if age_h > FRESHNESS_FRESH_MAX_AGE_HOURS:
+                        stale_clause = f" Forecast last refreshed {age_h:.0f}h ago."
+
                 forecast_clause = (
                     f"Next-24h forecast peaks at {f_peak:,.0f} MW around "
-                    f"{f_peak_ts.strftime('%H:%M')} UTC{mape_clause}."
+                    f"{f_peak_ts.strftime('%H:%M')} UTC{mape_clause}.{stale_clause}"
                 )
     except Exception as exc:  # pragma: no cover
         log.warning("overview_insight_forecast_failed", region=region, error=str(exc))
@@ -1693,6 +1746,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
         "stale": "#FFB84D",
         "demo": "#A8B3C7",
         "unavailable": "#A8B3C7",
+        "warming": "#7AA8FF",
         "error": "#FF5C7A",
     }
 

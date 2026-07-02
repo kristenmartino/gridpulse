@@ -212,8 +212,12 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
         demand_df = data.demand_df
         weather_df = data.weather_df
 
+        # scored_at lets the web tier MEASURE freshness from the payload's
+        # own age instead of asserting "fresh" at render time (P1-3).
+        scored_at = datetime.now(UTC).isoformat()
         actuals_payload = {
             "region": region,
+            "scored_at": scored_at,
             "timestamps": _ts_list(demand_df["timestamp"]),
             "demand_mw": demand_df["demand_mw"].tolist(),
         }
@@ -221,6 +225,7 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
 
         weather_payload: dict[str, Any] = {
             "region": region,
+            "scored_at": scored_at,
             "timestamps": _ts_list(weather_df["timestamp"]),
         }
         for col in weather_df.columns:
@@ -1386,6 +1391,7 @@ def write_alerts(data: RegionData) -> PhaseResult:
 
         payload: dict[str, Any] = {
             "region": region,
+            "scored_at": datetime.now(UTC).isoformat(),
             "alerts": alerts,
             "alerts_source": alerts_source,
             "stress_score": stress,

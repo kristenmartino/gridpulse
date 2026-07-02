@@ -122,6 +122,8 @@ from components._callbacks_weather import (
 )
 from config import (
     EIA_API_KEY,
+    FRESHNESS_DEMAND_LAG_ALLOWANCE_HOURS,
+    FRESHNESS_FRESH_MAX_AGE_HOURS,
     REGION_NAMES,  # noqa: F401 — re-export (tests/unit/test_forecast_quality_gate.py patches this)
     REQUIRE_REDIS,
 )
@@ -129,6 +131,29 @@ from data.redis_client import redis_get, redis_key
 from personas.config import get_persona
 
 log = structlog.get_logger()
+
+
+def _freshness_from_payload(payload, now) -> str | None:
+    """Measure a payload's freshness from its own ``scored_at`` stamp.
+
+    Returns ``"fresh"``/``"stale"``, or ``None`` when the payload carries no
+    (parseable) stamp — callers then apply a payload-specific fallback.
+    Freshness must be measured, never asserted at render time (2026-07
+    critical-review finding P1-3).
+    """
+    if not isinstance(payload, dict):
+        return None
+    iso = payload.get("scored_at")
+    if not iso:
+        return None
+    try:
+        scored = pd.Timestamp(iso)
+        if scored.tzinfo is None:
+            scored = scored.tz_localize("UTC")
+    except (ValueError, TypeError):
+        return None
+    age_h = (now - scored).total_seconds() / 3600.0
+    return "fresh" if age_h <= FRESHNESS_FRESH_MAX_AGE_HOURS else "stale"
 
 
 def _load_data_from_redis(region):
@@ -150,10 +175,13 @@ def _load_data_from_redis(region):
         return None
 
     pipe = PipelineLogger("load_data", region=region)
+    now = pd.Timestamp.now(tz="UTC")
+    # Statuses are filled in below from each payload's own age — the
+    # defaults here are the pessimistic values for payloads we can't date.
     freshness = {
-        "demand": "fresh",
-        "weather": "fresh",
-        "alerts": "fresh",
+        "demand": "stale",
+        "weather": "stale",
+        "alerts": "warming",
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
@@ -173,13 +201,32 @@ def _load_data_from_redis(region):
         }
     )
     demand_df.loc[demand_df["demand_mw"] <= 0, "demand_mw"] = np.nan
-    weather_cols = {k: v for k, v in cached_weather.items() if k not in ("region",)}
+    weather_cols = {k: v for k, v in cached_weather.items() if k not in ("region", "scored_at")}
     weather_df = pd.DataFrame(weather_cols)
     if "timestamps" in weather_df.columns:
         weather_df = weather_df.rename(columns={"timestamps": "timestamp"})
 
-    freshness["demand"] = "fresh"
-    freshness["weather"] = "fresh"
+    # Measured freshness (P1-3). Payloads carry scored_at since 2026-07;
+    # legacy demand payloads fall back to the age of the newest observation
+    # with EIA publishing-lag allowance (~1-4h is normal; see #129).
+    demand_status = _freshness_from_payload(cached_actuals, now)
+    if demand_status is None and len(demand_df) > 0:
+        last_obs = pd.Timestamp(demand_df["timestamp"].iloc[-1])
+        if last_obs.tzinfo is None:
+            last_obs = last_obs.tz_localize("UTC")
+        age_h = (now - last_obs).total_seconds() / 3600.0
+        demand_status = "fresh" if age_h <= FRESHNESS_DEMAND_LAG_ALLOWANCE_HOURS else "stale"
+    freshness["demand"] = demand_status or "stale"
+    freshness["weather"] = _freshness_from_payload(cached_weather, now) or freshness["demand"]
+
+    cached_alerts = redis_get(redis_key(f"alerts:{region}"))
+    if isinstance(cached_alerts, dict):
+        alerts_src = cached_alerts.get("alerts_source", "demo")
+        if alerts_src in ("unavailable", "demo"):
+            freshness["alerts"] = alerts_src
+        else:
+            freshness["alerts"] = _freshness_from_payload(cached_alerts, now) or "fresh"
+
     if len(demand_df) > 0:
         freshness["latest_data"] = str(demand_df["timestamp"].iloc[-1])
 

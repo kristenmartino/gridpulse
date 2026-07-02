@@ -155,6 +155,7 @@ def build_chart_container(
             "stale": "stale",
             "warming": "warming",
             "demo": "stale",
+            "unavailable": "stale",
         }.get(freshness, "expired")
         header_items.append(
             html.Span(

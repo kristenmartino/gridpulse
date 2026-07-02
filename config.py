@@ -143,6 +143,19 @@ CACHE_DB_PATH = os.getenv("CACHE_DB_PATH", "cache.db")
 CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", str(_env["cache_ttl"])))
 
 # ---------------------------------------------------------------------------
+# Freshness measurement (2026-07 critical review, finding P1-3)
+# ---------------------------------------------------------------------------
+# Freshness must be MEASURED from each Redis payload's own scored_at, never
+# asserted at render time. Rationale for the thresholds: the scoring job
+# runs hourly, so one missed tick (<=2h) is a tolerable hiccup while two is
+# an outage signal; demand actuals additionally tolerate EIA-930's normal
+# publishing lag (~1-4h; see #129) before the *data itself* counts as stale.
+FRESHNESS_FRESH_MAX_AGE_HOURS = float(os.getenv("FRESHNESS_FRESH_MAX_AGE_HOURS", "2.0"))
+FRESHNESS_DEMAND_LAG_ALLOWANCE_HOURS = float(
+    os.getenv("FRESHNESS_DEMAND_LAG_ALLOWANCE_HOURS", "6.0")
+)
+
+# ---------------------------------------------------------------------------
 # GCS Persistence (Parquet fallback for container recycle + API failure)
 # ---------------------------------------------------------------------------
 GCS_BUCKET_NAME = os.getenv("GCS_BUCKET_NAME", "")
