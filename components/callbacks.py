@@ -201,9 +201,7 @@ def _load_data_from_redis(region):
         }
     )
     demand_df.loc[demand_df["demand_mw"] <= 0, "demand_mw"] = np.nan
-    weather_cols = {
-        k: v for k, v in cached_weather.items() if k not in ("region", "scored_at")
-    }
+    weather_cols = {k: v for k, v in cached_weather.items() if k not in ("region", "scored_at")}
     weather_df = pd.DataFrame(weather_cols)
     if "timestamps" in weather_df.columns:
         weather_df = weather_df.rename(columns={"timestamps": "timestamp"})

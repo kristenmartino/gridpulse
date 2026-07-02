@@ -55,9 +55,7 @@ class TestMeasuredFreshness:
         """Stale payloads must not render as fresh; alerts status follows alerts_source."""
         import components.callbacks as cbs
 
-        ts = pd.date_range(
-            end=pd.Timestamp.now(tz="UTC").floor("h"), periods=48, freq="h"
-        )
+        ts = pd.date_range(end=pd.Timestamp.now(tz="UTC").floor("h"), periods=48, freq="h")
         payloads = {
             "gridpulse:actuals:ERCOT": {
                 "region": "ERCOT",
@@ -89,9 +87,7 @@ class TestMeasuredFreshness:
     def test_load_data_fresh_payloads_measure_fresh(self):
         import components.callbacks as cbs
 
-        ts = pd.date_range(
-            end=pd.Timestamp.now(tz="UTC").floor("h"), periods=48, freq="h"
-        )
+        ts = pd.date_range(end=pd.Timestamp.now(tz="UTC").floor("h"), periods=48, freq="h")
         payloads = {
             "gridpulse:actuals:ERCOT": {
                 "region": "ERCOT",
@@ -115,7 +111,9 @@ class TestMeasuredFreshness:
         # No alerts payload at all → warming, not fresh.
         assert freshness["alerts"] == "warming"
         # scored_at must not leak into the weather DataFrame columns.
-        weather_df = pd.read_json(result[1] if hasattr(result[1], "read") else __import__("io").StringIO(result[1]))
+        weather_df = pd.read_json(
+            result[1] if hasattr(result[1], "read") else __import__("io").StringIO(result[1])
+        )
         assert "scored_at" not in weather_df.columns
 
 
@@ -202,9 +200,7 @@ class TestMetricNameHonesty:
 
 class TestScoredAtSurfaced:
     def _demand_df(self):
-        ts = pd.date_range(
-            end=pd.Timestamp.now(tz="UTC").floor("h"), periods=48, freq="h"
-        )
+        ts = pd.date_range(end=pd.Timestamp.now(tz="UTC").floor("h"), periods=48, freq="h")
         return pd.DataFrame({"timestamp": ts, "demand_mw": 1000.0})
 
     def _hero(self, scored_at_iso):

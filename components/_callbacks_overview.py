@@ -687,9 +687,7 @@ def _build_overview_insight(
                     scored_dt = pd.Timestamp(scored_at_iso)
                     if scored_dt.tzinfo is None:
                         scored_dt = scored_dt.tz_localize("UTC")
-                    age_h = (
-                        pd.Timestamp.now(tz="UTC") - scored_dt
-                    ).total_seconds() / 3600.0
+                    age_h = (pd.Timestamp.now(tz="UTC") - scored_dt).total_seconds() / 3600.0
                     if age_h > FRESHNESS_FRESH_MAX_AGE_HOURS:
                         stale_clause = f" Forecast last refreshed {age_h:.0f}h ago."
 
