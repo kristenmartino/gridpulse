@@ -39,6 +39,9 @@ def _compute_data_hash(region_data: phases.RegionData) -> str:
 
 _HOLDOUT_HOURS = 168
 _MIN_TRAIN_HOURS = 720  # need at least 30 days of training before a 7-day holdout
+# Per-model holdout residuals live longer than an hourly key — training is daily
+# and the interval bands tolerate a slightly stale calibration sample.
+_HOLDOUT_RESIDUALS_TTL = 172800  # 48h
 
 
 def _holdout_metrics_xgboost(featured_df, region: str) -> dict | None:
@@ -216,6 +219,70 @@ def _holdout_metrics_arima(featured_df, region: str) -> dict | None:
     except Exception as e:
         log.warning("training_arima_holdout_failed", region=region, error=str(e))
         return None
+
+
+def _persist_holdout_residuals(
+    region: str,
+    per_model_holdouts: dict[str, dict | None],
+    ensemble_summary: tuple[dict[str, float], dict[str, float]] | None,
+) -> None:
+    """Persist every model's holdout forecast + the shared actuals to
+    ``gridpulse:holdout:{region}`` — zero extra compute (reuses the holdouts
+    already computed for the meta metrics).
+
+    Enables per-model self-calibrated prediction intervals: the web tier's
+    ``_collect_backtest_residuals`` reads this so ensemble/prophet/arima bands
+    use their OWN residuals instead of substituting XGBoost (#196). It is also
+    the per-model, commensurable (post-#195) holdout data #181 needs to compare
+    the ensemble against the best base model. Best-effort — a write failure
+    never fails the training run.
+    """
+    from datetime import UTC, datetime
+
+    import numpy as np
+
+    from data.redis_client import redis_key, redis_set
+    from models.ensemble import ensemble_combine
+
+    valid = {n: h for n, h in per_model_holdouts.items() if h is not None}
+    if not valid:
+        return
+    try:
+        actuals = np.asarray(next(iter(valid.values()))["actual"], dtype=float)
+        predictions: dict[str, list[float]] = {}
+        for name, h in valid.items():
+            fc = np.asarray(h["forecast"], dtype=float)
+            if len(fc) == len(actuals) and np.isfinite(fc).all():
+                predictions[name] = fc.tolist()
+
+        # Reconstruct the ensemble holdout forecast from the same per-model
+        # forecasts + inverse-MAPE weights the ensemble metric used — no recompute.
+        if ensemble_summary is not None:
+            _metrics, weights = ensemble_summary
+            fc_map = {n: np.asarray(h["forecast"], dtype=float) for n, h in valid.items()}
+            fc_map = {n: f for n, f in fc_map.items() if len(f) == len(actuals)}
+            if len(fc_map) >= 2:
+                ens = np.asarray(ensemble_combine(fc_map, weights), dtype=float)
+                if np.isfinite(ens).all():
+                    predictions["ensemble"] = ens.tolist()
+
+        if not predictions:
+            return
+        redis_set(
+            redis_key(f"holdout:{region}"),
+            {
+                "region": region,
+                "horizon": _HOLDOUT_HOURS,
+                "scored_at": datetime.now(UTC).isoformat(),
+                "source": "training_holdout",
+                "actual": actuals.tolist(),
+                "predictions": predictions,
+            },
+            ttl=_HOLDOUT_RESIDUALS_TTL,
+        )
+        log.info("holdout_residuals_persisted", region=region, models=sorted(predictions))
+    except Exception as e:  # pragma: no cover — never fail the run over diagnostics
+        log.warning("holdout_residuals_persist_failed", region=region, error=str(e))
 
 
 def _ensemble_holdout_metrics(
@@ -565,6 +632,15 @@ def _train_region(region: str, force: bool = False) -> dict:
                 else "ensemble_metric_nonfinite"
             ),
         )
+
+    # Persist every model's holdout forecast vs the shared actuals for
+    # per-model self-calibrated intervals (#196) + #181's comparison data.
+    # Zero extra compute — reuses the holdouts just computed.
+    _persist_holdout_residuals(
+        region,
+        {"xgboost": xgb_holdout, "prophet": prophet_holdout, "arima": arima_holdout},
+        ensemble_summary,
+    )
 
     xgb_version = _train_xgboost(region_data, holdout=xgb_holdout)
     summary["models"]["xgboost"] = xgb_version

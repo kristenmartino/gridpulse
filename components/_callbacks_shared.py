@@ -406,6 +406,23 @@ def _collect_backtest_residuals(
                     substitute_chunks.append(actual[:n] - pred[:n])
                     substitute_model = chunk_model
 
+    # Per-model training-holdout residuals (``gridpulse:holdout:{region}``).
+    # The training job persists every model's holdout forecast against the
+    # SAME actuals, so ensemble/prophet/arima self-calibrate from their OWN
+    # residuals instead of substituting XGBoost (#196). Treated as an
+    # exact-model source (horizon-agnostic: the bands apply a single pooled
+    # quantile across the horizon regardless, so the right model's residuals
+    # beat a substitute model's right-horizon residuals).
+    holdout = redis_get(redis_key(f"holdout:{region}"))
+    if isinstance(holdout, dict):
+        h_actual = np.asarray(holdout.get("actual", []), dtype=float)
+        h_preds = holdout.get("predictions", {})
+        if isinstance(h_preds, dict) and model_name in h_preds:
+            h_pred = np.asarray(h_preds.get(model_name, []), dtype=float)
+            n = min(len(h_actual), len(h_pred))
+            if n > 0:
+                exact_chunks.append(h_actual[:n] - h_pred[:n])
+
     if exact_chunks:
         chunks, calibration_model = exact_chunks, model_name
     elif substitute_chunks:
