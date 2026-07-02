@@ -108,9 +108,9 @@ def _alerts_tab_from_redis(region):
     elif alerts_source == "unavailable":
         alert_cards = [
             html.P(
-                "Live alert feed (NOAA/NWS) temporarily unavailable — showing "
-                "nothing rather than stale or fabricated alerts. Demand "
-                "anomalies below are computed from real data.",
+                "Severe-weather alerts (NOAA/NWS) are temporarily unavailable. "
+                "The temperature and demand-anomaly charts below use live "
+                "weather and demand data and are unaffected.",
                 style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
             )
         ]

@@ -198,6 +198,34 @@ class TestAlertToDict:
         assert reconstructed.event == alert.event
         assert reconstructed.severity == alert.severity
 
+    def test_alert_from_dict_reparses_datetimes(self):
+        """Regression: _alert_from_dict must restore onset/expires as datetime,
+        not leave them as ISO strings — a bare WeatherAlert(**d) leaves strings
+        and crashes datetime consumers (the cache-hit → 'unavailable' bug)."""
+        from datetime import datetime
+
+        from data.noaa_client import _alert_from_dict
+
+        alert = _make_alert()
+        d = _alert_to_dict(alert)
+        assert isinstance(d["expires"], str)  # serialized form is a string
+
+        reconstructed = _alert_from_dict(d)
+        assert isinstance(reconstructed.expires, datetime)
+        assert isinstance(reconstructed.onset, datetime)
+        assert reconstructed.expires == alert.expires
+        # The datetime API consumers rely on must work (no AttributeError).
+        assert reconstructed.expires.isoformat() == alert.expires.isoformat()
+        assert reconstructed.expires.tzinfo is not None
+
+    def test_alert_from_dict_preserves_none(self):
+        from data.noaa_client import _alert_from_dict
+
+        d = _alert_to_dict(_make_alert(onset=None, expires=None))
+        reconstructed = _alert_from_dict(d)
+        assert reconstructed.onset is None
+        assert reconstructed.expires is None
+
 
 # ---------------------------------------------------------------------------
 # _fetch_state_alerts tests
@@ -376,6 +404,24 @@ class TestFetchAlertsForRegion:
         assert result[0].id == "test-cached-1"
         assert result[0].event == "Frost Advisory"
         mock_cache.get.assert_called_once_with("noaa_alerts_ERCOT")
+
+    @patch("data.noaa_client.get_cache")
+    def test_cached_alerts_have_datetime_expires(self, mock_get_cache):
+        """Regression: a region cache hit must reconstruct expires/onset as
+        datetime (not the stored ISO string) so datetime consumers don't
+        crash — the root cause of the cache-hit → 'unavailable' Risk-tab bug."""
+        from datetime import datetime
+
+        cached_data = [_alert_to_dict(_make_alert())]  # expires is an ISO string here
+        assert isinstance(cached_data[0]["expires"], str)
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = cached_data
+        mock_get_cache.return_value = mock_cache
+
+        result = fetch_alerts_for_region("ERCOT", use_cache=True)
+
+        assert isinstance(result[0].expires, datetime)
+        assert result[0].expires.isoformat()  # must not raise
 
     @patch("data.noaa_client._fetch_state_alerts")
     @patch("data.noaa_client.get_cache")
