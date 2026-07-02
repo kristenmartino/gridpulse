@@ -222,18 +222,30 @@ class TestPredictFromTrained:
         assert "xgboost" in result
         assert "arima" in result
 
-    def test_empty_preds_ensemble_copies_actual(self, demand_df):
-        """When no model keys exist in model_data, ensemble falls back to actual."""
-        len(demand_df)
-        # model_data with no model keys at all
+    def test_empty_preds_returns_unavailable_not_actual(self, demand_df):
+        """When no base model produces a prediction, the result is unavailable —
+        never actuals echoed as a fabricated-perfect 'trained' forecast (P2-31)."""
         empty_model_data = {
             "ensemble_weights": {"prophet": 0.30, "arima": 0.20, "xgboost": 0.50},
             "metrics": {},
         }
         result = _predict_from_trained(empty_model_data, demand_df, models_shown=None)
-        assert result["source"] == "trained"
-        # With no models in model_data, all_preds is empty -> ensemble = actual.copy()
-        np.testing.assert_array_equal(result["ensemble"], demand_df["demand_mw"].values)
+        assert result["source"] == "unavailable"
+        assert "ensemble" not in result  # no fabricated series
+
+    def test_ensemble_only_request_does_not_echo_actuals(self, demand_df):
+        """models_shown=['ensemble'] skips every base model → nothing to combine
+        → unavailable, not ensemble == actuals (the deterministic P2-31 trigger)."""
+        model_data = {
+            "prophet_model": object(),
+            "arima_model": object(),
+            "xgboost_model": object(),
+            "ensemble_weights": {"prophet": 0.3, "arima": 0.2, "xgboost": 0.5},
+            "metrics": {},
+        }
+        result = _predict_from_trained(model_data, demand_df, models_shown=["ensemble"])
+        assert result["source"] == "unavailable"
+        assert "ensemble" not in result
 
 
 # ── _simulate_forecasts ─────────────────────────────────────────

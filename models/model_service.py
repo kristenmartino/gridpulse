@@ -511,21 +511,26 @@ def _predict_from_trained(
             noise_scale = {"prophet": 0.025, "arima": 0.035, "xgboost": 0.018}.get(name, 0.025)
             all_preds[name] = actual * (1 + rng.normal(0, noise_scale, n))
 
+    # No base model produced a prediction — e.g. ``models_shown=["ensemble"]``
+    # alone (the loop skips every base model) or all predicts failed. An
+    # ensemble has nothing to combine, so there is no honest forecast to
+    # return. Do NOT echo actuals as a "trained" forecast (a max|residual|=0
+    # fabricated-perfect series); signal unavailable (2026-07 review P2-31).
+    if not all_preds:
+        return {"source": "unavailable", "metrics": {}, "weights": {}}
+
     # Ensemble
     weights = result["weights"]
-    if all_preds:
-        weighted = np.zeros(n)
-        total_weight = 0
-        for name, pred in all_preds.items():
-            w = weights.get(name, 1.0 / len(all_preds))
-            weighted += pred * w
-            total_weight += w
-        if total_weight > 0:
-            all_preds["ensemble"] = weighted / total_weight
-        else:
-            all_preds["ensemble"] = np.mean(list(all_preds.values()), axis=0)
+    weighted = np.zeros(n)
+    total_weight = 0
+    for name, pred in all_preds.items():
+        w = weights.get(name, 1.0 / len(all_preds))
+        weighted += pred * w
+        total_weight += w
+    if total_weight > 0:
+        all_preds["ensemble"] = weighted / total_weight
     else:
-        all_preds["ensemble"] = actual.copy()
+        all_preds["ensemble"] = np.mean(list(all_preds.values()), axis=0)
 
     # Indicative range (±3% heuristic — not a calibrated confidence interval)
     ensemble = all_preds.get("ensemble", actual)
