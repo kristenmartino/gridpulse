@@ -112,12 +112,12 @@ per-finding map.
    **#170/#181** revisit on the now-commensurable, time-aligned data.
 3. **P2/P3 elegance backlog (#189)** and product-forward work
    (`docs/internal/EXECUTION_BRIEF.md`) once the remediation loop is fully shut.
-3. **Close out partials + loose P1s (small–medium).** [#201](https://github.com/kristenmartino/gridpulse/issues/201)
-   remainder (`_callbacks_forecast.py:1107` still renders `MAPE 0.0%`); [#203](https://github.com/kristenmartino/gridpulse/issues/203)
-   (National Peak = max of per-BA maxima, not a true national peak); [#199](https://github.com/kristenmartino/gridpulse/issues/199)
-   (Generation panel does a live EIA fetch in the web request path — guardrail
-   violation); [#196](https://github.com/kristenmartino/gridpulse/issues/196)
-   remainder (real per-model residual calibration for intervals).
+   Deploy-independent P2 correctness/cleanups already shipped this session:
+   P2-24 governance tone + P2-52 /metrics XFF (#213), P2-31 fabricated-forecast
+   integrity + Scenarios-Redis (#214), P2-27/28 self-validating coverage monitor
+   removed (#215). Remaining P2s need a product call (P2-38/P2-41 dead-code:
+   delete vs resurrect) or are entangled with the deploy (P2-25 drift-panel
+   relabel → do with the #170/#181 revisit).
 
 **Deferred to #189 / #127:** the review's 52 P2 + 57 P3 findings are folded into
 the #189 tech-debt tracker; P1-9 (Scenarios panel prod-dead) is tracked under #127.
