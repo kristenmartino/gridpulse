@@ -11,6 +11,8 @@ Key conventions:
 - Backward-looking windows only (no future data leakage)
 """
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import structlog
@@ -268,6 +270,53 @@ def compute_autoregressive_snapshot(demand_history: list[float]) -> dict[str, fl
         "demand_roll_168h_min": _roll(168, "min"),
         "demand_roll_168h_max": _roll(168, "max"),
     }
+
+
+def recursive_autoregressive_forecast(
+    model: Any,
+    seed_demand: list[float] | np.ndarray | pd.Series,
+    future_df: pd.DataFrame,
+    predict_fn: Any,
+) -> np.ndarray:
+    """Multi-step forecast that chains its own predictions as autoregressive lags.
+
+    This is the honest inference protocol: each step recomputes the
+    autoregressive features (``compute_autoregressive_snapshot``) from the
+    growing history of *predictions* (seeded by real demand), never from
+    observed in-window actuals. It is the single source of truth for both
+    production scoring (``jobs.phases``) and holdout evaluation
+    (``jobs.training_job`` / ``models.training``) so that XGBoost's reported
+    accuracy is commensurable with Prophet/SARIMAX's multi-step holdouts and
+    matches what production actually serves (#194/#195; #186 parity lever).
+
+    Args:
+        model: A trained model accepted by ``predict_fn``.
+        seed_demand: Real demand history strictly before the forecast window.
+            Zero/NaN readings are filtered (a single 0 would poison the
+            rolling-window lags — see #129).
+        future_df: One row per forecast step, in order, carrying the non-
+            autoregressive features (weather, calendar). Its length sets the
+            horizon.
+        predict_fn: ``predict_fn(model, single_row_df) -> array-like`` returning
+            one prediction for the row.
+
+    Returns:
+        1D array of length ``len(future_df)``.
+    """
+    history: list[float] = [
+        float(v) for v in seed_demand if v is not None and not pd.isna(v) and v > 0
+    ]
+    preds: list[float] = []
+    for i in range(len(future_df)):
+        row = future_df.iloc[[i]].copy()
+        for col, val in compute_autoregressive_snapshot(history).items():
+            if col in row.columns:
+                row[col] = val
+        row = row.ffill().bfill().fillna(0)
+        pred = float(predict_fn(model, row)[0])
+        preds.append(pred)
+        history.append(pred)
+    return np.asarray(preds, dtype=float)
 
 
 # ---------------------------------------------------------------------------

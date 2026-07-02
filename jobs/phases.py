@@ -691,9 +691,10 @@ def _predict_xgboost_with_recursive_autoregressive(
     features ``demand_lag_*`` / ``ramp_rate`` / ``demand_roll_*`` are
     computed via ``compute_autoregressive_snapshot`` from a growing
     demand history — initial seed is recent actuals from ``featured``,
-    each predicted hour appends its prediction. This matches the
-    inference behavior validated by the training holdout in
-    ``training.py:113-122``.
+    each predicted hour appends its prediction. This shares the exact
+    recursive protocol (``data.feature_engineering.recursive_autoregressive_forecast``)
+    used to score the persisted XGBoost holdout since #195, so the
+    published holdout MAPE is measured the way production forecasts.
 
     Past hour ``recursive_hours``, the climatology-shaped autoregressive
     features already present in ``future_df`` (built by
@@ -704,38 +705,25 @@ def _predict_xgboost_with_recursive_autoregressive(
     Returns a 1D array of length ``horizon`` (or shorter if the model
     predicts fewer rows due to a column mismatch).
     """
-    from data.feature_engineering import compute_autoregressive_snapshot
+    from data.feature_engineering import recursive_autoregressive_forecast
     from models.xgboost_model import predict_xgboost
 
     n_recursive = min(recursive_hours, horizon)
 
     # Recursive zone: chain predictions hour by hour, seeded from recent
-    # actuals. Each iteration: build the feature row from the growing
-    # history, predict, append the prediction to history.
-    #
-    # Filter the seed to real demand readings (non-NaN, > 0). Zero or
-    # NaN trailing rows that slip through ``engineer_region_features``
-    # would corrupt the autoregressive lag/rolling features computed
-    # by ``compute_autoregressive_snapshot`` — a single zero in
-    # demand_history poisons the next 168 rolling-window features.
-    # See #129 for the production symptom.
-    raw_history = featured["demand_mw"].tolist()
-    demand_history: list[float] = [
-        float(v) for v in raw_history if v is not None and not pd.isna(v) and v > 0
-    ]
-    recursive_preds: list[float] = []
-    for i in range(n_recursive):
-        row = future_df.iloc[[i]].copy()
-        for col, val in compute_autoregressive_snapshot(demand_history).items():
-            if col in row.columns:
-                row[col] = val
-        row = row.ffill().bfill().fillna(0)
-        pred = float(predict_xgboost(model, row)[0])
-        recursive_preds.append(pred)
-        demand_history.append(pred)
+    # actuals, via the shared helper that is the single source of truth for
+    # both production scoring and holdout evaluation (#195/#186). The helper
+    # filters the seed to real demand readings (non-NaN, > 0) — a single zero
+    # in the history poisons the next 168 rolling-window features (#129).
+    recursive_preds = recursive_autoregressive_forecast(
+        model,
+        featured["demand_mw"].tolist(),
+        future_df.iloc[:n_recursive],
+        predict_xgboost,
+    )
 
     if horizon <= n_recursive:
-        return np.asarray(recursive_preds, dtype=float)
+        return recursive_preds
 
     # Climatology zone (hours N+1 to horizon): vectorized predict on the
     # tail of future_df, which already has climatology-shaped autoregressive
