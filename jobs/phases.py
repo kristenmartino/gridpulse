@@ -746,21 +746,62 @@ def _predict_xgboost_with_recursive_autoregressive(
     return np.concatenate([np.asarray(recursive_preds, dtype=float), clim_preds])
 
 
+def _gap_forward_frame(
+    featured: pd.DataFrame,
+    future_df: pd.DataFrame,
+    anchor_end: Any | None,
+    start_ts: Any,
+) -> pd.DataFrame:
+    """Build a feature frame spanning ``(anchor_end, start_ts) + forward``.
+
+    Prophet/SARIMAX are pickled at daily training; the hourly scoring tick runs
+    later, so their forecast origin (``anchor_end`` = the model's training end)
+    precedes ``start_ts`` (= ``forecast_start``) by the train→score gap. To make
+    the anchored predict return real values for the horizon, hand it the gap
+    hours' REAL weather (from ``featured``) followed by the forward frame,
+    rather than forward-filling/padding across the gap (#194). Returns
+    ``future_df`` unchanged when there's no known anchor or no gap rows.
+    """
+    if anchor_end is None:
+        return future_df
+    ts = featured["timestamp"]
+    anchor = pd.Timestamp(anchor_end)
+    start = pd.Timestamp(start_ts)
+    tz = ts.dt.tz
+    if tz is not None:
+        anchor = anchor.tz_localize(tz) if anchor.tz is None else anchor.tz_convert(tz)
+        start = start.tz_localize(tz) if start.tz is None else start.tz_convert(tz)
+    else:
+        anchor = anchor.tz_localize(None) if anchor.tz is not None else anchor
+        start = start.tz_localize(None) if start.tz is not None else start
+    gap = featured[(ts > anchor) & (ts < start)]
+    if gap.empty:
+        return future_df
+    cols = [c for c in future_df.columns if c in gap.columns]
+    return pd.concat([gap[cols], future_df[cols]], ignore_index=True)
+
+
 def _predict_one(
     model_name: str,
     model: Any,
     featured: pd.DataFrame,
     future_df: pd.DataFrame,
     horizon: int,
+    start_ts: Any | None = None,
 ) -> np.ndarray | None:
     """Dispatch a single model to its predict function and return point forecasts.
+
+    All three models return the ``horizon``-long window whose first hour is
+    ``start_ts`` (= ``forecast_start``), so the caller can write predictions
+    positionally against ``future_ts`` (#194). XGBoost is row-feature based over
+    ``future_df`` and is already anchored there. Prophet/SARIMAX forecast from
+    their frozen training end, so we pass ``start_ts`` (and a gap-spanning
+    feature frame) and use their returned, re-anchored window.
 
     XGBoost runs through ``_predict_xgboost_with_recursive_autoregressive``
     (PR-E, 2026-05-20) which uses recursive autoregressive features for
     the first ``RECURSIVE_AUTOREGRESSIVE_HOURS`` (384) hours of the
-    horizon, falling back to climatology beyond. Prophet builds its
-    own future frame internally from the training data + a periods arg —
-    so we hand it the training ``featured`` DataFrame instead.
+    horizon, falling back to climatology beyond.
 
     Returns ``None`` on a per-model failure so the caller can degrade gracefully
     (other models in the dispatch dict still get their predictions written).
@@ -773,7 +814,12 @@ def _predict_one(
         if model_name == "prophet":
             from models.prophet_model import predict_prophet
 
-            result = predict_prophet(model, featured, periods=horizon)
+            if start_ts is not None:
+                hist_end = pd.Timestamp(model.history["ds"].max())
+                frame = _gap_forward_frame(featured, future_df, hist_end, start_ts)
+                result = predict_prophet(model, frame, periods=horizon, start_ts=start_ts)
+            else:
+                result = predict_prophet(model, featured, periods=horizon)
             preds = result.get("forecast")
             return np.asarray(preds, dtype=float) if preds is not None else None
         if model_name == "arima":
@@ -781,7 +827,13 @@ def _predict_one(
 
             # SARIMAX takes the future-feature frame as a DataFrame; it extracts
             # its own exog columns (ARIMA_EXOG_COLS) via _get_exog internally.
-            preds = predict_arima(model, future_df, periods=horizon)
+            if start_ts is not None:
+                train_end = model.get("train_end") if isinstance(model, dict) else None
+                frame = _gap_forward_frame(featured, future_df, train_end, start_ts)
+                res = predict_arima(model, frame, periods=horizon, start_ts=start_ts)
+            else:
+                res = predict_arima(model, future_df, periods=horizon)
+            preds = res["forecast"] if isinstance(res, dict) else res
             arr = np.asarray(preds, dtype=float)
             # train_arima returns NaN-filled forecast on failure; treat that as
             # a per-model failure so the row layer skips ARIMA cleanly.
@@ -876,7 +928,9 @@ def predict_and_write_forecast(
         # aren't loaded (e.g. training job hasn't produced their pickle yet).
         predictions_by_model: dict[str, np.ndarray] = {}
         for name, model in models.items():
-            preds = _predict_one(name, model, featured, future_df, FORECAST_HORIZON_HOURS)
+            preds = _predict_one(
+                name, model, featured, future_df, FORECAST_HORIZON_HOURS, start_ts=forecast_start
+            )
             if preds is None or len(preds) < FORECAST_HORIZON_HOURS:
                 continue
             predictions_by_model[name] = preds[:FORECAST_HORIZON_HOURS]

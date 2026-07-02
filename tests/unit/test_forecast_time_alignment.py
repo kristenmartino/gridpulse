@@ -15,6 +15,8 @@ byte-identical to the pre-#194 behavior. The ``phases.py`` integration
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -126,3 +128,87 @@ class TestPredictProphetAnchor:
         out = predict_prophet(model, df, periods=24)
         # First forecast row is the hour right after training end.
         assert pd.Timestamp(out["timestamps"][0]) == pd.Timestamp(hist_end) + pd.Timedelta(hours=1)
+
+
+# ---------------------------------------------------------------------------
+# phases.py plumbing — gap-frame construction + start_ts pass-through
+# (fast: no real model training; end-to-end value alignment is covered by the
+#  model-layer tests above and a repro against real Prophet/SARIMAX)
+# ---------------------------------------------------------------------------
+
+
+class TestPhasesGapFrame:
+    def _featured(self, n=400):
+        ts = pd.date_range("2026-06-01", periods=n, freq="h", tz="UTC")
+        return pd.DataFrame({"timestamp": ts, "demand_mw": 20000.0, "temperature_2m": 70.0})
+
+    def test_gap_forward_frame_prepends_real_gap_rows(self):
+        import jobs.phases as phases
+
+        featured = self._featured()
+        train_end = featured["timestamp"].iloc[-19]  # 18h gap to forecast_start
+        forecast_start = featured["timestamp"].iloc[-1] + pd.Timedelta(hours=1)
+        future_df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range(forecast_start, periods=24, freq="h"),
+                "temperature_2m": 99.0,  # distinct so gap vs forward is visible
+            }
+        )
+        frame = phases._gap_forward_frame(featured, future_df, train_end, forecast_start)
+
+        assert len(frame) == 18 + 24
+        assert frame["timestamp"].iloc[0] == train_end + pd.Timedelta(hours=1)
+        assert frame["timestamp"].iloc[17] == forecast_start - pd.Timedelta(hours=1)
+        assert frame["timestamp"].iloc[18] == forecast_start
+        # gap rows carry real historical weather (70), not the forward sentinel (99)
+        assert frame["temperature_2m"].iloc[0] == 70.0
+        assert frame["temperature_2m"].iloc[18] == 99.0
+
+    def test_gap_forward_frame_no_anchor_returns_future_df(self):
+        import jobs.phases as phases
+
+        featured = self._featured()
+        future_df = pd.DataFrame({"timestamp": pd.date_range("2026-06-20", periods=24, freq="h")})
+        assert phases._gap_forward_frame(featured, future_df, None, "2026-06-20") is future_df
+
+    def test_predict_one_passes_start_ts_and_gap_frame_to_arima(self):
+        import jobs.phases as phases
+
+        featured = self._featured()
+        forecast_start = featured["timestamp"].iloc[-1] + pd.Timedelta(hours=1)
+        future_df = pd.DataFrame({"timestamp": pd.date_range(forecast_start, periods=24, freq="h")})
+        model = {"params": np.zeros(3), "train_end": str(featured["timestamp"].iloc[-19])}
+        captured = {}
+
+        def fake_predict_arima(m, future_exog, periods=168, start_ts=None):
+            captured["start_ts"] = start_ts
+            captured["rows"] = len(future_exog)
+            return {
+                "forecast": np.full(periods, 1.0),
+                "timestamps": pd.date_range(start_ts, periods=periods, freq="h"),
+            }
+
+        with patch("models.arima_model.predict_arima", side_effect=fake_predict_arima):
+            out = phases._predict_one(
+                "arima", model, featured, future_df, 24, start_ts=forecast_start
+            )
+
+        assert out is not None and len(out) == 24
+        assert captured["start_ts"] == forecast_start
+        assert captured["rows"] == 18 + 24  # gap + forward handed to predict
+
+    def test_predict_one_xgboost_ignores_start_ts(self):
+        """XGBoost is already anchored at forecast_start; start_ts must not
+        disturb its recursive path."""
+        import jobs.phases as phases
+
+        featured = self._featured()
+        future_df = pd.DataFrame({"timestamp": pd.date_range("2026-06-20", periods=24, freq="h")})
+        with patch.object(
+            phases,
+            "_predict_xgboost_with_recursive_autoregressive",
+            return_value=np.full(24, 5.0),
+        ) as m:
+            out = phases._predict_one("xgboost", object(), featured, future_df, 24, start_ts="x")
+        assert list(out) == [5.0] * 24
+        m.assert_called_once()

@@ -61,7 +61,7 @@ def _patch_predict_one(monkeypatch, predictions_by_name):
     """Patch ``_predict_one`` to dispatch by model name with synthetic arrays."""
     import jobs.phases as phases
 
-    def _fake_predict_one(name, model, featured, future_df, horizon):
+    def _fake_predict_one(name, model, featured, future_df, horizon, start_ts=None):
         return predictions_by_name.get(name)
 
     monkeypatch.setattr(phases, "_predict_one", _fake_predict_one)
