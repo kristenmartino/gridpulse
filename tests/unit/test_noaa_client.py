@@ -14,14 +14,35 @@ import requests
 
 from data.noaa_client import (
     SEVERITY_MAP,
+    NOAAAlertsUnavailableError,
     WeatherAlert,
     _alert_to_dict,
     _fetch_state_alerts,
+    _NOAACircuitBreaker,
     _parse_areas,
     _parse_datetime,
     fetch_alerts_for_region,
     fetch_all_alerts,
 )
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_noaa(monkeypatch):
+    """Keep NOAA unit tests hermetic after the 2026-07 wiring.
+
+    ``_fetch_state_alerts`` now consults the SQLite cache (per-state layer)
+    and a process-local circuit breaker; give every test a miss-everything
+    cache mock and a fresh breaker so state never leaks between tests.
+    Tests that need cache behavior patch ``get_cache`` themselves on top.
+    """
+    import data.noaa_client as noaa
+
+    mock_cache = MagicMock()
+    mock_cache.get.return_value = None
+    monkeypatch.setattr(noaa, "get_cache", lambda: mock_cache)
+    monkeypatch.setattr(noaa, "_breaker", _NOAACircuitBreaker())
+    yield
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -206,33 +227,34 @@ class TestFetchStateAlerts:
         assert alerts[1].event == "Excessive Heat Warning"
 
     @patch("data.noaa_client.requests.get")
-    def test_request_exception_returns_empty(self, mock_get):
-        """Network error returns empty list (covers lines 137-139)."""
+    def test_request_exception_returns_none(self, mock_get):
+        """Network error returns None — an outage must be distinguishable
+        from a genuine zero-alert response (2026-07 review P0-1 lineage)."""
         mock_get.side_effect = requests.ConnectionError("DNS failure")
 
         alerts = _fetch_state_alerts("TX")
 
-        assert alerts == []
+        assert alerts is None
 
     @patch("data.noaa_client.requests.get")
-    def test_timeout_returns_empty(self, mock_get):
-        """Timeout returns empty list."""
+    def test_timeout_returns_none(self, mock_get):
+        """Timeout returns None (fetch failure, not zero alerts)."""
         mock_get.side_effect = requests.Timeout("Connection timed out")
 
         alerts = _fetch_state_alerts("TX")
 
-        assert alerts == []
+        assert alerts is None
 
     @patch("data.noaa_client.requests.get")
-    def test_http_error_returns_empty(self, mock_get):
-        """HTTP 500 returns empty list."""
+    def test_http_error_returns_none(self, mock_get):
+        """HTTP 500 returns None (fetch failure, not zero alerts)."""
         mock_resp = MagicMock()
         mock_resp.raise_for_status.side_effect = requests.HTTPError("500 Server Error")
         mock_get.return_value = mock_resp
 
         alerts = _fetch_state_alerts("TX")
 
-        assert alerts == []
+        assert alerts is None
 
     @patch("data.noaa_client.requests.get")
     def test_empty_features_returns_empty(self, mock_get):
@@ -510,3 +532,80 @@ class TestFetchAllAlerts:
         assert len(result["ERCOT"]) == 1
         assert result["ERCOT"][0].id == "ercot-1"
         assert result["FPL"] == []
+
+
+# ---------------------------------------------------------------------------
+# Outage semantics (2026-07 NOAA wiring)
+# ---------------------------------------------------------------------------
+
+
+class TestOutageSemantics:
+    """Total-failure behavior: raise or serve stale — never a silent []."""
+
+    @patch("data.noaa_client._fetch_state_alerts", return_value=None)
+    @patch("data.noaa_client.get_cache")
+    def test_total_failure_without_cache_raises(self, mock_get_cache, mock_fetch):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None  # fresh miss AND stale miss
+        mock_get_cache.return_value = mock_cache
+
+        with pytest.raises(NOAAAlertsUnavailableError):
+            fetch_alerts_for_region("ERCOT")
+
+    @patch("data.noaa_client._fetch_state_alerts", return_value=None)
+    @patch("data.noaa_client.get_cache")
+    def test_total_failure_serves_stale_region_cache(self, mock_get_cache, mock_fetch):
+        stale = [_alert_to_dict(_make_alert())]
+
+        def cache_get(key, allow_stale=False):
+            return stale if allow_stale else None
+
+        mock_cache = MagicMock()
+        mock_cache.get.side_effect = cache_get
+        mock_get_cache.return_value = mock_cache
+
+        alerts = fetch_alerts_for_region("ERCOT")
+        assert len(alerts) == 1
+        assert alerts[0].event == "Heat Advisory"
+
+    @patch("data.noaa_client._fetch_state_alerts")
+    @patch("data.noaa_client.get_cache")
+    def test_partial_failure_proceeds_with_successful_states(self, mock_get_cache, mock_fetch):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_get_cache.return_value = mock_cache
+        mock_fetch.side_effect = lambda state: None if state != "TX" else [_make_alert()]
+
+        alerts = fetch_alerts_for_region("MISO")  # multi-state BA
+        assert len(alerts) == 1
+
+    @patch("data.noaa_client.requests.get")
+    def test_state_cache_hit_skips_http(self, mock_get, monkeypatch):
+        import data.noaa_client as noaa
+
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = [_alert_to_dict(_make_alert())]
+        monkeypatch.setattr(noaa, "get_cache", lambda: mock_cache)
+
+        alerts = _fetch_state_alerts("TX")
+        assert alerts is not None and len(alerts) == 1
+        mock_get.assert_not_called()
+
+
+class TestCircuitBreaker:
+    def test_trips_after_threshold_and_probes(self):
+        b = _NOAACircuitBreaker(threshold=3, probe_interval=5)
+        for _ in range(3):
+            assert b.allow_request()
+            b.record_failure()
+        # Tripped: next 4 suppressed, 5th allowed as probe.
+        allowed = [b.allow_request() for _ in range(5)]
+        assert allowed == [False, False, False, False, True]
+
+    def test_success_resets(self):
+        b = _NOAACircuitBreaker(threshold=2, probe_interval=5)
+        b.record_failure()
+        b.record_failure()
+        assert not b.allow_request()
+        b.record_success()
+        assert b.allow_request()

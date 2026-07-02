@@ -1342,14 +1342,69 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
         return PhaseResult(region=region, ok=False, error=str(e))
 
 
+# Cap the alert cards persisted per region — a storm-season state can carry
+# 50+ active NWS alerts; the payload discloses the uncapped total via
+# ``alerts_total`` so truncation is never silent.
+_ALERTS_PAYLOAD_CAP = 20
+
+
+def _alert_payload_entry(alert) -> dict[str, Any]:
+    """Trim a ``WeatherAlert`` to the fields the Risk tab renders."""
+    return {
+        "id": alert.id,
+        "event": alert.event,
+        "headline": alert.headline,
+        "severity": alert.severity,
+        "expires": alert.expires.isoformat() if alert.expires else None,
+        "areas": alert.areas[:3],
+        "urgency": alert.urgency,
+    }
+
+
+def _live_noaa_alerts(region: str) -> tuple[list[dict[str, Any]], int, int, int, int]:
+    """Fetch live NOAA alerts for ``region`` and shape them for the payload.
+
+    Returns ``(alerts, n_critical, n_warning, n_info, alerts_total)``.
+    Expired alerts are dropped (the region/state caches and the stale-cache
+    outage fallback can hold entries past their expiry); counts reflect ALL
+    live alerts while the persisted card list is capped at
+    ``_ALERTS_PAYLOAD_CAP`` with the true total in ``alerts_total``.
+    Raises on total fetch failure (see ``data.noaa_client``).
+    """
+    from data.noaa_client import fetch_alerts_for_region
+
+    fetched = fetch_alerts_for_region(region)
+    now = datetime.now(UTC)
+    live = []
+    for a in fetched:
+        exp = a.expires
+        if exp is not None:
+            if exp.tzinfo is None:
+                # Rare naive timestamp — keep the alert rather than guess.
+                pass
+            elif exp <= now:
+                continue
+        live.append(a)
+
+    n_crit = sum(1 for a in live if a.severity == "critical")
+    n_warn = sum(1 for a in live if a.severity == "warning")
+    n_info = sum(1 for a in live if a.severity == "info")
+    if len(live) > _ALERTS_PAYLOAD_CAP:
+        log.info("job_alerts_capped", region=region, total=len(live), cap=_ALERTS_PAYLOAD_CAP)
+    alerts = [_alert_payload_entry(a) for a in live[:_ALERTS_PAYLOAD_CAP]]
+    return alerts, n_crit, n_warn, n_info, len(live)
+
+
 def write_alerts(data: RegionData) -> PhaseResult:
     """Write the alerts / stress / anomaly payload for the Risk tab.
 
-    Alert-feed honesty: no live alert feed is wired yet (``data/noaa_client``
-    exists but has no scoring-path caller), so outside demo mode this phase
-    publishes an explicitly-empty payload (``alerts_source="unavailable"``,
-    ``stress_score=None``) rather than fabricated advisories. Demo alerts are
-    emitted only when ``config.USE_DEMO_DATA`` is set, and are labeled
+    Alert-feed honesty (2026-07 review P0-1 lineage): live alerts come from
+    NOAA/NWS via ``data.noaa_client`` (``alerts_source="noaa"``). On any
+    fetch failure the payload degrades to an explicitly-empty
+    ``alerts_source="unavailable"`` state — never fabricated content, and an
+    outage is never disguised as "no active alerts" (the client raises
+    rather than returning empty on total failure). Demo alerts are emitted
+    only when ``config.USE_DEMO_DATA`` is set and are labeled
     ``alerts_source="demo"`` so the UI can disclose them. The anomaly and
     temperature sections are always real (derived from fetched demand/weather).
     """
@@ -1359,22 +1414,36 @@ def write_alerts(data: RegionData) -> PhaseResult:
     region = data.region
     try:
         stress: int | None
+        alerts_total = 0
         if _config.USE_DEMO_DATA:
             from data.demo_data import generate_demo_alerts
 
             alerts = generate_demo_alerts(region)
             alerts_source = "demo"
+            alerts_total = len(alerts)
             n_crit = sum(1 for a in alerts if a["severity"] == "critical")
             n_warn = sum(1 for a in alerts if a["severity"] == "warning")
             n_info = sum(1 for a in alerts if a["severity"] == "info")
             stress = min(100, n_crit * 30 + n_warn * 15 + 20)
             stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
         else:
-            alerts = []
-            alerts_source = "unavailable"
-            n_crit = n_warn = n_info = 0
-            stress = None
-            stress_label = "Unavailable"
+            try:
+                alerts, n_crit, n_warn, n_info, alerts_total = _live_noaa_alerts(region)
+                alerts_source = "noaa"
+                # Heuristic stress index over REAL alert counts (weights are
+                # a UI contract from the original design, not calibrated —
+                # tracked in the 2026-07 review's unsupported-claims ledger).
+                stress = min(100, n_crit * 30 + n_warn * 15 + 20)
+                stress_label = (
+                    "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
+                )
+            except Exception as noaa_err:
+                log.warning("job_alerts_noaa_unavailable", region=region, error=str(noaa_err))
+                alerts = []
+                alerts_source = "unavailable"
+                n_crit = n_warn = n_info = 0
+                stress = None
+                stress_label = "Unavailable"
 
         recent = data.demand_df.tail(168).copy()
         rolling_mean = recent["demand_mw"].rolling(24).mean()
@@ -1394,6 +1463,7 @@ def write_alerts(data: RegionData) -> PhaseResult:
             "scored_at": datetime.now(UTC).isoformat(),
             "alerts": alerts,
             "alerts_source": alerts_source,
+            "alerts_total": alerts_total,
             "stress_score": stress,
             "stress_label": stress_label,
             "alert_counts": {"critical": n_crit, "warning": n_warn, "info": n_info},

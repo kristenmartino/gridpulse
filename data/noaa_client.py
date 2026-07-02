@@ -21,13 +21,63 @@ from data.cache import get_cache
 
 log = structlog.get_logger()
 
-REQUEST_TIMEOUT = 15
+REQUEST_TIMEOUT = 10
 
 # NOAA requires a User-Agent header
 HEADERS = {
     "User-Agent": "GridPulse (kristen@kristenmartino.ai)",
     "Accept": "application/geo+json",
 }
+
+
+class NOAAAlertsUnavailableError(RuntimeError):
+    """Raised when NO state fetch for a region succeeded and no cached data
+    (fresh or stale) exists. Callers must degrade to an explicit
+    "unavailable" state — a NOAA outage must never be indistinguishable
+    from "zero active alerts" (2026-07 critical-review loophole class)."""
+
+
+class _NOAACircuitBreaker:
+    """Process-local fail-fast guard for sustained NOAA outages.
+
+    Same policy as ``data.eia_client._EIACircuitBreaker`` (see the
+    2026-06-04 EIA-outage rule in CLAUDE.md), minimally reimplemented here
+    until #185 unifies client fallback machinery: after ``threshold``
+    consecutive hard failures, subsequent calls skip HTTP entirely (a
+    scoring run fans out to ~49 unique states — unbounded timeouts would
+    threaten the job ceiling, #171), with a probe allowed every
+    ``probe_interval`` suppressed calls to detect recovery. Per-process
+    state; resets on any success and on every fresh job run.
+    """
+
+    def __init__(self, threshold: int = 5, probe_interval: int = 20) -> None:
+        self._threshold = threshold
+        self._probe_interval = probe_interval
+        self._consecutive_failures = 0
+        self._suppressed_since_probe = 0
+
+    def allow_request(self) -> bool:
+        if self._consecutive_failures < self._threshold:
+            return True
+        self._suppressed_since_probe += 1
+        if self._suppressed_since_probe >= self._probe_interval:
+            self._suppressed_since_probe = 0
+            return True
+        return False
+
+    def record_success(self) -> None:
+        if self._consecutive_failures >= self._threshold:
+            log.info("noaa_circuit_recovered")
+        self._consecutive_failures = 0
+        self._suppressed_since_probe = 0
+
+    def record_failure(self) -> None:
+        self._consecutive_failures += 1
+        if self._consecutive_failures == self._threshold:
+            log.warning("noaa_circuit_tripped", threshold=self._threshold)
+
+
+_breaker = _NOAACircuitBreaker()
 
 # Severity mapping: NOAA severity → dashboard severity
 SEVERITY_MAP = {
@@ -89,13 +139,30 @@ def fetch_alerts_for_region(
     log.info("noaa_fetching_alerts", region=region, states=states)
 
     all_alerts: dict[str, WeatherAlert] = {}
+    failed_states: list[str] = []
 
     for state in states:
         alerts = _fetch_state_alerts(state)
+        if alerts is None:
+            failed_states.append(state)
+            continue
         for alert in alerts:
             if alert.id not in all_alerts:
                 alert.balancing_authorities = [region]
                 all_alerts[alert.id] = alert
+
+    if failed_states and len(failed_states) == len(states):
+        # Total failure — an outage must be distinguishable from "no active
+        # alerts". Serve stale real data if we have it, else raise.
+        stale = cache.get(cache_key, allow_stale=True)
+        if stale is not None:
+            log.warning("noaa_serving_stale_alerts", region=region, count=len(stale))
+            return [WeatherAlert(**a) for a in stale]
+        raise NOAAAlertsUnavailableError(
+            f"All {len(states)} state fetches failed for {region} and no cached alerts exist"
+        )
+    if failed_states:
+        log.warning("noaa_partial_state_failure", region=region, failed_states=failed_states)
 
     result = sorted(
         all_alerts.values(),
@@ -114,9 +181,8 @@ def fetch_alerts_for_region(
 
 def fetch_all_alerts(use_cache: bool = True) -> dict[str, list[WeatherAlert]]:
     """
-    Fetch alerts for every balancing authority that has a state mapping in
-    ``STATE_TO_BA`` (the NOAA/NWS alerts API is state-scoped; not all 51 BAs
-    in ``config.REGION_COORDINATES`` have a documented state mapping yet).
+    Fetch alerts for every balancing authority in ``STATE_TO_BA`` (all 51
+    BAs in ``config.REGION_COORDINATES`` carry a state mapping).
 
     Returns:
         Dict mapping region code → list of WeatherAlert.
@@ -127,8 +193,27 @@ def fetch_all_alerts(use_cache: bool = True) -> dict[str, list[WeatherAlert]]:
     return result
 
 
-def _fetch_state_alerts(state: str) -> list[WeatherAlert]:
-    """Fetch active alerts for a single state."""
+def _fetch_state_alerts(state: str) -> list[WeatherAlert] | None:
+    """Fetch active alerts for a single state.
+
+    Returns ``None`` on fetch failure (outage), ``[]`` on a genuine
+    zero-alert response — callers must not conflate the two. State-level
+    results are cached (states are shared across BAs: 51 regions fan out to
+    115 state lookups but only ~49 unique states, and the scoring job runs
+    hourly), and a stale state cache is served on failure before giving up.
+    """
+    cache = get_cache()
+    state_key = f"noaa_state_{state}"
+    cached = cache.get(state_key)
+    if cached is not None:
+        return [WeatherAlert(**a) for a in cached]
+
+    if not _breaker.allow_request():
+        stale = cache.get(state_key, allow_stale=True)
+        if stale is not None:
+            return [WeatherAlert(**a) for a in stale]
+        return None
+
     url = f"{NOAA_BASE_URL}/alerts/active"
     params = {"area": state}
 
@@ -136,9 +221,15 @@ def _fetch_state_alerts(state: str) -> list[WeatherAlert]:
         resp = requests.get(url, params=params, headers=HEADERS, timeout=REQUEST_TIMEOUT)
         resp.raise_for_status()
         data = resp.json()
+        _breaker.record_success()
     except requests.RequestException as e:
+        _breaker.record_failure()
         log.warning("noaa_request_failed", state=state, error=str(e))
-        return []
+        stale = cache.get(state_key, allow_stale=True)
+        if stale is not None:
+            log.warning("noaa_serving_stale_state", state=state, count=len(stale))
+            return [WeatherAlert(**a) for a in stale]
+        return None
 
     features = data.get("features", [])
     alerts = []
@@ -162,6 +253,11 @@ def _fetch_state_alerts(state: str) -> list[WeatherAlert]:
         )
         alerts.append(alert)
 
+    cache.set(
+        state_key,
+        [_alert_to_dict(a) for a in alerts],
+        ttl=min(CACHE_TTL_SECONDS, 1800),
+    )
     log.debug("noaa_state_alerts", state=state, count=len(alerts))
     return alerts
 

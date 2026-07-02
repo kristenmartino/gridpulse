@@ -138,11 +138,13 @@ Generation-by-fuel data is also fetched for supply-side context, fuel mix views,
 
 ## 2.3 NOAA / NWS Alerts
 
-**Source:** NOAA / National Weather Service  
+**Source:** NOAA / National Weather Service (`/alerts/active`, state-scoped)  
 **Purpose:** severe weather and alert context for regions  
-**Status (2026-07):** client implemented (`data/noaa_client.py`) but **not yet wired** into the scoring pipeline or any UI path. In production the Risk tab's alert feed publishes an explicitly-empty payload (`alerts_source="unavailable"`); demo alerts appear only in demo mode and are labeled as demo. The UI does not attribute alert content to NOAA until this integration lands.
+**Status (2026-07):** **live.** The hourly scoring job fetches active NWS alerts per BA via `data/noaa_client.fetch_alerts_for_region` and writes them to `gridpulse:alerts:{region}` with `alerts_source="noaa"`. Alerts are mapped to BAs through `config.STATE_TO_BA`, deduplicated across a BA's states, classified by severity (Extreme/Severe→critical, Moderate→warning, Minor→info), and expired entries are dropped at write time. The persisted card list is capped at 20 with the true count in `alerts_total`; severity counts reflect all live alerts.
 
-This source is intended to support alert- and extreme-event-oriented views. It is not the primary weather forecasting source but provides risk context layered over energy and forecast views.
+**Failure behavior (alert-feed honesty):** a NOAA outage is never disguised as "no active alerts." `fetch_alerts_for_region` serves stale cached alerts on failure, and raises `NOAAAlertsUnavailableError` only when *every* state fetch fails and no cache exists — the scoring job then writes `alerts_source="unavailable"` (empty alerts, `stress_score=None`) and the Risk tab renders an explicit "live feed temporarily unavailable" state. A process-local circuit breaker (`_NOAACircuitBreaker`) fail-fasts sustained outages so the ~49-unique-state fan-out can't overrun the job timeout. Per-state responses are cached (states are shared across BAs) to bound request volume.
+
+This source supports alert- and extreme-event-oriented views. It is not the primary weather forecasting source but provides risk context layered over energy and forecast views.
 
 ---
 
