@@ -82,9 +82,43 @@ theatrical and should be partially reverted:
 
 ## Next 3 (priority order)
 
-1. **Phase 3 of `prod-readiness` — ✅ COMPLETE.** [#149](https://github.com/kristenmartino/gridpulse/issues/149) strict prod-fallback gating in `model_service` (PR-G4 → PR [#167](https://github.com/kristenmartino/gridpulse/pull/167); `get_forecasts`/`get_model_metrics` return unavailable/`{}` under `REQUIRE_REDIS`; surfaced follow-up [#166](https://github.com/kristenmartino/gridpulse/issues/166)). [#155](https://github.com/kristenmartino/gridpulse/issues/155) LDWP/drift robust stats (PR-G9 → PR [#168](https://github.com/kristenmartino/gridpulse/pull/168), closed [#142](https://github.com/kristenmartino/gridpulse/issues/142)): bounded sMAPE headline + region-relative low-actual filter (drop drift records with `actual < 0.10 × rolling-window median`) turned LDWP's ~200% rolling MAPE into ~13% without moving FPL/MISO/SPP/NYISO/ISONE. [#150](https://github.com/kristenmartino/gridpulse/issues/150) Prophet interval honesty (PR-G11): removed the fabricated `yhat_*×0.95/1.05` "95%" band, keeping only Prophet's real 80% posterior — no 95% claim survives, and displayed intervals already use empirical residual quantiles. **Per direction: checkpoint here before starting Phase 4.** Recommended next-session order (don't jump straight to Phase 4): **(1) [#170](https://github.com/kristenmartino/gridpulse/issues/170)** drift log → ensemble headline (direct follow-up from verification; makes future checks possible without Redis access), **(2) [#166](https://github.com/kristenmartino/gridpulse/issues/166)** `write_diagnostics` simulated path (still the "no fake numbers" theme from Phase 3, more trust-relevant than dep hygiene), then **[#171](https://github.com/kristenmartino/gridpulse/issues/171)** (scoring runtime reduction — **promoted ahead of Phase 4** after the 2026-06-01 timeout incident: post-fix scheduled ticks run 1083–1333s = 60–74% of the new 1800s cap, already at the headroom limit), **then Phase 4** in order: #151 deps → #152 mypy → #153 typed Redis payloads → #154 callbacks decomposition.
-2. **Manual one-click from this session** (yours, ~2 min): (a) ✅ **email channel confirmed working** — the job-failure alert fired and reached you on 2026-06-01 (the scoring timeout incident), so the channel is verified by behavior, no need to check `verificationStatus`; (b) the `/health` **deep-degraded uptime alert** is now higher-value, not just a nice-to-have: the 2026-06-01 incident kept `/health?deep=1` `degraded` for ~4.5h and was caught only by the *job-failure* alert — a partial-write run that "succeeds" but leaves `last_scored` stale would slip through today. Worth adding (would also catch a #161-style outage where infra is healthy but forecasts are absent).
-3. **Watch live drift** (passive). Confirm `gridpulse:drift:{region}.rolling_smape_7d` (the PR-G9 headline metric) healthy for top regions on the Overview tab; `rolling_mape_7d` is now filtered too and `n_low_actual_excluded_7d` should read 0 everywhere except LDWP.
+**Context: the 2026-07 critical review** (`docs/internal/CRITICAL_REVIEW_2026-07.md`)
+confirmed 2 P0 + 10 P1 findings beyond the #181–#189 elegance audit, filed as
+#193–#203. Shipped so far: #191 (alert honesty + warming gate #200 + fabricated-
+perfection #201 slice), #192 (freshness #197, scored_at #198, interval disclosure
+#196, sMAPE label #202), #204 (live NOAA wiring, the real fix behind #193).
+**Fixed-pending-prod-verify** (open only for the close-after-verify convention):
+#197, #198, #200, #202. Full status map lives in the review report.
+
+1. **Merge [#205](https://github.com/kristenmartino/gridpulse/pull/205) → finish P0-1.**
+   Completes #193: fixes the NOAA cache-round-trip datetime bug that degraded the
+   Risk tab to "unavailable" on every cache-hit BA, plus professionalizes the
+   unavailable-state copy. Verified end-to-end against the live NOAA API (CAISO/
+   NYISO carry real alerts; ERCOT/FPL legitimately empty). After merge: prod-
+   verify on a region with active alerts, then close #193.
+2. **Workstream C — the last P0 (largest remaining chunk).** [#194](https://github.com/kristenmartino/gridpulse/issues/194)
+   (P0-2: Prophet/SARIMAX forecasts time-mislabeled up to ~24h — predictions
+   anchored at the pickled model's training-end are written at scoring-tick
+   timestamps) **+** [#195](https://github.com/kristenmartino/gridpulse/issues/195)
+   (P1-1: XGBoost's "168h holdout" is teacher-forced one-step-ahead while Prophet/
+   ARIMA are multi-step — the published numbers are incommensurable). Do together;
+   both touch the scoring/training core. **Dependency:** after landing, re-measure
+   live drift and revisit [#170](https://github.com/kristenmartino/gridpulse/issues/170)
+   + [#181](https://github.com/kristenmartino/gridpulse/issues/181) — both currently
+   rest on the misaligned data, so their diagnoses may change.
+3. **Close out partials + loose P1s (small–medium).** [#201](https://github.com/kristenmartino/gridpulse/issues/201)
+   remainder (`_callbacks_forecast.py:1107` still renders `MAPE 0.0%`); [#203](https://github.com/kristenmartino/gridpulse/issues/203)
+   (National Peak = max of per-BA maxima, not a true national peak); [#199](https://github.com/kristenmartino/gridpulse/issues/199)
+   (Generation panel does a live EIA fetch in the web request path — guardrail
+   violation); [#196](https://github.com/kristenmartino/gridpulse/issues/196)
+   remainder (real per-model residual calibration for intervals).
+
+**Deferred to #189 / #127:** the review's 52 P2 + 57 P3 findings are folded into
+the #189 tech-debt tracker; P1-9 (Scenarios panel prod-dead) is tracked under #127.
+
+**Superseded prod-readiness queue** (was Next-3 pre-review, now behind the above):
+Phase 4 rigor — #151 deps, #152 mypy, #153 typed Redis payloads, #154 callbacks
+decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnostics.
 
 **Queued behind those:**
 
