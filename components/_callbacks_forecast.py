@@ -234,11 +234,16 @@ def _add_confidence_bands(
         upper = predictions * (1 + hw)
         lower = predictions * (1 - hw)
 
-    band_name = (
-        "80% empirical prediction interval"
-        if interval_meta["method"] == "empirical"
-        else "80% indicative range"
-    )
+    if interval_meta["method"] == "empirical":
+        # Disclose the calibration source when the residuals came from a
+        # substitute model — the prod backtest payload only carries XGBoost
+        # predictions, so a Prophet/ARIMA/ensemble band is typically
+        # XGBoost-calibrated (2026-07 critical-review finding P1-2/F6-003).
+        calib = interval_meta.get("calibration_model")
+        calib_note = "" if calib in (None, model_name) else f" ({calib}-calibrated)"
+        band_name = f"80% empirical prediction interval{calib_note}"
+    else:
+        band_name = "80% indicative range"
 
     band_fill = _MODEL_BAND_COLORS.get(model_name, COLORS["confidence"])
 
@@ -838,9 +843,12 @@ def _outlook_tab_from_redis(
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
     interval_caption = ""
     if interval_meta.get("method") == "empirical":
+        _calib = interval_meta.get("calibration_model")
+        _calib_note = "" if _calib in (None, model_name) else f", {_calib}-calibrated"
         interval_caption = (
             f"<br><sup>80% empirical prediction interval "
-            f"(calibration window: last {int(interval_meta.get('calibration_window_hours', 0))}h)</sup>"
+            f"(calibration window: last {int(interval_meta.get('calibration_window_hours', 0))}h"
+            f"{_calib_note})</sup>"
         )
     # On the 30-day view, surface in the subtitle that days 17-30 are
     # climatology baseline rather than real forecast. Users browsing
