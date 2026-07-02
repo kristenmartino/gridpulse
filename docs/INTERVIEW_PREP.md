@@ -137,6 +137,136 @@ Result: The default Models view renders real charts in production. One-line gate
 
 **Lesson to convey**: *`is` is not `==`. An identity check on a value that's reconstructed on every callback is a time bomb — it works in the one test that passes the sentinel object and fails everywhere real. And removing fake fallbacks is double-edged: it makes you honest, but it also strips the camouflage off every latent bug the fake data was quietly covering. Budget for the bugs an honesty fix will surface.*
 
+### 9. "Tell me about a time you found a serious problem others had missed."
+**I ran an adversarial review on my own project and found two P0s I was shipping.**
+
+> ⚠️ Numbers marked `‹fill after re-measure›` come from the post-deploy training
+> run — drop them in once prod re-scores. Everything else is final.
+
+Situation: GridPulse had already been through a four-reviewer "elegance audit"
+that graded the code and concluded — verbatim — that only two correctness
+defects touched fabricated data. I wasn't satisfied that an *elegance* pass had
+actually looked for *integrity* bugs, so I ran a second review with a different
+charter: an adversarial, multi-agent sweep (finders per code territory →
+independent verifiers whose job was to *refute* each finding with a runnable
+repro → dedup against everything already tracked). It surfaced **two P0s the
+elegance audit had explicitly ruled out.**
+
+Investigation: The first was the one that stung. The Risk tab showed live
+severe-weather alerts, badged "NOAA · LIVE." They were fabricated — the hourly
+scoring job called a `generate_demo_alerts()` helper with no environment gate
+and wrote canned "Heat Advisory / Wind Advisory" content to Redis every tick;
+the real NOAA client existed but had *no caller*. Worse, a well-meaning earlier
+PR had "fixed" the Models/alerts surfaces by making the charts *render* — which
+turned an honest "no data" placeholder into a wall of fabricated-perfect output.
+The safety improvement had made the dishonesty more convincing, not less.
+
+Action: I treated "no fake data on a production surface" as the invariant and
+drove it end-to-end: gate the demo generator out of prod, publish an explicit
+`alerts_source="unavailable"` state instead of canned content, then wire the
+real NOAA feed (with stale-cache + circuit-breaker outage resilience so a NOAA
+outage degrades honestly instead of silently emptying — and never gets
+disguised as "no active alerts"). I verified against the *live* API, not mocks:
+CAISO and NYISO carry real alerts today, ERCOT and Florida legitimately have
+none — the empty state was correct, which is exactly why it had looked like
+"working."
+
+Result: The Risk tab now shows real NWS alerts or an honest unavailable state;
+the fabricated path is unreachable in prod and pinned by a test that asserts the
+demo generator can't be called. Two P0s + nine P1s from that review are merged.
+
+**Lesson to convey**: *A review finds what its charter tells it to look for. An
+elegance audit will grade your abstractions and miss that you're shipping fake
+alerts stamped LIVE — because "is this honest?" was never the question it was
+asked. And be suspicious of the fix that makes a broken thing render: sometimes
+"now it shows something" is worse than "it showed nothing," because fake data is
+most dangerous when it looks finished.*
+
+### 10. "Walk me through a subtle correctness bug in a system you own."
+**Two of my three models were forecasting for the wrong clock.**
+
+Situation: The forecast pipeline trains models daily at 04:00 UTC and scores
+hourly. The review flagged that Prophet and SARIMAX forecasts might be
+time-mislabeled — their values anchored to the model's frozen *training* end,
+but written into Redis rows timestamped from the *current* scoring tick. XGBoost
+was fine.
+
+Investigation: The mechanism was a discarded return value. Both Prophet's and
+SARIMAX's predict functions forecast forward *from where their training data
+ended* — that's baked into how they generate a future window. The scoring job
+took those values and wrote them positionally against `forecast_start`
+(now + 1h), silently throwing away the timestamps the models actually emitted.
+Because training is daily and scoring hourly, the offset grows from zero right
+after a retrain toward ~23 hours just before the next one — rotating the diurnal
+demand curve so an evening peak could land at midday. XGBoost escaped because
+it predicts row-by-row over the forward feature frame, so it was already
+anchored correctly. The kicker: the per-model *live drift* that a prior issue
+had chalked up to "genuine model weakness" (some regions showing wild ARIMA
+error) was, at least in part, this — the drift monitor was scoring each
+prediction against the *wrong hour's* actual.
+
+Action: I gave the predict functions an explicit `start_ts` anchor — they now
+forecast across the train-end→scoring-start gap and return the window labeled
+from `start_ts`, with the default path kept byte-identical so the ~10 other
+callers didn't move. The scoring job feeds them a gap-spanning feature frame
+(real historical weather for the gap hours, not forward-fill) so the values are
+honest, not just the labels. I verified end-to-end on real Prophet + SARIMAX
+against a synthetic sinusoid with an 18-hour gap: SARIMAX's first prediction
+landed *exactly* on the forecast-start hour's true value, versus a
+full-amplitude miss under the old anchoring.
+
+Result: All three models now write predictions labeled with the hours they
+actually predicted. Post-deploy re-measurement of per-model live drift:
+`‹fill after re-measure: Prophet/ARIMA rolling_smape_7d before → after for
+LDWP/AZPS›`.
+
+**Lesson to convey**: *The bug wasn't in the math — it was in the seam between a
+model that forecasts "from its training end" and a job that assumes "from now."
+A returned timestamp that everyone ignores is a landmine. And when one signal
+looks anomalously bad ("this model is just weak here"), check whether you're
+measuring it correctly before you conclude it's broken — I nearly inherited a
+wrong diagnosis of a downstream symptom.*
+
+### 11. "Tell me about a data or statistical-integrity decision."
+**My published accuracy numbers were flattering — because I measured one model differently.**
+
+Situation: GridPulse publishes a 168-hour holdout MAPE per model, and those
+numbers do real work: they drive the inverse-MAPE ensemble weights and headline
+the accuracy tables in the docs. The review found the comparison was
+apples-to-oranges.
+
+Investigation: XGBoost's holdout was scored **teacher-forced one-step-ahead** —
+at every holdout hour it got to see the *real* previous-hour demand as a
+feature, so it was effectively answering 168 easy one-hour questions. Prophet
+and SARIMAX were scored as honest 168-hour multi-step forecasts. So XGBoost's
+number wasn't just better, it was measuring a *different, easier task* — which
+flattered its published accuracy and tilted the ensemble weights toward it. It
+also meant a separate open question ("the ensemble trails the best single model
+on 47 of 51 regions") rested on a contaminated comparison.
+
+Action: I made all three models score the holdout the same way production
+actually serves — a shared recursive protocol where each step's autoregressive
+features come from the model's own prior *predictions*, not observed actuals.
+I extracted it into one function that's now the single source of truth for both
+scoring and evaluation (so the two can't silently diverge again), and — because
+this changes published numbers — I logged *both* the new recursive MAPE and the
+old teacher-forced one for one release, so the shift is visible before it moves
+any weights or gates. The regression test is the tell: perturbing the in-window
+actuals no longer changes the forecast (proving it's genuinely recursive), while
+perturbing the seed history does.
+
+Result: XGBoost's holdout MAPE rose to a comparable basis and the ensemble
+weights shifted: `‹fill after re-measure: XGBoost median MAPE before → after;
+#BAs where ensemble now beats best-base, before 4/51 → after›`. The numbers went
+down as a headline and *up* in trustworthiness.
+
+**Lesson to convey**: *The most dangerous metric is the one that's wrong in your
+favor — you don't go looking for it. "XGBoost is our best model" was true, but
+partly because I was grading it on an easier exam. Fixing a measurement often
+makes your headline number worse and your credibility better, and that's a trade
+worth making every time. I'd rather report a 4% I trust than a 2% I have to
+asterisk.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
