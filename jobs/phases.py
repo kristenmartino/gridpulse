@@ -1270,22 +1270,66 @@ def write_weather_correlation(data: RegionData) -> PhaseResult:
         return PhaseResult(region=region, ok=False, error=str(e))
 
 
+def _real_feature_importance(xgb_model: dict | None) -> dict | None:
+    """Top-10 feature importances from a real trained model, or None.
+
+    Never the hardcoded ``[10, 9, 8, …]`` placeholder — an absent model must
+    yield None so the SHAP panel renders an honest empty state rather than
+    fabricated importances (2026-07 review, #166 sibling).
+    """
+    if xgb_model and isinstance(xgb_model, dict) and xgb_model.get("feature_importances"):
+        sorted_feats = sorted(
+            xgb_model["feature_importances"].items(),
+            key=lambda x: x[1],
+            reverse=True,
+        )[:10]
+        return {"names": [f[0] for f in sorted_feats], "values": [f[1] for f in sorted_feats]}
+    return None
+
+
 def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
-    """Write the model-diagnostics payload (actuals vs ensemble, residuals, importance)."""
+    """Write the model-diagnostics payload (actuals vs ensemble, residuals, importance).
+
+    Residual diagnostics require a REAL forecast to compare actuals against.
+    In production the web-tier ``get_forecasts`` is strict-gated (#149) and
+    returns ``{"source": "unavailable"}``; the previous
+    ``diag.get("ensemble", actuals)`` default substituted actual demand as the
+    "prediction" and wrote **identically-zero residuals** every tick, which the
+    Models tab rendered as a perfect model (2026-07 review P2-32, issue #166).
+    We now write an explicit ``diagnostics_source="unavailable"`` marker with no
+    fabricated residuals instead. Interim honesty fix — the real fix (#166)
+    derives residuals from genuine backtest data.
+    """
     from data.redis_client import redis_key, redis_set
     from models.model_service import get_forecasts
 
     region = data.region
     try:
         diag = get_forecasts(region, data.demand_df)
-        diag_metrics = diag.get("metrics", {})
-        diag_ensemble = diag.get("ensemble", data.demand_df["demand_mw"].values)
-        if not isinstance(diag_ensemble, np.ndarray):
-            diag_ensemble = (
-                np.array(diag_ensemble)
-                if diag_ensemble is not None
-                else data.demand_df["demand_mw"].values
+        diag_source = diag.get("source")
+        diag_ensemble = diag.get("ensemble")
+        feature_importance = _real_feature_importance(xgb_model)
+
+        # No real forecast → honest unavailable payload (no zero residuals).
+        if diag_source == "unavailable" or diag_ensemble is None:
+            redis_set(
+                redis_key(f"diagnostics:{region}"),
+                {
+                    "region": region,
+                    "diagnostics_source": "unavailable",
+                    "metrics": dict(diag.get("metrics", {})),
+                    "feature_importance": feature_importance,
+                },
+                ttl=REDIS_TTL,
             )
+            log.info(
+                "job_diagnostics_unavailable", region=region, reason=diag_source or "no_forecast"
+            )
+            return PhaseResult(region=region, ok=True, details={"diagnostics": "unavailable"})
+
+        diag_metrics = diag.get("metrics", {})
+        if not isinstance(diag_ensemble, np.ndarray):
+            diag_ensemble = np.array(diag_ensemble)
         diag_actual = data.demand_df["demand_mw"].values[: len(diag_ensemble)]
         diag_residuals = diag_actual - diag_ensemble
         diag_ts = data.demand_df["timestamp"].iloc[: len(diag_ensemble)]
@@ -1293,32 +1337,11 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
         error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(diag_residuals)})
         hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
 
-        fi_names = [
-            "temperature_2m",
-            "demand_lag_24h",
-            "hour_sin",
-            "cooling_degree_days",
-            "wind_speed_80m",
-            "demand_roll_24h_mean",
-            "heating_degree_days",
-            "solar_capacity_factor",
-            "day_of_week",
-            "cloud_cover",
-        ]
-        fi_vals: list[float] = list(range(10, 0, -1))
-        if xgb_model and isinstance(xgb_model, dict) and "feature_importances" in xgb_model:
-            sorted_feats = sorted(
-                xgb_model["feature_importances"].items(),
-                key=lambda x: x[1],
-                reverse=True,
-            )[:10]
-            fi_names = [f[0] for f in sorted_feats]
-            fi_vals = [f[1] for f in sorted_feats]
-
         redis_set(
             redis_key(f"diagnostics:{region}"),
             {
                 "region": region,
+                "diagnostics_source": diag_source,
                 "timestamps": _ts_list(diag_ts),
                 "actual": diag_actual.tolist(),
                 "ensemble": diag_ensemble.tolist(),
@@ -1328,7 +1351,7 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
                     "hours": hourly_error.index.tolist(),
                     "values": hourly_error.values.tolist(),
                 },
-                "feature_importance": {"names": fi_names, "values": fi_vals},
+                "feature_importance": feature_importance,
             },
             ttl=REDIS_TTL,
         )

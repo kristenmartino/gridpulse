@@ -74,6 +74,33 @@ def _format_metric(m: dict, key: str, fmt: str) -> str:
     return fmt.format(val)
 
 
+def _build_shap_fig(fi: dict, selected_models: list[str], uirev: str) -> go.Figure:
+    """Build the SHAP feature-importance figure, honestly.
+
+    Empty state (not a blank/fabricated bar chart) when XGBoost isn't selected
+    or when no real importances exist (absent trained model) — the writer sends
+    ``feature_importance=None`` in that case rather than a placeholder.
+    """
+    if "xgboost" not in selected_models:
+        return _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
+    fi_names = fi.get("names", []) if fi else []
+    fi_vals = fi.get("values", []) if fi else []
+    if not fi_names:
+        return _empty_figure(
+            "Feature importance unavailable — no trained XGBoost model for this region yet."
+        )
+    fig = go.Figure(
+        go.Bar(
+            x=fi_vals[::-1],
+            y=fi_names[::-1],
+            orientation="h",
+            marker_color=COLORS["xgboost"],
+        )
+    )
+    fig.update_layout(**_layout(uirevision=uirev, xaxis_title="Feature Importance"))
+    return fig
+
+
 def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     """Redis fast path for update_models_tab callback.
 
@@ -118,7 +145,8 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     ensemble = np.array(cached.get("ensemble", []))
     residuals = np.array(cached.get("residuals", []))
     hourly_err = cached.get("hourly_error", {})
-    fi = cached.get("feature_importance", {})
+    fi = cached.get("feature_importance") or {}
+    diagnostics_source = cached.get("diagnostics_source")
 
     # Metrics table
     name_map = {
@@ -150,6 +178,27 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
         ],
         className="metrics-table",
     )
+
+    # Honest empty state when the scoring job had no real forecast to residual
+    # against (prod strict-gate → diagnostics_source="unavailable"). Do NOT
+    # render the four residual charts from fabricated zero residuals (#166 /
+    # 2026-07 review P2-32). The metrics table above is real (meta.json holdout)
+    # and SHAP is real (trained model) — keep those; blank only the residuals.
+    if diagnostics_source == "unavailable" or residuals.size == 0:
+        log.info("diagnostics_unavailable_render", region=region, source=diagnostics_source)
+        unavail = _empty_figure(
+            "Residual diagnostics unavailable — no scored forecast to compare "
+            "against yet. Populates after the scoring job writes a forecast for "
+            "this region."
+        )
+        return (
+            table,
+            unavail,
+            unavail,
+            unavail,
+            unavail,
+            _build_shap_fig(fi, selected_models, uirev),
+        )
 
     # Residuals span the full training window (60-90 days hourly =
     # 1440-2160 points). At 1280px chart width that's ~1.7 raw points
@@ -217,20 +266,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
         )
     )
 
-    if "xgboost" in selected_models:
-        fi_names = fi.get("names", [])
-        fi_vals = fi.get("values", [])
-        fig_shap = go.Figure(
-            go.Bar(
-                x=fi_vals[::-1],
-                y=fi_names[::-1],
-                orientation="h",
-                marker_color=COLORS["xgboost"],
-            )
-        )
-        fig_shap.update_layout(**_layout(uirevision=uirev, xaxis_title="Feature Importance"))
-    else:
-        fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
+    fig_shap = _build_shap_fig(fi, selected_models, uirev)
 
     return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
 
