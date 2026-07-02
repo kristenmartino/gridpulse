@@ -70,8 +70,11 @@ def _collect_text(component) -> str:
 
 
 class TestWriteAlertsHonesty:
-    def test_prod_mode_writes_unavailable_payload(self, monkeypatch):
-        """Outside demo mode: no alerts, explicit unavailable source, no stress score."""
+    def test_prod_mode_noaa_outage_writes_unavailable_payload(self, monkeypatch):
+        """NOAA outage: no alerts, explicit unavailable source, no stress score —
+        an outage must never be disguised as 'no active alerts' or demo content."""
+        from data.noaa_client import NOAAAlertsUnavailableError
+
         monkeypatch.setattr(config, "USE_DEMO_DATA", False)
         captured: dict = {}
 
@@ -80,7 +83,13 @@ class TestWriteAlertsHonesty:
             captured["payload"] = payload
             return True
 
-        with patch("data.redis_client.redis_set", side_effect=fake_set):
+        with (
+            patch("data.redis_client.redis_set", side_effect=fake_set),
+            patch(
+                "data.noaa_client.fetch_alerts_for_region",
+                side_effect=NOAAAlertsUnavailableError("total outage"),
+            ),
+        ):
             result = phases.write_alerts(_region_data("FPL"))
 
         assert result.ok
@@ -103,6 +112,7 @@ class TestWriteAlertsHonesty:
         with (
             patch("data.redis_client.redis_set", return_value=True),
             patch("data.demo_data.generate_demo_alerts", side_effect=boom),
+            patch("data.noaa_client.fetch_alerts_for_region", return_value=[]),
         ):
             result = phases.write_alerts(_region_data("ERCOT"))
         assert result.ok
@@ -159,7 +169,7 @@ class TestAlertsTabRedisRendering:
         assert result is not None
         alert_cards, stress_str, stress_span, breakdown = result[0], result[1], result[2], result[3]
         text = _collect_text(alert_cards)
-        assert "No live alert feed connected" in text
+        assert "temporarily unavailable" in text
         assert stress_str == "—"
         assert _collect_text(stress_span) == "Unavailable"
         assert "No alert feed" in _collect_text(breakdown)
@@ -267,3 +277,115 @@ class TestNoFabricatedPerfection:
         text = _collect_text(card)
         assert "0.0%" not in text
         assert "—" in text
+
+
+# ---------------------------------------------------------------------------
+# Live NOAA wiring (2026-07): real alerts flow end-to-end, honestly labeled
+# ---------------------------------------------------------------------------
+
+
+def _weather_alert(i: int, severity: str = "warning", expires_h: float = 6.0):
+    from datetime import UTC, datetime, timedelta
+
+    from data.noaa_client import WeatherAlert
+
+    return WeatherAlert(
+        id=f"urn:test-{i}",
+        event="Heat Advisory",
+        headline=f"Alert {i}",
+        description="d",
+        severity=severity,
+        noaa_severity="Moderate",
+        urgency="Expected",
+        certainty="Likely",
+        onset=None,
+        expires=datetime.now(UTC) + timedelta(hours=expires_h),
+        areas=["County A"],
+        states=["TX"],
+        balancing_authorities=["ERCOT"],
+    )
+
+
+class TestLiveNOAAWiring:
+    def test_prod_mode_publishes_real_alerts_as_noaa(self, monkeypatch):
+        monkeypatch.setattr(config, "USE_DEMO_DATA", False)
+        captured: dict = {}
+
+        def fake_set(key, payload, ttl=None):
+            captured["payload"] = payload
+            return True
+
+        fetched = [_weather_alert(1, "critical"), _weather_alert(2, "warning")]
+        with (
+            patch("data.redis_client.redis_set", side_effect=fake_set),
+            patch("data.noaa_client.fetch_alerts_for_region", return_value=fetched),
+        ):
+            result = phases.write_alerts(_region_data("ERCOT"))
+
+        assert result.ok
+        payload = captured["payload"]
+        assert payload["alerts_source"] == "noaa"
+        assert payload["alerts_total"] == 2
+        assert payload["alert_counts"] == {"critical": 1, "warning": 1, "info": 0}
+        assert payload["stress_score"] == 30 + 15 + 20
+        assert payload["alerts"][0]["event"] == "Heat Advisory"
+
+    def test_expired_alerts_are_filtered(self, monkeypatch):
+        monkeypatch.setattr(config, "USE_DEMO_DATA", False)
+        captured: dict = {}
+        fetched = [_weather_alert(1, expires_h=-1.0), _weather_alert(2, expires_h=4.0)]
+        with (
+            patch(
+                "data.redis_client.redis_set",
+                side_effect=lambda k, p, ttl=None: captured.update(payload=p) or True,
+            ),
+            patch("data.noaa_client.fetch_alerts_for_region", return_value=fetched),
+        ):
+            phases.write_alerts(_region_data("ERCOT"))
+        assert captured["payload"]["alerts_total"] == 1
+        assert len(captured["payload"]["alerts"]) == 1
+
+    def test_cap_is_disclosed_not_silent(self, monkeypatch):
+        monkeypatch.setattr(config, "USE_DEMO_DATA", False)
+        captured: dict = {}
+        fetched = [_weather_alert(i) for i in range(30)]
+        with (
+            patch(
+                "data.redis_client.redis_set",
+                side_effect=lambda k, p, ttl=None: captured.update(payload=p) or True,
+            ),
+            patch("data.noaa_client.fetch_alerts_for_region", return_value=fetched),
+        ):
+            phases.write_alerts(_region_data("ERCOT"))
+        payload = captured["payload"]
+        assert len(payload["alerts"]) == phases._ALERTS_PAYLOAD_CAP
+        assert payload["alerts_total"] == 30
+        # Counts reflect ALL live alerts, not just the capped card list.
+        assert payload["alert_counts"]["warning"] == 30
+
+    def test_noaa_render_has_attribution_and_no_disclosure(self):
+        from components import _callbacks_alerts as mod
+
+        payload = _payload(
+            "noaa",
+            [{"event": "Heat Advisory", "headline": "hot", "severity": "warning"}],
+            35,
+            "Elevated",
+        )
+        payload["alerts_total"] = 5
+        with patch.object(mod, "redis_get", return_value=payload):
+            result = mod._alerts_tab_from_redis("ERCOT")
+        text = _collect_text(result[0])
+        assert "NOAA/NWS" in text
+        assert "showing 1 of 5" in text
+        assert "Demo data" not in text
+
+    def test_noaa_zero_alerts_render_names_the_live_feed(self):
+        from components import _callbacks_alerts as mod
+
+        payload = _payload("noaa", [], 20, "Normal")
+        with patch.object(mod, "redis_get", return_value=payload):
+            result = mod._alerts_tab_from_redis("ERCOT")
+        text = _collect_text(result[0])
+        assert "No active severe-weather alerts" in text
+        assert "NOAA/NWS" in text

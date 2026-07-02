@@ -93,11 +93,31 @@ def _alerts_tab_from_redis(region):
                     expires=a.get("expires", "")[:16] if a.get("expires") else None,
                 )
             )
+        if alerts_source == "noaa":
+            alerts_total = int(cached.get("alerts_total", len(alerts)) or len(alerts))
+            more_note = (
+                f" · showing {len(alerts)} of {alerts_total}" if alerts_total > len(alerts) else ""
+            )
+            alert_cards.append(
+                html.P(
+                    f"Live severe-weather alerts · NOAA/NWS{more_note}",
+                    className="gp-alerts-source",
+                    style={"color": "#A8B3C7", "fontSize": "0.72rem", "textAlign": "center"},
+                )
+            )
     elif alerts_source == "unavailable":
         alert_cards = [
             html.P(
-                "No live alert feed connected — severe-weather alerts are not "
-                "yet integrated. Demand anomalies below are computed from real data.",
+                "Live alert feed (NOAA/NWS) temporarily unavailable — showing "
+                "nothing rather than stale or fabricated alerts. Demand "
+                "anomalies below are computed from real data.",
+                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
+            )
+        ]
+    elif alerts_source == "noaa":
+        alert_cards = [
+            html.P(
+                "No active severe-weather alerts (NOAA/NWS live feed)",
                 style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
             )
         ]

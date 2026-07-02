@@ -36,9 +36,21 @@ from each payload's own `scored_at` (never hardcoded `fresh`; P1-3), the
 Overview hero/insight surface `scored_at` and mark stale forecasts (P1-4),
 empirical interval bands disclose their calibration model when it differs
 from the displayed model (P1-2), and sMAPE values are labeled sMAPE (P1-8).
-Remaining: file the 11 drafted P0/P1 issues (drafts in the report),
-workstream C (forecast time-alignment + commensurable holdout — re-examine
-#170/#181 after it lands).
+All 11 P0/P1 findings filed as #193–#203; P2/P3 folded into the #189
+tracker. PRs open: [#191](https://github.com/kristenmartino/gridpulse/pull/191)
+(workstream A), [#192](https://github.com/kristenmartino/gridpulse/pull/192)
+(workstream B, stacked on A).
+
+**NOAA alerts now wired for real (sidestep from the P0-1 mitigation).** The
+scoring job fetches live NWS alerts per BA (`data/noaa_client` →
+`alerts_source="noaa"`, `gridpulse:alerts:{region}`), with stale-cache +
+circuit-breaker outage resilience and an honest `unavailable` degrade; the
+Risk tab renders real alerts with NOAA attribution restored. Branch
+`feat/wire-noaa-alerts` (stacked on B) — the real fix behind #193.
+
+Remaining: workstream C (forecast time-alignment #194 + commensurable
+holdout #195 — re-examine #170/#181 after it lands); #199 (EIA fetch in
+request path); #203 (National Peak math).
 
 **Strategic position: A — Portfolio + targeted credibility investment.**
 The 2026-05-20 forecast-pipeline audit reframed the credibility surface

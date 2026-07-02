@@ -432,11 +432,11 @@ def build_page_footer(
 ) -> html.Div:
     """Small attribution footer at the bottom of the linear stack.
 
-    NOAA is deliberately absent from the default: the NOAA client exists but
-    is not wired into any data path yet, so crediting it would misattribute
-    the alerts content.
+    NOAA earned its credit back in 2026-07: the scoring job now fetches live
+    NWS alerts via ``data.noaa_client`` (it was unwired — and uncredited —
+    before that).
     """
-    sources = sources or ["EIA", "Open-Meteo"]
+    sources = sources or ["EIA", "Open-Meteo", "NOAA"]
     parts: list = [html.Span(" · ".join(sources), className="gp-footer__sources")]
     if note:
         parts.append(html.Span(note, className="gp-footer__note"))

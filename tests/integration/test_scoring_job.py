@@ -100,6 +100,13 @@ def patch_data_sources(monkeypatch, synthetic_region_frames):
     monkeypatch.setattr(eia, "fetch_demand", _fetch_demand)
     monkeypatch.setattr(eia, "fetch_generation_by_fuel", _fetch_generation_by_fuel)
     monkeypatch.setattr(weather, "fetch_weather", _fetch_weather)
+
+    # Keep the alerts phase hermetic: the scoring job now fetches live
+    # NOAA/NWS alerts, so stub the client to avoid real network calls in CI.
+    import data.noaa_client as noaa
+
+    monkeypatch.setattr(noaa, "fetch_alerts_for_region", lambda region, **kw: [])
+
     # Ensure _has_eia_key() returns True without depending on environment
     import jobs.phases as phases
 
