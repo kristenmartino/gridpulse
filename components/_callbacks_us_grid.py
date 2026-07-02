@@ -159,6 +159,40 @@ def _is_real_positive(value) -> bool:
     return bool(np.isfinite(f) and f > 0)
 
 
+def _simultaneous_national_peak_mw(populated: dict[str, dict]) -> float:
+    """True national peak: the max over the last 24h of the cross-BA demand SUM.
+
+    Before #203 this was ``max`` over regions of each region's own peak — the
+    largest *single* BA's peak, which the "National Peak" label misrepresents
+    (with real data it necessarily reads several times below the adjacent Total
+    Demand). The honest metric is the simultaneous national peak: at each hour,
+    sum demand across BAs, then take the max.
+
+    ``today_mw`` is each BA's trailing 24h window (``demand[-24:]``), so the
+    windows are right-aligned to "now"; we pad shorter windows on the left and
+    ``nansum`` per aligned hour (non-positive/NaN readings drop out). Positional
+    alignment is a KPI-grade approximation — per-BA EIA publishing lag can shift
+    a window by an hour — but it is strictly more correct than the largest-single-
+    BA value it replaces.
+    """
+    cleaned: list[np.ndarray] = []
+    for d in populated.values():
+        arr = np.array(
+            [float(v) if _is_real_positive(v) else np.nan for v in (d.get("today_mw") or [])],
+            dtype=float,
+        )
+        if arr.size:
+            cleaned.append(arr)
+    if not cleaned:
+        return 0.0
+    width = max(a.size for a in cleaned)
+    mat = np.full((len(cleaned), width), np.nan)
+    for i, a in enumerate(cleaned):
+        mat[i, width - a.size :] = a  # right-align trailing windows
+    col_sums = np.nansum(mat, axis=0)
+    return float(np.nanmax(col_sums)) if col_sums.size else 0.0
+
+
 # ``_STRESS_RELIABLE_CEILING`` lives in ``_callbacks_shared.py`` — re-exported
 # via the module-level star-import. Belt-and-braces fallback for any BA not
 # explicitly tagged in ``IS_IMPORT_DOMINATED``; structurally above this
@@ -178,15 +212,7 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
         ]
 
     total_mw = sum(d["current_mw"] for d in populated.values())
-    # ``today_mw`` is the raw sparkline window — strip NaN before max()
-    # so a single bad hour can't poison the National Peak metric.
-    peak_24h_mw = max(
-        (
-            max(filter(_is_real_positive, d.get("today_mw") or []), default=0)
-            for d in populated.values()
-        ),
-        default=0,
-    )
+    peak_24h_mw = _simultaneous_national_peak_mw(populated)
 
     stress_by_region = {
         region: d["current_mw"] / cap

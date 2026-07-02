@@ -84,7 +84,12 @@ from components.cards import (
     build_news_feed,
     build_page_title,
 )
-from config import FRESHNESS_FRESH_MAX_AGE_HOURS, REGION_CAPACITY_MW, REGION_NAMES
+from config import (
+    FRESHNESS_FRESH_MAX_AGE_HOURS,
+    REGION_CAPACITY_MW,
+    REGION_NAMES,
+    REQUIRE_REDIS,
+)
 from data.redis_client import redis_get, redis_key
 from personas.config import get_persona
 
@@ -725,17 +730,59 @@ def _build_overview_insight(
 # ── Overview panels block (Step 7b — drivers / generation / models / risk / scenarios) ──
 
 
+def _generation_df_from_redis(region: str) -> pd.DataFrame | None:
+    """Read the scoring job's ``gridpulse:generation:{region}`` payload and
+    unpivot it to the long ``[timestamp, fuel_type, generation_mw, region]``
+    frame the Generation panel expects.
+
+    The scoring job writes a wide payload (``{timestamps, <fuel>: [...],
+    renewable_pct: [...]}``, fuel names already normalized); this reverses that
+    pivot so the web tier can render generation without touching EIA (#199).
+    """
+    payload = redis_get(redis_key(f"generation:{region}"))
+    if not isinstance(payload, dict):
+        return None
+    timestamps = payload.get("timestamps")
+    if not timestamps:
+        return None
+    skip = {"region", "timestamps", "renewable_pct", "scored_at"}
+    rows: list[dict] = []
+    for fuel, vals in payload.items():
+        if fuel in skip or not isinstance(vals, list):
+            continue
+        for ts, mw in zip(timestamps, vals, strict=False):
+            rows.append({"timestamp": ts, "fuel_type": fuel, "generation_mw": mw, "region": region})
+    if not rows:
+        return None
+    df = pd.DataFrame(rows)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
+
+
 def _fetch_generation_cached(region: str) -> pd.DataFrame | None:
-    """Fetch generation data with 3-tier caching: memory -> SQLite/API -> demo.
+    """Return generation-by-fuel for a region, Redis-first.
 
-    Args:
-        region: Balancing authority code.
+    The stateless web tier must not fetch EIA in the request path — the scoring
+    job writes ``gridpulse:generation:{region}`` hourly, and this reads it
+    (#199 / the CLAUDE.md post-#130 web-tier I/O guardrail). Under
+    ``REQUIRE_REDIS`` (staging/prod) a Redis miss returns None (warming state),
+    never a live EIA call. The in-memory + EIA fetch tiers run only in
+    development, where the scoring job may not be populating Redis.
 
-    Returns:
-        DataFrame with [timestamp, fuel_type, generation_mw, region] or None.
+    Returns a DataFrame ``[timestamp, fuel_type, generation_mw, region]`` or None.
     """
     import time as _time
 
+    # Redis fast path (the only prod path).
+    redis_df = _generation_df_from_redis(region)
+    if redis_df is not None and not redis_df.empty:
+        return redis_df
+
+    if REQUIRE_REDIS:
+        log.info("generation_warming", region=region)
+        return None
+
+    # ── development-only fallback (no scoring job populating Redis) ──
     # Tier 1: In-memory cache (5-minute TTL)
     if region in _GENERATION_CACHE:
         cached_df, cached_ts = _GENERATION_CACHE[region]

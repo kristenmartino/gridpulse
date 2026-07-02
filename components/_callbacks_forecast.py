@@ -1103,11 +1103,20 @@ def register_forecast_callbacks(app):
             model_name = next(iter(metrics_dict.keys()))
 
         m = metrics_dict[model_name]
+
+        def _fmt(key: str, spec: str, suffix: str = "") -> str:
+            # An absent metric must render as unavailable, not a perfect 0
+            # (partial metric dicts are a supported prod payload state; #201).
+            value = m.get(key)
+            if value is None:
+                return "—"
+            return f"{value:{spec}}{suffix}"
+
         formatted = {
-            "MAPE": f"{m.get('mape', 0.0):.1f}%",
-            "RMSE": f"{m.get('rmse', 0.0):,.0f} MW",
-            "MAE": f"{m.get('mae', 0.0):,.0f} MW",
-            "R²": f"{m.get('r2', 0.0):.3f}",
+            "MAPE": _fmt("mape", ".1f", "%"),
+            "RMSE": _fmt("rmse", ",.0f", " MW"),
+            "MAE": _fmt("mae", ",.0f", " MW"),
+            "R²": _fmt("r2", ".3f"),
         }
         name = "XGBoost" if model_name == "xgboost" else model_name.title()
         badge = "trained" if is_trained(region) else "simulated"
