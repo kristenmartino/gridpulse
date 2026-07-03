@@ -171,6 +171,8 @@ GCS_PATH_PREFIX = os.getenv("GCS_PATH_PREFIX", "cache")
 # ---------------------------------------------------------------------------
 MODEL_DIR = os.getenv("MODEL_DIR", "trained_models")
 MODEL_REFRESH_INTERVAL = int(os.getenv("MODEL_REFRESH_INTERVAL", "86400"))  # 24h
+# Aspirational; actual training window is ~90 days (set by data/eia_client.py default fetch).
+# Re-align to 365 when training fetch is extended to support yearly seasonality in Prophet.
 TRAINING_WINDOW_DAYS = 365
 FORECAST_HORIZON_DAYS = 7
 
@@ -671,6 +673,13 @@ MAPE_BY_HORIZON: dict[str, dict[str, float]] = {
     "72h": {"excellent": 4.0, "target": 6.5, "acceptable": 12.0, "rollback": 18.0},
     "7d": {"excellent": 6.0, "target": 9.0, "acceptable": 15.0, "rollback": 22.0},
 }
+
+# Ensemble weighting exponent (ADR-004 refinement for #181).
+# weight_i is proportional to (1/MAPE_i)^k where k is the exponent.
+# k=1.0 is the current inverse-MAPE behavior (no weight sharpening);
+# k>1 sharpens weights toward the lowest-MAPE model.
+# Validate against holdout backtest before raising above 1.0.
+ENSEMBLE_WEIGHT_EXPONENT: float = 1.0
 
 
 def mape_grade(mape: float, horizon: str = "48h") -> str:

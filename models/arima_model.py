@@ -18,7 +18,7 @@ log = structlog.get_logger()
 # Exogenous variables for SARIMAX
 ARIMA_EXOG_COLS = [
     "temperature_2m",
-    "wind_speed_80m",
+    "wind_speed_10m",
     "shortwave_radiation",
     "cooling_degree_days",
     "heating_degree_days",
