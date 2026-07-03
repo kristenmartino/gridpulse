@@ -171,6 +171,8 @@ GCS_PATH_PREFIX = os.getenv("GCS_PATH_PREFIX", "cache")
 # ---------------------------------------------------------------------------
 MODEL_DIR = os.getenv("MODEL_DIR", "trained_models")
 MODEL_REFRESH_INTERVAL = int(os.getenv("MODEL_REFRESH_INTERVAL", "86400"))  # 24h
+# Aspirational; actual training window is ~90 days (set by data/eia_client.py default fetch).
+# Re-align to 365 when training fetch is extended to support yearly seasonality in Prophet.
 TRAINING_WINDOW_DAYS = 365
 FORECAST_HORIZON_DAYS = 7
 

@@ -3,9 +3,9 @@ Prophet forecasting model with weather regressors.
 
 Configured per spec §Model 1:
 - Additive seasonality (``seasonality_mode='additive'``); weather regressors added as additive too
-- Daily, weekly, yearly seasonality
+- Daily, weekly seasonality (yearly disabled on ~90-day training window; see create_prophet_model)
 - Weather regressors: temperature, apparent temp, wind, solar, CDD, HDD, holiday
-- Rolling window training: 365 days → forecast 7 days
+- Rolling window training: ~90 days (eia_client default fetch) → forecast 7 days
 """
 
 from typing import Any
@@ -56,7 +56,10 @@ def create_prophet_model() -> Any:
 
     model = ProphetClass(
         growth="logistic",
-        yearly_seasonality=True,
+        # yearly_seasonality disabled: fitting a yearly Fourier cycle on ~90 days
+        # (data/eia_client default fetch) fits noise. Re-enable only if the
+        # training fetch is extended to >=1 year (tracked as a follow-up).
+        yearly_seasonality=False,
         weekly_seasonality=True,
         daily_seasonality=True,
         changepoint_prior_scale=0.001,
