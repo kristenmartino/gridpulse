@@ -31,7 +31,7 @@ def sarimax_df():
             "timestamp": ts,
             "demand_mw": 50_000.0 + 5_000.0 * np.sin(2 * np.pi * np.arange(n) / 24),
             "temperature_2m": 20.0 + 5 * np.cos(2 * np.pi * np.arange(n) / 24),
-            "wind_speed_80m": 5.0,
+            "wind_speed_10m": 5.0,
             "shortwave_radiation": 0.5,
             "cooling_degree_days": 0.0,
             "heating_degree_days": 0.0,
@@ -107,7 +107,7 @@ class TestTrainArimaPayload:
                 "timestamp": ts,
                 "demand_mw": 50_000.0 + np.sin(np.arange(n) / 24.0) * 1000,
                 "temperature_2m": 20.0,
-                "wind_speed_80m": 5.0,
+                "wind_speed_10m": 5.0,
                 "shortwave_radiation": 0.5,
                 "cooling_degree_days": 0.0,
                 "heating_degree_days": 0.0,
@@ -173,7 +173,7 @@ class TestPredictArima:
         future_exog = pd.DataFrame(
             {
                 "temperature_2m": [20.0] * 4,
-                "wind_speed_80m": [5.0] * 4,
+                "wind_speed_10m": [5.0] * 4,
                 "shortwave_radiation": [0.5] * 4,
                 "cooling_degree_days": [0.0] * 4,
                 "heating_degree_days": [0.0] * 4,
@@ -229,7 +229,7 @@ class TestArimaConstants:
         # (data/feature_engineering.py). Drift here would silently
         # drop weather signal from SARIMAX.
         assert "temperature_2m" in ARIMA_EXOG_COLS
-        assert "wind_speed_80m" in ARIMA_EXOG_COLS
+        assert "wind_speed_10m" in ARIMA_EXOG_COLS
         assert "shortwave_radiation" in ARIMA_EXOG_COLS
         assert "cooling_degree_days" in ARIMA_EXOG_COLS
         assert "heating_degree_days" in ARIMA_EXOG_COLS
@@ -249,8 +249,8 @@ class TestArimaConstants:
 class TestGetExogNaNHandling:
     """``_get_exog`` feeds SARIMAX's exogenous matrix. SARIMAX cannot
     fit/forecast with NaN in exog, so the function must return a clean
-    float array. The archive-unstable ``wind_speed_80m`` column (#164)
-    can arrive object-dtype with ``None``/``NaN`` — which made the old
+    float array. A regressor column can arrive object-dtype with
+    ``None``/``NaN`` (the #164 archive-unstable columns did this) — which made the old
     ``np.isnan`` guard raise ``ufunc 'isnan' not supported ... casting
     rule 'safe'`` *before* the fill ran, dropping ARIMA from every
     region's holdout ensemble (#176)."""
@@ -263,7 +263,7 @@ class TestGetExogNaNHandling:
             {
                 "temperature_2m": np.full(n, 20.0),
                 # object-dtype column: floats interspersed with None.
-                "wind_speed_80m": pd.Series(
+                "wind_speed_10m": pd.Series(
                     [None, None] + [5.0] * (n - 4) + [None, None], dtype=object
                 ),
                 "shortwave_radiation": np.full(n, 0.5),
@@ -272,7 +272,7 @@ class TestGetExogNaNHandling:
             }
         )
         # Sanity: the column really is object dtype (the crash precondition).
-        assert df["wind_speed_80m"].dtype == object
+        assert df["wind_speed_10m"].dtype == object
 
         exog = _get_exog(df)
 
@@ -293,7 +293,7 @@ class TestGetExogNaNHandling:
         df = pd.DataFrame(
             {
                 "temperature_2m": np.full(n, 20.0),
-                "wind_speed_80m": wind,
+                "wind_speed_10m": wind,
                 "shortwave_radiation": np.full(n, 0.5),
                 "cooling_degree_days": np.zeros(n),
                 "heating_degree_days": np.zeros(n),
@@ -315,7 +315,7 @@ class TestGetExogNaNHandling:
         df = pd.DataFrame(
             {
                 "temperature_2m": np.full(n, 20.0),
-                "wind_speed_80m": np.full(n, np.nan),
+                "wind_speed_10m": np.full(n, np.nan),
                 "shortwave_radiation": np.full(n, 0.5),
                 "cooling_degree_days": np.zeros(n),
                 "heating_degree_days": np.zeros(n),

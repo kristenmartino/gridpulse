@@ -30,7 +30,7 @@ def feature_df():
             "demand_mw": 50_000.0 + 5_000.0 * np.sin(2 * np.pi * np.arange(n) / 24),
             "temperature_2m": 70.0,
             "apparent_temperature": 72.0,
-            "wind_speed_80m": 5.0,
+            "wind_speed_10m": 5.0,
             "shortwave_radiation": 0.5,
             "cooling_degree_days": 5.0,
             "heating_degree_days": 0.0,
@@ -155,8 +155,9 @@ class TestTrainProphet:
         assert (train_df["is_holiday"] == 0.0).all()
 
     def test_nan_in_regressor_is_filled_not_passed_to_fit(self, feature_df, mock_prophet_class):
-        """A NaN in a present regressor (e.g. the archive-unstable
-        ``wind_speed_80m``, #164/#176) must not reach ``fit`` — Prophet
+        """A NaN in a present regressor (the ffill/bfill/zero defense
+        added for the archive-unstable #164 columns still guards any
+        regressor) must not reach ``fit`` — Prophet
         raises "Found NaN in column ...", which silently dropped Prophet
         from every region's holdout ensemble. The fit frame's regressors
         must be NaN-free after ffill/bfill/zero sanitation."""
@@ -164,8 +165,8 @@ class TestTrainProphet:
 
         df_gappy = feature_df.copy()
         # Leading + interior NaNs (bfill covers the lead, ffill the interior).
-        df_gappy.loc[df_gappy.index[:3], "wind_speed_80m"] = np.nan
-        df_gappy.loc[df_gappy.index[40:45], "wind_speed_80m"] = np.nan
+        df_gappy.loc[df_gappy.index[:3], "wind_speed_10m"] = np.nan
+        df_gappy.loc[df_gappy.index[40:45], "wind_speed_10m"] = np.nan
 
         _, instance = mock_prophet_class
         train_prophet(df_gappy)
@@ -183,13 +184,13 @@ class TestTrainProphet:
         from models.prophet_model import train_prophet
 
         df_gappy = feature_df.copy()
-        df_gappy["wind_speed_80m"] = np.nan
+        df_gappy["wind_speed_10m"] = np.nan
 
         _, instance = mock_prophet_class
         train_prophet(df_gappy)
 
         train_df = instance.fit.call_args.args[0]
-        assert (train_df["wind_speed_80m"] == 0.0).all()
+        assert (train_df["wind_speed_10m"] == 0.0).all()
 
 
 class TestPredictProphet:
