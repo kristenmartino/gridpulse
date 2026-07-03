@@ -660,8 +660,12 @@ MAPE_THRESHOLD_TARGET = 5.0  # % — performing well
 MAPE_THRESHOLD_ACCEPTABLE = 10.0  # % — model is usable
 MAPE_THRESHOLD_ROLLBACK = 15.0  # % — model disabled, fallback to next-best
 
-# Per-horizon targets (longer horizons get more slack)
+# Per-horizon targets (longer horizons get more slack). The ``1h`` band is for
+# the live 1-hour-ahead drift metric (models/drift.py) and is the tightest —
+# anchored to real short-term load forecasting (~0.5–2% MAPE one-hour-ahead),
+# so a poor 1h number can't be laundered as "acceptable" by a looser band.
 MAPE_BY_HORIZON: dict[str, dict[str, float]] = {
+    "1h": {"excellent": 1.0, "target": 2.5, "acceptable": 5.0, "rollback": 8.0},
     "24h": {"excellent": 2.0, "target": 3.5, "acceptable": 7.0, "rollback": 12.0},
     "48h": {"excellent": 3.0, "target": 5.0, "acceptable": 10.0, "rollback": 15.0},
     "72h": {"excellent": 4.0, "target": 6.5, "acceptable": 12.0, "rollback": 18.0},

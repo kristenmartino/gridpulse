@@ -265,7 +265,12 @@ def _alerts_tab_from_redis(region):
         import dash_bootstrap_components as dbc
 
         last_temp = float(t_vals[-1])
-        color = "#FF5C7A" if last_temp >= 95 else ("#FFB84D" if last_temp >= 85 else "#2BD67B")
+        if pd.isna(last_temp):
+            temp_display = "—"
+            color = "#A8B3C7"
+        else:
+            temp_display = f"{last_temp:.0f}°F"
+            color = "#FF5C7A" if last_temp >= 95 else ("#FFB84D" if last_temp >= 85 else "#2BD67B")
         weather_context = dbc.Row(
             [
                 dbc.Col(
@@ -273,7 +278,7 @@ def _alerts_tab_from_redis(region):
                         [
                             html.P("TEMPERATURE", className="kpi-label"),
                             html.H4(
-                                f"{last_temp:.0f}°F",
+                                temp_display,
                                 className="kpi-value",
                                 style={"fontSize": "1.3rem"},
                             ),

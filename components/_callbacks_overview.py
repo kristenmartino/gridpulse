@@ -632,10 +632,10 @@ def _build_overview_insight(
     avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
     delta_pct = ((now_value - avg_7d) / avg_7d * 100.0) if avg_7d else 0.0
     direction = "above" if delta_pct >= 0 else "below"
-    # Inverted semantic: rising demand reads as warning (matches v2)
-    delta_class = (
-        "gp-insight-card__delta--negative" if delta_pct >= 0 else "gp-insight-card__delta--positive"
-    )
+    # Demand above/below a 7-day average is routine — neither a risk nor a win —
+    # so render the delta in neutral text both directions (#219 — 2026-07);
+    # alert/semantic colors are reserved for genuine risk.
+    delta_class = ""
 
     last_24h = df.tail(24)
     if not last_24h.empty:

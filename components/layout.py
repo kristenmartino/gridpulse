@@ -82,12 +82,21 @@ def _build_header() -> html.Header:
     brand = html.Div(
         [
             _monogram(),
-            html.H1(
+            html.Div(
                 [
-                    html.Span("Grid", className="gp-header__wordmark-grid"),
-                    html.Span("Pulse", className="gp-header__wordmark-pulse"),
+                    html.H1(
+                        [
+                            html.Span("Grid", className="gp-header__wordmark-grid"),
+                            html.Span("Pulse", className="gp-header__wordmark-pulse"),
+                        ],
+                        className="gp-header__wordmark dashboard-title",
+                    ),
+                    html.P(
+                        "Energy intelligence platform",
+                        className="gp-brand-tagline",
+                    ),
                 ],
-                className="gp-header__wordmark dashboard-title",
+                className="gp-header__brand-lockup",
             ),
         ],
         className="gp-header__brand",
@@ -95,12 +104,16 @@ def _build_header() -> html.Header:
 
     controls = html.Div(
         [
+            # dbc.Select accepts no aria-label/title prop, so the accessible name
+            # comes from a visually-hidden <label htmlFor> (#224).
+            html.Label("Region", htmlFor="region-selector", className="sr-only"),
             dbc.Select(
                 id="region-selector",
                 options=region_options,
                 value="FPL",
                 className="gp-header__select region-selector",
             ),
+            html.Label("View", htmlFor="persona-selector", className="sr-only"),
             dbc.Select(
                 id="persona-selector",
                 options=persona_options,

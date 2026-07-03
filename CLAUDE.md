@@ -199,14 +199,12 @@ Two real bugs caused by violating this guardrail, both surfaced
 
 ### Active top-level tabs in the current shell
 - Overview
-- Historical Demand
-- Demand Forecast
-- Backtest
-- Generation & Net Load
-- Weather Correlation
-- Model Diagnostics
-- Extreme Events
-- Scenario Simulator
+- US Grid
+- Forecast
+- Risk
+- Models
+
+Note: The legacy modules (Historical Demand, Demand Forecast, Backtest, Generation & Net Load, Weather Correlation, Model Diagnostics, Extreme Events, and Scenario Simulator) were absorbed into the visible tabs and removed in R4.
 
 ### Key Decisions (ADRs)
 - **ADR-001**: Dash + Plotly (not Streamlit) — callback architecture scales to many interaction groups

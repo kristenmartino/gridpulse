@@ -200,6 +200,35 @@ def _simultaneous_national_peak_mw(populated: dict[str, dict]) -> float:
 # excluded from stress rankings.
 
 
+def _is_implausible_demand_artifact(current_mw: float, today_mw: list) -> bool:
+    """Check if a BA's latest demand is an implausible artifact vs. recent history.
+
+    Follows the region-relative low-actual filter pattern from models/drift.py
+    (#142): if current_mw is below 10% of the rolling 24h median, treat it as
+    a data-quality artifact (e.g. EIA reporting glitch, NaN masquerading as
+    negative) rather than real utilization.
+
+    Returns True if current_mw should be excluded from stress calculations.
+    """
+    if not _is_real_positive(current_mw):
+        return True  # Already filtered out by _is_real_positive, but be explicit
+    if not today_mw:
+        return False  # No history available; assume current is real
+
+    # Extract positive values from 24h history
+    positive_history = [float(v) for v in today_mw if _is_real_positive(v)]
+    if not positive_history:
+        return False  # All history is suspect; can't establish scale, assume current is real
+
+    median_24h = float(np.median(positive_history))
+    if median_24h <= 0:
+        return False  # Degenerate history; can't establish scale, assume current is real
+
+    # 10% threshold, mirroring drift.LOW_ACTUAL_FRACTION
+    threshold = 0.10 * median_24h
+    return current_mw < threshold
+
+
 def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
     """4-up MetricsBar items: Total Demand · Peak Today · Top-Stress BA · Lowest Reserve."""
     populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
@@ -211,12 +240,19 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
             {"label": "Lowest Reserve", "value": "—"},
         ]
 
-    total_mw = sum(d["current_mw"] for d in populated.values())
-    peak_24h_mw = _simultaneous_national_peak_mw(populated)
+    # Filter out regions with implausible current demand artifacts before computing stress
+    plausible = {
+        r: d
+        for r, d in populated.items()
+        if not _is_implausible_demand_artifact(d["current_mw"], d.get("today_mw") or [])
+    }
+
+    total_mw = sum(d["current_mw"] for d in plausible.values())
+    peak_24h_mw = _simultaneous_national_peak_mw(plausible)
 
     stress_by_region = {
         region: d["current_mw"] / cap
-        for region, d in populated.items()
+        for region, d in plausible.items()
         if (cap := REGION_CAPACITY_MW.get(region, 0)) > 0
         # V3.η: structurally import-dominated BAs (CPLW, HST, SPA) are
         # never valid candidates for "highest stress" — their capacity
@@ -380,7 +416,10 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
         )
 
     stress_chip = None
-    if capacity_mw > 0:
+    # Guard against implausible demand artifacts (#225) — if current_mw is an
+    # outlier below 10% of 24h median, treat it as unavailable rather than
+    # computing a misleading stress percentage.
+    if capacity_mw > 0 and not _is_implausible_demand_artifact(current_mw, today_mw):
         stress_ratio = current_mw / capacity_mw
         # V3.η: structurally import-dominated BAs (CPLW, HST, SPA) get
         # the qualitative "imports" chip whether or not their stress
@@ -486,10 +525,15 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     demand_gw = [populated[r]["current_mw"] / 1000 for r in regions]
 
     # Stress = demand / capacity (0..>1). Cap at 100% for the colorscale.
+    # Guard against implausible demand artifacts (#225): if a region's current
+    # demand is a clear outlier vs. its 24h history, render as 0% (not colored)
+    # rather than computing a misleading stress percentage.
     stress_pct: list[float] = []
     for r in regions:
         cap = REGION_CAPACITY_MW.get(r, 0)
-        if cap > 0:
+        if cap > 0 and not _is_implausible_demand_artifact(
+            populated[r]["current_mw"], populated[r].get("today_mw") or []
+        ):
             stress_pct.append(min(populated[r]["current_mw"] / cap * 100, 100.0))
         else:
             stress_pct.append(0.0)
@@ -641,10 +685,16 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
         )
 
     regions = list(populated.keys())
+    # Stress = demand / capacity (0..>1). Cap at 100% for the colorscale.
+    # Guard against implausible demand artifacts (#225): if a region's current
+    # demand is a clear outlier vs. its 24h history, render as 0% (not colored)
+    # rather than computing a misleading stress percentage.
     stress_pct: list[float] = []
     for r in regions:
         cap = REGION_CAPACITY_MW.get(r, 0)
-        if cap > 0:
+        if cap > 0 and not _is_implausible_demand_artifact(
+            populated[r]["current_mw"], populated[r].get("today_mw") or []
+        ):
             stress_pct.append(min(populated[r]["current_mw"] / cap * 100, 100.0))
         else:
             stress_pct.append(0.0)

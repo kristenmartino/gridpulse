@@ -57,6 +57,7 @@ from components._callbacks_shared import (
     _empty_figure,
     _layout,
 )
+from config import mape_grade
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -277,15 +278,23 @@ def _build_drift_panel(region: str | None) -> html.Div:
     Reads ``gridpulse:drift:{region}`` (written by
     ``jobs.phases.write_drift_metrics``) and shows each model's live
     rolling 7d / 30d MAPE alongside its training-time holdout MAPE for
-    direct comparison. Status chip per model:
+    reference. Status chip per model derived from live MAPE governance:
 
-    * **on-track** — live 7d ≤ holdout × 1.10 (within ±10% of expected)
-    * **drifting** — live 7d ≤ holdout × 1.50 (degraded but tolerable)
-    * **degraded** — live 7d > holdout × 1.50 (no longer trustworthy)
+    * **excellent** — live 1h MAPE ≤ 1.0% (best-in-class short-term)
+    * **target** — live 1h MAPE ≤ 2.5% (competitive STLF)
+    * **acceptable** — live 1h MAPE ≤ 5.0% (usable)
+    * **rollback** — live 1h MAPE > 5.0% (underperforming at 1h-ahead)
 
     Warming state when ``n_records < 24`` (less than 1 day of records),
     or when Redis has no drift entry yet (typical for first 7 days
     post-deploy until the rolling window fills).
+
+    The live ÷ holdout ratio is shown for reference only (comparing
+    cross-horizon metrics is not actionable for status); the governance
+    grade is keyed to the live MAPE against the **1-hour-ahead** band —
+    the drift metric IS a 1h-ahead rolling error (models/drift.py), so
+    grading it against a longer-horizon band would launder a poor 1h
+    number as "acceptable".
 
     Ensemble-weight integration (using live MAPE in the inverse-MAPE
     weights, or surfacing a stale-weights warning when holdout vs live
@@ -330,7 +339,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
     }
 
     rows: list[html.Tr] = []
-    any_drifting = False
+    any_degraded = False
     for key in display_order:
         if key not in drift_models:
             continue
@@ -355,18 +364,24 @@ def _build_drift_panel(region: str | None) -> html.Div:
             status_tone = "secondary"
             ratio_text = "—"
         else:
-            ratio = float(live_7d) / float(holdout)
-            if ratio <= 1.10:
-                status_label = "On track"
+            # Status derived from the live MAPE's own governance grade at the
+            # 1-hour-ahead horizon (the drift metric IS 1h-ahead), not from the
+            # cross-horizon live÷holdout ratio (shown for reference only).
+            grade = mape_grade(float(live_7d), horizon="1h")
+            if grade == "excellent":
+                status_label = "Excellent"
                 status_tone = "positive"
-            elif ratio <= 1.50:
-                status_label = "Drifting"
+            elif grade == "target":
+                status_label = "Target"
+                status_tone = "positive"
+            elif grade == "acceptable":
+                status_label = "Acceptable"
                 status_tone = "warning"
-                any_drifting = True
-            else:
-                status_label = "Degraded"
+            else:  # rollback
+                status_label = "Rollback"
                 status_tone = "negative"
-                any_drifting = True
+                any_degraded = True
+            ratio = float(live_7d) / float(holdout) if holdout > 0 else 0
             ratio_text = f"×{ratio:.2f}"
 
         rows.append(
@@ -411,9 +426,9 @@ def _build_drift_panel(region: str | None) -> html.Div:
         )
 
     headline_note = (
-        "One or more models drifting vs holdout baseline."
-        if any_drifting
-        else "All models tracking within ±10 % of holdout baseline."
+        "One or more models in rollback at 1h-ahead (live MAPE exceeds 5%)."
+        if any_degraded
+        else "All models acceptable or better at 1h-ahead (live MAPE ≤ 5%)."
     )
 
     table = html.Table(
