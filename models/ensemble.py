@@ -10,6 +10,8 @@ Per spec §Model 4:
 import numpy as np
 import structlog
 
+from config import ENSEMBLE_WEIGHT_EXPONENT
+
 log = structlog.get_logger()
 
 
@@ -17,7 +19,9 @@ def compute_ensemble_weights(mape_scores: dict[str, float]) -> dict[str, float]:
     """
     Compute ensemble weights inversely proportional to each model's MAPE.
 
-    weight_i = (1/MAPE_i) / sum(1/MAPE_j)
+    weight_i is proportional to (1/MAPE_i)^k where k is ENSEMBLE_WEIGHT_EXPONENT.
+    k=1.0 preserves current inverse-MAPE behavior; k>1 sharpens toward the
+    lowest-MAPE model. Validate against a backtest before raising above 1.0.
 
     Args:
         mape_scores: Dict mapping model name → recent MAPE (%).
@@ -38,7 +42,7 @@ def compute_ensemble_weights(mape_scores: dict[str, float]) -> dict[str, float]:
         log.warning("ensemble_equal_weights_fallback", reason="no valid MAPE scores")
         return weights
 
-    inverse = {k: 1.0 / v for k, v in valid.items()}
+    inverse = {k: (1.0 / v) ** ENSEMBLE_WEIGHT_EXPONENT for k, v in valid.items()}
     total = sum(inverse.values())
     weights = {k: v / total for k, v in inverse.items()}
 

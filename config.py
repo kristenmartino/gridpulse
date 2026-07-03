@@ -674,6 +674,13 @@ MAPE_BY_HORIZON: dict[str, dict[str, float]] = {
     "7d": {"excellent": 6.0, "target": 9.0, "acceptable": 15.0, "rollback": 22.0},
 }
 
+# Ensemble weighting exponent (ADR-004 refinement for #181).
+# weight_i is proportional to (1/MAPE_i)^k where k is the exponent.
+# k=1.0 is the current inverse-MAPE behavior (no weight sharpening);
+# k>1 sharpens weights toward the lowest-MAPE model.
+# Validate against holdout backtest before raising above 1.0.
+ENSEMBLE_WEIGHT_EXPONENT: float = 1.0
+
 
 def mape_grade(mape: float, horizon: str = "48h") -> str:
     """Return a governance grade for the given MAPE and forecast horizon.
