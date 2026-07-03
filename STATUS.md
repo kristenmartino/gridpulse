@@ -19,7 +19,7 @@ follow-up commit.
 
 ## Active focus + open question
 
-**2026-07-02 — Critical-review remediation: CODE COMPLETE, DEPLOY-PENDING.**
+**2026-07-02 — Critical-review remediation: CODE COMPLETE + DEPLOYED; RE-MEASUREMENT PENDING.**
 A 35-agent adversarially-verified review at `5000d6a`
 (report: `docs/internal/CRITICAL_REVIEW_2026-07.md`) confirmed **2 P0 + 10 P1**
 new findings beyond the #181–#189 elegance audit. **Both P0s and 9 of 10 P1s
@@ -42,17 +42,23 @@ are now merged to `main`** across PRs #191, #192, #204, #205, #207, #208,
 **Issues #193–#203 stay OPEN pending prod deploy-verify** (repo convention;
 close after verification). P2/P3 folded into the #189 tracker.
 
-**THE KEYSTONE — next action is a deploy + re-measurement (yours, needs prod
-GCS/Cloud Run):** (1) deploy `main`; (2) force a `gridpulse-training-job` run
-with `force=True` so every BA re-scores its holdout recursively (#195's resume
-short-circuit keys on data-hash, not code version — unchanged BAs keep stale
-teacher-forced weights otherwise); (3) `scripts/export_holdout_metrics.py`
-against prod GCS → refresh `docs/BACKTEST_RESULTS.md` / `_holdout_table.md` /
-`CANONICAL_FACTS.md` / `README.md` (~13 values move); (4) watch
-`drift:{region}.rolling_smape_7d` for Prophet/ARIMA — #170's per-model live
-drift should drop now that they're time-aligned. This re-measurement is the
-gate for the remaining follow-ups (below) and supplies the evidence for the
-INTERVIEW_PREP STAR stories (§9–§11).
+**THE KEYSTONE — `main` is already DEPLOYED to prod** (#215, Deploy→Production
+succeeded 2026-07-02 20:08 UTC; web service + both Jobs on the current image —
+verified via GH Actions). **Next action is the re-measurement (yours, needs prod
+GCS/Cloud Run):** (1) trigger a `gridpulse-training-job` run so every BA
+re-scores its holdout recursively — `gcloud run jobs execute
+gridpulse-training-job --region us-east1` (or wait for the 04:00 UTC daily run).
+**There is NO `force` flag** — it is not wired in `training_job.run()`; the
+data-hash resume naturally invalidates because the training window has advanced
+since the last pre-#209 run, so a normal execute retrains every active BA.
+(2) `scripts/export_holdout_metrics.py` against prod GCS → refresh
+`docs/BACKTEST_RESULTS.md` / `_holdout_table.md` / `CANONICAL_FACTS.md` /
+`README.md` (~13 values move); (3) watch `drift:{region}.rolling_smape_7d` for
+Prophet/ARIMA — #170's per-model live drift should drop now that they're
+time-aligned (this also eases the #217 "Degraded" false alarm, which is inflated
+by the stale teacher-forced holdout). This re-measurement is the gate for the
+remaining follow-ups (below) and supplies the evidence for the INTERVIEW_PREP
+STAR stories (§9–§11).
 
 **Remaining after re-measurement:** #196 per-model residual calibration
 (disclosure shipped; real per-model residuals need the backtest-payload work
@@ -94,17 +100,19 @@ The 2026-07 critical-review remediation is **code-complete and merged**
 deploy + re-measurement — see the Active-focus block above for the full
 per-finding map.
 
-1. **DEPLOY + RE-MEASURE (the keystone — yours, needs prod GCS/Cloud Run).**
-   Deploy `main`; force a `gridpulse-training-job` run (`force=True`) so every
-   BA re-scores its holdout recursively (#195/#209 — the resume short-circuit
-   keys on data-hash, not code version); run
+1. **RE-MEASURE (the keystone — yours, needs prod GCS/Cloud Run).** `main` is
+   already deployed (#215, 20:08 UTC 2026-07-02). Trigger a
+   `gridpulse-training-job` run (`gcloud run jobs execute gridpulse-training-job
+   --region us-east1`, or the 04:00 UTC daily run) so every BA re-scores its
+   holdout recursively (#195/#209). **No `force` flag exists** — the data-hash
+   resume naturally invalidates as the training window advances. Then run
    `scripts/export_holdout_metrics.py` against prod GCS and refresh the
    published tables (`BACKTEST_RESULTS.md` / `_holdout_table.md` /
    `CANONICAL_FACTS.md` / `README.md`, ~13 values); watch
    `drift:{region}.rolling_smape_7d` for Prophet/ARIMA to confirm #194's
    time-alignment dropped their live drift. **Capture the before/after numbers**
    — they close #170/#181 re-analysis and fill the INTERVIEW_PREP STAR stories.
-   Deploy note: legacy ARIMA pickles fall back to gap=0 for one retrain cycle
+   Retrain note: legacy ARIMA pickles fall back to gap=0 for one retrain cycle
    (Prophet corrects immediately).
 2. **Close the verified findings + follow-ups (after #1).** Close #193–#203 as
    prod-verification confirms each; then the gated follow-ups: #196 per-model
@@ -173,6 +181,7 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
 
 ## Recent decisions (last 7 days)
 
+- **2026-07-02** **Product-judgment pass + live prod review → 9 issues filed; deploy-status corrected.** Synthesized user product notes into an Overview **decision-briefing** plan ([`docs/internal/OVERVIEW_DECISION_LAYER_PROPOSAL.md`](docs/internal/OVERVIEW_DECISION_LAYER_PROPOSAL.md)): **GP-P1-04 decided — delete the dead ~849-line Overview briefing surface, rebuild an honest Redis-backed DEMAND/MODEL/RISK/DECISION briefing**, grounded in industry standards (NERC RML 15%/10% + per-BA reserve-margin references §11, day-ahead MAPE 1–3%, CDD/HDD 65°F base). **Live-reviewed prod headless (Overview/Risk/Models/US-Grid/Forecast):** positioning is invisible in the header; the Forecast tab already does the DEMAND block well (reuse it); surfaced live issues — Models "Live Drift" labels every model "Degraded" (P2-25, cries wolf on XGBoost 1.53% live), `nan°F` current temp, alert-red on a routine metric, 4 empty Models panels, US-Grid reserve-margin artifact (PACW "0% reserve") + demand-data artifacts (APS 6% util at −90.7%). **Filed #217–#225** (4 live bugs, GP-P1-04 tracking, P0 positioning, reserve-margin convention, shell hygiene, US-Grid robustness); rest folded into the proposal doc / #189. **Deploy-status finding:** `main` is already deployed to prod (#215, Deploy→Production 20:08 UTC — verified via GH Actions); the pending keystone is the **training re-run + re-measure, NOT a deploy**, and STATUS's "force=True" was inaccurate (no force flag is wired; the data-hash resume invalidates naturally). Corrected the keystone + Next-3 above. **No product code changed — all plan + issues + docs.**
 - **2026-06-19** **#176 verified fixed in prod + docs refreshed with the now-populated ensemble column.** PR #179 merged 01:39 UTC, Deploy → Production 01:48 UTC, so the 04:00 training run (`gridpulse-training-job-rx7q5`) was first on the fixed image: **`ensemble_holdout_persisted` 51/51, `ensemble_holdout_unavailable` 0** (was 51/51 on `fewer_than_two_holdouts`). Closed #176 via `gh issue close`. Re-ran the exporter and refreshed `BACKTEST_RESULTS.md` + `CANONICAL_FACTS.md` to show three distributions (XGBoost-only / best-base / ensemble). **Honest finding worth keeping:** the **ensemble trails best-base in aggregate** — ensemble median **3.48%** / p90 **8.37%** / max **27.40%** (AZPS) vs best-base median **2.30%** / p90 **6.57%** — and beats XGBoost-alone on only **4/51** BAs. Not a regression: the inverse-MAPE blend (ADR-004) still weights the 3–5×-weaker Prophet/ARIMA, so it lands above the strongest single model; its value is tail variance-reduction (AZPS XGBoost 33.97% → blend 27.40%), not a headline win. Docs now say: quote ensemble for *what production serves*, best-base for *best achievable per BA*. Tail BAs swing run-to-run (AZPS best-base 11.90%→26.68% in two days). Refs #176.
 - **2026-06-18** **Root-caused the empty ensemble holdout column → model-boundary NaN fix ([PR #179](https://github.com/kristenmartino/gridpulse/pull/179)).** The ensemble holdout-MAPE was `—` for all 51 BAs (#176). The #178 self-heal diagnostics surfaced *why*: `ensemble_holdout_unavailable reason=fewer_than_two_holdouts valid_holdouts=['xgboost']` for every BA — Prophet **and** ARIMA holdout fits both die on NaN in the archive-unstable `wind_speed_80m` regressor (#164), leaving only XGBoost (which tolerates NaN natively). With `<2` valid base holdouts, `_ensemble_holdout_metrics` returns `None` and the ensemble row is never written to `meta.json`. Two distinct crashes: Prophet `fit` raises `Found NaN in column 'wind_speed_80m'`; ARIMA `_get_exog`'s `np.isnan` guard raises `ufunc 'isnan' not supported ... casting rule 'safe'` on an **object-dtype** column *before* its own ff/bf/zero fill could run. **Fix (this session, PR #179):** coerce exog to float in `_get_exog` before the isnan check, and sanitize each Prophet regressor (`to_numeric → ffill → bfill → fillna(0)`, matching `predict_prophet`) so a gappy column degrades gracefully (signal dropped, model retained) instead of dropping the model from the ensemble. The #178 diagnostics did their job — surfaced but didn't fix the root cause; this is the fix. **5 new unit tests; targeted suite 22 green; ruff clean.** Verification deferred to the next daily training run (confirm `extra.ensemble_holdout_metrics` populates + the exporter's ensemble column is no longer `—`). Refs #176.
 - **2026-06-17** **Refreshed holdout accuracy to real all-51-BA numbers; surfaced the ensemble-metrics gap.** An audit of the headline "MAPE across 51 BAs" framing found it unbacked by code — accuracy is computed **per-BA, per-model** (168h holdout), there is no across-51 aggregate, and the only published numbers (`BACKTEST_RESULTS.md`: stale 2026-02-21 ERCOT 3.13% / FPL 7.51% snapshot, self-flagged as pre-leakage-fix). Ran `scripts/export_holdout_metrics.py` against production GCS (reads the per-BA holdout the daily training job already writes to each model's `meta.json` — no retraining), 51/51 BAs resolved. Refreshed `BACKTEST_RESULTS.md` (full 51-BA table) + `CANONICAL_FACTS.md` to the real **best-base-per-BA** distribution: median **2.28%**, p90 **6.57%**, max **21.0%** (SPA), min **0.79%** (ERCOT); XGBoost best for 50/51 BAs (ARIMA for AZPS — best-base pulls AZPS 29.4%→11.9% and the max 29.4%→21.0%). Regenerable CSV/intermediate gitignored. **Ensemble holdout left "pending"** — `extra.ensemble_holdout_metrics` is absent from every xgboost meta in prod (the training-job post-hoc write isn't landing), so the Models-tab ensemble row is empty; not fabricated. Filed #176 for that gap (root-cause fix tracked separately, not in this PR). Refs #176.
