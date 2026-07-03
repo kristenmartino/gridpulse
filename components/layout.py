@@ -100,12 +100,14 @@ def _build_header() -> html.Header:
                 options=region_options,
                 value="FPL",
                 className="gp-header__select region-selector",
+                aria_label="Region",
             ),
             dbc.Select(
                 id="persona-selector",
                 options=persona_options,
                 value="grid_ops",
                 className="gp-header__chip persona-switcher",
+                aria_label="View",
             ),
             html.Button(
                 "Briefing Mode",
