@@ -33,7 +33,7 @@ def _get_prophet():
 PROPHET_REGRESSORS = [
     ("temperature_2m", "multiplicative"),
     ("apparent_temperature", "multiplicative"),
-    ("wind_speed_80m", "additive"),
+    ("wind_speed_10m", "additive"),
     ("shortwave_radiation", "additive"),
     ("cooling_degree_days", "multiplicative"),
     ("heating_degree_days", "multiplicative"),
