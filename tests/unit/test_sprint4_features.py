@@ -156,17 +156,17 @@ class TestMAPEThresholds:
         assert MAPE_THRESHOLD_ACCEPTABLE < MAPE_THRESHOLD_ROLLBACK
 
     def test_per_horizon_thresholds_defined(self):
-        """All 4 forecast horizons have thresholds."""
+        """All 5 governance horizons have thresholds (incl. the 1h live-drift band)."""
         from config import MAPE_BY_HORIZON
 
-        assert set(MAPE_BY_HORIZON.keys()) == {"24h", "48h", "72h", "7d"}
+        assert set(MAPE_BY_HORIZON.keys()) == {"1h", "24h", "48h", "72h", "7d"}
 
     def test_longer_horizons_more_tolerant(self):
-        """Each threshold gets looser for longer horizons."""
+        """Each threshold gets looser for longer horizons (1h is the tightest)."""
         from config import MAPE_BY_HORIZON
 
         for tier in ("excellent", "target", "acceptable", "rollback"):
-            vals = [MAPE_BY_HORIZON[h][tier] for h in ("24h", "48h", "72h", "7d")]
+            vals = [MAPE_BY_HORIZON[h][tier] for h in ("1h", "24h", "48h", "72h", "7d")]
             assert vals == sorted(vals), f"Horizon tolerance not monotonic for {tier}: {vals}"
 
     def test_per_horizon_tiers_ordered(self):
