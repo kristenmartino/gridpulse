@@ -104,19 +104,21 @@ def _build_header() -> html.Header:
 
     controls = html.Div(
         [
+            # dbc.Select accepts no aria-label/title prop, so the accessible name
+            # comes from a visually-hidden <label htmlFor> (#224).
+            html.Label("Region", htmlFor="region-selector", className="sr-only"),
             dbc.Select(
                 id="region-selector",
                 options=region_options,
                 value="FPL",
                 className="gp-header__select region-selector",
-                aria_label="Region",
             ),
+            html.Label("View", htmlFor="persona-selector", className="sr-only"),
             dbc.Select(
                 id="persona-selector",
                 options=persona_options,
                 value="grid_ops",
                 className="gp-header__chip persona-switcher",
-                aria_label="View",
             ),
             html.Button(
                 "Briefing Mode",
