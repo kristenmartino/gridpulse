@@ -9,13 +9,14 @@ The function reads:
   from each trained pickle's meta.json)
 
 …and renders a per-model table with status chips classifying each model
-by its LIVE 7d MAPE's own governance grade (``mape_grade`` on the 7-day
-band), with the live÷holdout ratio shown for reference only (#217).
+by its LIVE 1h-ahead MAPE's own governance grade (``mape_grade`` on the
+**1-hour-ahead** band — the drift metric is 1h-ahead), with the
+live÷holdout ratio shown for reference only (#217, band fixed to 1h).
 
 Tests verify:
 - Warming state when Redis has no drift entry
 - Per-model warming when n_records < 24 (insufficient sample)
-- Status grades (excellent ≤6 / target ≤9 / acceptable ≤15 / rollback >15)
+- Status grades (excellent ≤1 / target ≤2.5 / acceptable ≤5 / rollback >5)
   keyed to the live MAPE, NOT a cross-horizon ratio to the holdout
 - Mixed state (some models excellent, others in rollback)
 - Missing-holdout fallback ("Live only" when meta.json lost holdout MAPE)
@@ -177,19 +178,19 @@ class TestWarmingStates:
 
 
 class TestStatusThresholds:
-    """Status derives from the LIVE 7d MAPE's own governance grade
-    (``mape_grade`` on the 7-day band), NOT a cross-horizon live÷holdout
-    ratio (#217). 7d bands: excellent ≤6, target ≤9, acceptable ≤15,
-    rollback >15."""
+    """Status derives from the LIVE 1h-ahead MAPE's own governance grade
+    (``mape_grade`` on the **1-hour-ahead** band — the drift metric is
+    1h-ahead), NOT a cross-horizon live÷holdout ratio (#217). 1h bands:
+    excellent ≤1.0, target ≤2.5, acceptable ≤5.0, rollback >5.0."""
 
     @patch("components._callbacks_models.redis_get")
     @patch("models.model_service.get_model_metrics")
     def test_excellent_when_live_mape_low(self, mock_metrics, mock_redis_get):
         from components._callbacks_models import _build_drift_panel
 
-        # live 5.0% → excellent (≤6), even though ×6.25 the 0.8% holdout.
-        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(5.0))
-        mock_metrics.return_value = _holdout_metrics(xgboost=0.8)
+        # live 0.8% → excellent (≤1.0), even though ×1.6 the 0.5% holdout.
+        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(0.8))
+        mock_metrics.return_value = _holdout_metrics(xgboost=0.5)
 
         result = _build_drift_panel("PJM")
         assert _find_status_chips(result) == ["Excellent"]
@@ -199,9 +200,9 @@ class TestStatusThresholds:
     def test_target_grade(self, mock_metrics, mock_redis_get):
         from components._callbacks_models import _build_drift_panel
 
-        # live 8.0% → target (>6, ≤9)
-        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(8.0))
-        mock_metrics.return_value = _holdout_metrics(xgboost=4.0)
+        # live 2.0% → target (>1.0, ≤2.5)
+        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(2.0))
+        mock_metrics.return_value = _holdout_metrics(xgboost=1.0)
 
         result = _build_drift_panel("PJM")
         assert _find_status_chips(result) == ["Target"]
@@ -211,10 +212,10 @@ class TestStatusThresholds:
     def test_acceptable_grade_not_flagged_degraded(self, mock_metrics, mock_redis_get):
         from components._callbacks_models import _build_drift_panel
 
-        # live 12.0% → acceptable (>9, ≤15). The OLD ratio logic would have
-        # cried "Degraded" here (×3 vs a 4.0 holdout); the #217 fix must not.
-        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(12.0))
-        mock_metrics.return_value = _holdout_metrics(xgboost=4.0)
+        # live 4.0% → acceptable (>2.5, ≤5.0). The OLD ratio logic would have
+        # cried "Degraded" here (×4 vs a 1.0 holdout); the #217 fix must not.
+        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(4.0))
+        mock_metrics.return_value = _holdout_metrics(xgboost=1.0)
 
         result = _build_drift_panel("PJM")
         assert _find_status_chips(result) == ["Acceptable"]
@@ -225,9 +226,10 @@ class TestStatusThresholds:
     def test_rollback_when_live_mape_exceeds_acceptable(self, mock_metrics, mock_redis_get):
         from components._callbacks_models import _build_drift_panel
 
-        # live 20.0% → rollback (>15) — the one genuinely bad state.
-        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(20.0))
-        mock_metrics.return_value = _holdout_metrics(xgboost=4.0)
+        # live 13.0% → rollback (>5.0) — genuinely poor at 1h-ahead
+        # (the real Prophet/SARIMAX live number).
+        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(13.0))
+        mock_metrics.return_value = _holdout_metrics(xgboost=2.0)
 
         result = _build_drift_panel("PJM")
         assert _find_status_chips(result) == ["Rollback"]
@@ -238,16 +240,16 @@ class TestStatusThresholds:
     def test_low_live_mape_never_degraded_by_cross_horizon_ratio(
         self, mock_metrics, mock_redis_get
     ):
-        """#217 regression: a healthy live MAPE must NOT be flagged just
-        because it is a large multiple of a (teacher-forced) holdout — the
-        exact live scenario (XGBoost live 1.53% vs holdout 0.75%, ×2.04)."""
+        """#217 regression: XGBoost's real live 1.53% must NOT be flagged
+        just because it is ×2.04 the (teacher-forced) 0.75% holdout — under
+        the 1h band it is a healthy 'Target', never rollback."""
         from components._callbacks_models import _build_drift_panel
 
         mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(1.53))
         mock_metrics.return_value = _holdout_metrics(xgboost=0.75)
 
         result = _build_drift_panel("PJM")
-        assert _find_status_chips(result) == ["Excellent"]
+        assert _find_status_chips(result) == ["Target"]
         assert "in rollback" not in _find_all_text(result)
 
 
@@ -259,25 +261,25 @@ class TestMixedAndPartialStates:
     def test_mixed_states_render_independently(self, mock_metrics, mock_redis_get):
         from components._callbacks_models import _build_drift_panel
 
-        # live grades: xgb 4.2→excellent, prophet 20.0→rollback,
-        # arima 8.0→target, ensemble 4.0→excellent.
+        # live grades (1h band): xgb 0.8→excellent, prophet 13.0→rollback,
+        # arima 4.0→acceptable, ensemble 2.0→target.
         mock_redis_get.return_value = _drift_payload(
-            xgboost=_drift_model(4.2),
-            prophet=_drift_model(20.0),
-            arima=_drift_model(8.0),
-            ensemble=_drift_model(4.0),
+            xgboost=_drift_model(0.8),
+            prophet=_drift_model(13.0),
+            arima=_drift_model(4.0),
+            ensemble=_drift_model(2.0),
         )
         mock_metrics.return_value = _holdout_metrics(
-            xgboost=4.0,
-            prophet=11.0,
-            arima=5.0,
-            ensemble=3.8,
+            xgboost=0.75,
+            prophet=3.0,
+            arima=1.8,
+            ensemble=0.9,
         )
 
         result = _build_drift_panel("PJM")
         chips = _find_status_chips(result)
         # Render order matches display_order: prophet, arima, xgboost, ensemble
-        assert chips == ["Rollback", "Target", "Excellent", "Excellent"]
+        assert chips == ["Rollback", "Acceptable", "Excellent", "Target"]
         # Headline reflects the one rollback model.
         assert "in rollback" in _find_all_text(result)
 
@@ -286,23 +288,23 @@ class TestMixedAndPartialStates:
     def test_all_models_acceptable_or_better_headline_says_so(self, mock_metrics, mock_redis_get):
         from components._callbacks_models import _build_drift_panel
 
-        # All live MAPEs ≤ 15 (acceptable or better) → no rollback headline.
+        # All live MAPEs ≤ 5.0 (acceptable or better at 1h) → no rollback headline.
         mock_redis_get.return_value = _drift_payload(
-            xgboost=_drift_model(4.0),
-            prophet=_drift_model(13.0),
-            arima=_drift_model(5.0),
-            ensemble=_drift_model(3.8),
+            xgboost=_drift_model(1.0),
+            prophet=_drift_model(4.5),
+            arima=_drift_model(2.0),
+            ensemble=_drift_model(3.0),
         )
         mock_metrics.return_value = _holdout_metrics(
-            xgboost=4.0,
-            prophet=11.0,
-            arima=5.0,
-            ensemble=3.8,
+            xgboost=0.75,
+            prophet=3.0,
+            arima=1.8,
+            ensemble=0.9,
         )
 
         result = _build_drift_panel("PJM")
         text = _find_all_text(result)
-        assert "acceptable performance or better" in text
+        assert "acceptable or better" in text
         assert "in rollback" not in text
 
     @patch("components._callbacks_models.redis_get")
@@ -312,8 +314,8 @@ class TestMixedAndPartialStates:
 
         # Only xgboost has drift records (e.g., Prophet failed to predict
         # in the previous tick). Panel should still render with just xgboost.
-        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(4.0))
-        mock_metrics.return_value = _holdout_metrics(xgboost=4.0, prophet=11.0)
+        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(0.8))
+        mock_metrics.return_value = _holdout_metrics(xgboost=0.75, prophet=3.0)
 
         result = _build_drift_panel("PJM")
         chips = _find_status_chips(result)
