@@ -82,12 +82,21 @@ def _build_header() -> html.Header:
     brand = html.Div(
         [
             _monogram(),
-            html.H1(
+            html.Div(
                 [
-                    html.Span("Grid", className="gp-header__wordmark-grid"),
-                    html.Span("Pulse", className="gp-header__wordmark-pulse"),
+                    html.H1(
+                        [
+                            html.Span("Grid", className="gp-header__wordmark-grid"),
+                            html.Span("Pulse", className="gp-header__wordmark-pulse"),
+                        ],
+                        className="gp-header__wordmark dashboard-title",
+                    ),
+                    html.P(
+                        "Energy intelligence platform",
+                        className="gp-brand-tagline",
+                    ),
                 ],
-                className="gp-header__wordmark dashboard-title",
+                className="gp-header__brand-lockup",
             ),
         ],
         className="gp-header__brand",

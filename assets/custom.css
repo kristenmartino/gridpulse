@@ -1367,6 +1367,20 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     color: var(--accent-base);
 }
 
+.gp-header__brand-lockup {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+}
+
+.gp-brand-tagline {
+    color: var(--text-tertiary);
+    font-size: var(--text-xs);
+    letter-spacing: 0.04em;
+    margin: 0;
+    line-height: 1.2;
+}
+
 /* Right-aligned cluster of controls */
 .gp-header__controls {
     margin-left: auto;
