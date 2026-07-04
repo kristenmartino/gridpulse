@@ -153,6 +153,21 @@ def _score_region(region: str) -> dict:
         **(drift_res.details if drift_res.ok else {"error": drift_res.error}),
     }
 
+    # #227: horizon-matched drift (24h/48h/72h) — snapshots the same
+    # about-to-be-overwritten forecast + resolves matured snapshots, graded
+    # against each horizon's own band. Isolated like the 1h phase above.
+    horizon_drift_res = phases.write_horizon_drift_metrics(
+        region, previous_forecast, region_data.demand_df
+    )
+    summary["phases"]["drift_horizon"] = {
+        "ok": horizon_drift_res.ok,
+        **(
+            horizon_drift_res.details
+            if horizon_drift_res.ok
+            else {"error": horizon_drift_res.error}
+        ),
+    }
+
     gen_res = phases.write_generation(region)
     summary["phases"]["generation"] = {
         "ok": gen_res.ok,
