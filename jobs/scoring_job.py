@@ -282,6 +282,74 @@ def _score_region(region: str) -> dict:
     return summary
 
 
+def _check_runtime_headroom(elapsed_s: float) -> None:
+    """#171 recurrence guardrail — warn on runtime CREEP before it times out.
+
+    The PR-G10 job-failure alert only fires on an outright timeout (~1700s under
+    the 1800s cap); by then a scoring tick has already been killed. This tracks
+    consecutive completed runs whose ``elapsed_s`` exceeds
+    ``SCORING_RUNTIME_HEADROOM_FRACTION`` of ``SCORING_TASK_TIMEOUT_S`` and, once
+    the streak reaches ``SCORING_RUNTIME_CREEP_RUNS``, emits a
+    ``scoring_runtime_creep`` ERROR log — matched by the Cloud Monitoring policy
+    in ``docs/monitoring/scoring_runtime_creep_alert.json`` — so runtime can be
+    reduced on-schedule instead of paged at the next outage. The consecutive
+    count lives in Redis (``gridpulse:scoring_runtime_state``) because each job
+    run is a fresh process. Best-effort: an error here never fails the run.
+    """
+    from config import (
+        SCORING_RUNTIME_CREEP_RUNS,
+        SCORING_RUNTIME_HEADROOM_FRACTION,
+        SCORING_TASK_TIMEOUT_S,
+    )
+
+    if SCORING_TASK_TIMEOUT_S <= 0:
+        return
+    threshold_s = SCORING_TASK_TIMEOUT_S * SCORING_RUNTIME_HEADROOM_FRACTION
+    pct = round(elapsed_s / SCORING_TASK_TIMEOUT_S * 100, 1)
+    breached = elapsed_s >= threshold_s
+    try:
+        from data.redis_client import redis_get, redis_key, redis_set
+
+        key = redis_key("scoring_runtime_state")
+        state = redis_get(key)
+        prior = int(state.get("consecutive_breaches", 0)) if isinstance(state, dict) else 0
+        consecutive = prior + 1 if breached else 0
+        redis_set(
+            key,
+            {
+                "consecutive_breaches": consecutive,
+                "last_elapsed_s": elapsed_s,
+                "pct_of_timeout": pct,
+                "threshold_s": round(threshold_s, 1),
+                "task_timeout_s": SCORING_TASK_TIMEOUT_S,
+            },
+            ttl=7 * 24 * 3600,
+        )
+        if consecutive >= SCORING_RUNTIME_CREEP_RUNS:
+            log.error(
+                "scoring_runtime_creep",
+                elapsed_s=elapsed_s,
+                pct_of_timeout=pct,
+                threshold_s=round(threshold_s, 1),
+                task_timeout_s=SCORING_TASK_TIMEOUT_S,
+                consecutive_breaches=consecutive,
+                message=(
+                    f"Scoring runtime {elapsed_s}s is {pct}% of the "
+                    f"{SCORING_TASK_TIMEOUT_S}s task timeout for {consecutive} "
+                    "consecutive runs — reduce runtime before it times out (#171)."
+                ),
+            )
+        elif breached:
+            log.warning(
+                "scoring_runtime_headroom_low",
+                elapsed_s=elapsed_s,
+                pct_of_timeout=pct,
+                consecutive_breaches=consecutive,
+            )
+    except Exception as e:  # never let the guardrail fail the run
+        log.warning("scoring_runtime_headroom_check_failed", error=str(e))
+
+
 def run() -> int:
     """Run the scoring job end-to-end. Returns an exit code."""
     t0 = time.time()
@@ -323,6 +391,8 @@ def run() -> int:
         elapsed_s=elapsed,
         failed_regions=fail_regions,
     )
+    # #171: warn on runtime creep before it becomes a timeout (see the guardrail).
+    _check_runtime_headroom(elapsed)
     sys.stdout.flush()
 
     # Non-zero exit only when every region failed — Cloud Scheduler retries

@@ -36,7 +36,7 @@
 |---|---|---|
 | Web tier | Cloud Run Service `gridpulse` | [`.github/workflows/deploy-prod.yml`](../.github/workflows/deploy-prod.yml) |
 | Scheduled work | 2 Cloud Run Jobs (`-scoring-job` hourly, `-training-job` daily 04:00 UTC) | [`docs/SCHEDULED_JOBS.md`](SCHEDULED_JOBS.md) |
-| Scoring job runtime | ~14 min (855s) for 51 BAs; 30 min (1800s) Cloud Run task timeout | observed 2026-06-01; timeout bumped from 15 min after 4 consecutive timeouts ([#171](https://github.com/kristenmartino/gridpulse/issues/171)) |
+| Scoring job runtime | ~855s baseline, 1083–1333s under elevated upstream latency, for 51 BAs at `PRECOMPUTE_MAX_WORKERS=4`; 30 min (1800s) Cloud Run task timeout, guarded by a runtime-creep alert at 70% ([#171](https://github.com/kristenmartino/gridpulse/issues/171)) | 855s observed 2026-06-01, 1083–1333s the three post-incident runs; timeout bumped from 15 min after 4 consecutive timeouts; creep guardrail added 2026-07-04 |
 | Training job runtime | ~3 hours for 51 BAs (5h Cloud Run task timeout) | observed; bumped from 2h after timeouts |
 | Model storage | `gs://nextera-portfolio-energy-cache/models/{region}/{model}/` | [`models/persistence.py`](../models/persistence.py) |
 | Model rollback mechanism | edit `latest.json` to point at older version | [`models/persistence.py`](../models/persistence.py) |

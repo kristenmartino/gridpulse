@@ -1,0 +1,20 @@
+{
+  "displayName": "GridPulse — scoring-job runtime creep (#171)",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The `gridpulse-scoring-job` emitted a **`scoring_runtime_creep`** log: a completed run's `elapsed_s` exceeded the runtime-headroom threshold (`SCORING_RUNTIME_HEADROOM_FRACTION` of the Cloud Run `--task-timeout`) for `SCORING_RUNTIME_CREEP_RUNS` consecutive runs.\n\nThis is the *early warning* the failed-execution alert can't give — runtime is approaching the timeout but hasn't yet killed a tick. This is the exact gap that let the 2026-06-01 incident happen (#171): the failure alert only fires *after* a timeout.\n\n**Runbook — reduce runtime, don't just raise the ceiling:**\n1. Confirm the trend: `gcloud logging read 'jsonPayload.event=\"scoring_job_complete\"' --limit 20 --format='value(jsonPayload.elapsed_s)'`.\n2. Options in order of effort: raise `PRECOMPUTE_MAX_WORKERS` (watch Open-Meteo throttling under high concurrency), incremental trailing-hours fetch (#171 option 3, biggest structural win), or fan out across parallel tasks like the training job (option 2).\n3. If you *do* raise `--task-timeout` in the deploy workflows, bump `SCORING_TASK_TIMEOUT_S` in `config.py` to match — otherwise this alarm silences itself against a stale ceiling."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "scoring_runtime_creep log emitted",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"gridpulse-scoring-job\" AND jsonPayload.event=\"scoring_runtime_creep\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "3600s" },
+    "autoClose": "604800s"
+  }
+}

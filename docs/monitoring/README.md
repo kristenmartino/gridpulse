@@ -9,7 +9,8 @@ miss and the all-region forecast outage) go undetected until a manual
 
 | File | Alert |
 |---|---|
-| `cloud_run_job_failure_alert.json` | Fires when `gridpulse-training-job` or `gridpulse-scoring-job` records a **failed execution** (`run.googleapis.com/job/completed_execution_count{result="failed"}` > 0, summed hourly per job). |
+| `cloud_run_job_failure_alert.json` | Fires when `gridpulse-training-job` or `gridpulse-scoring-job` records a **failed execution** (`run.googleapis.com/job/completed_execution_count{result="failed"}` > 0, summed hourly per job). Fires *after* a timeout. |
+| `scoring_runtime_creep_alert.json` | **Early warning (#171).** Log-based (`conditionMatchedLog` on `jsonPayload.event="scoring_runtime_creep"`) — fires when the scoring job's `elapsed_s` exceeds `SCORING_RUNTIME_HEADROOM_FRACTION` of the task timeout for `SCORING_RUNTIME_CREEP_RUNS` consecutive runs. Warns on *approach* (~70% of the cap), before a tick is killed — the gap that let 2026-06-01 happen. |
 
 ## Notification channel
 
