@@ -223,6 +223,7 @@ def predict_arima(
     future_exog: pd.DataFrame,
     periods: int = 168,
     start_ts: Any | None = None,
+    gap_actuals: Any | None = None,
 ) -> Any:
     """
     Generate forecasts from a SARIMAX model payload.
@@ -245,6 +246,12 @@ def predict_arima(
             window to begin at a later ``start_ts`` (the scoring tick runs
             after the daily training), we forecast across the gap and slice
             the ``periods``-long window starting at ``start_ts`` (#194).
+        gap_actuals: Optional real demand observed across the
+            ``train_end -> start_ts`` gap (leading, contiguous, hour-aligned with
+            ``future_exog``'s leading rows). When given, the Kalman state is
+            advanced through them via ``append()`` before forecasting, so the
+            forecast origin is the last real value rather than the frozen
+            ``train_end`` (#226). Ignored on the zero-gap / no-anchor path.
 
     Returns:
         When ``start_ts`` is None (legacy/refit-then-predict callers):
@@ -291,11 +298,33 @@ def predict_arima(
         else:
             fitted = model_dict["model"]
 
+        # #226: the reconstructed state is frozen at train_end. When real demand
+        # has been observed across the train->score gap, advance the Kalman
+        # filter through those actuals — statsmodels ``append()`` re-filters with
+        # the SAME params (no re-estimation) — so the horizon origin becomes the
+        # last real value, turning a (gap+1)-step-ahead ask into a true
+        # near-1-step. Without this SARIMAX forecasts the gap from its own
+        # predictions, with no analogue to XGBoost's ``demand_lag_1h`` anchor.
+        slice_offset = gap
+        if gap_actuals is not None and gap > 0:
+            ga = np.asarray(gap_actuals, dtype=float)
+            a = min(ga.size, gap)
+            if a > 0 and np.isfinite(ga[:a]).all():
+                try:
+                    append_exog = exog[:a] if exog is not None else None
+                    fitted = fitted.append(ga[:a], exog=append_exog)
+                    exog = exog[a:] if exog is not None else None
+                    total_steps -= a
+                    slice_offset = gap - a
+                except Exception as e:  # never fail the forecast over the anchor
+                    log.warning("arima_kalman_append_failed", error=str(e), gap=gap, appended=a)
+                    slice_offset = gap
+
         forecast = fitted.forecast(steps=total_steps, exog=exog)
         # Clamp negative forecasts to 0 (demand can't be negative)
         forecast = np.maximum(np.asarray(forecast), 0)
-        forecast = forecast[gap : gap + periods]
-        log.debug("arima_forecast_generated", periods=periods, gap=gap)
+        forecast = forecast[slice_offset : slice_offset + periods]
+        log.debug("arima_forecast_generated", periods=periods, gap=gap, appended=gap - slice_offset)
 
         if start_ts is None:
             return forecast

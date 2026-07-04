@@ -769,6 +769,35 @@ def _gap_forward_frame(
     return pd.concat([gap[cols], future_df[cols]], ignore_index=True)
 
 
+def _gap_actual_demand(featured: pd.DataFrame, anchor_end: Any, start_ts: Any) -> np.ndarray | None:
+    """Real demand observed across ``(anchor_end, start_ts)`` — the actuals a
+    daily-trained SARIMAX hasn't seen at hourly-scoring time (#226). Returns the
+    LEADING contiguous run of non-NaN demand (so it can be appended to advance
+    the frozen Kalman state), aligned hour-for-hour with ``_gap_forward_frame``'s
+    leading rows. Returns ``None`` when there's no anchor, no gap, or no demand
+    column. Trailing NaNs (EIA publish lag, #129) end the run."""
+    if anchor_end is None or "demand_mw" not in featured.columns:
+        return None
+    ts = featured["timestamp"]
+    anchor = pd.Timestamp(anchor_end)
+    start = pd.Timestamp(start_ts)
+    tz = ts.dt.tz
+    if tz is not None:
+        anchor = anchor.tz_localize(tz) if anchor.tz is None else anchor.tz_convert(tz)
+        start = start.tz_localize(tz) if start.tz is None else start.tz_convert(tz)
+    else:
+        anchor = anchor.tz_localize(None) if anchor.tz is not None else anchor
+        start = start.tz_localize(None) if start.tz is not None else start
+    gap = featured[(ts > anchor) & (ts < start)]
+    if gap.empty:
+        return None
+    dem = gap["demand_mw"].to_numpy(dtype=float)
+    n = 0
+    while n < dem.size and np.isfinite(dem[n]):
+        n += 1
+    return dem[:n] if n > 0 else None
+
+
 def _predict_one(
     model_name: str,
     model: Any,
@@ -818,7 +847,12 @@ def _predict_one(
             if start_ts is not None:
                 train_end = model.get("train_end") if isinstance(model, dict) else None
                 frame = _gap_forward_frame(featured, future_df, train_end, start_ts)
-                res = predict_arima(model, frame, periods=horizon, start_ts=start_ts)
+                # #226: advance the frozen Kalman state through the gap actuals
+                # so the 1h-ahead origin is the last real value, not train_end.
+                gap_actuals = _gap_actual_demand(featured, train_end, start_ts)
+                res = predict_arima(
+                    model, frame, periods=horizon, start_ts=start_ts, gap_actuals=gap_actuals
+                )
             else:
                 res = predict_arima(model, future_df, periods=horizon)
             preds = res["forecast"] if isinstance(res, dict) else res

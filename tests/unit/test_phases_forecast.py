@@ -847,3 +847,59 @@ class TestRecursivePredictDemandHistorySeed:
         assert preds[0] == pytest.approx(20_400.0, rel=1e-6)
         # The chain continues at 1.02× per step
         assert preds[1] == pytest.approx(20_808.0, rel=1e-6)
+
+
+class TestGapActualDemand:
+    """#226: ``_gap_actual_demand`` extracts the leading contiguous real demand
+    across the train->score gap so SARIMAX can advance its Kalman state."""
+
+    def _featured(self, n=30, tz="UTC"):
+        ts = pd.date_range("2024-01-01", periods=n, freq="h", tz=tz)
+        return pd.DataFrame({"timestamp": ts, "demand_mw": np.arange(n, dtype=float) * 100 + 1000})
+
+    def test_extracts_leading_contiguous_gap(self):
+        from jobs.phases import _gap_actual_demand
+
+        fe = self._featured(30)
+        anchor = fe["timestamp"].iloc[10]  # train_end
+        start = fe["timestamp"].iloc[20]  # start_ts
+        ga = _gap_actual_demand(fe, anchor, start)
+        # hours strictly between index 10 and 20 -> rows 11..19 = 9
+        assert ga is not None and len(ga) == 9
+        assert ga[0] == fe["demand_mw"].iloc[11]
+        assert ga[-1] == fe["demand_mw"].iloc[19]
+
+    def test_none_when_no_anchor(self):
+        from jobs.phases import _gap_actual_demand
+
+        fe = self._featured()
+        assert _gap_actual_demand(fe, None, fe["timestamp"].iloc[20]) is None
+
+    def test_trailing_nan_truncates_run(self):
+        # EIA publish lag: the last gap hours have no demand yet.
+        from jobs.phases import _gap_actual_demand
+
+        fe = self._featured(30)
+        fe.loc[15:19, "demand_mw"] = np.nan
+        anchor = fe["timestamp"].iloc[10]
+        start = fe["timestamp"].iloc[20]
+        ga = _gap_actual_demand(fe, anchor, start)
+        # gap rows 11..19; leading non-NaN = 11,12,13,14 -> 4
+        assert ga is not None and len(ga) == 4
+
+    def test_empty_gap_returns_none(self):
+        from jobs.phases import _gap_actual_demand
+
+        fe = self._featured(30)
+        anchor = fe["timestamp"].iloc[10]
+        start = fe["timestamp"].iloc[11]  # adjacent -> nothing strictly between
+        assert _gap_actual_demand(fe, anchor, start) is None
+
+    def test_leading_nan_yields_none(self):
+        from jobs.phases import _gap_actual_demand
+
+        fe = self._featured(30)
+        fe.loc[11, "demand_mw"] = np.nan  # first gap hour missing
+        anchor = fe["timestamp"].iloc[10]
+        start = fe["timestamp"].iloc[20]
+        assert _gap_actual_demand(fe, anchor, start) is None
