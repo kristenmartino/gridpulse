@@ -133,6 +133,40 @@ harder to predict. We report the gap rather than average it away.
 > (4.32%, most-recent week, from GCS `meta.json`) — the difference is
 > week-to-week variance, not a methodology change. Both are recursive.
 
+## Ensemble weighting
+
+The served ensemble weights each model by `(1/MAPE_i)^k` (ADR-004,
+`config.ENSEMBLE_WEIGHT_EXPONENT`). `k` was plain inverse-MAPE (`k=1`) until
+[#181](https://github.com/kristenmartino/gridpulse/issues/181); it is now
+**`k=3`**. On honest recursive data `k=1` was dominated — it kept 15–30% weight
+on models running 3–5× worse than the leader, so the blend trailed the best
+single model (ensemble median 4.82% vs best-base 4.12%).
+
+Sweeping `k` on the per-model recursive holdout series (all 51 BAs, weights and
+scoring on the same 168h window):
+
+| Exponent k | median MAPE | p90 | beats k=1 on |
+|---|---|---|---|
+| 1.0 (old) | 4.19% | 10.16% | — |
+| 2.0 | 3.98% | 8.28% | 48/51 |
+| **3.0 (served)** | **3.90%** | **7.95%** | **47/51** |
+| 5.0 | 3.90% | 7.47% | 44/51 |
+| best-model (k→∞) | 4.07% | 7.41% | 38/51 |
+| convex-optimal oracle | 3.75% | — | — |
+
+`k=3` captures nearly all the achievable gain (within ~0.15pp of the oracle),
+generalizes (in a held-out even/odd-hour split it beats `k=1` on both median and
+tail — 3.88% / 6.78% vs 4.18% / 10.11%), and beats even winner-take-all — because
+it still blends where two models are comparably good. That is where the ensemble
+earns its keep: **error-decorrelation**, not tail variance-reduction (a single
+model owns the tail). Examples where blending genuinely helps: CAISO 4.55% →
+3.51%, AZPS 13.4% → 8.2%.
+
+> The weighting change is offline-validated — it re-combines existing model
+> outputs, so no retrain is needed — but it is still a served-forecast change;
+> watch live ensemble drift after deploy. Numbers independently reproduced and
+> red-teamed with a held-out split.
+
 ## Per-BA holdout MAPE (current)
 
 Per-model MAPE plus the ensemble, best base, and training-window provenance.
