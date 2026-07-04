@@ -12,6 +12,7 @@ API docs: https://www.eia.gov/opendata/documentation.php
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pandas as pd
@@ -115,6 +116,57 @@ def _get_eia_code(region: str) -> str:
     return EIA_REGION_CODES.get(region, region)
 
 
+def _fetch_eia(
+    *,
+    region: str,
+    data_type: str,
+    cache_key: str,
+    endpoint: str,
+    params: dict,
+    parser: Callable[[list[dict]], pd.DataFrame],
+    empty_cols: list[str],
+    use_cache: bool,
+) -> pd.DataFrame:
+    """Shared fetch skeleton for the demand / generation / interchange endpoints.
+
+    Each public fetcher computes its own default dates, cache key, params, and
+    parser, then delegates the identical flow here (#185): cache read ->
+    paginated fetch -> ``(stale cache -> GCS parquet -> typed-empty)`` fallback
+    -> parse -> cache + GCS write. The uniform GCS fallback across all three is
+    the #174 outage-resilience contract, now expressed once instead of copied
+    three times. ``data_type`` is the GCS parquet key + the logging label.
+    """
+    cache = get_cache()
+    if use_cache:
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+    log.info("eia_fetching", region=region, data_type=data_type)
+    all_records = _paginated_fetch(endpoint, params)
+
+    if not all_records:
+        log.warning("eia_no_data", region=region, data_type=data_type)
+        stale = cache.get(cache_key, allow_stale=True)
+        if stale is not None:
+            return stale
+        from data.gcs_store import read_parquet
+
+        gcs_df = read_parquet(data_type, region)
+        if gcs_df is not None and not gcs_df.empty:
+            log.info("eia_gcs_fallback", region=region, data_type=data_type, rows=len(gcs_df))
+            return gcs_df
+        return pd.DataFrame(columns=empty_cols)
+
+    df = parser(all_records)
+    cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
+    from data.gcs_store import write_parquet
+
+    write_parquet(df, data_type, region)
+    log.info("eia_cached", region=region, data_type=data_type, rows=len(df))
+    return df
+
+
 def fetch_demand(
     region: str,
     start: str | None = None,
@@ -141,53 +193,29 @@ def fetch_demand(
     if end is None:
         end = datetime.now(UTC).strftime("%Y-%m-%dT23")
 
-    # Use date-level granularity for cache key so it doesn't change every hour
-    cache_key = f"eia_demand_{region}_{start[:10]}_{end[:10]}"
-    cache = get_cache()
-
-    if use_cache:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-    log.info("eia_fetching_demand", region=region, start=start, end=end)
-
     eia_code = _get_eia_code(region)
-    params = {
-        "api_key": EIA_API_KEY,
-        "frequency": "hourly",
-        "data[0]": "value",
-        "facets[respondent][]": eia_code,
-        "facets[type][]": ["D", "DF"],  # D=Demand, DF=Day-ahead demand forecast
-        "start": start,
-        "end": end,
-        "sort[0][column]": "period",
-        "sort[0][direction]": "asc",
-        "length": EIA_PAGE_SIZE,
-    }
-
-    all_records = _paginated_fetch(EIA_ENDPOINTS["demand"], params)
-
-    if not all_records:
-        log.warning("eia_no_data", region=region, start=start, end=end)
-        stale = cache.get(cache_key, allow_stale=True)
-        if stale is not None:
-            return stale
-        from data.gcs_store import read_parquet
-
-        gcs_df = read_parquet("demand", region)
-        if gcs_df is not None and not gcs_df.empty:
-            log.info("eia_demand_gcs_fallback", region=region, rows=len(gcs_df))
-            return gcs_df
-        return pd.DataFrame(columns=["timestamp", "demand_mw", "forecast_mw", "region"])
-
-    df = _parse_demand_records(all_records, region)
-    cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
-    from data.gcs_store import write_parquet
-
-    write_parquet(df, "demand", region)
-    log.info("eia_demand_cached", region=region, rows=len(df))
-    return df
+    return _fetch_eia(
+        region=region,
+        data_type="demand",
+        # Date-level granularity so the key doesn't change every hour.
+        cache_key=f"eia_demand_{region}_{start[:10]}_{end[:10]}",
+        endpoint=EIA_ENDPOINTS["demand"],
+        params={
+            "api_key": EIA_API_KEY,
+            "frequency": "hourly",
+            "data[0]": "value",
+            "facets[respondent][]": eia_code,
+            "facets[type][]": ["D", "DF"],  # D=Demand, DF=Day-ahead demand forecast
+            "start": start,
+            "end": end,
+            "sort[0][column]": "period",
+            "sort[0][direction]": "asc",
+            "length": EIA_PAGE_SIZE,
+        },
+        parser=lambda records: _parse_demand_records(records, region),
+        empty_cols=["timestamp", "demand_mw", "forecast_mw", "region"],
+        use_cache=use_cache,
+    )
 
 
 def fetch_generation_by_fuel(
@@ -216,51 +244,27 @@ def fetch_generation_by_fuel(
     if end is None:
         end = datetime.now(UTC).strftime("%Y-%m-%dT%H")
 
-    cache_key = f"eia_gen_{region}_{start}_{end}"
-    cache = get_cache()
-
-    if use_cache:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-    log.info("eia_fetching_generation", region=region, start=start, end=end)
-
     eia_code = _get_eia_code(region)
-    params = {
-        "api_key": EIA_API_KEY,
-        "frequency": "hourly",
-        "data[0]": "value",
-        "facets[respondent][]": eia_code,
-        "start": start,
-        "end": end,
-        "sort[0][column]": "period",
-        "sort[0][direction]": "asc",
-        "length": EIA_PAGE_SIZE,
-    }
-
-    all_records = _paginated_fetch(EIA_ENDPOINTS["fuel_type"], params)
-
-    if not all_records:
-        log.warning("eia_no_generation_data", region=region)
-        stale = cache.get(cache_key, allow_stale=True)
-        if stale is not None:
-            return stale
-        from data.gcs_store import read_parquet
-
-        gcs_df = read_parquet("generation", region)
-        if gcs_df is not None and not gcs_df.empty:
-            log.info("eia_generation_gcs_fallback", region=region, rows=len(gcs_df))
-            return gcs_df
-        return pd.DataFrame(columns=["timestamp", "fuel_type", "generation_mw", "region"])
-
-    df = _parse_generation_records(all_records, region)
-    cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
-    from data.gcs_store import write_parquet
-
-    write_parquet(df, "generation", region)
-    log.info("eia_generation_cached", region=region, rows=len(df))
-    return df
+    return _fetch_eia(
+        region=region,
+        data_type="generation",
+        cache_key=f"eia_gen_{region}_{start}_{end}",
+        endpoint=EIA_ENDPOINTS["fuel_type"],
+        params={
+            "api_key": EIA_API_KEY,
+            "frequency": "hourly",
+            "data[0]": "value",
+            "facets[respondent][]": eia_code,
+            "start": start,
+            "end": end,
+            "sort[0][column]": "period",
+            "sort[0][direction]": "asc",
+            "length": EIA_PAGE_SIZE,
+        },
+        parser=lambda records: _parse_generation_records(records, region),
+        empty_cols=["timestamp", "fuel_type", "generation_mw", "region"],
+        use_cache=use_cache,
+    )
 
 
 def fetch_interchange(
@@ -283,49 +287,27 @@ def fetch_interchange(
     if end is None:
         end = datetime.now(UTC).strftime("%Y-%m-%dT%H")
 
-    cache_key = f"eia_interchange_{region}_{start}_{end}"
-    cache = get_cache()
-
-    if use_cache:
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return cached
-
-    log.info("eia_fetching_interchange", region=region)
-
     eia_code = _get_eia_code(region)
-    params = {
-        "api_key": EIA_API_KEY,
-        "frequency": "hourly",
-        "data[0]": "value",
-        "facets[fromba][]": eia_code,
-        "start": start,
-        "end": end,
-        "sort[0][column]": "period",
-        "sort[0][direction]": "asc",
-        "length": EIA_PAGE_SIZE,
-    }
-
-    all_records = _paginated_fetch(EIA_ENDPOINTS["interchange"], params)
-
-    if not all_records:
-        stale = cache.get(cache_key, allow_stale=True)
-        if stale is not None:
-            return stale
-        from data.gcs_store import read_parquet
-
-        gcs_df = read_parquet("interchange", region)
-        if gcs_df is not None and not gcs_df.empty:
-            log.info("eia_interchange_gcs_fallback", region=region, rows=len(gcs_df))
-            return gcs_df
-        return pd.DataFrame(columns=["timestamp", "from_ba", "to_ba", "interchange_mw"])
-
-    df = _parse_interchange_records(all_records)
-    cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
-    from data.gcs_store import write_parquet
-
-    write_parquet(df, "interchange", region)
-    return df
+    return _fetch_eia(
+        region=region,
+        data_type="interchange",
+        cache_key=f"eia_interchange_{region}_{start}_{end}",
+        endpoint=EIA_ENDPOINTS["interchange"],
+        params={
+            "api_key": EIA_API_KEY,
+            "frequency": "hourly",
+            "data[0]": "value",
+            "facets[fromba][]": eia_code,
+            "start": start,
+            "end": end,
+            "sort[0][column]": "period",
+            "sort[0][direction]": "asc",
+            "length": EIA_PAGE_SIZE,
+        },
+        parser=lambda records: _parse_interchange_records(records),
+        empty_cols=["timestamp", "from_ba", "to_ba", "interchange_mw"],
+        use_cache=use_cache,
+    )
 
 
 # ---------------------------------------------------------------------------
