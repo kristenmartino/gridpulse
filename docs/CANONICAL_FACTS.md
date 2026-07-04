@@ -70,27 +70,31 @@
 ## Forecast accuracy (from holdout backtests)
 
 Accuracy is **per-BA** — never quote a single pooled "across-51" number.
-Distributions over all 51 BAs, 168h holdout (three views):
+Distributions over all 51 BAs, 168h holdout, **recursive multi-step** (three
+views). Recursive scoring — the model's own predictions feed forward as lags
+— runs ~2× the teacher-forced one-step numbers published before
+[#209](https://github.com/kristenmartino/gridpulse/issues/209); it is the
+honest 7-day-forecast number, not a nowcast:
 
 | Stat | XGBoost-only | Best-base per BA | Ensemble (served) |
 |---|---|---|---|
-| min | 0.98% (ERCOT) | 0.98% (ERCOT) | 1.70% (NWMT) |
-| median | 2.32% | 2.30% | 3.48% |
-| mean | 3.79% | 3.61% | 4.92% |
-| p90 | 6.57% | 6.57% | 8.37% |
-| max | 33.97% (AZPS) | 26.68% (AZPS) | 27.40% (AZPS) |
+| min | 1.76% (PSEI) | 1.66% (ERCOT) | 1.48% (ERCOT) |
+| median | 4.32% | 4.12% | 4.82% |
+| mean | 5.99% | 5.38% | 6.22% |
+| p90 | 9.90% | 9.90% | 12.64% |
+| max | 38.63% (SEC) | 21.13% (SPA) | 22.81% (SPA) |
 
-XGBoost is best base for 48 of 51 BAs (ARIMA for AZPS + GCPD, Prophet for
-SPA). **The ensemble trails best-base in aggregate** (median 3.48% vs 2.30%)
-and beats XGBoost-alone on only 4 of 51 BAs — the inverse-MAPE blend (ADR-004)
-still weights the weaker Prophet/ARIMA, so it lands above the strongest single
-model; its value is tail variance-reduction (AZPS 33.97% → 27.40%), not a
-headline-accuracy win. Quote the ensemble for *what production serves*,
-best-base for *best achievable per BA*. Tail BAs swing run-to-run (AZPS was
-11.90% best-base on 2026-06-17, 26.68% here).
+XGBoost is best base for 44 of 51 BAs (Prophet for CHPD/DOPD/SEC/SOCO, ARIMA
+for ERCOT/SC/WALC). **The ensemble trails best-base in aggregate** (median
+4.82% vs 4.12%) but under recursive scoring now beats XGBoost-alone on 17 of
+51 BAs (up from 4) — the inverse-MAPE blend (ADR-004) damps compounding
+single-model drift on the tail (SEC 38.63% → 13.61%) while landing above
+XGBoost where it is already strongest. Quote the ensemble for *what production
+serves*, best-base for *best achievable per BA*. Tail BAs (SPA, IID, PSCO,
+SEC, AZPS) swing run-to-run.
 
-(Source: generated 2026-06-19 from production GCS via
-`scripts/export_holdout_metrics.py`; models trained 2026-06-19. Ensemble
+(Source: generated 2026-07-03 from production GCS via
+`scripts/export_holdout_metrics.py`; models trained 2026-07-03. Ensemble
 holdout column populated for all 51 BAs since
 [#176](https://github.com/kristenmartino/gridpulse/issues/176) fixed the
 holdout-NaN crash. Per-BA holdout metrics are produced every daily training
