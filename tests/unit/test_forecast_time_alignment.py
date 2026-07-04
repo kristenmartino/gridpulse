@@ -180,9 +180,10 @@ class TestPhasesGapFrame:
         model = {"params": np.zeros(3), "train_end": str(featured["timestamp"].iloc[-19])}
         captured = {}
 
-        def fake_predict_arima(m, future_exog, periods=168, start_ts=None):
+        def fake_predict_arima(m, future_exog, periods=168, start_ts=None, gap_actuals=None):
             captured["start_ts"] = start_ts
             captured["rows"] = len(future_exog)
+            captured["gap_actuals"] = gap_actuals
             return {
                 "forecast": np.full(periods, 1.0),
                 "timestamps": pd.date_range(start_ts, periods=periods, freq="h"),
@@ -196,6 +197,9 @@ class TestPhasesGapFrame:
         assert out is not None and len(out) == 24
         assert captured["start_ts"] == forecast_start
         assert captured["rows"] == 18 + 24  # gap + forward handed to predict
+        # #226: the 18 gap-hour actuals are handed to predict_arima to advance
+        # the Kalman state to the last real value.
+        assert captured["gap_actuals"] is not None and len(captured["gap_actuals"]) == 18
 
     def test_predict_one_xgboost_ignores_start_ts(self):
         """XGBoost is already anchored at forecast_start; start_ts must not

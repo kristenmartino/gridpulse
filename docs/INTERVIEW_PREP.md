@@ -308,6 +308,40 @@ why your ensemble helps, not just that it helps: we thought it bought tail-
 robustness and it actually bought error-decorrelation, and you only see that by
 measuring the mechanism per-segment, not the headline average.*
 
+### 13. "Tell me about a subtle bug you debugged."
+**A model that backtested at ~2% was drifting ~13% live — and the model was fine.**
+
+Situation: SARIMAX's live 1-hour-ahead drift was ~13% — four-to-seven times its
+training holdout. On paper it was a competent model; in production it looked
+broken, and it was dragging the ensemble.
+
+Task: Find why the *served* model was so much worse live than in backtest.
+
+Action: I traced the serving path instead of the model. The models train daily
+at 04:00 UTC but score hourly, and SARIMAX is pickled "lean" — just fitted
+params plus a short training tail — then reconstructed and Kalman-filtered at
+predict time, which anchors its state at the *training* boundary. So the
+"1-hour-ahead" ask was really a `(gap+1)`-step-ahead forecast — up to ~24 steps —
+from a stale origin that had never seen the last day of actuals. XGBoost didn't
+have the problem because it reads the last real value as a lag feature; SARIMAX
+had no equivalent. The fix leaned on a property of the Kalman filter most people
+forget: you can `append()` the intervening actuals to advance the state through
+them *without re-estimating the parameters*, then forecast a true one step.
+
+Result: I proved it offline before touching production — on a daily-train/
+hourly-score simulation across real data the 1-hour-ahead error dropped 2.5–7×
+(CAISO 6.3% → 1.8%, MISO 3.6% → 0.5%), landing SARIMAX in the 0.3–1.8% range,
+competitive with XGBoost. It's offline-validated (it re-combines observed data,
+no retrain) and guarded to fall back to the old behavior if the state-append
+ever fails.
+
+**Lesson to convey**: *When a model's live number is 5× its backtest, suspect
+the serving path before the model — here it was a state-management detail, not a
+modelling gap. And know your tools: the fix wasn't more modelling, it was one
+Kalman-filter operation. I also refused to ship it on the offline number alone —
+it's staged to watch live drift post-deploy, because the issue flagged a second,
+overlapping cause (a time-mislabel) whose share only the live re-score can settle.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
