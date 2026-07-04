@@ -33,12 +33,12 @@ Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) 
 
 ## Models
 
-- **XGBoost** — 49 engineered features, TimeSeriesSplit CV, SHAP explanations. Best base model for 48 of 51 BAs; reference run 0.98% MAPE on ERCOT (168-hour holdout, 2026-06-19).
+- **XGBoost** — 49 engineered features, TimeSeriesSplit CV, SHAP explanations. Best base model for 44 of 51 BAs; 2.03% MAPE on ERCOT, 4.3% median across all BAs (168-hour **recursive** holdout, 2026-07-03).
 - **Prophet** — weather regressors with logistic growth + floor=0 (structurally prevents negative forecasts). Daily / weekly / yearly seasonality.
 - **SARIMAX** — auto-order selection via `pmdarima` on cold runs; cached `(p,d,q)(P,D,Q,m)` order on warm runs (skips the auto-select stepwise search, ~10× speedup on daily refresh).
 - **Ensemble** — inverse-MAPE weighted combination (self-correcting; underperforming models lose weight automatically).
 
-**Real holdout metrics, not simulated.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble row is computed from the same holdout predictions so all four model metrics share provenance.
+**Real holdout metrics, not simulated.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, scored **recursively** (multi-step — the model's own predictions feed forward, so errors compound as in a real forecast), persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble row is computed from the same holdout predictions so all four model metrics share provenance.
 
 See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analysis on real EIA data.
 
