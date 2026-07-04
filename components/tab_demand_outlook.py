@@ -147,7 +147,11 @@ def _metrics_bar() -> html.Div:
         # Peak (hero)
         html.Div(
             [
-                html.Div("Peak Demand", className="gp-metric-label"),
+                html.Div(
+                    "Peak Demand",
+                    className="gp-metric-label",
+                    title="Highest forecasted demand over the selected horizon (default 7 days).",
+                ),
                 html.Div(
                     [
                         html.Span(
@@ -166,7 +170,11 @@ def _metrics_bar() -> html.Div:
         # Average
         html.Div(
             [
-                html.Div("Average", className="gp-metric-label"),
+                html.Div(
+                    "Average",
+                    className="gp-metric-label",
+                    title="Mean forecasted demand over the selected horizon.",
+                ),
                 html.Div(
                     [
                         html.Span(
@@ -185,7 +193,11 @@ def _metrics_bar() -> html.Div:
         # Min
         html.Div(
             [
-                html.Div("Min Demand", className="gp-metric-label"),
+                html.Div(
+                    "Min Demand",
+                    className="gp-metric-label",
+                    title="Lowest forecasted demand over the selected horizon.",
+                ),
                 html.Div(
                     [
                         html.Span(
@@ -204,7 +216,11 @@ def _metrics_bar() -> html.Div:
         # Range
         html.Div(
             [
-                html.Div("Range", className="gp-metric-label"),
+                html.Div(
+                    "Range",
+                    className="gp-metric-label",
+                    title="Forecast peak − forecast min over the selected horizon.",
+                ),
                 html.Div(
                     [
                         html.Span(
