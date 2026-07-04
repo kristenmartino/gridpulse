@@ -294,10 +294,26 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
             "unit": "GW",
             "tone": "primary",
             "hero": True,
+            "help": "Sum of current demand across all reporting balancing authorities (GW).",
         },
-        {"label": "National Peak (24h)", "value": f"{peak_24h_mw / 1000:.1f}", "unit": "GW"},
-        {"label": "Highest-Stress Region", "value": top_value, "tone": top_tone},
-        {"label": "Lowest Reserve", "value": reserve_value, "tone": reserve_tone},
+        {
+            "label": "National Peak (24h)",
+            "value": f"{peak_24h_mw / 1000:.1f}",
+            "unit": "GW",
+            "help": "Highest simultaneous cross-grid demand in the last 24h. BAs peak at different hours, so this exceeds current total demand.",
+        },
+        {
+            "label": "Highest-Stress Region",
+            "value": top_value,
+            "tone": top_tone,
+            "help": "BA with the highest utilization = current demand ÷ estimated capacity (capped 100%). Import-dominated BAs excluded.",
+        },
+        {
+            "label": "Lowest Reserve",
+            "value": reserve_value,
+            "tone": reserve_tone,
+            "help": "Operating headroom (100% − utilization) of the most-stressed BA — the complement of Highest-Stress Region.",
+        },
     ]
 
 
@@ -843,6 +859,18 @@ def register_us_grid_callbacks(app):
                 body = _build_us_grid_choropleth(region_data)
             else:
                 grid_children: list = []
+                grid_children.append(
+                    html.Div(
+                        "Each card: current demand (GW) · utilization vs. capacity (%) · net interchange (GW) · change vs. previous hour (%)",
+                        className="gp-region-legend",
+                        style={
+                            "gridColumn": "1 / -1",
+                            "fontSize": "11px",
+                            "color": "#71717a",
+                            "marginBottom": "8px",
+                        },
+                    )
+                )
                 for group_name, codes in REGION_GROUPS.items():
                     visible = [c for c in codes if c in region_data]
                     if not visible:

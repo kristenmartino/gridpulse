@@ -320,12 +320,15 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
 
     Each item: ``{"label": str, "value": str, "unit": str | None,
                   "tone": "primary" | "secondary" | "positive" | "negative" | None,
-                  "hero": bool, "subtext": str | None}``.
+                  "hero": bool, "subtext": str | None, "help": str | None}``.
 
     ``subtext`` (added 2026-05-20) renders a single muted line below the
     value row — used by the Overview tab to surface freshness timestamps
     ("as of 14:00 UTC") and label clarifications ("hourly mean") without
     hijacking the label slot.
+
+    ``help`` (optional) renders a small info glyph (ⓘ) next to the label,
+    with the provided text as a ``title`` tooltip for accessibility.
 
     Mirrors gridpulse-v2 components/MetricsBar.tsx:34. Up to 5 cells.
     Uses ``.tabular`` on values for aligned numerics.
@@ -343,8 +346,32 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
             value_classes.append(f"gp-metric-value--{tone}")
         elif tone == "secondary":
             value_classes.append("gp-metric-value--secondary")
+
+        _help = item.get("help")
+        _label_text = item.get("label", "")
+        if _help:
+            _label_node = html.Div(
+                [
+                    _label_text,
+                    html.Span(
+                        "ⓘ",
+                        title=_help,
+                        className="gp-metric-help",
+                        style={
+                            "marginLeft": "4px",
+                            "opacity": 0.45,
+                            "cursor": "help",
+                            "fontSize": "0.85em",
+                        },
+                    ),
+                ],
+                className="gp-metric-label",
+            )
+        else:
+            _label_node = html.Div(_label_text, className="gp-metric-label")
+
         cell_children: list = [
-            html.Div(item.get("label", ""), className="gp-metric-label"),
+            _label_node,
             html.Div(
                 [
                     html.Span(item.get("value", "—"), className=" ".join(value_classes)),
@@ -363,6 +390,7 @@ def build_model_metrics_card(
     model_name: str,
     metrics: dict[str, str],
     badge: str | None = None,
+    caption: str | None = None,
 ) -> html.Div:
     """Horizontal model-performance bar (top/bottom borders, no card chrome).
 
@@ -375,6 +403,7 @@ def build_model_metrics_card(
             Insertion order is preserved — render order matches.
         badge: Optional small badge text rendered next to model name
             (e.g., "v3.2" or "trained").
+        caption: Optional muted text rendered below the card for additional context.
     """
     left: list = [
         html.Span("Model", className="gp-model-card__eyebrow"),
@@ -394,13 +423,26 @@ def build_model_metrics_card(
         for label, value in metrics.items()
     ]
 
-    return html.Div(
+    card = html.Div(
         [
             html.Div(left, className="gp-model-card__left"),
             html.Div(metric_cells, className="gp-model-card__metrics"),
         ],
         className="gp-model-card",
     )
+
+    if caption:
+        return html.Div(
+            [
+                card,
+                html.Div(
+                    caption,
+                    className="gp-model-card__caption",
+                    style={"fontSize": "11px", "opacity": 0.6, "marginTop": "4px"},
+                ),
+            ]
+        )
+    return card
 
 
 def build_insight_card(

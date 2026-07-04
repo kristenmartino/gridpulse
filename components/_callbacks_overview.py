@@ -352,6 +352,7 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
             "unit": "MW",
             "hero": True,
             "subtext": now_subtext,
+            "help": "Most recent actual demand reading (EIA-930).",
         },
         {
             "label": "7d Peak",
@@ -359,6 +360,7 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
             "unit": "MW",
             "tone": "secondary",
             "subtext": "hourly max",
+            "help": "Highest observed (actual) demand in the last 168h (7 days).",
         },
         {
             "label": "7d Low",
@@ -366,6 +368,7 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
             "unit": "MW",
             "tone": "secondary",
             "subtext": "hourly min",
+            "help": "Lowest observed (actual) demand in the last 168h (7 days).",
         },
         {
             "label": "Average",
@@ -373,6 +376,7 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
             "unit": "MW",
             "tone": "secondary",
             "subtext": "7d hourly mean",
+            "help": "Mean observed (actual) demand over the last 168h (7 days).",
         },
         {
             "label": "24h Trend",
@@ -380,6 +384,7 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
             "unit": None,
             "tone": trend_tone,
             "subtext": trend_subtext,
+            "help": "Percent change from ~24h ago to now.",
         },
     ]
 
@@ -602,7 +607,24 @@ def _build_overview_model_card(region: str) -> html.Div:
     }
     name = "XGBoost" if primary_key == "xgboost" else primary_key.title()
     badge = "trained" if is_trained(region) else "simulated"
-    return build_model_metrics_card(model_name=name, metrics=formatted, badge=badge)
+
+    caption = None
+    if primary_key == "ensemble":
+        single = {
+            k: v.get("mape")
+            for k, v in metrics_dict.items()
+            if k != "ensemble" and v.get("mape") is not None
+        }
+        if single:
+            best_key = min(single, key=single.get)
+            best_name = "XGBoost" if best_key == "xgboost" else best_key.title()
+            caption = f"Production blend — most accurate single model: {best_name} {single[best_key]:.1f}%"
+        else:
+            caption = "Production blend — combines all models for stability."
+
+    return build_model_metrics_card(
+        model_name=name, metrics=formatted, badge=badge, caption=caption
+    )
 
 
 def _build_overview_insight(
