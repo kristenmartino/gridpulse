@@ -387,6 +387,36 @@ def _build_interchange_chip(interchange: dict | None) -> html.Span | None:
     )
 
 
+def _us_grid_card_sort_value(region: str, data: dict, sort: str):
+    """Sort key for one region card under a non-default US Grid sort.
+
+    Numeric sorts return a value ordered so Python's ascending ``sort``
+    yields the intended visual order — demand / utilization / hourly-change
+    high→low, name A→Z. BAs with missing or unreliable data sort to the
+    bottom rather than the top.
+    """
+    cur = float(data["current_mw"]) if _is_real_positive(data.get("current_mw")) else 0.0
+    if sort == "demand":
+        return -cur  # high → low
+    if sort == "stress":
+        cap = REGION_CAPACITY_MW.get(region, 0)
+        # Mirror the Highest-Stress KPI: only vertically-integrated BAs with
+        # a real capacity plate rank on utilization; import-dominated BAs
+        # (capacity is a peak×1.15 estimate) sort to the bottom instead of
+        # crowding the top with a noisy ratio.
+        if cap > 0 and cur > 0 and region not in IS_IMPORT_DOMINATED:
+            return -(cur / cap)  # high → low
+        return 1.0  # unreliable → bottom (positive sorts after the negatives)
+    if sort == "change":
+        prev = data.get("prev_mw")
+        if prev and prev > 0 and cur > 0:
+            return -abs((cur - prev) / prev)  # biggest movers first
+        return 0.0  # no prior hour → bottom
+    if sort == "name":
+        return REGION_NAMES.get(region, region).lower()  # A → Z
+    return region
+
+
 def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
     """One region card for the US Grid small-multiples grid.
 
@@ -837,14 +867,16 @@ def register_us_grid_callbacks(app):
             Input("dashboard-tabs", "active_tab"),
             Input("refresh-interval", "n_intervals"),
             Input("us-grid-view-toggle", "value"),
+            Input("us-grid-sort", "value"),
         ],
     )
-    def update_us_grid_snapshot(active_tab, _n_intervals, view):
+    def update_us_grid_snapshot(active_tab, _n_intervals, view, sort):
         """Render the US Grid tabs title, MetricsBar, and body (cards or map)."""
         if active_tab != "tab-us-grid":
             return [no_update] * 3
 
         view = view or "cards"
+        sort = sort or "groups"
 
         try:
             region_data = _collect_us_grid_region_data()
@@ -871,18 +903,29 @@ def register_us_grid_callbacks(app):
                         },
                     )
                 )
-                for group_name, codes in REGION_GROUPS.items():
-                    visible = [c for c in codes if c in region_data]
-                    if not visible:
-                        continue
-                    grid_children.append(
-                        html.Div(
-                            group_name,
-                            className="gp-region-grid__section-header",
+                if sort == "groups":
+                    for group_name, codes in REGION_GROUPS.items():
+                        visible = [c for c in codes if c in region_data]
+                        if not visible:
+                            continue
+                        grid_children.append(
+                            html.Div(
+                                group_name,
+                                className="gp-region-grid__section-header",
+                            )
                         )
-                    )
+                        grid_children.extend(
+                            _build_us_grid_region_card(code, region_data[code]) for code in visible
+                        )
+                else:
+                    # Non-default sort flattens the regional grouping into one
+                    # ranked grid. Universe = the same BAs the grouped view shows.
+                    ordered = [
+                        c for codes in REGION_GROUPS.values() for c in codes if c in region_data
+                    ]
+                    ordered.sort(key=lambda c: _us_grid_card_sort_value(c, region_data[c], sort))
                     grid_children.extend(
-                        _build_us_grid_region_card(code, region_data[code]) for code in visible
+                        _build_us_grid_region_card(code, region_data[code]) for code in ordered
                     )
                 body = html.Div(grid_children, className="gp-region-grid")
 
