@@ -519,18 +519,15 @@ def _predict_from_trained(
     if not all_preds:
         return {"source": "unavailable", "metrics": {}, "weights": {}}
 
-    # Ensemble
+    # Ensemble — the single combine path (models.ensemble.ensemble_combine, #184).
+    # Preserve the prior per-model 1/len default for a base model missing from the
+    # weights dict; ensemble_combine then renormalizes over the models present
+    # (and equal-weights when the total is zero, matching the old np.mean branch).
+    from models.ensemble import ensemble_combine
+
     weights = result["weights"]
-    weighted = np.zeros(n)
-    total_weight = 0
-    for name, pred in all_preds.items():
-        w = weights.get(name, 1.0 / len(all_preds))
-        weighted += pred * w
-        total_weight += w
-    if total_weight > 0:
-        all_preds["ensemble"] = weighted / total_weight
-    else:
-        all_preds["ensemble"] = np.mean(list(all_preds.values()), axis=0)
+    combine_weights = {name: weights.get(name, 1.0 / len(all_preds)) for name in all_preds}
+    all_preds["ensemble"] = ensemble_combine(all_preds, combine_weights)
 
     # Indicative range (±3% heuristic — not a calibrated confidence interval)
     ensemble = all_preds.get("ensemble", actual)
@@ -567,9 +564,13 @@ def _simulate_forecasts(
     for name, n_arr in noise.items():
         preds[name] = actual * (1 + n_arr)
 
-    # Ensemble = weighted average (XGBoost-heavy, ARIMA-light)
+    # Ensemble = weighted average (XGBoost-heavy, ARIMA-light) via the single
+    # combine path (#184). The weights already sum to 1, so ensemble_combine's
+    # renormalization is a no-op — byte-identical to the old explicit sum().
+    from models.ensemble import ensemble_combine
+
     weights = {"prophet": 0.30, "arima": 0.20, "xgboost": 0.50}
-    ensemble = sum(preds[m] * w for m, w in weights.items())
+    ensemble = ensemble_combine(preds, weights)
     preds["ensemble"] = ensemble
 
     # Indicative range (heuristic — not a calibrated confidence interval)

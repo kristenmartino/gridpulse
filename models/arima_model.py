@@ -84,21 +84,10 @@ def train_arima(
         nan_mask = np.isnan(exog)
         if nan_mask.any():
             log.warning("arima_exog_nan", nan_count=int(nan_mask.sum()))
-            # Column-wise forward/backward fill, then zero fill
-            for col_idx in range(exog.shape[1]):
-                col = exog[:, col_idx]
-                mask = np.isnan(col)
-                if mask.any():
-                    # Forward fill
-                    for i in range(1, len(col)):
-                        if np.isnan(col[i]):
-                            col[i] = col[i - 1]
-                    # Backward fill remaining
-                    for i in range(len(col) - 2, -1, -1):
-                        if np.isnan(col[i]):
-                            col[i] = col[i + 1]
-                    # Zero fill if still NaN (all-NaN column)
-                    col[np.isnan(col)] = 0
+            # Column-wise forward -> backward -> zero fill, vectorized (#184) —
+            # the same three-step fill prophet_model.py already uses, replacing
+            # the hand-rolled O(n) per-element loop.
+            exog = pd.DataFrame(exog).ffill().bfill().fillna(0.0).to_numpy(dtype=float)
 
     order = DEFAULT_ORDER
     seasonal_order = DEFAULT_SEASONAL_ORDER
@@ -361,18 +350,8 @@ def _get_exog(df: pd.DataFrame, n_rows: int | None = None) -> np.ndarray | None:
 
     # Fill NaN in exog — SARIMAX cannot handle NaN in exogenous variables
     if np.isnan(exog).any():
-        for col_idx in range(exog.shape[1]):
-            col = exog[:, col_idx]
-            mask = np.isnan(col)
-            if mask.any():
-                # Forward fill, then backward fill, then zero
-                for i in range(1, len(col)):
-                    if np.isnan(col[i]):
-                        col[i] = col[i - 1]
-                for i in range(len(col) - 2, -1, -1):
-                    if np.isnan(col[i]):
-                        col[i] = col[i + 1]
-                col[np.isnan(col)] = 0
+        # Column-wise forward -> backward -> zero fill, vectorized (#184).
+        exog = pd.DataFrame(exog).ffill().bfill().fillna(0.0).to_numpy(dtype=float)
 
     if n_rows is not None and len(exog) > n_rows:
         exog = exog[:n_rows]
