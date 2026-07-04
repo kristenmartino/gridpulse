@@ -218,6 +218,100 @@ class TestPredictArima:
         assert fitted.forecast.called
 
 
+class TestPredictArimaGapActuals:
+    """#226: with a train->score gap, the frozen Kalman state must be advanced
+    through the observed gap actuals (``append()``) before forecasting, so the
+    horizon origin is the last real value, not the stale ``train_end``."""
+
+    def _legacy(self, forecast_ramp, train_end):
+        fitted = MagicMock()
+        advanced = MagicMock()
+        fitted.append.return_value = advanced
+        fitted.forecast.return_value = forecast_ramp
+        advanced.forecast.return_value = forecast_ramp
+        return {"model": fitted, "train_end": train_end}, fitted, advanced
+
+    def test_full_gap_actuals_gives_true_one_step_origin(self):
+        from models.arima_model import predict_arima
+
+        train_end = pd.Timestamp("2024-01-01 00:00", tz="UTC")
+        start_ts = train_end + pd.Timedelta(hours=6)  # offset 6 -> gap 5
+        ramp = np.arange(100.0, 200.0)
+        legacy, fitted, advanced = self._legacy(ramp, train_end)
+        gap_actuals = np.array([1500.0, 1510, 1490, 1505, 1500])  # 5 == gap
+
+        res = predict_arima(
+            legacy,
+            pd.DataFrame(index=range(20)),
+            periods=3,
+            start_ts=start_ts,
+            gap_actuals=gap_actuals,
+        )
+        # append() advanced the state through all 5 gap actuals
+        assert fitted.append.called
+        assert len(fitted.append.call_args.args[0]) == 5
+        # a == gap => slice offset 0 => horizon starts at the advanced forecast[0]
+        assert list(res["forecast"]) == [100.0, 101.0, 102.0]
+
+    def test_partial_gap_actuals_reduces_slice_offset(self):
+        from models.arima_model import predict_arima
+
+        train_end = pd.Timestamp("2024-01-01 00:00", tz="UTC")
+        start_ts = train_end + pd.Timedelta(hours=6)  # gap 5
+        ramp = np.arange(100.0, 200.0)
+        legacy, fitted, advanced = self._legacy(ramp, train_end)
+        gap_actuals = np.array([1500.0, 1510, 1490])  # only 3 of 5 (EIA lag)
+
+        res = predict_arima(
+            legacy,
+            pd.DataFrame(index=range(20)),
+            periods=3,
+            start_ts=start_ts,
+            gap_actuals=gap_actuals,
+        )
+        assert len(fitted.append.call_args.args[0]) == 3
+        # a=3 -> slice offset = gap-a = 2 -> advanced.forecast[2:5]
+        assert list(res["forecast"]) == [102.0, 103.0, 104.0]
+
+    def test_no_gap_actuals_keeps_stale_slice(self):
+        from models.arima_model import predict_arima
+
+        train_end = pd.Timestamp("2024-01-01 00:00", tz="UTC")
+        start_ts = train_end + pd.Timedelta(hours=6)  # gap 5
+        ramp = np.arange(100.0, 200.0)
+        legacy, fitted, advanced = self._legacy(ramp, train_end)
+
+        res = predict_arima(
+            legacy,
+            pd.DataFrame(index=range(20)),
+            periods=3,
+            start_ts=start_ts,
+            gap_actuals=None,
+        )
+        # No append; the stale path slices [gap:gap+periods] = [5:8]
+        assert not fitted.append.called
+        assert list(res["forecast"]) == [105.0, 106.0, 107.0]
+
+    def test_append_failure_falls_back_to_stale(self):
+        from models.arima_model import predict_arima
+
+        train_end = pd.Timestamp("2024-01-01 00:00", tz="UTC")
+        start_ts = train_end + pd.Timedelta(hours=6)
+        ramp = np.arange(100.0, 200.0)
+        legacy, fitted, advanced = self._legacy(ramp, train_end)
+        fitted.append.side_effect = ValueError("synthetic append failure")
+
+        res = predict_arima(
+            legacy,
+            pd.DataFrame(index=range(20)),
+            periods=3,
+            start_ts=start_ts,
+            gap_actuals=np.array([1.0, 2, 3, 4, 5]),
+        )
+        # append raised -> fall back to the original stale forecast, no crash
+        assert list(res["forecast"]) == [105.0, 106.0, 107.0]
+
+
 class TestArimaConstants:
     """Regression: the exog column list and pickle-tail size are
     structural contracts the scoring + persistence paths depend on."""
