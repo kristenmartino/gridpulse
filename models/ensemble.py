@@ -2,7 +2,8 @@
 Weighted ensemble combiner for demand forecasting.
 
 Per spec §Model 4:
-- Weighted average where weights are inversely proportional to recent MAPE
+- Weighted average where weights are proportional to a power of inverse recent
+  MAPE — ``(1/MAPE_i)^k``, ``k = config.ENSEMBLE_WEIGHT_EXPONENT`` (ADR-004)
 - Combining models almost always beats individual models
 - Ensemble forecast is bounded between min and max of individual forecasts
 """
@@ -10,14 +11,21 @@ Per spec §Model 4:
 import numpy as np
 import structlog
 
+from config import ENSEMBLE_WEIGHT_EXPONENT
+
 log = structlog.get_logger()
 
 
 def compute_ensemble_weights(mape_scores: dict[str, float]) -> dict[str, float]:
     """
-    Compute ensemble weights inversely proportional to each model's MAPE.
+    Compute ensemble weights from a power of each model's inverse MAPE.
 
-    weight_i = (1/MAPE_i) / sum(1/MAPE_j)
+    weight_i = (1/MAPE_i)^k / sum_j (1/MAPE_j)^k,  k = ENSEMBLE_WEIGHT_EXPONENT
+
+    ``k=1`` is plain inverse-MAPE; ``k>1`` sharpens the blend toward the best
+    model (ADR-004 refinement, #181). ``k=3`` is the validated default — plain
+    inverse-MAPE over-weighted models running 3–5× worse than the leader and
+    trailed the best single model on the recursive holdout.
 
     Args:
         mape_scores: Dict mapping model name → recent MAPE (%).
@@ -38,13 +46,14 @@ def compute_ensemble_weights(mape_scores: dict[str, float]) -> dict[str, float]:
         log.warning("ensemble_equal_weights_fallback", reason="no valid MAPE scores")
         return weights
 
-    inverse = {k: 1.0 / v for k, v in valid.items()}
+    inverse = {k: (1.0 / v) ** ENSEMBLE_WEIGHT_EXPONENT for k, v in valid.items()}
     total = sum(inverse.values())
     weights = {k: v / total for k, v in inverse.items()}
 
     log.info(
         "ensemble_weights_computed",
         weights={k: round(v, 3) for k, v in weights.items()},
+        exponent=ENSEMBLE_WEIGHT_EXPONENT,
     )
     return weights
 

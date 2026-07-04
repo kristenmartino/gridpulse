@@ -271,6 +271,43 @@ makes your headline number worse and your credibility better, and that's a trade
 worth making every time. I'd rather report a 4% I trust than a 2% I have to
 asterisk.*
 
+### 12. "Tell me about a time you improved a model with evidence."
+**We improved the ensemble — and learned it helped for a different reason than we thought.**
+
+Situation: GridPulse serves an inverse-MAPE weighted ensemble of three models
+(ADR-004), justified in the ADR as "tail variance-reduction." After I fixed a
+dishonest holdout measurement (teacher-forced → recursive), the ensemble visibly
+trailed the best single model — but the open question about it (#181) still
+rested on the old contaminated numbers.
+
+Task: Decide, on honest data, whether inverse-MAPE weighting was still the right
+default — and if not, what to change.
+
+Action: I regenerated the per-model recursive holdout series for all 51 BAs —
+reusing the production holdout code so the numbers were production-faithful — and
+swept the weighting exponent from equal-weight to winner-take-all. Crucially I
+didn't just minimize error on one window: I ran two generalization tests (a
+temporal split and an even/odd-hour split) so I wouldn't tune the exponent to one
+week's noise, and I independently reimplemented the whole evaluation to catch my
+own bugs (my first adversarial-verification pass had itself failed silently, so I
+re-verified by hand).
+
+Result: Plain inverse-MAPE (`k=1`) was too soft — it kept 15–30% weight on models
+running 3–5× worse, and it was beaten by a sharper exponent (`k=3`) on 47 of 51
+BAs; only 2 BAs preferred the current setting. Sharpening improved median and, in
+the clean split, the tail too — a one-line, reversible config change. The deeper
+find was mechanistic: the ADR's stated rationale was wrong. The ensemble's value
+isn't tail-robustness (a single model owns the tail) — it's error-decorrelation
+on the handful of BAs where two models are comparably good (CAISO 4.55% → 3.51%).
+I was about to "keep it for the tail"; the data said keep it, weighted
+differently, for a different reason.
+
+**Lesson to convey**: *A default nobody has re-derived since the data changed is
+worth re-deriving — the weighting had never been tuned, just assumed. And know
+why your ensemble helps, not just that it helps: we thought it bought tail-
+robustness and it actually bought error-decorrelation, and you only see that by
+measuring the mechanism per-segment, not the headline average.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

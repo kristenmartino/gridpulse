@@ -24,7 +24,7 @@
 | Fact | Value | Source of truth |
 |---|---|---|
 | Base ML models | **3**: Prophet, SARIMAX, XGBoost | [`models/`](../models/) |
-| Ensemble method | Inverse-MAPE weighted (`weight_i = 1/MAPE_i`, normalized) | [`models/ensemble.py`](../models/ensemble.py) |
+| Ensemble method | Sharpened inverse-MAPE — `weight_i ∝ (1/MAPE_i)³` normalized (ADR-004, `ENSEMBLE_WEIGHT_EXPONENT=3`, #181) | [`models/ensemble.py`](../models/ensemble.py) |
 | User-selectable forecasts in UI | **4**: XGBoost, Prophet, ARIMA, Ensemble | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |
 | Total engineered features | **49** (17 raw weather + 32 derived) | [`data/feature_engineering.py`](../data/feature_engineering.py) |
 | Forecast horizons | 24h, 7d, 30d (UI selectable) | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |

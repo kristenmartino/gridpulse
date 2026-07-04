@@ -210,7 +210,7 @@ Note: The legacy modules (Historical Demand, Demand Forecast, Backtest, Generati
 - **ADR-001**: Dash + Plotly (not Streamlit) — callback architecture scales to many interaction groups
 - **ADR-002**: SQLite cache on Cloud Run ephemeral disk — survives across requests, acceptable to lose on recycle
 - **ADR-003**: Open-Meteo (not NOAA NWS) for weather — no API key, 17 variables in one call, historical + forecast support
-- **ADR-004**: 1/MAPE weighted ensemble — simpler than stacking, self-correcting, bounded by individual models
+- **ADR-004**: Sharpened inverse-MAPE weighted ensemble (weight ∝ (1/MAPE)³, `config.ENSEMBLE_WEIGHT_EXPONENT`) — follows the best model, blends only when peers are close; refined from plain 1/MAPE after the #181 recursive re-measure. Its value is error-decorrelation, not tail-robustness.
 - **ADR-005**: XGBoost as the primary single-model forecaster — strong empirical performance on the engineered-feature demand problem
 - **ADR-006**: Full multi-tab architecture — overview → forecast/history → validate → grid/generation → weather/risk → simulator
 - **ADR-007**: Scenario engine copies features, never mutates — pure function, safe for concurrent callbacks

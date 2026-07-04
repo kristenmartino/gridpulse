@@ -672,6 +672,16 @@ MAPE_BY_HORIZON: dict[str, dict[str, float]] = {
     "7d": {"excellent": 6.0, "target": 9.0, "acceptable": 15.0, "rollback": 22.0},
 }
 
+# Ensemble weighting exponent (ADR-004 refinement, resolves #181). The served
+# ensemble weight_i is proportional to (1/MAPE_i)^k. k=1.0 is plain inverse-MAPE;
+# k=3.0 sharpens toward the best model, blending meaningfully only when peers are
+# genuinely close. Validated on the 51-BA recursive holdout (2026-07-04): k=3
+# beats k=1 on 47/51 BAs (median 4.19% -> 3.90%) and holds up under a held-out
+# even/odd-hour split, so it is not overfit to one window. Plain inverse-MAPE
+# (k=1) kept 15-30% weight on models running 3-5x worse than the leader. See
+# docs/BACKTEST_RESULTS.md "Ensemble weighting" and PRD.md ADR-004.
+ENSEMBLE_WEIGHT_EXPONENT: float = 3.0
+
 
 def mape_grade(mape: float, horizon: str = "48h") -> str:
     """Return a governance grade for the given MAPE and forecast horizon.

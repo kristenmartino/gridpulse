@@ -214,11 +214,45 @@ These items are intentionally not first-class priorities right now:
 | ADR-001 | Dash + Plotly (not Streamlit) | Callback architecture and component control scale better for the current multi-view interaction model |
 | ADR-002 | Cache-first + fallback strategy | Operational apps need resilience, visible freshness, and predictable degraded behavior |
 | ADR-003 | Open-Meteo for weather inputs | No API key, broad variable coverage, historical + forecast support in one family of endpoints |
-| ADR-004 | 1/MAPE ensemble weighting | Simple, bounded, self-correcting weighting strategy |
+| ADR-004 | Sharpened inverse-MAPE ensemble weighting — weight ∝ (1/MAPE)³ | Follows the best model, blends only when peers are close; refined from plain 1/MAPE after the recursive re-measure (#181). Value is error-decorrelation, not tail-robustness |
 | ADR-005 | XGBoost as primary model | Strong empirical performance on the current feature-engineered demand problem |
 | ADR-006 | Multi-view shell instead of one flat dashboard | Supports different operational questions without forking the product into separate tools |
 | ADR-007 | Scenario engine must avoid input mutation | Safer callback behavior and more predictable state handling |
 | ADR-008 | Climatology fallback for days 17-30 of the forecast horizon, labeled visibly | Open-Meteo's free `/forecast` endpoint covers 16 days; atmospheric chaos limits NWP skill past ~14 days regardless; the operational user value is in days 1-7, not 17-30 |
+
+### ADR-004 detail — Ensemble weighting exponent (2026-07-04)
+
+**Context.** The served forecast is a weighted blend of XGBoost, Prophet, and
+SARIMAX. The original weighting was plain inverse-MAPE (`weight_i = (1/MAPE_i) /
+Σ 1/MAPE_j`). After the holdout was re-measured on the honest recursive protocol
+(#209), the blend visibly trailed the best single model — median 4.82% vs
+best-base 4.12% — because inverse-MAPE still hands 15–30% weight to models
+running 3–5× worse than the leader (#181).
+
+**Decision.** Raise the weighting to a power: `weight_i ∝ (1/MAPE_i)^k` with
+`k = ENSEMBLE_WEIGHT_EXPONENT = 3`, so the blend follows the best model and
+blends meaningfully only when peers are genuinely close.
+
+**Evidence.** Regenerated the per-model recursive holdout series for all 51 BAs
+and swept `k`. `k=3` beats `k=1` on **47/51** BAs (median 4.19% → 3.90%), sits
+within ~0.15pp of the convex-optimal oracle, and holds up under a held-out
+even/odd-hour split (not overfit to one window). Full table:
+`docs/BACKTEST_RESULTS.md` → "Ensemble weighting".
+
+**Corrected rationale.** The prior justification — "the ensemble's value is tail
+variance-reduction" — does **not** hold on recursive data: a single model
+(XGBoost) has the best tail. The blend's real value is **error-decorrelation**
+on the minority of BAs where two models are comparably good (CAISO 4.55% →
+3.51%, AZPS 13.4% → 8.2%). Sharpening keeps those wins while dropping the median
+cost.
+
+**Alternatives considered.** (1) Keep `k=1` — rejected, dominated on 49/51 BAs.
+(2) Winner-take-all (best-model-per-BA) — rejected: forgoes the decorrelation
+wins and generalizes worse across weeks (a model that wins one week can lose the
+next). (3) Serve XGBoost-only — simplest and competitive on the tail, but gives
+up the per-BA decorrelation gains; retained as a documented fallback if the
+ensemble ever regresses. `k=3` is the middle path that dominates plain
+inverse-MAPE at one-line, reversible cost.
 
 ### ADR-008 detail — Forecast horizon beyond Open-Meteo coverage (2026-05-20)
 

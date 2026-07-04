@@ -82,7 +82,8 @@ def _patch_predict_one(monkeypatch, predictions_by_name):
 
 class TestPredictAndWriteForecast:
     def test_full_mape_uses_inverse_mape_weights(self, fake_redis, region_data, monkeypatch):
-        """When every predicting model has a valid MAPE, weights ∝ 1/MAPE."""
+        """When every predicting model has a valid MAPE, weights ∝ (1/MAPE)^k,
+        k=ENSEMBLE_WEIGHT_EXPONENT=3 (ADR-004 / #181 sharpened blend)."""
         from jobs import phases
 
         xgb_preds = np.full(HORIZON, 41_000.0)
@@ -102,15 +103,15 @@ class TestPredictAndWriteForecast:
         assert result.ok
         payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
         weights = payload["ensemble_weights"]
-        # 1/1 : 1/2 : 1/4 = 0.5714 : 0.2857 : 0.1429 (rounded to 4dp)
-        assert weights["xgboost"] == pytest.approx(0.5714, abs=1e-3)
-        assert weights["prophet"] == pytest.approx(0.2857, abs=1e-3)
-        assert weights["arima"] == pytest.approx(0.1429, abs=1e-3)
+        # (1/1)^3 : (1/2)^3 : (1/4)^3 = 1 : 0.125 : 0.015625, normalized (k=3)
+        assert weights["xgboost"] == pytest.approx(0.8767, abs=1e-3)
+        assert weights["prophet"] == pytest.approx(0.1096, abs=1e-3)
+        assert weights["arima"] == pytest.approx(0.0137, abs=1e-3)
         assert sum(weights.values()) == pytest.approx(1.0, abs=1e-3)
 
-        # Ensemble pred for any row = 0.5714*41000 + 0.2857*39000 + 0.1429*40000
+        # Ensemble pred for any row = 0.8767*41000 + 0.1096*39000 + 0.0137*40000
         row0 = payload["forecasts"][0]
-        expected = 0.5714 * 41_000 + 0.2857 * 39_000 + 0.1429 * 40_000
+        expected = 0.8767 * 41_000 + 0.1096 * 39_000 + 0.0137 * 40_000
         assert row0["ensemble"] == pytest.approx(expected, rel=1e-3)
         assert row0["xgboost"] == 41_000.0
         assert row0["prophet"] == 39_000.0

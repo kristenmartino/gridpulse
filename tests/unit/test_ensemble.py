@@ -7,7 +7,7 @@ from models.ensemble import compute_ensemble_weights, ensemble_combine
 
 
 class TestComputeEnsembleWeights:
-    """Weight computation: inversely proportional to MAPE."""
+    """Weight computation: proportional to (1/MAPE)^k, k=ENSEMBLE_WEIGHT_EXPONENT (ADR-004)."""
 
     def test_basic_weights(self):
         mapes = {"prophet": 5.0, "arima": 10.0, "xgboost": 5.0}
@@ -34,6 +34,21 @@ class TestComputeEnsembleWeights:
         mapes = {"a": 5.0, "b": float("inf")}
         weights = compute_ensemble_weights(mapes)
         assert weights["a"] == pytest.approx(1.0)
+
+    def test_exponent_sharpens_toward_best_model(self):
+        """#181: k>1 concentrates weight on the low-MAPE model far more than
+        plain inverse-MAPE. With MAPE 2 vs 10, plain inverse (k=1) gives the
+        leader 0.833; the sharpened default (k=3) gives it ~0.992."""
+        from config import ENSEMBLE_WEIGHT_EXPONENT
+
+        assert ENSEMBLE_WEIGHT_EXPONENT >= 1.0
+        weights = compute_ensemble_weights({"xgboost": 2.0, "arima": 10.0})
+        k = ENSEMBLE_WEIGHT_EXPONENT
+        num_x, num_a = (1 / 2.0) ** k, (1 / 10.0) ** k
+        assert weights["xgboost"] == pytest.approx(num_x / (num_x + num_a))
+        if k > 1.0:
+            # Strictly sharper than plain inverse-MAPE's 0.833 for the leader.
+            assert weights["xgboost"] > 0.833
 
 
 class TestEnsembleCombine:
