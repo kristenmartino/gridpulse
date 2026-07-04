@@ -230,14 +230,14 @@ def _is_implausible_demand_artifact(current_mw: float, today_mw: list) -> bool:
 
 
 def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
-    """4-up MetricsBar items: Total Demand · Peak Today · Top-Stress BA · Lowest Reserve."""
+    """4-up MetricsBar items: Total Demand · National Peak · Top-Stress BA · National Utilization."""
     populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
     if not populated:
         return [
             {"label": "Total Demand", "value": "—", "tone": "primary", "hero": True},
             {"label": "National Peak (24h)", "value": "—"},
             {"label": "Highest-Stress Region", "value": "—"},
-            {"label": "Lowest Reserve", "value": "—"},
+            {"label": "National Utilization", "value": "—"},
         ]
 
     # Filter out regions with implausible current demand artifacts before computing stress
@@ -274,18 +274,26 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
         # doesn't render as e.g. "PJM · 110%". Matches the map's
         # cap (``_build_us_grid_map`` line ~6821).
         top_stress_pct = min(reliable_stress[top_region], 1.0) * 100
-        # Floor reserve at 0% — a BA running at or above its capacity
-        # has zero operator reserve, never negative.
-        lowest_reserve_pct = max(0.0, (1 - max(reliable_stress.values())) * 100)
         top_tone = "negative" if top_stress_pct >= 85 else "secondary"
-        reserve_tone = "negative" if lowest_reserve_pct < 15 else "secondary"
         top_value = f"{top_region} · {top_stress_pct:.0f}%"
-        reserve_value = f"{lowest_reserve_pct:.0f}%"
+
+        # National utilization = summed current demand ÷ summed nameplate capacity
+        # over the SAME reliable-capacity BA set (import-dominated BAs, whose
+        # capacity is a peak×1.15 estimate, and any BA above the reliability
+        # ceiling are excluded — as they are from Highest-Stress). Nameplate-based,
+        # NOT a NERC reserve margin (see #243); reads as the national *average*
+        # complementing Highest-Stress Region (the per-BA *maximum*). ``util_capacity``
+        # is > 0 because every ``reliable_stress`` key has capacity > 0 by construction.
+        util_demand = sum(plausible[r]["current_mw"] for r in reliable_stress)
+        util_capacity = sum(REGION_CAPACITY_MW[r] for r in reliable_stress)
+        util_pct = util_demand / util_capacity * 100
+        util_value = f"{util_pct:.0f}%"
+        util_tone = "negative" if util_pct >= 85 else "secondary"
     else:
         top_value = "—"
-        reserve_value = "—"
         top_tone = "secondary"
-        reserve_tone = "secondary"
+        util_value = "—"
+        util_tone = "secondary"
 
     return [
         {
@@ -309,10 +317,10 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
             "help": "BA with the highest utilization = current demand ÷ estimated capacity (capped 100%). Import-dominated BAs excluded.",
         },
         {
-            "label": "Lowest Reserve",
-            "value": reserve_value,
-            "tone": reserve_tone,
-            "help": "Operating headroom (100% − utilization) of the most-stressed BA — the complement of Highest-Stress Region.",
+            "label": "National Utilization",
+            "value": util_value,
+            "tone": util_tone,
+            "help": "Current demand ÷ nameplate capacity, aggregated across BAs with a reliable capacity figure (import-dominated BAs are excluded, as they are from Highest-Stress). Nameplate-based, so it is not a NERC reserve margin — it is the national average that complements Highest-Stress Region (the per-BA maximum).",
         },
     ]
 

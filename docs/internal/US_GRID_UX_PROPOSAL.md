@@ -203,13 +203,21 @@ presentational half of 5), the lowest-risk (additive tooltips + a legend + label
 copy — no data, no navigation, no callback restructuring), and self-contained.
 Phases 2 and 3 build cleanly on top.
 
-## Open question
+## Open question — RESOLVED (2026-07-04)
 
-*Highest-Stress Region* and *Lowest Reserve* are the same BA showing
-complementary numbers (util% and 100−util%). Does *Lowest Reserve* earn its KPI
-slot, or should it show a genuinely different signal (2nd-most-stressed BA, or a
-national reserve-margin roll-up)? Phase 1 only defines them honestly; the
-redesign is a later design call.
+*Highest-Stress Region* and *Lowest Reserve* were the same BA showing
+complementary numbers (util% and 100−util%). **Resolved:** *Lowest Reserve* is
+replaced by **National Utilization** (Σdemand ÷ Σnameplate capacity over the
+reliable-capacity BA set) — the national *average* that complements
+Highest-Stress's per-BA *maximum*, killing the degeneracy.
+
+A national NERC reserve-margin roll-up was considered and **rejected for now**:
+`REGION_CAPACITY_MW` is EIA-860M *nameplate*, not NERC-accredited, so a literal
+`(cap−peak)/peak` reads ~66% nationally (vs a real ~15-25%). Rather than fake it
+with guessed ELCC factors, we labeled every nameplate-based number honestly
+("capacity headroom" / "utilization", never "reserve margin") and filed the
+accredited-capacity (ELCC) model as [#243](https://github.com/kristenmartino/gridpulse/issues/243).
+This also resolves the presentational half of #223.
 
 ---
 

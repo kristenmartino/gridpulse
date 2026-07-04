@@ -146,7 +146,7 @@ class TestMetricsItems:
             "Total Demand",
             "National Peak (24h)",
             "Highest-Stress Region",
-            "Lowest Reserve",
+            "National Utilization",
         ]
         for item in items:
             assert item["value"] == "—"

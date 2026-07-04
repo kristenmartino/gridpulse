@@ -5,9 +5,10 @@ import pytest
 
 from config import PRICING_BASE_USD_MWH
 from models.pricing import (
-    compute_reserve_margin,
+    capacity_headroom_pct,
     estimate_price_for_region,
     estimate_price_impact,
+    utilization_pct,
 )
 
 
@@ -63,29 +64,34 @@ class TestEstimatePriceForRegion:
         assert price == pytest.approx(PRICING_BASE_USD_MWH)
 
 
-class TestReserveMargin:
-    """Reserve margin calculation."""
+class TestCapacityHeadroom:
+    """Capacity-headroom calculation (nameplate-based; not NERC reserve margin)."""
 
     def test_surplus(self):
         from config import REGION_CAPACITY_MW
 
-        # Half capacity is unambiguously a surplus regardless of annual
-        # capacity refreshes.
-        margin = compute_reserve_margin(REGION_CAPACITY_MW["ERCOT"] // 2, "ERCOT")
-        assert margin > 0
+        cap = REGION_CAPACITY_MW["ERCOT"]
+        # Half capacity is unambiguously slack regardless of annual refreshes.
+        assert capacity_headroom_pct(cap // 2, cap) > 0
 
     def test_deficit(self):
         from config import REGION_CAPACITY_MW
 
-        # Loading above installed capacity is unambiguously a deficit;
-        # using REGION_CAPACITY_MW so this stays correct when capacity
-        # figures are refreshed from their 2025+ source reports.
-        margin = compute_reserve_margin(int(REGION_CAPACITY_MW["ERCOT"] * 1.1), "ERCOT")
-        assert margin < 0
+        cap = REGION_CAPACITY_MW["ERCOT"]
+        # Load above nameplate is unambiguously negative headroom.
+        assert capacity_headroom_pct(int(cap * 1.1), cap) < 0
 
     def test_at_capacity(self):
         from config import REGION_CAPACITY_MW
 
-        capacity = REGION_CAPACITY_MW["ERCOT"]
-        margin = compute_reserve_margin(capacity, "ERCOT")
-        assert margin == pytest.approx(0.0)
+        cap = REGION_CAPACITY_MW["ERCOT"]
+        assert capacity_headroom_pct(cap, cap) == pytest.approx(0.0)
+
+    def test_utilization_complements_headroom(self):
+        from config import REGION_CAPACITY_MW
+
+        cap = REGION_CAPACITY_MW["ERCOT"]
+        load = int(cap * 0.6)
+        assert utilization_pct(load, cap) == pytest.approx(60.0, abs=0.5)
+        # Headroom + utilization = 100% of nameplate.
+        assert capacity_headroom_pct(load, cap) + utilization_pct(load, cap) == pytest.approx(100.0)

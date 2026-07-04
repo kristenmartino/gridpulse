@@ -186,19 +186,28 @@ def _build_rule_based_briefing(
 
 
 def _briefing_grid_ops(name: str, region: str, ctx: dict) -> tuple[str, list[str]]:
-    """Grid Ops briefing: load, reserves, temperature."""
+    """Grid Ops briefing: load, headroom, temperature."""
     parts = [f"System status for {region} is nominal."]
     observations = []
 
     if ctx["peak_mw"]:
+        from models.pricing import capacity_headroom_pct
+
         capacity = ctx["capacity"]
         util = ctx["peak_mw"] / capacity * 100 if capacity else 0
         parts.append(f"Peak demand reached {ctx['peak_mw']:,.0f} MW ({util:.0f}% of capacity).")
-        reserve_pct = (capacity - ctx["peak_mw"]) / capacity * 100 if capacity else 0
-        if reserve_pct < 15:
-            observations.append(f"Reserve margin at {reserve_pct:.0f}% — below 15% threshold.")
+        # Capacity headroom against *nameplate* — deliberately not "reserve
+        # margin" (that needs accredited capacity; see #243). Below 15% means
+        # peak is running above 85% of nameplate, a genuine tight signal.
+        headroom_pct = capacity_headroom_pct(ctx["peak_mw"], capacity) if capacity else 0
+        if headroom_pct < 15:
+            observations.append(
+                f"Capacity headroom tight at {headroom_pct:.0f}% — peak above 85% of nameplate."
+            )
         else:
-            observations.append(f"Reserve margin comfortable at {reserve_pct:.0f}%.")
+            observations.append(
+                f"Capacity headroom comfortable at {headroom_pct:.0f}% of nameplate."
+            )
 
     if ctx["current_temp"] is not None:
         observations.append(f"Current temperature: {ctx['current_temp']:.0f}°F.")

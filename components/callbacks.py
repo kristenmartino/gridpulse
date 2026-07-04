@@ -9,7 +9,7 @@ Sprint 5 changes:
 
 Sprint 4 changes:
 - Model service integration (replaces simulated noise with deterministic forecasts)
-- Tab 1 KPI callback (peak demand, MAPE, reserve margin, alerts)
+- Tab 1 KPI callback (peak demand, MAPE, capacity headroom, alerts)
 - Persona tab visibility (AC-7.5)
 - Orphan layout ID fixes (tab4-renewable-delta, tab5-stress-breakdown)
 - All pd.read_json uses io.StringIO (pandas 2.x compat)

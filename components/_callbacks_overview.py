@@ -1379,7 +1379,7 @@ def _build_scenarios_panel(
         kpi_empty = build_metrics_bar(
             [
                 {"label": "Δ Peak", "value": "—", "tone": "secondary", "hero": True},
-                {"label": "Δ Reserve", "value": "—", "tone": "secondary"},
+                {"label": "Δ Headroom", "value": "—", "tone": "secondary"},
                 {"label": "Δ Renewable", "value": "—", "tone": "secondary"},
                 {"label": "Δ Confidence", "value": "—", "tone": "secondary"},
             ]
@@ -1399,10 +1399,12 @@ def _build_scenarios_panel(
     delta_peak_mw = scenario_peak - base_peak
     delta_peak_pct = (delta_peak_mw / base_peak * 100.0) if base_peak > 0 else 0.0
 
+    from models.pricing import capacity_headroom_pct
+
     capacity = REGION_CAPACITY_MW.get(region, 100_000)
-    base_reserve = (capacity - base_peak) / capacity * 100.0
-    scenario_reserve = (capacity - scenario_peak) / capacity * 100.0
-    delta_reserve_pp = scenario_reserve - base_reserve
+    base_headroom = capacity_headroom_pct(base_peak, capacity)
+    scenario_headroom = capacity_headroom_pct(scenario_peak, capacity)
+    delta_headroom_pp = scenario_headroom - base_headroom
 
     # Renewable share heuristic — wind: 0.6 %/mph; solar: 0.05 %/(W/m²)
     delta_renewable_pp = wind_delta * 0.6 + solar_delta * 0.05
@@ -1418,10 +1420,10 @@ def _build_scenarios_panel(
         if delta_peak_pct > 0.5
         else ("positive" if delta_peak_pct < -0.5 else "secondary")
     )
-    reserve_tone = (
+    headroom_tone = (
         "positive"
-        if delta_reserve_pp > 0.1
-        else ("negative" if delta_reserve_pp < -0.1 else "secondary")
+        if delta_headroom_pp > 0.1
+        else ("negative" if delta_headroom_pp < -0.1 else "secondary")
     )
     renewable_tone = (
         "positive"
@@ -1438,10 +1440,11 @@ def _build_scenarios_panel(
                 "hero": True,
             },
             {
-                "label": "Δ Reserve",
-                "value": f"{delta_reserve_pp:+.1f}",
+                "label": "Δ Headroom",
+                "value": f"{delta_headroom_pp:+.1f}",
                 "unit": "pp",
-                "tone": reserve_tone,
+                "tone": headroom_tone,
+                "help": "Change in capacity headroom (nameplate) at peak under this scenario — not a NERC reserve margin (#243).",
             },
             {
                 "label": "Δ Renewable",
@@ -2350,7 +2353,7 @@ def _build_persona_kpis(
                     break
 
     # Compute derived metrics
-    reserve_margin_pct = (100.0 - pct_of_capacity) if pct_of_capacity is not None else None
+    headroom_pct = (100.0 - pct_of_capacity) if pct_of_capacity is not None else None
     demand_range = (peak_mw - min_mw) if peak_mw is not None and min_mw is not None else None
 
     # Wind capacity factor (approximate: avg_wind / rated_wind)
@@ -2397,15 +2400,13 @@ def _build_persona_kpis(
                 "direction": "negative" if pct_of_capacity and pct_of_capacity > 80 else "neutral",
             },
             {
-                "label": "Reserve Margin",
-                "value": f"{reserve_margin_pct:.0f}%"
-                if reserve_margin_pct is not None
-                else "No data",
-                "delta": "Below 15% is tight",
+                "label": "Capacity Headroom",
+                "value": f"{headroom_pct:.0f}%" if headroom_pct is not None else "No data",
+                "delta": "Nameplate; below 15% is tight",
                 "direction": "negative"
-                if reserve_margin_pct is not None and reserve_margin_pct < 15
+                if headroom_pct is not None and headroom_pct < 15
                 else "positive"
-                if reserve_margin_pct is not None
+                if headroom_pct is not None
                 else "neutral",
             },
             {
