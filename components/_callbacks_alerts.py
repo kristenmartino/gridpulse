@@ -259,9 +259,20 @@ def _alerts_tab_from_redis(region):
         )
     )
 
-    # Weather context: build from cached temperature if available
+    # Weather context — the full "Current Conditions" card row (temperature +
+    # wind + humidity + cloud), built from the scoring job's latest reading. The
+    # web tier used to only have the temperature series, so it rendered a lone
+    # Temperature card; the scoring job now ships ``weather_current`` so this
+    # matches the dev path's multi-card view.
     weather_context = html.Div()
-    if t_vals:
+    weather_current = cached.get("weather_current")
+    if weather_current:
+        from components._callbacks_overview import _build_weather_context
+
+        weather_context = _build_weather_context(pd.Series(weather_current))
+    elif t_vals:
+        # Back-compat: older payloads (pre this change, or Redis not yet
+        # refreshed) carry only the temperature series — show that one card.
         import dash_bootstrap_components as dbc
 
         last_temp = float(t_vals[-1])
@@ -518,11 +529,14 @@ def register_alerts_callbacks(app):
         if demand_json:
             demand_df = pd.read_json(io.StringIO(demand_json))
             demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
+            # Compute the ±2σ band over the full series, then slice to the
+            # displayed 168h window — so the 24h window is warm at the start and
+            # the bands span the whole demand line (not starting a day late).
+            roll_mean_full = demand_df["demand_mw"].rolling(24, min_periods=1).mean()
+            roll_std_full = demand_df["demand_mw"].rolling(24, min_periods=2).std()
             recent = demand_df.tail(168)
-            rolling_mean = recent["demand_mw"].rolling(24).mean()
-            rolling_std = recent["demand_mw"].rolling(24).std()
-            upper = rolling_mean + 2 * rolling_std
-            lower = rolling_mean - 2 * rolling_std
+            upper = (roll_mean_full + 2 * roll_std_full).tail(168)
+            lower = (roll_mean_full - 2 * roll_std_full).tail(168)
             anomalies = recent[recent["demand_mw"] > upper]
 
             fig_anomaly = go.Figure()

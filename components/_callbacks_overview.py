@@ -1635,10 +1635,22 @@ def _build_overview_briefing(
 
 def _build_weather_context(latest: pd.Series) -> html.Div:
     """Build a row of weather KPI mini-cards from the latest weather reading."""
-    temp = latest.get("temperature_2m")
-    wind = latest.get("wind_speed_80m", latest.get("wind_speed_10m"))
-    humidity = latest.get("relative_humidity_2m")
-    cloud = latest.get("cloud_cover")
+
+    def _val(key: str) -> float | None:
+        # None AND NaN both mean "no reading" — skip the card. (pd.Series coerces
+        # a None to NaN, and archive-unstable columns like wind_speed_80m arrive
+        # NaN, so a plain ``is not None`` check would render a "nan" card.)
+        v = latest.get(key)
+        return float(v) if v is not None and pd.notna(v) else None
+
+    temp = _val("temperature_2m")
+    # 80m is the preferred anemometer height but is archive-unstable (#164);
+    # fall through to 10m when it's missing/NaN, which get()'s default can't do.
+    wind = _val("wind_speed_80m")
+    if wind is None:
+        wind = _val("wind_speed_10m")
+    humidity = _val("relative_humidity_2m")
+    cloud = _val("cloud_cover")
 
     cards = []
 

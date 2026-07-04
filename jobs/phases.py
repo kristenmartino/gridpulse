@@ -1606,11 +1606,17 @@ def write_alerts(data: RegionData) -> PhaseResult:
                 stress = None
                 stress_label = "Unavailable"
 
-        recent = data.demand_df.tail(168).copy()
-        rolling_mean = recent["demand_mw"].rolling(24).mean()
-        rolling_std = recent["demand_mw"].rolling(24).std()
-        upper = rolling_mean + 2 * rolling_std
-        lower = rolling_mean - 2 * rolling_std
+        # Compute the ±2σ band over the FULL demand series, then slice to the
+        # displayed 168h window, so the 24h rolling window is already warm at the
+        # window's start. Computing rolling(24) on the 168h slice left the first
+        # 24h NaN, so the bands rendered a day after the demand line began (bands
+        # started ~24h in while the demand line started at hour 0).
+        demand_full = data.demand_df
+        roll_mean_full = demand_full["demand_mw"].rolling(24, min_periods=1).mean()
+        roll_std_full = demand_full["demand_mw"].rolling(24, min_periods=2).std()
+        recent = demand_full.tail(168).copy()
+        upper = (roll_mean_full + 2 * roll_std_full).tail(168)
+        lower = (roll_mean_full - 2 * roll_std_full).tail(168)
         anomalies = recent[recent["demand_mw"] > upper]
 
         recent_w = (
@@ -1643,6 +1649,27 @@ def write_alerts(data: RegionData) -> PhaseResult:
             payload["temperature"] = {
                 "timestamps": _ts_list(recent_w["timestamp"]),
                 "values": recent_w["temperature_2m"].tolist(),
+            }
+
+        # Latest reading for the Risk tab's "Current Conditions" cards. Without
+        # this the web tier only had the temperature series above, so it could
+        # render a lone Temperature card — no wind / humidity / cloud (the fields
+        # _build_weather_context needs). Emit whichever the weather frame carries.
+        if not recent_w.empty:
+            last_w = recent_w.iloc[-1]
+            payload["weather_current"] = {
+                col: (
+                    float(last_w[col])
+                    if col in recent_w.columns and pd.notna(last_w[col])
+                    else None
+                )
+                for col in (
+                    "temperature_2m",
+                    "wind_speed_80m",
+                    "wind_speed_10m",
+                    "relative_humidity_2m",
+                    "cloud_cover",
+                )
             }
 
         redis_set(redis_key(f"alerts:{region}"), payload, ttl=REDIS_TTL)
