@@ -92,17 +92,21 @@ jobs:
       # (hourly scoring, daily training). See docs/SCHEDULED_JOBS.md for the
       # one-time setup of the scheduler entries and service-account IAM.
       - name: Deploy scoring job (Production)
-        # task-timeout 1800 (30m): the run scores all 51 BAs sequentially
-        # (cold ephemeral cache each tick → full EIA + Open-Meteo fetch per
-        # BA). Healthy runtime is ~855s and crept toward the old 900s cap as
-        # features were added (ERA5 archive+forecast stitch #163, drift stats
-        # PR-G9), until normal upstream-latency variance tipped it over on
-        # 2026-06-01 and four consecutive ticks timed out (09:00–12:00 UTC,
-        # last_scored stale ~4.5h). Bumped 900→1800 for headroom; still well
-        # inside the hourly cadence so runs can't overlap. The real fix —
-        # parallelizing per-BA fetches so runtime drops instead of the ceiling
-        # rising — is tracked separately. Mirrors the training-job 7200→18000
-        # bump on 2026-05-03.
+        # task-timeout 1800 (30m): the run scores all 51 BAs across a
+        # PRECOMPUTE_MAX_WORKERS=4 thread pool with a cold ephemeral cache each
+        # tick (full EIA + Open-Meteo fetch per BA). Healthy runtime is ~855s
+        # (1083-1333s under elevated upstream latency) and crept toward the old
+        # 900s cap as features were added (ERA5 archive+forecast stitch #163,
+        # drift stats PR-G9), until normal upstream-latency variance tipped it
+        # over on 2026-06-01 and four consecutive ticks timed out (09:00–12:00
+        # UTC, last_scored stale ~4.5h). Bumped 900→1800 for headroom; still
+        # well inside the hourly cadence so runs can't overlap. Per-BA fetches
+        # are already parallelized (the 4-worker pool); #171 adds the missing
+        # piece — a runtime-creep alert that warns on APPROACH before a timeout
+        # (docs/monitoring/scoring_runtime_creep_alert.json). Keep
+        # SCORING_TASK_TIMEOUT_S in config.py in lockstep with any --task-timeout
+        # change here, or the alarm goes stale. Mirrors the training-job
+        # 7200→18000 bump on 2026-05-03.
         run: |
           gcloud run jobs deploy gridpulse-scoring-job \
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \

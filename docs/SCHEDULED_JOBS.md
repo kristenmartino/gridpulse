@@ -361,6 +361,13 @@ creation) — confirm `gcloud beta monitoring channels describe <id>
      log line — keep ≥2× headroom, stay under the hourly cadence. First
      hit 2026-06-01 (854s crept over the 900s cap → 1800s; [#171](https://github.com/kristenmartino/gridpulse/issues/171));
      the training job hit the same wall 2026-05-03.
+     **Proactive since 2026-07-04 ([#171](https://github.com/kristenmartino/gridpulse/issues/171)):** a
+     `scoring_runtime_creep` alert should reach you *before* an outright
+     timeout — it fires when `elapsed_s` exceeds 70% of the `--task-timeout`
+     for 3 consecutive runs (`docs/monitoring/scoring_runtime_creep_alert.json`),
+     turning a creeping runtime into a scheduled fix, not a surprise 3am page.
+     **When you bump `--task-timeout`, also bump `SCORING_TASK_TIMEOUT_S` in
+     `config.py`** or the alarm silences itself against a stale ceiling.
      **But first check *why* it timed out** — `grep` the failed execution for
      `eia_server_error status=504` / `eia_request_exception ... Read timed
      out` / `eia_max_retries_exceeded`. If present, the cause is an **upstream

@@ -734,6 +734,23 @@ PRECOMPUTE_INTERVAL_HOURS = int(os.getenv("PRECOMPUTE_INTERVAL_HOURS", "8"))
 PRECOMPUTE_ALL_MODELS = os.getenv("PRECOMPUTE_ALL_MODELS", "true").lower() in ("true", "1", "yes")
 
 # ---------------------------------------------------------------------------
+# Scoring-job runtime headroom guardrail (#171)
+# ---------------------------------------------------------------------------
+# The hourly scoring job runs under a Cloud Run ``--task-timeout``. Runtime
+# creeps up as BAs/features grow (the 2026-06-01 incident tipped it over the
+# then-900s cap), but the PR-G10 failure alert only fires on an OUTRIGHT
+# timeout — too late, a tick is already killed. This guardrail warns on
+# APPROACH: when a completed run's ``elapsed_s`` exceeds
+# ``SCORING_RUNTIME_HEADROOM_FRACTION`` of the timeout for
+# ``SCORING_RUNTIME_CREEP_RUNS`` consecutive runs, the job emits a
+# ``scoring_runtime_creep`` alert log (matched by the Cloud Monitoring policy in
+# docs/monitoring/). Keep ``SCORING_TASK_TIMEOUT_S`` in sync with the
+# ``--task-timeout`` in deploy-prod.yml / deploy-dev.yml.
+SCORING_TASK_TIMEOUT_S = int(os.getenv("SCORING_TASK_TIMEOUT_S", "1800"))
+SCORING_RUNTIME_HEADROOM_FRACTION = float(os.getenv("SCORING_RUNTIME_HEADROOM_FRACTION", "0.70"))
+SCORING_RUNTIME_CREEP_RUNS = int(os.getenv("SCORING_RUNTIME_CREEP_RUNS", "3"))
+
+# ---------------------------------------------------------------------------
 # Feature Flags (Backlog J2 — simple in-code toggles)
 # ---------------------------------------------------------------------------
 FEATURE_FLAGS: dict[str, bool] = {
