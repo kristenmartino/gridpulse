@@ -20,11 +20,12 @@ This module computes a continuous **1-hour-ahead** drift signal:
   surfaced alongside them so downstream UI / alerting can read
   either the headline number or the underlying series.
 
-Longer-horizon drift (e.g. 24h-ahead) would require *snapshotting*
-predictions at scoring time and re-evaluating them N hours later.
-That's part 2 work; this module ships the 1-hour-ahead path first
-because the existing forecast key already contains the prediction
-we need — no extra storage.
+Longer-horizon drift (24h / 48h / 72h-ahead) *snapshots* predictions at
+scoring time and re-evaluates them N hours later against the now-known
+actual — the "part 2" path, added for #227 (see
+``compute_horizon_drift_payload`` and ``gridpulse:drift_horizon:{region}``).
+It grades each horizon against its OWN ``MAPE_BY_HORIZON`` band, so a model
+built for day-ahead isn't condemned by the 1-hour number below.
 
 The scope deliberately stops short of the ensemble-weight update
 loop. That's a separate decision the next part will resolve:
@@ -510,3 +511,215 @@ def compute_drift_payload(
 def record_to_dict(r: DriftRecord) -> dict[str, Any]:
     """Public-friendly dict (longer keys than ``serialize_records``)."""
     return asdict(r)
+
+
+# ── #227: horizon-matched drift ──────────────────────────────────────────────
+# The 1-hour-ahead signal above structurally penalizes Prophet/SARIMAX, which
+# have no last-value anchor and only earn their keep at multi-day horizons. This
+# is the "part 2" the module docstring defers: snapshot each model's forward
+# forecast at scoring time, re-score it against the now-known actual N hours
+# later, and grade each horizon against ITS OWN ``MAPE_BY_HORIZON`` band — so a
+# competent day-ahead model is no longer condemned by a 1h number it was never
+# built to win.
+HORIZON_DRIFT_HORIZONS: tuple[str, ...] = ("24h", "48h", "72h")
+_HORIZON_HOURS: dict[str, int] = {"24h": 24, "48h": 48, "72h": 72}
+# A snapshot whose target hour is older than the longest horizon + this slack and
+# still hasn't resolved (BA went dark, actual never published) is dropped so the
+# pending buffer can't grow unbounded.
+PENDING_STALE_HOURS = 72 + 48
+
+
+def snapshot_horizon_predictions(
+    forecast_payload: dict[str, Any] | None,
+    horizons: tuple[str, ...] = HORIZON_DRIFT_HORIZONS,
+) -> list[dict[str, Any]]:
+    """Snapshot a forecast's per-model prediction at each horizon.
+
+    A forecast made at ``scored_at`` predicts the hour ``scored_at + H`` at
+    horizon ``H``. Returns one pending-snapshot dict per horizon that has a
+    matching forecast row::
+
+        {"target_ts": iso, "made_at": iso, "horizon": "24h",
+         "preds": {"xgboost": mw, "prophet": mw, "arima": mw, "ensemble": mw}}
+
+    Empty list when the payload is missing/malformed or carries no ``scored_at``.
+    """
+    if not forecast_payload:
+        return []
+    rows = forecast_payload.get("forecasts") or []
+    if not rows:
+        return []
+    # Horizon is measured from the forecast's FIRST row (hour-aligned), NOT the
+    # wall-clock ``scored_at``: ``scored_at`` is ``datetime.now()`` with sub-hour
+    # precision (e.g. 14:37:22) and would never exact-match an on-the-hour
+    # forecast row, silently producing zero snapshots.
+    origin_iso = _normalize_ts(rows[0].get("timestamp", ""))
+    made_at = _normalize_ts(forecast_payload.get("scored_at", "")) or origin_iso
+    try:
+        origin = datetime.fromisoformat(origin_iso)
+    except (ValueError, TypeError):
+        return []
+    out: list[dict[str, Any]] = []
+    for horizon in horizons:
+        hours = _HORIZON_HOURS.get(horizon)
+        if hours is None:
+            continue
+        target = _normalize_ts((origin + timedelta(hours=hours)).isoformat())
+        preds = extract_one_hour_ahead_predictions(forecast_payload, target)
+        if preds:
+            out.append(
+                {"target_ts": target, "made_at": made_at, "horizon": horizon, "preds": preds}
+            )
+    return out
+
+
+def resolve_horizon_snapshots(
+    pending: list[dict[str, Any]],
+    actuals: dict[str, float],
+) -> tuple[list[tuple[str, str, DriftRecord]], list[dict[str, Any]]]:
+    """Resolve pending snapshots whose target hour now has a finite actual.
+
+    Returns ``(resolved, still_pending)`` where ``resolved`` is a list of
+    ``(model_name, horizon, DriftRecord)`` triples ready to append to the
+    per-(model, horizon) rolling windows.
+    """
+    lookup = {_normalize_ts(k): v for k, v in actuals.items()}
+    resolved: list[tuple[str, str, DriftRecord]] = []
+    still: list[dict[str, Any]] = []
+    for snap in pending:
+        target = _normalize_ts(snap.get("target_ts", ""))
+        actual = lookup.get(target)
+        if actual is None or not np.isfinite(actual) or actual <= 0:
+            still.append(snap)
+            continue
+        horizon = snap.get("horizon", "")
+        for model_name, predicted in (snap.get("preds") or {}).items():
+            err = absolute_pct_error(predicted, actual)
+            if err is None:
+                continue
+            resolved.append(
+                (
+                    model_name,
+                    horizon,
+                    DriftRecord(
+                        timestamp=target,
+                        predicted=float(predicted),
+                        actual=float(actual),
+                        abs_pct_error=err,
+                    ),
+                )
+            )
+    return resolved, still
+
+
+def _expire_pending(pending: list[dict[str, Any]], now_iso: str | None) -> list[dict[str, Any]]:
+    """Drop snapshots whose target hour is older than ``PENDING_STALE_HOURS`` and
+    still unresolved — the never-published-actual tail that would otherwise leak."""
+    try:
+        now = datetime.fromisoformat(now_iso) if now_iso else datetime.now(UTC)
+    except (ValueError, TypeError):
+        now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=PENDING_STALE_HOURS)
+    out: list[dict[str, Any]] = []
+    for snap in pending:
+        try:
+            target = datetime.fromisoformat(_normalize_ts(snap.get("target_ts", "")))
+        except (ValueError, TypeError):
+            continue  # malformed → drop
+        if target >= cutoff:
+            out.append(snap)
+    return out
+
+
+def _horizon_rollup_block(
+    merged: list[DriftRecord], now_iso: str | None, grade_horizon: str
+) -> dict[str, Any]:
+    """One (model, horizon) rollup block. Mirrors ``compute_drift_payload``'s
+    per-model block (windowed sMAPE/MAPE + the region-relative low-actual filter)
+    and adds a horizon-matched ``grade`` from ``config.mape_grade`` — the point of
+    #227: judge each horizon against its OWN band, not the 1h band."""
+    from config import mape_grade
+
+    _, n_low_excl_7d = filter_low_actuals(_within_window(merged, WINDOW_7D_HOURS, now_iso=now_iso))
+    mape_7d = rolling_mape(
+        merged, WINDOW_7D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
+    )
+    return {
+        "rolling_smape_7d": rolling_smape(merged, WINDOW_7D_HOURS, now_iso=now_iso),
+        "rolling_smape_30d": rolling_smape(merged, WINDOW_30D_HOURS, now_iso=now_iso),
+        "rolling_mape_7d": mape_7d,
+        "rolling_mape_30d": rolling_mape(
+            merged, WINDOW_30D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
+        ),
+        "n_records": len(merged),
+        "n_low_actual_excluded_7d": n_low_excl_7d,
+        "grade": mape_grade(mape_7d, horizon=grade_horizon) if mape_7d is not None else None,
+        "records": serialize_records(merged),
+    }
+
+
+def compute_horizon_drift_payload(
+    region: str,
+    existing_payload: dict[str, Any] | None,
+    forecast_payload: dict[str, Any] | None,
+    actuals: dict[str, float],
+    *,
+    horizons: tuple[str, ...] = HORIZON_DRIFT_HORIZONS,
+    max_records: int = DEFAULT_MAX_RECORDS,
+    now_iso: str | None = None,
+) -> dict[str, Any]:
+    """Build the ``gridpulse:drift_horizon:{region}`` payload for one tick.
+
+    Pipeline: (1) resolve pending snapshots whose target hour now has an actual,
+    (2) snapshot the current forecast's +H predictions into the pending buffer,
+    (3) expire the never-resolved tail, (4) roll up each (model, horizon) rolling
+    window with a horizon-matched grade. Shape::
+
+        {"region", "last_updated_at", "horizons": [...],
+         "pending": [<snapshot>, ...],
+         "models": {"xgboost": {"24h": <block>, "48h": ..., "72h": ...}, ...}}
+    """
+    existing = existing_payload or {}
+    pending = list(existing.get("pending") or [])
+    existing_models = existing.get("models") or {}
+
+    # 1. Resolve pending against the now-known actuals.
+    resolved, pending = resolve_horizon_snapshots(pending, actuals)
+
+    # 2. Snapshot the current forecast's per-horizon predictions (dedup on
+    #    (target_ts, horizon) so a retried tick can't double-count).
+    seen = {(s.get("target_ts"), s.get("horizon")) for s in pending}
+    for snap in snapshot_horizon_predictions(forecast_payload, horizons):
+        key = (snap["target_ts"], snap["horizon"])
+        if key not in seen:
+            pending.append(snap)
+            seen.add(key)
+
+    # 3. Expire the never-resolved tail.
+    pending = _expire_pending(pending, now_iso)
+
+    # 4. Roll up per (model, horizon).
+    resolved_by_key: dict[tuple[str, str], list[DriftRecord]] = {}
+    for model_name, horizon, record in resolved:
+        resolved_by_key.setdefault((model_name, horizon), []).append(record)
+
+    all_models = set(existing_models) | {m for m, _, _ in resolved}
+    models_out: dict[str, Any] = {}
+    for model_name in sorted(all_models):
+        existing_hz = existing_models.get(model_name) or {}
+        block_by_horizon: dict[str, Any] = {}
+        for horizon in horizons:
+            prior = deserialize_records((existing_hz.get(horizon) or {}).get("records"))
+            merged = prior
+            for record in resolved_by_key.get((model_name, horizon), []):
+                merged = merge_and_trim(merged, record, max_records=max_records)
+            block_by_horizon[horizon] = _horizon_rollup_block(merged, now_iso, horizon)
+        models_out[model_name] = block_by_horizon
+
+    return {
+        "region": region,
+        "last_updated_at": now_iso or datetime.now(UTC).isoformat(),
+        "horizons": list(horizons),
+        "pending": pending,
+        "models": models_out,
+    }

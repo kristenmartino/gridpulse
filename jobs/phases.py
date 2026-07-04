@@ -1153,6 +1153,68 @@ def write_drift_metrics(
         return PhaseResult(region=region, ok=False, error=str(exc))
 
 
+def write_horizon_drift_metrics(
+    region: str,
+    forecast_payload: dict[str, Any] | None,
+    demand_df: pd.DataFrame,
+) -> PhaseResult:
+    """Update the horizon-matched drift series at ``gridpulse:drift_horizon:{region}``.
+
+    #227: the 1-hour signal (``write_drift_metrics``) structurally penalizes the
+    multi-step models. This phase snapshots the latest forward forecast's 24h /
+    48h / 72h predictions and resolves previously-snapshotted predictions whose
+    target hour now has an actual, grading each horizon against its OWN
+    ``MAPE_BY_HORIZON`` band. It reuses the same inputs as the 1h phase — the
+    about-to-be-overwritten forecast and the just-fetched demand (the ~1h
+    snapshot staleness is negligible at these horizons).
+
+    Runs even when ``forecast_payload`` is None so pending snapshots still
+    resolve. Non-critical: an error here never blocks the scoring run.
+    """
+    from data.redis_client import redis_get, redis_key, redis_set
+    from models.drift import compute_horizon_drift_payload
+
+    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+        return PhaseResult(region=region, ok=True, details={"skipped": "no_actuals"})
+
+    try:
+        df = demand_df.copy()
+        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+        df = df.dropna(subset=["demand_mw"])
+        actuals: dict[str, float] = {
+            row["timestamp"].isoformat(): float(row["demand_mw"])
+            for _, row in df.iterrows()
+            if np.isfinite(row["demand_mw"]) and float(row["demand_mw"]) > 0
+        }
+
+        existing = redis_get(redis_key(f"drift_horizon:{region}"))
+        existing_payload = existing if isinstance(existing, dict) else None
+        payload = compute_horizon_drift_payload(region, existing_payload, forecast_payload, actuals)
+        redis_set(redis_key(f"drift_horizon:{region}"), payload, ttl=REDIS_TTL)
+
+        n_pending = len(payload.get("pending", []))
+        n_records = sum(
+            block.get("n_records", 0)
+            for model in payload["models"].values()
+            for block in model.values()
+        )
+        log.info(
+            "horizon_drift_updated",
+            region=region,
+            models=sorted(payload["models"].keys()),
+            pending=n_pending,
+            total_records=n_records,
+        )
+        return PhaseResult(
+            region=region,
+            ok=True,
+            details={"pending": n_pending, "total_records": n_records},
+        )
+    except Exception as exc:
+        log.warning("horizon_drift_write_failed", region=region, error=str(exc))
+        return PhaseResult(region=region, ok=False, error=str(exc))
+
+
 # ── Phase: backtests (training) ──────────────────────────────
 
 
