@@ -72,20 +72,35 @@ class TestMetricsBarStressCap:
         assert "1071" not in top["value"]
         assert "%" in top["value"]
 
-    def test_lowest_reserve_floored_at_zero(self):
-        """When the highest-stress BA is below 100%, reserve is the
-        positive complement. Even if some BA edges over 100% it should
-        floor at 0% — never the absurd -971% from the bug report."""
+    def test_national_utilization_renders_sane(self):
+        """National Utilization (the 4th KPI) is a positive %, computed over
+        the reliable-capacity BA set — import-dominated CPLW is excluded, so it
+        can't produce the absurd -971% the old per-BA "Lowest Reserve" did."""
         from components.callbacks import _build_us_grid_metrics_items
 
         region_data = {
-            "CPLW": {"current_mw": 449.0, "today_mw": [449.0] * 24},
-            "PJM": {"current_mw": 70000.0, "today_mw": [70000.0] * 24},
+            "CPLW": {"current_mw": 449.0, "today_mw": [449.0] * 24},  # import-dominated → excluded
+            "PJM": {"current_mw": 70000.0, "today_mw": [70000.0] * 24},  # 70000/184202 ≈ 38%
         }
         items = _build_us_grid_metrics_items(region_data)
-        reserve = next(i for i in items if i["label"] == "Lowest Reserve")
-        assert "-" not in reserve["value"]
-        assert reserve["value"] != "—"
+        util = next(i for i in items if i["label"] == "National Utilization")
+        assert "-" not in util["value"]
+        assert util["value"] != "—"
+        assert "%" in util["value"]
+
+    def test_national_utilization_is_demand_over_capacity(self):
+        """National Utilization = Σdemand ÷ Σcapacity over the reliable BA set."""
+        from components.callbacks import _build_us_grid_metrics_items
+        from config import REGION_CAPACITY_MW
+
+        region_data = {
+            "PJM": {"current_mw": 90000.0, "today_mw": [90000.0] * 24},
+            "ERCOT": {"current_mw": 40000.0, "today_mw": [40000.0] * 24},
+        }
+        items = _build_us_grid_metrics_items(region_data)
+        util = next(i for i in items if i["label"] == "National Utilization")
+        expected = (90000 + 40000) / (REGION_CAPACITY_MW["PJM"] + REGION_CAPACITY_MW["ERCOT"]) * 100
+        assert util["value"] == f"{expected:.0f}%"
 
     def test_displayed_stress_caps_at_100_percent(self):
         """Even within the reliable band (<200%), display caps at 100%
@@ -119,9 +134,11 @@ class TestMetricsBarStressCap:
         }
         items = _build_us_grid_metrics_items(region_data)
         top = next(i for i in items if i["label"] == "Highest-Stress Region")
-        reserve = next(i for i in items if i["label"] == "Lowest Reserve")
+        util = next(i for i in items if i["label"] == "National Utilization")
+        # No reliable-capacity BA remains, so both the per-BA max and the
+        # national aggregate fall back to the placeholder.
         assert top["value"] == "—"
-        assert reserve["value"] == "—"
+        assert util["value"] == "—"
 
     def test_total_demand_still_includes_unreliable_bas(self):
         """The Total Demand metric should NOT exclude import-dominated

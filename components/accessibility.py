@@ -113,7 +113,7 @@ def forecast_summary(
     peak_mw: float,
     peak_time: str,
     mape: float,
-    reserve_pct: float,
+    headroom_pct: float,
 ) -> str:
     """
     Generate a screen-reader-friendly summary of the demand forecast tab.
@@ -125,7 +125,7 @@ def forecast_summary(
         f"Demand forecast for {region}. "
         f"Today's peak demand is forecast at {peak_mw:,.0f} megawatts at {peak_time}. "
         f"Forecast accuracy over the past 7 days is {mape:.1f}% MAPE. "
-        f"Reserve margin is {reserve_pct:.0f}%."
+        f"Capacity headroom is {headroom_pct:.0f}%."
     )
 
 
@@ -133,7 +133,7 @@ def scenario_summary(
     scenario_name: str,
     demand_delta: float,
     price_impact: float,
-    reserve_margin: float,
+    headroom_pct: float,
 ) -> str:
     """
     Generate a screen-reader-friendly summary of a scenario simulation result.
@@ -143,7 +143,7 @@ def scenario_summary(
         f"Scenario: {scenario_name}. "
         f"Demand would {direction} by {abs(demand_delta):,.0f} megawatts. "
         f"Estimated price impact: ${price_impact:.0f} per megawatt-hour. "
-        f"Reserve margin: {reserve_margin:.0f}%."
+        f"Capacity headroom: {headroom_pct:.0f}%."
     )
 
 

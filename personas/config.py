@@ -44,7 +44,7 @@ PERSONAS: dict[str, Persona] = {
         ],
         kpi_metrics=[
             "peak_demand_mw",
-            "reserve_margin_pct",
+            "headroom_pct",
             "active_alerts_count",
             "ramp_rate_max",
         ],
@@ -52,7 +52,7 @@ PERSONAS: dict[str, Persona] = {
         welcome_title="Grid Operations Dashboard",
         welcome_message=(
             "Good morning, Sarah. Here's your grid status overview. "
-            "Focus areas: demand forecast accuracy, reserve margins, "
+            "Focus areas: demand forecast accuracy, capacity headroom, "
             "and any active severe weather alerts that could impact operations."
         ),
         color="#1f77b4",

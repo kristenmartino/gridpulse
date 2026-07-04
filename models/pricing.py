@@ -84,22 +84,43 @@ def estimate_price_for_region(
     return estimate_price_impact(demand_forecast, capacity, base_price)
 
 
-def compute_reserve_margin(
-    demand_forecast: float | np.ndarray,
-    region: str,
+def capacity_headroom_pct(
+    load_mw: float | np.ndarray,
+    capacity_mw: float,
 ) -> float | np.ndarray:
-    """
-    Compute reserve margin: (capacity - demand) / capacity × 100.
+    """Capacity headroom: ``(capacity - load) / capacity × 100``.
 
-    Positive = surplus capacity. Negative = demand exceeds capacity (emergency).
+    The share of *nameplate* capacity not currently serving ``load``. Positive =
+    slack; negative = load exceeds nameplate.
+
+    This is deliberately **not** called "reserve margin". The NERC planning
+    reserve margin is ``(accredited_capacity - peak) / peak``, and
+    ``REGION_CAPACITY_MW`` is EIA-860M *nameplate*, which overstates firm
+    capacity for intermittent resources (PRM on nameplate reads ~60-70%, vs a
+    real ~15-25%). Surface this as "capacity headroom", never "reserve margin".
+    A true reserve margin needs the accredited-capacity (ELCC) model in #243.
+
+    Args:
+        load_mw: Current or peak load, MW (scalar or array).
+        capacity_mw: Nameplate capacity, MW.
 
     Returns:
-        Reserve margin as percentage.
+        Headroom as a percentage — ``float`` for scalar ``load_mw``, else array.
     """
-    if region not in REGION_CAPACITY_MW:
-        raise ValueError(f"Unknown region: {region}")
+    load = np.asarray(load_mw, dtype=float)
+    headroom = (capacity_mw - load) / capacity_mw * 100
+    return float(headroom) if load.ndim == 0 else headroom
 
-    capacity = REGION_CAPACITY_MW[region]
-    demand = np.asarray(demand_forecast, dtype=float)
-    margin = (capacity - demand) / capacity * 100
-    return float(margin) if demand.ndim == 0 else margin
+
+def utilization_pct(
+    load_mw: float | np.ndarray,
+    capacity_mw: float,
+) -> float | np.ndarray:
+    """Utilization: ``load / capacity × 100`` — share of *nameplate* capacity in use.
+
+    Complement of :func:`capacity_headroom_pct`. Nameplate-based; see #243 for
+    the accredited-capacity work a true reserve/adequacy metric would need.
+    """
+    load = np.asarray(load_mw, dtype=float)
+    util = load / capacity_mw * 100
+    return float(util) if load.ndim == 0 else util

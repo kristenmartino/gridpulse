@@ -294,8 +294,8 @@ class TestComputeScenarioImpact:
         np.testing.assert_array_almost_equal(result["demand_delta_pct"], expected_pct)
         assert (result["demand_delta_pct"] > 0).all()
 
-    def test_reserve_margin_decreases_with_higher_demand(self):
-        """Higher demand should reduce reserve margin."""
+    def test_headroom_decreases_with_higher_demand(self):
+        """Higher demand should reduce capacity headroom."""
         base = np.array([40000.0])
         scenario_low = np.array([40000.0])
         scenario_high = np.array([100000.0])
@@ -303,7 +303,7 @@ class TestComputeScenarioImpact:
         result_low = compute_scenario_impact(scenario_low, base, "ERCOT")
         result_high = compute_scenario_impact(scenario_high, base, "ERCOT")
 
-        assert result_high["min_reserve_margin_pct"] < result_low["min_reserve_margin_pct"]
+        assert result_high["min_headroom_pct"] < result_low["min_headroom_pct"]
 
     def test_unknown_region_uses_default_capacity(self):
         """Unknown region falls back to 100,000 MW default capacity."""
@@ -311,8 +311,8 @@ class TestComputeScenarioImpact:
         scenario = np.array([50000.0])
         result = compute_scenario_impact(scenario, base, "UNKNOWN_REGION")
 
-        # capacity defaults to 100_000; reserve = (100000 - 50000)/100000 * 100 = 50%
-        assert result["min_reserve_margin_pct"] == pytest.approx(50.0)
+        # capacity defaults to 100_000; headroom = (100000 - 50000)/100000 * 100 = 50%
+        assert result["min_headroom_pct"] == pytest.approx(50.0)
 
     def test_price_delta_positive_when_demand_increases(self):
         """Higher scenario demand should produce higher (or equal) price."""

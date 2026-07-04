@@ -28,7 +28,7 @@ from data.feature_engineering import (
     compute_temperature_deviation,
     compute_wind_power,
 )
-from models.pricing import estimate_price_impact
+from models.pricing import capacity_headroom_pct, estimate_price_impact
 
 log = structlog.get_logger()
 
@@ -114,7 +114,8 @@ def compute_scenario_impact(
     Compute full impact metrics for a scenario vs baseline.
 
     Returns:
-        Dict with demand delta, price impact, reserve margin, etc.
+        Dict with demand delta, price impact, capacity headroom, etc.
+        (headroom is nameplate-based, not a NERC reserve margin — see #243.)
     """
     delta = scenario_forecast - base_forecast
     capacity = REGION_CAPACITY_MW.get(region, 100_000)
@@ -130,8 +131,8 @@ def compute_scenario_impact(
         "base_price": base_price,
         "scenario_price": scenario_price,
         "price_delta": scenario_price - base_price,
-        "reserve_margin_pct": (capacity - scenario_forecast) / capacity * 100,
-        "min_reserve_margin_pct": float(np.min((capacity - scenario_forecast) / capacity * 100)),
+        "headroom_pct": capacity_headroom_pct(scenario_forecast, capacity),
+        "min_headroom_pct": float(np.min(capacity_headroom_pct(scenario_forecast, capacity))),
     }
 
 

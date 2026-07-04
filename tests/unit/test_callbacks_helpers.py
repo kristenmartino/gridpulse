@@ -951,7 +951,7 @@ class TestBuildPersonaKpis:
             }
         )
         result = _build_persona_kpis("grid_ops", "NYISO", df, None)
-        # grid_ops KPI order: Peak, Reserve Margin, Forecast Error, Demand Range
+        # grid_ops KPI order: Peak, Capacity Headroom, Forecast Error, Demand Range
         demand_range_card = result.children[3]
         # Drill into dbc.Col > html.Div > [P(label), H3(value), P(delta)]
         value_node = demand_range_card.children.children[1]
