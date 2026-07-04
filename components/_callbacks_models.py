@@ -473,6 +473,146 @@ def _build_drift_panel(region: str | None) -> html.Div:
     )
 
 
+def _build_horizon_drift_panel(region: str | None) -> html.Div:
+    """Per-horizon live drift panel — Models tab, #227.
+
+    Reads ``gridpulse:drift_horizon:{region}`` (written by
+    ``jobs.phases.write_horizon_drift_metrics``) and shows each model's live
+    rolling-7d MAPE at **24h / 48h / 72h** ahead, each cell graded against
+    **its own** ``MAPE_BY_HORIZON`` band (the grade is precomputed in the
+    payload).
+
+    This is the honest counterpart to the 1-hour panel above: Prophet and
+    SARIMAX have no last-value anchor, so they look poor at 1h but can be
+    legitimately strong day-ahead — this is the panel where that shows. Records
+    mature slowly (a 72h prediction can't be scored until 72h later), so the
+    warming state persists a few days post-deploy.
+    """
+    region = region or "FPL"
+    payload = redis_get(redis_key(f"drift_horizon:{region}"))
+
+    if not isinstance(payload, dict) or not payload.get("models"):
+        return html.Div(
+            [
+                html.Div("Drift by Horizon", className="gp-control-eyebrow"),
+                html.Div(
+                    (
+                        "Warming up — horizon drift scores each forecast against the "
+                        "actual it predicted 24–72h earlier, so this panel fills in "
+                        "over the first few days after deploy."
+                    ),
+                    className="gp-panel__placeholder",
+                ),
+            ],
+            className="gp-models-drift-panel",
+            id="horizon-drift-panel-warming",
+        )
+
+    horizons = payload.get("horizons") or ["24h", "48h", "72h"]
+    drift_models = payload["models"]
+    display_order = ("prophet", "arima", "xgboost", "ensemble")
+    display_names = {
+        "prophet": "Prophet",
+        "arima": "SARIMAX",
+        "xgboost": "XGBoost",
+        "ensemble": "Ensemble",
+    }
+    tone_by_grade = {
+        "excellent": "positive",
+        "target": "positive",
+        "acceptable": "warning",
+        "rollback": "negative",
+    }
+    # A few matured records before a grade is statistically meaningful at these
+    # slow-accruing horizons (records land ~hourly, but only after the horizon).
+    min_records = 6
+
+    rows: list[html.Tr] = []
+    for key in display_order:
+        model_block = drift_models.get(key)
+        if not model_block:
+            continue
+        cells: list[html.Td] = [
+            html.Td(display_names.get(key, key.title()), style={"fontWeight": "600"})
+        ]
+        for horizon in horizons:
+            block = model_block.get(horizon) or {}
+            mape = block.get("rolling_mape_7d")
+            grade = block.get("grade")
+            n_records = int(block.get("n_records", 0) or 0)
+            if mape is None or n_records < min_records:
+                cells.append(
+                    html.Td(
+                        html.Span(
+                            "Warming" if n_records else "—",
+                            className="gp-status-chip gp-status-chip--secondary",
+                        ),
+                        className="gp-drift-cell--horizon",
+                    )
+                )
+            else:
+                tone = tone_by_grade.get(grade, "secondary")
+                cells.append(
+                    html.Td(
+                        [
+                            html.Span(f"{float(mape):.2f}%", className="gp-drift-horizon-mape"),
+                            html.Span(
+                                (grade or "—").title(),
+                                className=f"gp-status-chip gp-status-chip--{tone}",
+                            ),
+                        ],
+                        className="gp-drift-cell--horizon",
+                    )
+                )
+        rows.append(html.Tr(cells))
+
+    if not rows:
+        return html.Div(
+            [
+                html.Div("Drift by Horizon", className="gp-control-eyebrow"),
+                html.Div(
+                    "No horizon-drift records yet for this region.",
+                    className="gp-panel__placeholder",
+                ),
+            ],
+            className="gp-models-drift-panel",
+        )
+
+    table = html.Table(
+        [
+            html.Thead(html.Tr([html.Th("Model")] + [html.Th(f"{h} ahead") for h in horizons])),
+            html.Tbody(rows),
+        ],
+        className="metrics-table gp-drift-table gp-horizon-drift-table",
+    )
+
+    return html.Div(
+        [
+            html.Div(
+                "Drift by Horizon — 7d rolling, graded per band", className="gp-control-eyebrow"
+            ),
+            html.Div(
+                (
+                    "Each horizon is graded against its own accuracy band — a competent "
+                    "day-ahead model isn't penalized for lacking a 1-hour anchor (#227)."
+                ),
+                className="gp-drift-headline",
+            ),
+            table,
+            html.Div(
+                (
+                    "Source: ``gridpulse:drift_horizon:{region}`` — the scoring job "
+                    "snapshots each forecast's 24/48/72h predictions and re-scores them "
+                    "against the realized actual N hours later."
+                ),
+                className="gp-panel__caption",
+            ),
+        ],
+        className="gp-models-drift-panel",
+        id="horizon-drift-panel",
+    )
+
+
 def _get_feature_importance(region: str, top_n: int = 10) -> tuple[list[str], np.ndarray]:
     """Extract real feature importances from cached XGBoost model, or return defaults."""
     if (region, "xgboost", 0) in _MODEL_CACHE:
@@ -575,7 +715,14 @@ def register_models_callbacks(app):
         """
         if active_tab != "tab-models":
             return no_update
-        return _build_drift_panel(region)
+        # 1-hour panel + the #227 per-horizon panel, stacked in the same slot.
+        return html.Div(
+            [
+                _build_drift_panel(region),
+                _build_horizon_drift_panel(region),
+            ],
+            className="gp-models-drift-stack",
+        )
 
     @app.callback(
         [
