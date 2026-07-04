@@ -353,6 +353,24 @@ def _build_us_grid_sparkline(values: list[float]) -> html.Div:
     )
 
 
+# Tiny muted prefix that names each card badge inline (util / net / Δ1h), so a
+# card is self-describing — no separate legend to cross-reference. The two GW
+# values (hero demand vs. the ``net`` badge) and two % values (``util`` vs.
+# ``Δ1h``) are otherwise indistinguishable at a glance.
+_CHIP_LABEL_STYLE = {
+    "fontSize": "0.7em",
+    "opacity": 0.55,
+    "marginRight": "3px",
+    "fontWeight": 400,
+    "letterSpacing": "0.03em",
+}
+
+
+def _chip_label(text: str) -> html.Span:
+    """Small muted in-badge label (e.g. ``util``, ``net``, ``Δ1h``)."""
+    return html.Span(text, className="gp-region-card__chip-label", style=_CHIP_LABEL_STYLE)
+
+
 def _build_interchange_chip(interchange: dict | None) -> html.Span | None:
     """V3.α: net BA-to-BA interchange chip.
 
@@ -389,7 +407,7 @@ def _build_interchange_chip(interchange: dict | None) -> html.Span | None:
         tooltip = f"Net interchange (last hour): {net_mw:+,.0f} MW"
 
     return html.Span(
-        label,
+        [_chip_label("net"), label],
         className=f"gp-region-card__interchange gp-region-card__interchange--{tone}",
         title=tooltip,
     )
@@ -465,7 +483,7 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
         sign = "+" if delta_pct >= 0 else ""
         direction = "up" if delta_pct >= 0 else "down"
         delta_chip = html.Span(
-            f"{sign}{delta_pct:.1f}%",
+            [_chip_label("Δ1h"), f"{sign}{delta_pct:.1f}%"],
             className=f"gp-region-card__delta gp-region-card__delta--{direction}",
         )
 
@@ -507,7 +525,7 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
             else:
                 tone = "low"
             stress_chip = html.Span(
-                f"{stress_pct:.0f}%",
+                [_chip_label("util"), f"{stress_pct:.0f}%"],
                 className=f"gp-region-card__stress gp-region-card__stress--{tone}",
                 title=(f"Demand vs. capacity: {current_mw:,.0f} / {capacity_mw:,.0f} MW"),
             )
@@ -518,6 +536,11 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
             className="gp-region-card__demand-value tabular",
         ),
         html.Span("GW", className="gp-region-card__demand-unit"),
+        html.Span(
+            "demand",
+            className="gp-region-card__demand-label",
+            style={"fontSize": "0.62rem", "opacity": 0.5, "letterSpacing": "0.04em"},
+        ),
     ]
     if delta_chip is not None:
         demand_row_children.append(delta_chip)
@@ -898,19 +921,10 @@ def register_us_grid_callbacks(app):
             elif view == "polygons":
                 body = _build_us_grid_choropleth(region_data)
             else:
+                # No legend: each card now self-describes via inline badge
+                # labels (util / net / Δ1h / demand), so a separate key to
+                # cross-reference is redundant.
                 grid_children: list = []
-                grid_children.append(
-                    html.Div(
-                        "Each card: current demand (GW) · utilization vs. capacity (%) · net interchange (GW) · change vs. previous hour (%)",
-                        className="gp-region-legend",
-                        style={
-                            "gridColumn": "1 / -1",
-                            "fontSize": "11px",
-                            "color": "#71717a",
-                            "marginBottom": "8px",
-                        },
-                    )
-                )
                 if sort == "groups":
                     for group_name, codes in REGION_GROUPS.items():
                         visible = [c for c in codes if c in region_data]

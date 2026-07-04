@@ -204,8 +204,10 @@ class TestInterchangeChipRender:
         )
         assert chip is not None
         assert "export" in chip.className
+        # Chip children are [net-label span, value]; value is the last element.
+        assert chip.children[0].children == "net"
         # Visible label uses ASCII-friendly + sign for export
-        assert chip.children == "+1.2 GW"
+        assert chip.children[-1] == "+1.2 GW"
 
     def test_import_renders_with_minus_sign(self):
         from components.callbacks import _build_interchange_chip
@@ -219,7 +221,7 @@ class TestInterchangeChipRender:
         assert chip is not None
         assert "import" in chip.className
         # Minus uses unicode "−" (U+2212), the typographically correct minus
-        assert chip.children == "−1.2 GW"
+        assert chip.children[-1] == "−1.2 GW"
 
     def test_near_zero_renders_neutral(self):
         from components.callbacks import _build_interchange_chip
@@ -229,7 +231,7 @@ class TestInterchangeChipRender:
         )
         assert chip is not None
         assert "neutral" in chip.className
-        assert chip.children == "≈0"
+        assert chip.children[-1] == "≈0"
 
     def test_tooltip_lists_counterparties(self):
         from components.callbacks import _build_interchange_chip

@@ -36,6 +36,10 @@ def _stress_chip(card_div):
             cls = c.className
             if isinstance(cls, str) and "gp-region-card__stress" in cls:
                 text = getattr(c, "children", None)
+                # Chip children may be ``[util-label span, value str]`` — the
+                # test cares about the value, so pull the value string out.
+                if isinstance(text, (list, tuple)):
+                    text = next((x for x in reversed(text) if isinstance(x, str)), None)
                 found.append((cls, text))
         children = getattr(c, "children", None)
         if isinstance(children, (list, tuple)):
