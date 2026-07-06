@@ -2393,6 +2393,31 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     display: block;
 }
 
+/* Phase 2 — clickable Highest-Stress KPI (jump-to-card) */
+.gp-metric-cell--clickable {
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    transition: background 0.15s ease;
+}
+
+.gp-metric-cell--clickable:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.gp-metric-cell--clickable:focus-visible {
+    outline: 1px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+@keyframes gp-card-flash {
+    0% { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.9); }
+    100% { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0); }
+}
+
+.gp-region-card--flash {
+    animation: gp-card-flash 2.2s ease-out 1;
+}
+
 @media (max-width: 1024px) {
     .gp-region-grid {
         grid-template-columns: repeat(3, minmax(0, 1fr));

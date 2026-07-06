@@ -229,8 +229,14 @@ def _is_implausible_demand_artifact(current_mw: float, today_mw: list) -> bool:
     return current_mw < threshold
 
 
-def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
-    """4-up MetricsBar items: Total Demand · National Peak · Top-Stress BA · National Utilization."""
+def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "cards") -> list[dict]:
+    """4-up MetricsBar items: Total Demand · National Peak · Top-Stress BA · National Utilization.
+
+    Args:
+        region_data: Mapping of region codes to their demand and capacity data.
+        view: The active body view; the Highest-Stress KPI is clickable (jump-to-card)
+            only in the "cards" view, since Map/Polygons have no card to scroll to.
+    """
     populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
     if not populated:
         return [
@@ -295,6 +301,16 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
         util_value = "—"
         util_tone = "secondary"
 
+    top_item = {
+        "label": "Highest-Stress Region",
+        "value": top_value,
+        "tone": top_tone,
+        "help": "BA with the highest utilization = current demand ÷ estimated capacity (capped 100%). Import-dominated BAs excluded.",
+    }
+    if reliable_stress and view == "cards":
+        # Click → clientside scroll to this BA's card (Phase 2).
+        top_item["cell_id"] = {"type": "us-grid-kpi-jump", "region": top_region}
+
     return [
         {
             "label": "Total Demand",
@@ -310,12 +326,7 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
             "unit": "GW",
             "help": "Highest simultaneous cross-grid demand in the last 24h. BAs peak at different hours, so this typically exceeds current total demand.",
         },
-        {
-            "label": "Highest-Stress Region",
-            "value": top_value,
-            "tone": top_tone,
-            "help": "BA with the highest utilization = current demand ÷ estimated capacity (capped 100%). Import-dominated BAs excluded.",
-        },
+        top_item,
         {
             "label": "National Utilization",
             "value": util_value,
@@ -912,7 +923,7 @@ def register_us_grid_callbacks(app):
         try:
             region_data = _collect_us_grid_region_data()
             title = _build_us_grid_title(region_data)
-            metrics_items = _build_us_grid_metrics_items(region_data)
+            metrics_items = _build_us_grid_metrics_items(region_data, view)
             metrics_bar = build_metrics_bar(metrics_items)
             metrics_bar.className = f"gp-metrics-bar gp-metrics-bar--{len(metrics_items)}up"
 
@@ -980,6 +991,35 @@ def register_us_grid_callbacks(app):
         if not region:
             return no_update, no_update
         return region, "tab-outlook"
+
+    # Phase 2: click the Highest-Stress KPI → smooth-scroll to that BA's card
+    # and flash it. Pure clientside — no server round-trip. The card's Dash
+    # dict-id stringifies into the DOM id, so we match on the JSON substring.
+    app.clientside_callback(
+        """
+        function(n_clicks_list) {
+            const nu = window.dash_clientside.no_update;
+            const ctx = window.dash_clientside.callback_context;
+            if (!ctx || !ctx.triggered || !ctx.triggered.length) { return nu; }
+            const trigger = ctx.triggered[0];
+            if (!trigger.value) { return nu; }
+            const region = JSON.parse(trigger.prop_id.split('.')[0]).region;
+            const cards = document.querySelectorAll('[id*="us-grid-region-card"]');
+            for (const el of cards) {
+                if (el.id.includes('"' + region + '"')) {
+                    el.scrollIntoView({behavior: 'smooth', block: 'center'});
+                    el.classList.add('gp-region-card--flash');
+                    setTimeout(function() { el.classList.remove('gp-region-card--flash'); }, 2400);
+                    break;
+                }
+            }
+            return nu;
+        }
+        """,
+        Output("us-grid-jump-store", "data"),
+        Input({"type": "us-grid-kpi-jump", "region": ALL}, "n_clicks"),
+        prevent_initial_call=True,
+    )
 
     @app.callback(
         [

@@ -320,7 +320,8 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
 
     Each item: ``{"label": str, "value": str, "unit": str | None,
                   "tone": "primary" | "secondary" | "positive" | "negative" | None,
-                  "hero": bool, "subtext": str | None, "help": str | None}``.
+                  "hero": bool, "subtext": str | None, "help": str | None,
+                  "cell_id": dict | str | None}``.
 
     ``subtext`` (added 2026-05-20) renders a single muted line below the
     value row — used by the Overview tab to surface freshness timestamps
@@ -329,6 +330,10 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
 
     ``help`` (optional) renders a small info glyph (ⓘ) next to the label,
     with the provided text as a ``title`` tooltip for accessibility.
+
+    ``cell_id`` (optional) optional Dash id for the cell; when set, the cell
+    renders clickable (n_clicks=0, role=button) — used by the US Grid tab's
+    jump-to-card KPI (Phase 2).
 
     Mirrors gridpulse-v2 components/MetricsBar.tsx:34. Up to 5 cells.
     Uses ``.tabular`` on values for aligned numerics.
@@ -382,7 +387,18 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
         ]
         if subtext:
             cell_children.append(html.Div(subtext, className="gp-metric-subtext"))
-        cells.append(html.Div(cell_children, className="gp-metric-cell"))
+        cell_kwargs: dict = {}
+        cell_classes = ["gp-metric-cell"]
+        cell_id = item.get("cell_id")
+        if cell_id is not None:
+            cell_kwargs = {
+                "id": cell_id,
+                "n_clicks": 0,
+                "role": "button",
+                "tabIndex": "0",
+            }
+            cell_classes.append("gp-metric-cell--clickable")
+        cells.append(html.Div(cell_children, className=" ".join(cell_classes), **cell_kwargs))
     return html.Div(cells, className="gp-metrics-bar")
 
 
