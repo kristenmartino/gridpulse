@@ -308,7 +308,7 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict]) -> list[dict]:
             "label": "National Peak (24h)",
             "value": f"{peak_24h_mw / 1000:.1f}",
             "unit": "GW",
-            "help": "Highest simultaneous cross-grid demand in the last 24h. BAs peak at different hours, so this exceeds current total demand.",
+            "help": "Highest simultaneous cross-grid demand in the last 24h. BAs peak at different hours, so this typically exceeds current total demand.",
         },
         {
             "label": "Highest-Stress Region",

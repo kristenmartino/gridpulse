@@ -27,6 +27,7 @@ re-export pattern is safe for shared state as well as constants.
 
 from __future__ import annotations
 
+import textwrap
 import threading
 
 import numpy as np
@@ -227,20 +228,19 @@ def _empty_figure(message: str = "") -> go.Figure:
             uirevision="empty",
             annotations=[
                 dict(
-                    text=message,
+                    # Plotly annotations never auto-wrap, and an explicit
+                    # ``width`` CLIPS overflowing text instead of wrapping it
+                    # (long messages rendered only their centered middle).
+                    # ``<br>`` is the only line break Plotly honors, so wrap
+                    # here: ~40 chars ≈ 240px at 13px, narrow enough for the
+                    # 3-up residual grid on the Models tab.
+                    text="<br>".join(textwrap.wrap(message, width=40)),
                     showarrow=False,
                     font=dict(size=13, color="#A8B3C7"),
                     xref="paper",
                     yref="paper",
                     x=0.5,
                     y=0.5,
-                    # Plotly annotations don't wrap by default — a one-line
-                    # message wider than the plot overflows the figure and is
-                    # clipped on both ends (only the centered middle shows).
-                    # ``width`` forces wrapping so the placeholder stays
-                    # readable even in narrow cards (e.g. the 3-up residual
-                    # grid on the Models tab).
-                    width=240,
                     align="center",
                 )
             ],
