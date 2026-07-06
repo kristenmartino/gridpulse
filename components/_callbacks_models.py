@@ -272,18 +272,68 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
 
 
+#: Grades the verdict-confirmation rule recognizes. An unknown grade string
+#: (e.g. from a writer with a different vocabulary) maps to *pending*, never
+#: to health — matching the horizon panel's neutral tone for unknown grades.
+_KNOWN_GRADES = ("excellent", "target", "acceptable", "rollback")
+
+
+def _day_ahead_grade(horizon_payload: dict | None, model_key: str) -> str | None:
+    """The model's resolved 24h-ahead grade from ``drift_horizon``, or ``None``.
+
+    ``None`` when the payload / model / horizon block is missing or malformed,
+    the MAPE is unresolved, fewer than 6 matured records exist (the same
+    meaningfulness threshold ``_build_horizon_drift_panel`` applies), or the
+    grade string isn't one of the known governance grades.
+    """
+    if not isinstance(horizon_payload, dict):
+        return None
+    models = horizon_payload.get("models")
+    if not isinstance(models, dict):
+        return None
+    model_block = models.get(model_key)
+    if not isinstance(model_block, dict):
+        return None
+    block = model_block.get("24h")
+    if not isinstance(block, dict):
+        return None
+    if block.get("rolling_mape_7d") is None or int(block.get("n_records", 0) or 0) < 6:
+        return None
+    grade = block.get("grade")
+    return grade if grade in _KNOWN_GRADES else None
+
+
 def _build_drift_panel(region: str | None) -> html.Div:
-    """Per-model live drift panel — Models tab, #121 part 2.
+    """Per-model 1h-ahead nowcast drift panel — Models tab, #121 part 2.
 
     Reads ``gridpulse:drift:{region}`` (written by
     ``jobs.phases.write_drift_metrics``) and shows each model's live
     rolling 7d / 30d MAPE alongside its training-time holdout MAPE for
-    reference. Status chip per model derived from live MAPE governance:
+    reference. Each model gets a **1h grade** chip from live MAPE
+    governance on the 1-hour-ahead band:
 
     * **excellent** — live 1h MAPE ≤ 1.0% (best-in-class short-term)
     * **target** — live 1h MAPE ≤ 2.5% (competitive STLF)
     * **acceptable** — live 1h MAPE ≤ 5.0% (usable)
-    * **rollback** — live 1h MAPE > 5.0% (underperforming at 1h-ahead)
+    * above 5.0% — off the 1h nowcast band; see verdict rule below
+
+    **Verdict-confirmation rule (#217 de-alarm).** The 1h band is a fair
+    *measurement* for every model, but "Rollback" is a governance *verdict*
+    (H2: disable the model) — and models without a 1-hour anchor
+    (Prophet; SARIMAX before its Kalman window turns over) are *expected*
+    to sit above the 1h band while being legitimately strong day-ahead.
+    So a model above 5% at 1h is labeled "Rollback" **only when its own
+    24h-ahead horizon grade** (``gridpulse:drift_horizon:{region}``, #227)
+    is also ``rollback``; otherwise it gets a descriptive "Off band" chip
+    that defers judgment to the Drift-by-Horizon panel below. A genuinely
+    broken model still alarms — breakage shows at both horizons (with a
+    ~24h confirmation lag while 24h predictions mature; during that window
+    the chip shows a visible warning-tone "Off band").
+
+    **Fail closed on a dead confirming feed:** the horizon feed writes
+    hourly (even with zero resolved records) and its key carries a 24h
+    TTL, so a missing payload means the feed is broken — an off-band model
+    then alarms as unverified rather than hiding behind "still resolving".
 
     Warming state when ``n_records < 24`` (less than 1 day of records),
     or when Redis has no drift entry yet (typical for first 7 days
@@ -328,6 +378,13 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
     drift_models = drift_payload["models"]
 
+    # 24h-ahead grades for the verdict-confirmation rule (#217). Read after
+    # the warming early-return so a cold region costs one Redis read, not two.
+    # ``horizon_reporting`` distinguishes "feed alive, grades still maturing"
+    # (pending, benign) from "feed absent" (broken >24h — fail closed).
+    horizon_payload = redis_get(redis_key(f"drift_horizon:{region}"))
+    horizon_reporting = isinstance(horizon_payload, dict) and bool(horizon_payload.get("models"))
+
     # Render in the same order as the leaderboard so the eye can
     # diff across panels without re-anchoring.
     display_order = ("prophet", "arima", "xgboost", "ensemble")
@@ -339,7 +396,10 @@ def _build_drift_panel(region: str | None) -> html.Div:
     }
 
     rows: list[html.Tr] = []
-    any_degraded = False
+    degraded_names: list[str] = []  # off band at BOTH 1h and 24h — confirmed
+    off_band_healthy: list[str] = []  # above 1h band, healthy on matured 24h scores
+    off_band_pending: list[str] = []  # above 1h band, 24h grade maturing (feed alive)
+    off_band_unverified: list[str] = []  # above 1h band, horizon feed absent — fail closed
     for key in display_order:
         if key not in drift_models:
             continue
@@ -348,6 +408,8 @@ def _build_drift_panel(region: str | None) -> html.Div:
         live_7d = drift.get("rolling_mape_7d")
         live_30d = drift.get("rolling_mape_30d")
         holdout = metrics.get(key, {}).get("mape")
+        display = display_names.get(key, key.title())
+        chip_title: str | None = None
 
         # Warming for this specific model when its window hasn't filled
         # enough to be statistically meaningful. Other models in the
@@ -364,7 +426,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
             status_tone = "secondary"
             ratio_text = "—"
         else:
-            # Status derived from the live MAPE's own governance grade at the
+            # Grade derived from the live MAPE's own governance grade at the
             # 1-hour-ahead horizon (the drift metric IS 1h-ahead), not from the
             # cross-horizon live÷holdout ratio (shown for reference only).
             grade = mape_grade(float(live_7d), horizon="1h")
@@ -377,17 +439,64 @@ def _build_drift_panel(region: str | None) -> html.Div:
             elif grade == "acceptable":
                 status_label = "Acceptable"
                 status_tone = "warning"
-            else:  # rollback
-                status_label = "Rollback"
-                status_tone = "negative"
-                any_degraded = True
+            else:
+                # Above the 5% 1h band. Whether that is a *verdict* depends on
+                # the model's own operating horizon (#217): a day-ahead model
+                # with no 1-hour anchor is expected to sit above the 1h band.
+                # Only confirm "Rollback" when the model is also off band at
+                # 24h-ahead (its horizon-matched grade, #227).
+                day_grade = _day_ahead_grade(horizon_payload, key)
+                if day_grade == "rollback":
+                    status_label = "Rollback"
+                    status_tone = "negative"
+                    chip_title = (
+                        "Off band at both 1h-ahead and 24h-ahead — degradation "
+                        "confirmed at the model's own operating horizon."
+                    )
+                    degraded_names.append(display)
+                elif day_grade is None and not horizon_reporting:
+                    # FAIL CLOSED: the horizon feed writes hourly (even with
+                    # zero resolved records) and its key carries a 24h TTL —
+                    # a missing payload means the feed has been broken for a
+                    # day+. Absence of the confirming signal must not read as
+                    # health, or a dead pipeline silently disables the panel's
+                    # only alarm path.
+                    status_label = "Off band"
+                    status_tone = "negative"
+                    chip_title = (
+                        "Above the 5% 1h nowcast band and the horizon-drift "
+                        "feed is not reporting — day-ahead health cannot be "
+                        "verified. Investigate the model AND the horizon-drift "
+                        "pipeline."
+                    )
+                    off_band_unverified.append(display)
+                elif day_grade is None:
+                    status_label = "Off band"
+                    status_tone = "warning"
+                    chip_title = (
+                        "Above the 5% 1h nowcast band; the 24h-ahead grade is "
+                        "still resolving — see Drift by Horizon below."
+                    )
+                    off_band_pending.append(display)
+                else:
+                    status_label = "Off band"
+                    status_tone = "warning"
+                    chip_title = (
+                        f"Above the 5% 1h nowcast band, but graded "
+                        f"{day_grade} on matured 24h-ahead predictions (24h "
+                        f"grades lag ≥24h behind live) — models without a "
+                        f"1-hour anchor are expected to sit above the 1h band. "
+                        f"See Drift by Horizon below."
+                    )
+                    off_band_healthy.append(display)
             ratio = float(live_7d) / float(holdout) if holdout > 0 else 0
             ratio_text = f"×{ratio:.2f}"
 
+        chip_kwargs = {"title": chip_title} if chip_title else {}
         rows.append(
             html.Tr(
                 [
-                    html.Td(display_names.get(key, key.title()), style={"fontWeight": "600"}),
+                    html.Td(display, style={"fontWeight": "600"}),
                     html.Td(
                         f"{float(holdout):.2f}%" if holdout is not None else "—",
                         className="gp-drift-cell--holdout",
@@ -405,6 +514,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
                         html.Span(
                             status_label,
                             className=f"gp-status-chip gp-status-chip--{status_tone}",
+                            **chip_kwargs,
                         ),
                         className="gp-drift-cell--status",
                     ),
@@ -425,11 +535,37 @@ def _build_drift_panel(region: str | None) -> html.Div:
             className="gp-models-drift-panel",
         )
 
-    headline_note = (
-        "One or more models in rollback at 1h-ahead (live MAPE exceeds 5%)."
-        if any_degraded
-        else "All models acceptable or better at 1h-ahead (live MAPE ≤ 5%)."
-    )
+    # Headline severity follows the verdict-confirmation rule: alarm on a
+    # CONFIRMED rollback (off band at both 1h and 24h) or on an off-band model
+    # whose confirming feed is absent (fail closed); 1h-only excursions with a
+    # live feed get neutral, explanatory copy instead of crying wolf (#217).
+    if degraded_names or off_band_unverified:
+        alarm_parts = []
+        if degraded_names:
+            alarm_parts.append(
+                f"{', '.join(degraded_names)} off band at both 1h-ahead and 24h-ahead"
+            )
+        if off_band_unverified:
+            alarm_parts.append(
+                f"{', '.join(off_band_unverified)} off band at 1h with the "
+                f"horizon-drift feed not reporting"
+            )
+        headline_note = "; ".join(alarm_parts) + " — investigate."
+    elif off_band_healthy or off_band_pending:
+        parts = []
+        if off_band_healthy:
+            parts.append(
+                f"{', '.join(off_band_healthy)} healthy on matured 24h-ahead scores (≥24h lag)"
+            )
+        if off_band_pending:
+            parts.append(f"{', '.join(off_band_pending)} 24h grade still resolving")
+        headline_note = (
+            "No model in confirmed rollback. Above the 1h nowcast band: "
+            + "; ".join(parts)
+            + " — 1h is a nowcast diagnostic; day-ahead grades live in Drift by Horizon."
+        )
+    else:
+        headline_note = "All models acceptable or better at 1h-ahead (live MAPE ≤ 5%)."
 
     table = html.Table(
         [
@@ -456,7 +592,9 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
     return html.Div(
         [
-            html.Div("Live Drift — 7d / 30d rolling", className="gp-control-eyebrow"),
+            html.Div(
+                "Live Drift — 1h-ahead nowcast · 7d / 30d rolling", className="gp-control-eyebrow"
+            ),
             html.Div(headline_note, className="gp-drift-headline"),
             table,
             html.Div(
