@@ -305,7 +305,9 @@ def grid_summary():
     plausible = {
         r: d
         for r, d in populated.items()
-        if not _is_implausible_demand_artifact(d["current_mw"], d.get("today_mw") or [])
+        if not _is_implausible_demand_artifact(
+            d["current_mw"], d.get("today_mw") or [], d.get("prev_mw")
+        )
     }
     artifact_excluded = sorted(set(populated) - set(plausible))
     if not plausible:

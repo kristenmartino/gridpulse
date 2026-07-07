@@ -495,6 +495,10 @@ IS_IMPORT_DOMINATED: frozenset[str] = frozenset(
         #        not a vertically integrated utility. Its 2,559 MW
         #        nameplate is the federal dam fleet; the served load
         #        is far larger via long-term power contracts.
+        "PACW",  # PacifiCorp West (OR/WA/N.CA). In-territory nameplate
+        #         (2,628 MW) ≈ served load — the PacifiCorp fleet is mostly
+        #         in the East (PACE, WY/UT coal); PACW imports across the
+        #         system, so util-vs-nameplate crowned it "100% stress" (#225).
     }
 )
 

@@ -258,3 +258,86 @@ class TestStressCeilingThreshold:
             # PJM excluded; ERCOT (the next-highest reliable) wins
             assert "PJM" not in top["value"]
             assert "ERCOT" in top["value"]
+
+
+class TestDemandArtifactGuard:
+    """#225: ``_is_implausible_demand_artifact`` — a near-zero glitch OR a
+    single-hour collapse (>60% drop from the prior real reading, landing well
+    below the day's median) is excluded from stress, while a gradual overnight
+    trough and a return-from-spike are NOT flagged."""
+
+    def test_near_zero_glitch_flagged(self):
+        from components._callbacks_us_grid import _is_implausible_demand_artifact
+
+        # 500 MW vs a ~6,000 MW day (< 10% of median).
+        assert _is_implausible_demand_artifact(500.0, [6000.0] * 24, prev_mw=6100.0)
+
+    def test_aps_single_step_collapse_flagged(self):
+        """The reported case: APS 0.6 GW after 6.5 GW (−90.7%), day ~6 GW."""
+        from components._callbacks_us_grid import _is_implausible_demand_artifact
+
+        history = [6000.0] * 23 + [600.0]
+        assert _is_implausible_demand_artifact(600.0, history, prev_mw=6500.0)
+
+    def test_ladwp_moderate_collapse_flagged(self):
+        """LADWP −68.6%: 0.9 GW after ~2.9 GW, day median ~3 GW. Above the 10%
+        near-zero floor, so ONLY the step-collapse signal catches it."""
+        from components._callbacks_us_grid import _is_implausible_demand_artifact
+
+        history = [3000.0] * 23 + [900.0]
+        assert _is_implausible_demand_artifact(900.0, history, prev_mw=2900.0)
+
+    def test_gradual_overnight_trough_not_flagged(self):
+        """A real trough descends over many hours — no single step halves the
+        load — so a value at ~55% of median with a mild prior step is kept."""
+        from components._callbacks_us_grid import _is_implausible_demand_artifact
+
+        # median ~5,000; current 2,800 (56% of median) reached from 3,100 (a
+        # 10% step, not a collapse).
+        history = [6500, 6000, 5500, 5000, 4500, 4000, 3500, 3100, 2800] + [5000] * 15
+        assert not _is_implausible_demand_artifact(2800.0, history, prev_mw=3100.0)
+
+    def test_return_from_spike_not_flagged(self):
+        """A sharp drop from an abnormal spike back to a normal level is not an
+        artifact — the value lands at the day's median, so signal (2) requires
+        it also be < 60% of median, which fails."""
+        from components._callbacks_us_grid import _is_implausible_demand_artifact
+
+        # prev spiked to 12,000; current returns to 6,000 = the day's median.
+        history = [6000.0] * 23 + [12000.0]
+        assert not _is_implausible_demand_artifact(6000.0, history, prev_mw=12000.0)
+
+    def test_no_prev_falls_back_to_near_zero_only(self):
+        """Without a prior reading, only the near-zero signal applies — a
+        moderate low value is kept (can't confirm a collapse)."""
+        from components._callbacks_us_grid import _is_implausible_demand_artifact
+
+        assert not _is_implausible_demand_artifact(900.0, [3000.0] * 24)  # 30% of median, no prev
+        assert _is_implausible_demand_artifact(200.0, [3000.0] * 24)  # < 10% of median
+
+
+class TestPacwImportDominated:
+    """#225: PACW (PacifiCorp West) nameplate ≈ served load, so it crowned the
+    top-stress KPI at ~100%. It's now classified import-dominated."""
+
+    def test_pacw_in_import_dominated_set(self):
+        from config import IS_IMPORT_DOMINATED
+
+        assert "PACW" in IS_IMPORT_DOMINATED
+
+    def test_pacw_excluded_from_top_stress(self):
+        from components.callbacks import _build_us_grid_metrics_items
+        from config import REGION_CAPACITY_MW
+
+        # PACW at ~99% of its nameplate vs a genuinely-lower PJM.
+        region_data = {
+            "PACW": {
+                "current_mw": REGION_CAPACITY_MW["PACW"] * 0.99,
+                "today_mw": [REGION_CAPACITY_MW["PACW"] * 0.95] * 24,
+            },
+            "PJM": {"current_mw": REGION_CAPACITY_MW["PJM"] * 0.60, "today_mw": [1.0] * 24},
+        }
+        items = _build_us_grid_metrics_items(region_data)
+        top = next(i for i in items if i["label"] == "Highest-Stress Region")
+        assert "PACW" not in top["value"]
+        assert "PJM" in top["value"]

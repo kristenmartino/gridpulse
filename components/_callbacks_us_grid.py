@@ -200,15 +200,46 @@ def _simultaneous_national_peak_mw(populated: dict[str, dict]) -> float:
 # excluded from stress rankings.
 
 
-def _is_implausible_demand_artifact(current_mw: float, today_mw: list) -> bool:
+# --- #225 demand-plausibility thresholds ---
+#: A reading below this fraction of the 24h median is a near-zero glitch
+#: (NaN-as-tiny, dropped point). Mirrors drift.LOW_ACTUAL_FRACTION (#142).
+_ARTIFACT_NEAR_ZERO_FRACTION = 0.10
+#: A single-hour drop TO below this fraction of the previous real reading is
+#: physically implausible for aggregate BA demand (a >60% one-hour collapse);
+#: paired with the median check below it flags a dropped/partial EIA point —
+#: the #225 "APS −90.7%" case — without clipping a gradual overnight trough
+#: (real troughs descend over many hours, so no single step halves the load).
+_ARTIFACT_STEP_DROP_FRACTION = 0.40
+#: The single-step-drop signal only fires when the reading is also this far
+#: below the day's median — so a sharp *return from a spike* to a normal level
+#: is not mistaken for an artifact.
+_ARTIFACT_STEP_LOW_FRACTION = 0.60
+
+
+def _is_implausible_demand_artifact(
+    current_mw: float, today_mw: list, prev_mw: float | None = None
+) -> bool:
     """Check if a BA's latest demand is an implausible artifact vs. recent history.
 
-    Follows the region-relative low-actual filter pattern from models/drift.py
-    (#142): if current_mw is below 10% of the rolling 24h median, treat it as
-    a data-quality artifact (e.g. EIA reporting glitch, NaN masquerading as
-    negative) rather than real utilization.
+    Two independent signals (either fires):
 
-    Returns True if current_mw should be excluded from stress calculations.
+    1. **Near-zero glitch** — ``current_mw`` below 10% of the rolling 24h
+       median (NaN-as-tiny, dropped point). Follows the region-relative
+       low-actual filter from ``models/drift.py`` (#142).
+    2. **Single-step collapse** — a >60% one-hour drop from the previous real
+       reading that also lands well below the day's median. Aggregate demand
+       does not halve in an hour, so this is a dropped/partial EIA point (the
+       #225 "APS 0.6 GW / −90.7%" case). Both conditions are required so a
+       sharp *return from a spike* to a normal level is not flagged.
+
+    Args:
+        current_mw: The BA's latest demand reading, MW.
+        today_mw: The trailing 24h demand list (may contain NaN / zero).
+        prev_mw: The previous real reading, MW — enables the step-collapse
+            signal. Optional; when absent only signal (1) applies.
+
+    Returns:
+        True if ``current_mw`` should be excluded from stress calculations.
     """
     if not _is_real_positive(current_mw):
         return True  # Already filtered out by _is_real_positive, but be explicit
@@ -224,9 +255,15 @@ def _is_implausible_demand_artifact(current_mw: float, today_mw: list) -> bool:
     if median_24h <= 0:
         return False  # Degenerate history; can't establish scale, assume current is real
 
-    # 10% threshold, mirroring drift.LOW_ACTUAL_FRACTION
-    threshold = 0.10 * median_24h
-    return current_mw < threshold
+    # (1) near-zero glitch
+    if current_mw < _ARTIFACT_NEAR_ZERO_FRACTION * median_24h:
+        return True
+    # (2) single-step collapse (needs a prior real reading)
+    return bool(
+        _is_real_positive(prev_mw)
+        and current_mw < _ARTIFACT_STEP_DROP_FRACTION * float(prev_mw)
+        and current_mw < _ARTIFACT_STEP_LOW_FRACTION * median_24h
+    )
 
 
 def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "cards") -> list[dict]:
@@ -250,7 +287,9 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
     plausible = {
         r: d
         for r, d in populated.items()
-        if not _is_implausible_demand_artifact(d["current_mw"], d.get("today_mw") or [])
+        if not _is_implausible_demand_artifact(
+            d["current_mw"], d.get("today_mw") or [], d.get("prev_mw")
+        )
     }
 
     total_mw = sum(d["current_mw"] for d in plausible.values())
@@ -260,12 +299,11 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         region: d["current_mw"] / cap
         for region, d in plausible.items()
         if (cap := REGION_CAPACITY_MW.get(region, 0)) > 0
-        # V3.η: structurally import-dominated BAs (CPLW, HST, SPA) are
-        # never valid candidates for "highest stress" — their capacity
-        # is a peak × 1.15 estimate, not a measured plate, so the stress
-        # ratio against it is too noisy to rank against truly-stressed
-        # vertically integrated BAs. Filter at source rather than at
-        # the reliability ceiling.
+        # Structurally import-dominated BAs (CPLW, HST, SPA, PACW) are never
+        # valid candidates for "highest stress" — their nameplate is far below
+        # served load, so the stress ratio against it is noise, not real stress
+        # (PACW added #225). The reliability ceiling below is the belt-and-braces
+        # fallback for any BA whose *current* ratio still exceeds 2×.
         and region not in IS_IMPORT_DOMINATED
     }
     # Belt-and-braces fallback: anything above the reliability ceiling
@@ -499,17 +537,16 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
         )
 
     stress_chip = None
-    # Guard against implausible demand artifacts (#225) — if current_mw is an
-    # outlier below 10% of 24h median, treat it as unavailable rather than
-    # computing a misleading stress percentage.
-    if capacity_mw > 0 and not _is_implausible_demand_artifact(current_mw, today_mw):
+    # Guard against implausible demand artifacts (#225) — a near-zero glitch or
+    # a single-hour collapse is treated as unavailable rather than rendered as a
+    # misleading stress percentage.
+    if capacity_mw > 0 and not _is_implausible_demand_artifact(current_mw, today_mw, prev_mw):
         stress_ratio = current_mw / capacity_mw
-        # V3.η: structurally import-dominated BAs (CPLW, HST, SPA) get
-        # the qualitative "imports" chip whether or not their stress
-        # ratio happens to land above the ceiling on a given hour. The
-        # capacity figure for these BAs is a peak × 1.15 estimate, not
-        # measured plate, so the percentage isn't meaningful even when
-        # it's mathematically below 100%.
+        # Import-dominated BAs (CPLW, HST, SPA, PACW) get the qualitative
+        # "imports" chip whether or not their stress ratio lands above the
+        # ceiling on a given hour: their nameplate is far below served load, so
+        # the percentage isn't a meaningful stress signal even when it's
+        # mathematically below 100% (PACW added #225).
         is_import_dominated = (
             region in IS_IMPORT_DOMINATED or stress_ratio > _STRESS_RELIABLE_CEILING
         )
@@ -620,7 +657,9 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     for r in regions:
         cap = REGION_CAPACITY_MW.get(r, 0)
         if cap > 0 and not _is_implausible_demand_artifact(
-            populated[r]["current_mw"], populated[r].get("today_mw") or []
+            populated[r]["current_mw"],
+            populated[r].get("today_mw") or [],
+            populated[r].get("prev_mw"),
         ):
             stress_pct.append(min(populated[r]["current_mw"] / cap * 100, 100.0))
         else:
@@ -781,7 +820,9 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
     for r in regions:
         cap = REGION_CAPACITY_MW.get(r, 0)
         if cap > 0 and not _is_implausible_demand_artifact(
-            populated[r]["current_mw"], populated[r].get("today_mw") or []
+            populated[r]["current_mw"],
+            populated[r].get("today_mw") or [],
+            populated[r].get("prev_mw"),
         ):
             stress_pct.append(min(populated[r]["current_mw"] / cap * 100, 100.0))
         else:
