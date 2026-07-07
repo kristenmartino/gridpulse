@@ -47,7 +47,17 @@ flowchart LR
     TJ -- write backtests --> Redis
     App -- read only --> Redis
     User((User browser)) <-- HTTPS --> App
+    APIClient((API client)) -- GET /api/v1/* --> App
 ```
+
+**HTTP surfaces on the web tier:** the Dash UI, `/health` (+ `?deep=1`),
+`/metrics`, and since #250 a **public read-only JSON API** at `/api/v1` —
+index, `/regions`, `/forecast/{region}?horizon=` (capped at 168h, the
+weather-driven week), `/grid/summary`, `/drift/{region}`. The API reads the
+same `gridpulse:*` Redis keys as the UI (same warming semantics: cold cache →
+`503 {"status": "warming"}`, never fabricated data; unknown region → 404) and
+exports fields by allow-list only. See the README "Public API" section for
+curl examples.
 
 **Why this split:** scoring + training are *expensive* (~5 min and ~3 hr for 51 BAs respectively) and *don't need to be interactive*. Putting them in Cloud Run **Service** would force every web request to wait on them — or rely on a background-thread hack that doesn't survive container recycles. Cloud Run **Jobs** are purpose-built for batch work with proper retries and 5-hour timeouts.
 

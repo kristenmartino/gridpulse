@@ -133,6 +133,13 @@ from components.callbacks import register_callbacks  # noqa: E402
 
 register_callbacks(app)
 
+# ── Public read-only JSON API (v1, #250) ───────────────────────
+# Thin blueprint over the same gridpulse:* Redis keys the web tier reads —
+# no new data path, honors the web-tier I/O guardrail (Redis-only).
+from api import api_v1  # noqa: E402
+
+server.register_blueprint(api_v1)
+
 # ── Optional in-process precompute (development only) ─────────
 # In staging/production the scoring + training Cloud Run Jobs own the
 # pipeline, so PRECOMPUTE_ENABLED defaults to False (see config._ENV_DEFAULTS).

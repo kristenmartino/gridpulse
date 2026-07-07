@@ -159,6 +159,37 @@ GridPulse includes an external news/signals integration for contextual headlines
 
 ---
 
+## 2.5 Public JSON API (v1, outbound surface)
+
+Read-only, unauthenticated JSON API served by the web tier ([`api.py`](api.py),
+[#250](https://github.com/kristenmartino/gridpulse/issues/250)). Routes over
+the same `gridpulse:*` Redis keys as the dashboard — never EIA/Open-Meteo/GCS
+in the request path.
+
+| Route | Returns |
+|---|---|
+| `GET /api/v1` | endpoint index + caveat notes |
+| `GET /api/v1/regions` | 51 BAs: name, lat/lon, nameplate capacity, import-dominated, quality-gate status |
+| `GET /api/v1/forecast/{region}?horizon=N` | hourly ensemble + per-model series, holdout metrics, ensemble weights, `scored_at` |
+| `GET /api/v1/grid/summary` | national totals (artifact-filtered, same semantics as the US Grid KPI bar) |
+| `GET /api/v1/drift/{region}` | live 1h drift + horizon-matched 24/48/72h grades |
+
+### Contract
+- horizon bounds **[1, 168]**; out-of-range → `400 invalid_horizon`. 168 is a
+  deliberate cap: the payload holds 720 rows, but rows beyond the numerical-
+  weather window lean on climatology (ADR-008) and are not exported.
+- cold cache → `503 {"status": "warming"}` + `Retry-After: 60` — never
+  fabricated data; unknown region → `404` with the valid-region list.
+- `Cache-Control: public, max-age=60` on 200s only; errors are `no-store`.
+  Permissive CORS (`*`) — read-only GETs. Fan-out endpoints (`/regions`,
+  `/grid/summary`) memoize success bodies in-process for 30s.
+- exported fields are **allow-listed** (known model names / summary stats) —
+  internal cache-schema fields never auto-publish. Prediction intervals are
+  omitted until per-model calibration ([#196](https://github.com/kristenmartino/gridpulse/issues/196));
+  capacity figures are EIA-860M nameplate ([#243](https://github.com/kristenmartino/gridpulse/issues/243)).
+
+---
+
 ## 3. Region Definitions
 
 ## 3.1 Balancing Authorities
