@@ -59,6 +59,29 @@ _EXPORTED_MODELS = ("prophet", "arima", "xgboost", "ensemble")
 _EXPORTED_LIVE_DRIFT_FIELDS = ("rolling_mape_7d", "rolling_mape_30d", "n_records")
 _EXPORTED_HORIZON_DRIFT_FIELDS = ("rolling_mape_7d", "grade", "n_records")
 
+#: Data-source attribution that must travel with redistributed values so
+#: downstream API consumers can meet the upstream license terms. Open-Meteo
+#: weather is CC-BY-4.0 (attribution required); EIA-930 and NWS are US-Gov
+#: public-domain works credited as good practice. Emitted on the index and on
+#: every data payload. Fuller UI-footer + commercial-posture work is #256.
+_ATTRIBUTION = {
+    "demand": {
+        "source": "U.S. Energy Information Administration, Form EIA-930",
+        "url": "https://www.eia.gov/opendata/",
+        "license": "U.S. Government work (public domain)",
+    },
+    "weather": {
+        "source": "Open-Meteo",
+        "url": "https://open-meteo.com/",
+        "license": "CC-BY-4.0",
+    },
+    "alerts": {
+        "source": "NOAA / National Weather Service",
+        "url": "https://www.weather.gov/",
+        "license": "U.S. Government work (public domain)",
+    },
+}
+
 #: In-process memo for the fan-out endpoints (/regions, /grid/summary): they
 #: aggregate ~50-100 Redis reads per request and their bodies are identical
 #: for every client, so an unauthenticated cache-busting client must not be
@@ -158,6 +181,7 @@ def index():
                 "on climatology beyond the weather window (ADR-008), which the API "
                 "does not export as if it were a weather-driven forecast.",
             ],
+            "attribution": list(_ATTRIBUTION.values()),
         }
     )
 
@@ -261,6 +285,9 @@ def forecast(raw_region: str):
         "notes": [
             "Prediction intervals omitted until per-model calibration (#196).",
         ],
+        # Weather-driven demand forecast → both the EIA target and the
+        # Open-Meteo (CC-BY) feature source travel with the payload.
+        "attribution": [_ATTRIBUTION["demand"], _ATTRIBUTION["weather"]],
     }
     if payload.get("ensemble_weights"):
         body["ensemble_weights"] = payload["ensemble_weights"]
@@ -356,6 +383,7 @@ def grid_summary():
             "their own 24h median (EIA publishing glitch) and are excluded "
             "from all aggregates, matching the dashboard.",
         ],
+        "attribution": [_ATTRIBUTION["demand"]],
     }
     _memo_set("grid_summary", body)
     return jsonify(body)
@@ -404,6 +432,8 @@ def drift(raw_region: str):
             "are expected to sit above the 1h band. Horizon-matched grades "
             "(24/48/72h) are the operating-horizon verdict (#227).",
         ],
+        # Drift = forecast-vs-actual demand; the EIA-930 actual is the anchor.
+        "attribution": [_ATTRIBUTION["demand"]],
     }
     if live_ok:
         body["live_1h"] = {

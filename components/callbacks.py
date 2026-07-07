@@ -351,7 +351,7 @@ def register_callbacks(app):
                         from data.demo_data import generate_demo_demand
 
                         demand_df = generate_demo_demand(region)
-                        freshness["demand"] = "stale"
+                        freshness["demand"] = "demo"
                         pipe.step("fetch_demand", rows=len(demand_df), source="demo_fallback")
                     else:
                         pipe.step("fetch_demand", rows=len(demand_df), source="eia_api")
@@ -360,7 +360,7 @@ def register_callbacks(app):
                     from data.demo_data import generate_demo_demand
 
                     demand_df = generate_demo_demand(region)
-                    freshness["demand"] = "stale"
+                    freshness["demand"] = "demo"
                     pipe.step("fetch_demand", rows=len(demand_df), source="demo_fallback")
                 try:
                     weather_df = fetch_weather(region)
@@ -369,7 +369,7 @@ def register_callbacks(app):
                         from data.demo_data import generate_demo_weather
 
                         weather_df = generate_demo_weather(region)
-                        freshness["weather"] = "stale"
+                        freshness["weather"] = "demo"
                         pipe.step("fetch_weather", rows=len(weather_df), source="demo_fallback")
                     else:
                         pipe.step("fetch_weather", rows=len(weather_df), source="open_meteo")
@@ -378,7 +378,7 @@ def register_callbacks(app):
                     from data.demo_data import generate_demo_weather
 
                     weather_df = generate_demo_weather(region)
-                    freshness["weather"] = "stale"
+                    freshness["weather"] = "demo"
                     pipe.step("fetch_weather", rows=len(weather_df), source="demo_fallback")
             else:
                 from data.demo_data import generate_demo_demand, generate_demo_weather
