@@ -271,3 +271,49 @@ html.Span("ⓘ", title=<HELP TEXT>, className="gp-metric-help",
 
 **Verify** — `ruff format` + `ruff check` each changed file; import all four
 modules; diff-review each change against this spec.
+
+---
+
+## Phase 2 — Haiku execution breakdown (clickable Highest-Stress KPI)
+
+**Scope note (2026-07-06):** the original plan made *two* KPIs clickable, but
+*Lowest Reserve* became **National Utilization** (a national aggregate — no
+single card to jump to), so Phase 2 is the **Highest-Stress Region KPI only**:
+click → smooth-scroll to that BA's card + a brief highlight flash, staying on
+the US Grid tab. Clientside only — no server round-trip, no data change.
+Clickable only in the **Cards** view (Map/Polygons have no card to scroll to).
+
+Mechanism: the KPI cell gets a pattern-matching id
+`{"type": "us-grid-kpi-jump", "region": <top_region>}`; a clientside callback
+on `Input({type, region: ALL}, "n_clicks")` parses the region from the
+triggered id, finds the card element (its Dash dict-id stringifies into the
+DOM id, so `[id*="us-grid-region-card"]` + `id.includes('"<REGION>"')`),
+calls `scrollIntoView({smooth, center})`, and toggles a
+`gp-region-card--flash` class for ~2.4s. Dummy `dcc.Store` output.
+
+File-partitioned tasks (foundation first, then parallel):
+
+**Task 0 — `components/cards.py`** *(foundation)*: `build_metrics_bar` gains an
+optional `cell_id` item key → the cell Div gets `id=cell_id`, `n_clicks=0`,
+`role="button"`, `tabIndex="0"`, and class `gp-metric-cell--clickable`
+appended. Backward-compatible; docstring updated.
+
+**Task 1 — `components/_callbacks_us_grid.py`**: (a)
+`_build_us_grid_metrics_items(region_data, view="cards")` — new default param;
+when `reliable_stress` is non-empty AND `view == "cards"`, the Highest-Stress
+item gains `"cell_id": {"type": "us-grid-kpi-jump", "region": top_region}`;
+caller passes `view`. (b) register the clientside scroll callback (exact JS in
+the task prompt) in `register_us_grid_callbacks`.
+
+**Task 2 — `components/tab_us_grid.py` + `assets/custom.css`**: add
+`dcc.Store(id="us-grid-jump-store")` to the layout (import `dcc`); CSS for
+`.gp-metric-cell--clickable` (pointer/hover/focus-visible) and the
+`gp-card-flash` keyframe animation.
+
+**Task 3 — `tests/unit/test_us_grid_jump.py`** (new): jump `cell_id` present
+only in Cards view with a real top region; absent on the placeholder path and
+in Map view; `build_metrics_bar` renders the clickable cell (id, n_clicks,
+role); one-arg call still works (default-param arity guard).
+
+**Verify** — ruff + full US-Grid test sweep + module imports; final visual
+check on the running app post-merge.
