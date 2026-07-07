@@ -169,6 +169,42 @@ docker run -p 8080:8080 -e EIA_API_KEY=your_key gridpulse
 
 ---
 
+## Public API (v1)
+
+Read-only JSON access to the same Redis-backed data the dashboard renders —
+no key required. Base URL: `https://gridpulse.kristenmartino.ai/api/v1`
+
+```bash
+# Endpoint index
+curl https://gridpulse.kristenmartino.ai/api/v1
+
+# The 51 balancing authorities + metadata (nameplate capacity, import-dominated, quality gate)
+curl https://gridpulse.kristenmartino.ai/api/v1/regions
+
+# Next-24h ensemble forecast for a region (per-model series + holdout metrics included)
+curl "https://gridpulse.kristenmartino.ai/api/v1/forecast/FPL?horizon=24"
+
+# National roll-up: total demand, simultaneous 24h peak, utilization, top-stress BA
+curl https://gridpulse.kristenmartino.ai/api/v1/grid/summary
+
+# Model drift: live 1h nowcast + horizon-matched (24/48/72h) accuracy grades
+curl https://gridpulse.kristenmartino.ai/api/v1/drift/ERCOT
+```
+
+Semantics worth knowing (the API keeps the dashboard's honesty rules):
+
+- Every payload carries provenance — `scored_at`, model identity, ensemble
+  weights. Data refreshes hourly from the scoring pipeline.
+- A cold cache returns **503 `{"status": "warming"}`**, never fabricated data.
+- Unknown regions return **404** with the valid-region list.
+- Forecast horizon is capped at **168h** — the week driven by numerical
+  weather forecasts; the dashboard's 30-day tail leans on climatology
+  (ADR-008) and is deliberately not exported.
+- Prediction intervals are omitted until per-model calibration lands (#196);
+  capacity figures are EIA-860M **nameplate**, not accredited capacity (#243).
+
+---
+
 ## Testing
 
 ```bash

@@ -43,6 +43,7 @@
 | Redis namespace prefix | `gridpulse:` (was `wattcast:` until [#114](https://github.com/kristenmartino/gridpulse/pull/114)) | [`data/redis_client.REDIS_KEY_PREFIX`](../data/redis_client.py) |
 | Visible tabs | **5**: Overview, US Grid, Forecast, Risk, Models | `config._VISIBLE_TABS` |
 | Tabs original / current | 9 visible → 5 visible (R3 redesign 2026) | [`components/layout.py`](../components/layout.py) |
+| Public API base URL | `https://gridpulse.kristenmartino.ai/api/v1` (read-only, no key; 5 routes; 60s public cache on 200s; forecast horizon capped at 168h) | [`api.py`](../api.py) ([#250](https://github.com/kristenmartino/gridpulse/issues/250)) |
 
 ## Product framing
 
