@@ -734,6 +734,20 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     letter-spacing: 0.04em;
 }
 
+/* CC-BY attribution link (Open-Meteo) — inherits the muted footer tone,
+   underline on hover/focus only so it reads as text until sought. */
+.gp-footer__source-link {
+    color: inherit;
+    text-decoration: none;
+    border-bottom: 1px dotted currentColor;
+}
+
+.gp-footer__source-link:hover,
+.gp-footer__source-link:focus-visible {
+    color: var(--text-secondary);
+    text-decoration: none;
+}
+
 /* MetricsBar 4-up variant (Forecast tab) */
 .gp-metrics-bar--4up {
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1245,6 +1259,15 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 .gp-panel__hint {
     color: var(--text-tertiary);
     font-size: 12px;
+}
+
+/* Honesty caption: linear what-if heuristic is not a model re-forecast (#127) */
+.gp-panel__disclosure {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    font-style: italic;
+    line-height: var(--leading-relaxed);
+    margin: 4px 0 10px;
 }
 
 .gp-panel__placeholder {

@@ -484,18 +484,45 @@ def build_insight_card(
     )
 
 
+#: Sources that carry a required/preferred attribution link. Open-Meteo weather
+#: is CC-BY-4.0, which requires a visible credit + link travelling with the data.
+#: EIA-930 and NWS are US-Gov public-domain works (credited as good practice).
+#: Canonical licensing: THIRD_PARTY_NOTICES.md; fuller surface + commercial-use
+#: posture: #256.
+_FOOTER_SOURCE_LINKS = {"Open-Meteo": "https://open-meteo.com/"}
+
+
 def build_page_footer(
     sources: list[str] | None = None,
     note: str | None = None,
 ) -> html.Div:
     """Small attribution footer at the bottom of the linear stack.
 
+    Open-Meteo is rendered as a link to satisfy its CC-BY-4.0 attribution
+    requirement (see ``_FOOTER_SOURCE_LINKS``).
+
     NOAA earned its credit back in 2026-07: the scoring job now fetches live
     NWS alerts via ``data.noaa_client`` (it was unwired — and uncredited —
     before that).
     """
     sources = sources or ["EIA", "Open-Meteo", "NOAA"]
-    parts: list = [html.Span(" · ".join(sources), className="gp-footer__sources")]
+    rendered: list = []
+    for i, src in enumerate(sources):
+        if i:
+            rendered.append(" · ")
+        href = _FOOTER_SOURCE_LINKS.get(src)
+        rendered.append(
+            html.A(
+                src,
+                href=href,
+                target="_blank",
+                rel="noopener noreferrer",
+                className="gp-footer__source-link",
+            )
+            if href
+            else html.Span(src)
+        )
+    parts: list = [html.Span(rendered, className="gp-footer__sources")]
     if note:
         parts.append(html.Span(note, className="gp-footer__note"))
     return html.Div(parts, className="gp-footer")

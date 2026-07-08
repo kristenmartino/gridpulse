@@ -695,7 +695,10 @@ class TestLoadDataV1:
             result = callbacks["load_data"]("FPL", 0)
 
         freshness = json.loads(result[2])
-        assert freshness["demand"] == "stale"
+        # Synthetic demo substitution → "demo", not "stale" (which means real
+        # cached data past its window). Mislabeling fabricated data as stale
+        # implied it was real-but-old.
+        assert freshness["demand"] == "demo"
         assert freshness["weather"] == "fresh"
 
     def test_weather_api_failure_falls_to_demo(self, callbacks):
@@ -712,7 +715,8 @@ class TestLoadDataV1:
 
         freshness = json.loads(result[2])
         assert freshness["demand"] == "fresh"
-        assert freshness["weather"] == "stale"
+        # Synthetic demo substitution → "demo", not "stale" (see above).
+        assert freshness["weather"] == "demo"
 
     def test_empty_demand_fallback_to_demo(self, callbacks):
         """When fetch_demand returns empty DataFrame, demo is used."""
@@ -727,7 +731,8 @@ class TestLoadDataV1:
             result = callbacks["load_data"]("FPL", 0)
 
         freshness = json.loads(result[2])
-        assert freshness["demand"] == "stale"
+        # Empty EIA response → synthetic demo substitution → "demo", not "stale".
+        assert freshness["demand"] == "demo"
 
     def test_total_failure_falls_to_error_demo(self, callbacks):
         """When audit_trail.record_forecast raises, error fallback produces demo."""

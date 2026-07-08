@@ -1,10 +1,30 @@
 # Third-Party Notices
 
-GridPulse bundles assets from upstream open-source projects. Each is
-listed below with its license, where it's used, and where to find the
-original source.
+GridPulse depends on third-party data and assets. This file lists the
+**runtime data sources** it fetches (and redistributes through the UI and
+the public `/api/v1` endpoints) and the **bundled assets** it ships, each
+with its license, where it's used, and where to find the original source.
 
-## `assets/ba_polygons.geojson`
+## Runtime data sources
+
+GridPulse fetches these feeds in the scoring/training jobs and
+redistributes derived values through the dashboard and the public API.
+Attribution travels with the API payloads (`attribution` field) so
+downstream consumers inherit the terms below.
+
+| Source | Used for | License / terms |
+| --- | --- | --- |
+| [U.S. Energy Information Administration — Form EIA-930](https://www.eia.gov/opendata/) | Hourly demand, generation, and interchange (the forecast target) | U.S. Government work — public domain. EIA requests citation of the agency as the source. |
+| [Open-Meteo](https://open-meteo.com/) | 17 weather variables (the forecast features) — historical + forecast | **CC-BY-4.0.** Attribution required: "Weather data by Open-Meteo.com". |
+| [NOAA / National Weather Service](https://www.weather.gov/) | Severe-weather alerts on the Risk tab | U.S. Government work — public domain. |
+
+The commercial-use posture of the Open-Meteo free tier and the fuller
+in-product attribution surface are tracked in
+[#256](https://github.com/kristenmartino/gridpulse/issues/256).
+
+## Bundled assets
+
+### `assets/ba_polygons.geojson`
 
 **Source**: filtered from
 [`electricitymaps/electricitymaps-contrib`](https://github.com/electricitymaps/electricitymaps-contrib)

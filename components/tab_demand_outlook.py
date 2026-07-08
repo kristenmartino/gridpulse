@@ -441,6 +441,12 @@ def _panel_scenarios() -> dbc.Collapse:
                     "Scenarios",
                     "Stress-test demand against weather shifts",
                 ),
+                html.P(
+                    "Illustrative linear weather-sensitivity — not a model "
+                    "re-forecast. Use these deltas for directional "
+                    "stress-testing, not as calibrated predictions.",
+                    className="gp-panel__disclosure",
+                ),
                 html.Div(_scenario_preset_chips(), className="gp-preset-chips"),
                 html.Div(
                     [

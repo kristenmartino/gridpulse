@@ -76,6 +76,26 @@ class TestIndexAndHeaders:
         assert resp.headers["Access-Control-Allow-Origin"] == "*"
         assert "max-age=60" in resp.headers["Cache-Control"]
 
+    def test_index_carries_data_source_attribution(self, client):
+        """CORS is '*', so payloads are redistributed anywhere. Open-Meteo is
+        CC-BY-4.0 — its credit + link must travel with the data."""
+        body = client.get("/api/v1").get_json()
+        sources = {a["source"]: a for a in body["attribution"]}
+        om = next(a for a in body["attribution"] if "Open-Meteo" in a["source"])
+        assert om["license"] == "CC-BY-4.0"
+        assert om["url"] == "https://open-meteo.com/"
+        assert any("EIA-930" in s for s in sources)
+
+    @patch("api.redis_get")
+    def test_forecast_payload_carries_attribution(self, mock_redis, client):
+        """A redistributed forecast row is weather-driven demand → both the EIA
+        and the CC-BY Open-Meteo credits accompany it."""
+        mock_redis.return_value = _forecast_payload()
+        body = client.get("/api/v1/forecast/FPL").get_json()
+        licenses = {a["source"]: a["license"] for a in body["attribution"]}
+        assert any("Open-Meteo" in s for s in licenses)
+        assert any("EIA-930" in s for s in licenses)
+
     @patch("api.redis_get", return_value=None)
     def test_errors_are_never_shared_cacheable(self, _redis, client):
         """A cached 503 'warming' would delay first data by up to 60s — errors
