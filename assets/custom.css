@@ -2374,6 +2374,14 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     font-style: italic;
 }
 
+/* #254: peak-derived-capacity BAs (plate = peak×1.15). Neutral "est." chip —
+   utilization vs an estimated plate isn't a measured-stress reading. */
+.gp-region-card__stress--estimated {
+    color: var(--text-tertiary);
+    background: var(--bg-raised);
+    font-style: italic;
+}
+
 /* V3.α — net BA-to-BA interchange chip. Sign-coded:
    export (+ flow out) reads success-tone, import (- flow in) reads
    forecast/orange-tone (the same accent forecasts use), and a near-

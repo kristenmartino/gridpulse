@@ -178,7 +178,7 @@ no key required. Base URL: `https://gridpulse.kristenmartino.ai/api/v1`
 # Endpoint index
 curl https://gridpulse.kristenmartino.ai/api/v1
 
-# The 51 balancing authorities + metadata (nameplate capacity, import-dominated, quality gate)
+# The 51 balancing authorities + metadata (capacity + capacity_source, import-dominated, quality gate)
 curl https://gridpulse.kristenmartino.ai/api/v1/regions
 
 # Next-24h ensemble forecast for a region (per-model series + holdout metrics included)
@@ -201,7 +201,9 @@ Semantics worth knowing (the API keeps the dashboard's honesty rules):
   weather forecasts; the dashboard's 30-day tail leans on climatology
   (ADR-008) and is deliberately not exported.
 - Prediction intervals are omitted until per-model calibration lands (#196);
-  capacity figures are EIA-860M **nameplate**, not accredited capacity (#243).
+  `capacity_mw` is EIA-860M **nameplate** for most BAs or a peak×1.15 **estimate**
+  for 7 peak-derived BAs (`capacity_source` disambiguates; #254), never accredited
+  capacity (#243).
 
 ---
 

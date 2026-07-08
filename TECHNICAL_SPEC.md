@@ -169,7 +169,7 @@ in the request path.
 | Route | Returns |
 |---|---|
 | `GET /api/v1` | endpoint index + caveat notes |
-| `GET /api/v1/regions` | 51 BAs: name, lat/lon, nameplate capacity, import-dominated, quality-gate status |
+| `GET /api/v1/regions` | 51 BAs: name, lat/lon, `capacity_mw` + `capacity_source` (`nameplate` \| `peak_estimate`), import-dominated, quality-gate status |
 | `GET /api/v1/forecast/{region}?horizon=N` | hourly ensemble + per-model series, holdout metrics, ensemble weights, `scored_at` |
 | `GET /api/v1/grid/summary` | national totals (artifact-filtered, same semantics as the US Grid KPI bar) |
 | `GET /api/v1/drift/{region}` | live 1h drift + horizon-matched 24/48/72h grades |
@@ -185,8 +185,11 @@ in the request path.
   `/grid/summary`) memoize success bodies in-process for 30s.
 - exported fields are **allow-listed** (known model names / summary stats) —
   internal cache-schema fields never auto-publish. Prediction intervals are
-  omitted until per-model calibration ([#196](https://github.com/kristenmartino/gridpulse/issues/196));
-  capacity figures are EIA-860M nameplate ([#243](https://github.com/kristenmartino/gridpulse/issues/243)).
+  omitted until per-model calibration ([#196](https://github.com/kristenmartino/gridpulse/issues/196)).
+  `capacity_mw` is EIA-860M nameplate for most BAs or a peak×1.15 **estimate**
+  for 7 peak-derived BAs (`capacity_source` disambiguates;
+  [#254](https://github.com/kristenmartino/gridpulse/issues/254)), never
+  accredited capacity ([#243](https://github.com/kristenmartino/gridpulse/issues/243)).
 
 ---
 

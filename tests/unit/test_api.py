@@ -118,11 +118,25 @@ class TestRegions:
         assert body["count"] == 51
         fpl = next(r for r in body["regions"] if r["code"] == "FPL")
         assert fpl["name"] == "Florida (FPL/NextEra)"
-        assert fpl["nameplate_capacity_mw"] == 35_963
+        # Field renamed nameplate_capacity_mw -> capacity_mw (#254): FPL is a
+        # measured plate, so capacity_source is "nameplate".
+        assert fpl["capacity_mw"] == 35_963
+        assert fpl["capacity_source"] == "nameplate"
         assert fpl["import_dominated"] is False
         assert fpl["quality_gated"] is False
         hst = next(r for r in body["regions"] if r["code"] == "HST")
         assert hst["import_dominated"] is True
+        # Peak-derived capacity (peak×1.15) is disclosed as an estimate, not
+        # mislabeled "nameplate" (#254). SOCO is peak-derived but NOT import-
+        # dominated — the gap this fix closes.
+        soco = next(r for r in body["regions"] if r["code"] == "SOCO")
+        assert soco["capacity_source"] == "peak_estimate"
+        assert soco["import_dominated"] is False
+        assert hst["capacity_source"] == "peak_estimate"
+        # SPA is import-dominated but a TRUE nameplate (federal dam fleet).
+        spa = next(r for r in body["regions"] if r["code"] == "SPA")
+        assert spa["capacity_source"] == "nameplate"
+        assert spa["import_dominated"] is True
 
 
 class TestForecast:

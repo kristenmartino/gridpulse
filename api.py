@@ -14,7 +14,9 @@ Honesty contract (mirrors the UI):
 - Prediction intervals are deliberately **omitted** until per-model interval
   calibration lands (#196) — the UI's current intervals are XGBoost-residual
   derived for every model selection, which is not honest enough to export.
-- Capacity figures are EIA-860M **nameplate** (never "reserve margin"; #243).
+- Capacity figures are EIA-860M **nameplate** for most BAs, or a peak×1.15
+  **estimate** for the 7 peak-derived BAs (``capacity_source`` on ``/regions``
+  disambiguates; #254) — never accredited capacity or a "reserve margin" (#243).
 
 Registered on the Flask ``server`` in ``app.py``.
 """
@@ -29,9 +31,11 @@ from flask import Blueprint, jsonify
 
 from config import (
     IS_IMPORT_DOMINATED,
+    PEAK_DERIVED_CAPACITY,
     REGION_CAPACITY_MW,
     REGION_COORDINATES,
     REGION_NAMES,
+    UNRELIABLE_CAPACITY,
 )
 from data.redis_client import redis_get, redis_key
 
@@ -175,7 +179,9 @@ def index():
             "notes": [
                 "Data updates hourly from the scoring pipeline (EIA-930 + Open-Meteo).",
                 "Prediction intervals are omitted until per-model calibration (#196).",
-                "Capacity figures are EIA-860M nameplate, not accredited capacity.",
+                "Capacity is EIA-860M nameplate for most BAs, or a peak×1.15 "
+                "estimate for 7 peak-derived BAs (see capacity_source on /regions; "
+                "#254) — never accredited capacity.",
                 "Forecast horizon is capped at 168h: the week most strongly driven "
                 "by numerical weather forecasts. The dashboard's longer view leans "
                 "on climatology beyond the weather window (ADR-008), which the API "
@@ -204,7 +210,14 @@ def regions():
                 "name": REGION_NAMES[code],
                 "lat": coords.get("lat"),
                 "lon": coords.get("lon"),
-                "nameplate_capacity_mw": REGION_CAPACITY_MW.get(code),
+                # capacity_mw is EIA-860M nameplate for most BAs, but a
+                # peak-demand × 1.15 estimate for the 7 peak-derived BAs (#254) —
+                # capacity_source disambiguates so it's never mislabeled
+                # "nameplate" (the field was `nameplate_capacity_mw` pre-#254).
+                "capacity_mw": REGION_CAPACITY_MW.get(code),
+                "capacity_source": (
+                    "peak_estimate" if code in PEAK_DERIVED_CAPACITY else "nameplate"
+                ),
                 "import_dominated": code in IS_IMPORT_DOMINATED,
                 # Quality-gated = XGBoost holdout MAPE in the rollback grade;
                 # the UI hides these regions, the API discloses them instead.
@@ -349,7 +362,10 @@ def grid_summary():
     stress_by_region = {
         r: d["current_mw"] / cap
         for r, d in plausible.items()
-        if (cap := REGION_CAPACITY_MW.get(r, 0)) > 0 and r not in IS_IMPORT_DOMINATED
+        # Exclude BAs without a reliable measured plate — import-dominated OR
+        # peak-derived (cap = peak×1.15, so util is self-referential; #254).
+        # Mirrors the US Grid KPI bar exactly (single source of truth in config).
+        if (cap := REGION_CAPACITY_MW.get(r, 0)) > 0 and r not in UNRELIABLE_CAPACITY
     }
     reliable = {r: s for r, s in stress_by_region.items() if s <= _STRESS_RELIABLE_CEILING}
 
@@ -370,15 +386,21 @@ def grid_summary():
         "reporting_regions": len(plausible),
         "total_demand_mw": round(total_mw, 1),
         "simultaneous_peak_24h_mw": round(peak_24h_mw, 1),
-        # Nameplate-based; not a NERC reserve margin (#243). Computed over
-        # the reliable-capacity BA set only (import-dominated excluded).
+        # Nameplate-based; not a NERC reserve margin (#243). Computed over the
+        # reliable-capacity BA set only (import-dominated + peak-derived excluded,
+        # #254).
         "national_utilization_pct": national_utilization_pct,
         "top_stress": top_stress,
         "artifact_excluded_regions": artifact_excluded,
         "quality_gated_regions": sorted(hidden_regions(REGION_NAMES.keys())),
         "notes": [
             "Utilization is against EIA-860M nameplate capacity — not a "
-            "NERC reserve margin (see issue #243).",
+            "NERC reserve margin (see issue #243). BAs whose capacity is not a "
+            "reliable stress denominator are excluded from utilization and "
+            "top_stress (#254): import-dominated BAs (served load far exceeds "
+            "in-territory plate) and peak-derived BAs (capacity_source="
+            "peak_estimate on /regions). The two sets overlap but differ — an "
+            "import-dominated BA can still carry a true nameplate (e.g. SPA).",
             "artifact_excluded_regions carry a latest reading far below "
             "their own 24h median (EIA publishing glitch) and are excluded "
             "from all aggregates, matching the dashboard.",
