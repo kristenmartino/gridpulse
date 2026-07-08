@@ -340,14 +340,27 @@ _QUALITY_GATE_TTL = 600
 _quality_gate_cache: dict[str, tuple[float | None, float]] = {}
 
 
-def get_xgboost_holdout_mape(region: str) -> float | None:
-    """Return the latest XGBoost training-holdout MAPE for ``region``.
+def get_best_holdout_mape(region: str) -> float | None:
+    """Best achievable holdout MAPE for ``region`` — the per-region champion
+    across every *served* model (the ensemble + the three base models). Used
+    by the forecast-quality gate.
 
-    Reads from GCS via :func:`models.persistence.get_model_metadata`.
-    Returns ``None`` when the model hasn't been trained yet, the metadata
-    is missing, or the ``mape`` field is null. Callers should treat
-    ``None`` as "no signal, don't gate" rather than as a failure — that
-    preserves the legitimate "warming up" state for newly-added BAs.
+    The gate must not hide a BA we can forecast acceptably with *some* served
+    model. Keying off XGBoost-alone (the pre-#255 behaviour) hid SEC — XGBoost
+    38.6%, yet its served ensemble is 13.6% and its best base (Prophet) 11.2%.
+    Keying off the ensemble alone would instead newly hide SPA (ensemble 22.8%
+    vs its XGBoost 21.1%). Gating on the champion — ``min`` over all available
+    model MAPEs, ensemble included — hides a BA only when *no* served model
+    reaches the ``acceptable`` grade. Returns ``None`` (no signal → don't gate)
+    when no real metric exists yet, preserving the "warming up" UX.
+
+    Reads via :func:`get_model_metrics`, which is Redis-*first* in production
+    (``forecast:{region}:1h.model_metrics``, written by the scoring job with
+    per-model + ensemble rows), so the gate does no GCS read when Redis is warm
+    — the common case. On the cold-Redis warming window it still falls through
+    to GCS metas (Redis-first, not Redis-only); the gate's full Redis-only +
+    fail-closed redesign is tracked as P2-10 / #189. This change is scoped to
+    *which* MAPE the gate reads.
     """
     import time
 
@@ -355,37 +368,48 @@ def get_xgboost_holdout_mape(region: str) -> float | None:
     if cached is not None and time.time() - cached[1] < _QUALITY_GATE_TTL:
         return cached[0]
 
-    from models.persistence import get_model_metadata
-
     try:
-        meta = get_model_metadata(region, "xgboost")
+        metrics = get_model_metrics(region) or {}
     except Exception:
-        meta = None
-    mape = meta.mape if meta is not None else None
-    _quality_gate_cache[region] = (mape, time.time())
-    return mape
+        # Operational outage (Redis/GCS) → no signal, don't black out the
+        # dropdown. Matches the pre-#255 fail-open contract.
+        metrics = {}
+    # get_model_metrics already cleans mapes to finite floats; the isfinite
+    # guard is defense-in-depth so a stray NaN can never sink min() and flip
+    # the gate to "hide" (NaN <= threshold is False).
+    mapes = [
+        float(m["mape"])
+        for m in metrics.values()
+        if isinstance(m, dict) and m.get("mape") is not None and np.isfinite(m["mape"])
+    ]
+    best = min(mapes) if mapes else None
+    _quality_gate_cache[region] = (best, time.time())
+    return best
 
 
 def is_forecast_quality_acceptable(region: str) -> bool:
-    """Return True when the region's primary-model forecast quality is
-    in the ``acceptable`` grade or better (per ``mape_grade()``) for the
-    7-day horizon. Returns True when no MAPE signal exists yet so the
-    gate doesn't hide newly-added BAs that haven't been trained.
+    """Return True when the region has at least one *served* forecast in the
+    ``acceptable`` grade or better (per ``mape_grade()``) for the 7-day
+    horizon. Returns True when no MAPE signal exists yet so the gate doesn't
+    hide newly-added BAs that haven't been trained.
 
-    Returns False only when the XGBoost holdout MAPE is in the
-    ``rollback`` grade (>22% per ``MAPE_BY_HORIZON["7d"]``) — by the
-    project's existing governance framework that means the model
-    should be disabled.
+    Returns False only when the region's **best achievable** holdout MAPE — the
+    champion across the ensemble + the three base models — is in the
+    ``rollback`` grade (>22% per ``MAPE_BY_HORIZON["7d"]``), i.e. *no* served
+    model can forecast the BA acceptably. Pre-#255 this keyed off XGBoost-alone,
+    which hid SEC even though its served ensemble (13.6%) is well within grade;
+    production serves the ensemble (ADR-004), so gating on XGBoost-alone
+    contradicted what the product forecasts.
 
-    The ``forecast_quality_gate`` feature flag short-circuits the
-    check when False (default in dev, on in staging/prod).
+    The ``forecast_quality_gate`` feature flag short-circuits the check when
+    False (default in dev, on in staging/prod).
     """
     from config import MAPE_BY_HORIZON, feature_enabled
 
     if not feature_enabled("forecast_quality_gate"):
         return True
 
-    mape = get_xgboost_holdout_mape(region)
+    mape = get_best_holdout_mape(region)
     if mape is None:
         # No signal — don't hide the region. Preserves "warming up" UX
         # for BAs whose first training run hasn't completed yet.

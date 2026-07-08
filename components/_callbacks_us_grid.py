@@ -68,7 +68,8 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
     a NaN to downstream sums or divisions. ``interchange`` is the V3.α
     ``gridpulse:interchange:{region}:1h`` payload, or ``None`` if absent.
 
-    Regions failing the quality gate (XGBoost holdout MAPE in the
+    Regions failing the quality gate (best served-model holdout MAPE — the
+    champion across the ensemble + 3 bases, not XGBoost-alone; #255 — in the
     ``rollback`` grade per ``mape_grade()``) are omitted from the
     return entirely so all downstream consumers (cards, metrics, map)
     see the same filtered set. The dropdown gate in ``layout.py``
@@ -138,7 +139,7 @@ def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
     if hidden:
         subtitle += f" · {len(hidden)} hidden"
         tooltip = (
-            "Hidden by the forecast quality gate (XGBoost holdout MAPE > 22%, "
+            "Hidden by the forecast quality gate (best served-model MAPE > 22%, "
             "the 7-day rollback grade): " + ", ".join(sorted(hidden))
         )
     return build_page_title(title="US Grid", subtitle=subtitle, subtitle_tooltip=tooltip)

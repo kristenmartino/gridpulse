@@ -806,12 +806,13 @@ FEATURE_FLAGS: dict[str, bool] = {
     # snapshot pipeline is producing fresh data; backtesting belongs in the
     # Models tab in the meantime.
     "forecast_replay": False,
-    # V3.ζ follow-up: hide BAs whose XGBoost holdout MAPE exceeds the 7d
-    # rollback threshold (22% — see MAPE_BY_HORIZON["7d"]["rollback"]) from
-    # the dropdown + US Grid cards. Empirically generous: every healthy
-    # 16-BA primary model is below 5% MAPE, so the gate only fires when a
-    # tiny BA (CPLW=42 MW, HST=36 MW, SPA federal hydro marketer) produces
-    # nonsense forecasts. Disable in dev to debug noisy regions.
+    # V3.ζ follow-up (#255): hide a BA from the dropdown + US Grid cards only
+    # when its *best served* forecast — the champion across the ensemble + 3
+    # base models, not XGBoost-alone — exceeds the 7d rollback threshold
+    # (22% — see MAPE_BY_HORIZON["7d"]["rollback"]). Gating on the served
+    # champion keeps a BA visible whenever *any* served model forecasts it
+    # acceptably (e.g. SEC: XGBoost 38.6% but ensemble 13.6% → visible); at the
+    # 2026-07-03 training 0/51 trip it. Disable in dev to debug noisy regions.
     "forecast_quality_gate": True,
 }
 
