@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-02
+# Status — updated 2026-07-08
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,22 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-07-08 — Post-keystone: honesty & robustness hardening.** The 2026-07
+critical-review keystone is *behind us* — the recursive re-measure shipped
+(2026-07-03) and was prod-verified in the 2026-07-06 click-through, which also
+answered the drift keystone (horizon-graded Prophet/SARIMAX are healthy). The
+surface has since grown — US Grid UX Phases 1–2 (#244/#249), a public read-only
+JSON API (#250/#251), and the #225 demand-plausibility guard — so a **product +
+open-issue blindspot pass (2026-07-07)** swept for gaps the existing issues
+missed. It filed **#253–#256**, closed 3 verified-stale (#199/#194/#124), and
+reframed 2 (#222 de-escalated, #153 recast as the honesty keystone). The three
+cheap honesty wins already shipped (**PR #257**, merged 2026-07-08: data-source
+attribution, scenario-panel "illustrative heuristic" disclosure, demo-vs-stale
+freshness relabel). Sharpest open follow-up: **#254** — a circular-utilization
+correctness bug in this session's own #244/#251 capacity code. The blindspot
+follow-ups are queued under Next-3; the older keystone narrative is preserved
+below for history.
 
 **2026-07-03 — Critical-review remediation: CODE COMPLETE + DEPLOYED; RE-MEASURED + DOCS REFRESHED.**
 The keystone re-measure has landed: the 2026-07-03 04:00 UTC `gridpulse-training-job`
@@ -146,8 +162,33 @@ per-finding map.
    answered that gate early: resolved 24h grades exonerated Prophet/SARIMAX,
    giving the de-alarm its confirming data source; see recent-decisions).
 
+**Blindspot-pass follow-ups (filed 2026-07-07, #253–#256).** Priority order —
+these are the newest tracked gaps and slot ahead of the P2/P3 elegance backlog:
+
+- **[#254](https://github.com/kristenmartino/gridpulse/issues/254) — correctness
+  bug (this session's own code).** National Utilization / top-stress is *circular*
+  for the 5 peak-derived-capacity BAs (SOCO/DUK/CPLE/PSCO/FMPP, where
+  `REGION_CAPACITY_MW = peak×1.15`): those BAs can't read above ~87% utilization
+  by construction, and the public API labels the peak×1.15 figure as "nameplate."
+  Highest-priority of the four — a genuine wrong-number bug introduced by the
+  #244/#251 capacity work.
+- **[#253](https://github.com/kristenmartino/gridpulse/issues/253) — public API +
+  web-tier operational guard.** The now-live `/api/v1` is *unauthenticated* on
+  personal GCP billing; needs a rate-limit, a budget alert, and web-tier
+  monitoring before it's a safe public surface.
+- **[#255](https://github.com/kristenmartino/gridpulse/issues/255) — quality-gate
+  vs served model.** The forecast-quality gate hides BAs on their *XGBoost-only*
+  holdout while production serves the *ensemble* (surfaced on SEC); the gate
+  should judge the blend that actually ships.
+- **[#256](https://github.com/kristenmartino/gridpulse/issues/256) — data-source
+  attribution/licensing.** **Partially shipped** in PR #257 (runtime-sources
+  notice + API `attribution` field + Open-Meteo CC-BY footer link). Remaining: the
+  commercial-use posture decision on the Open-Meteo free-tier host.
+
 **Deferred to #189 / #127:** the review's 52 P2 + 57 P3 findings are folded into
-the #189 tech-debt tracker; P1-9 (Scenarios panel prod-dead) is tracked under #127.
+the #189 tech-debt tracker; P1-9 (Scenarios panel prod-dead) is tracked under #127
+(its **honesty disclosure shipped** 2026-07-08 in PR #257 — the caption; the full
+`scenario_engine` swap remains #127's open work).
 
 **Superseded prod-readiness queue** (was Next-3 pre-review, now behind the above):
 Phase 4 rigor — #151 deps, #152 mypy, #153 typed Redis payloads, #154 callbacks
@@ -200,6 +241,8 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
 
 ## Recent decisions (last 7 days)
 
+- **2026-07-08** **Three honesty quick-wins shipped (PR #257, merged) — partial #256 + partial #127.** The cheap, high-value half of the 2026-07-07 blindspot pass. **(1) Data-source attribution:** Open-Meteo weather is CC-BY-4.0 (its credit must travel with redistributed data); EIA-930 + NWS are public-domain but credited. Added a "Runtime data sources" table to `THIRD_PARTY_NOTICES.md`, an `attribution` field on the public-API index **and every data payload** (the redistribution surface — CORS is `*`), and a CC-BY credit **link** on the Open-Meteo footer token. **(2) Scenario what-if disclosure:** the Forecast Scenarios panel runs a hidden linear weather-sensitivity heuristic (`_scenario_demand_factor`), not a model re-forecast — added a one-line caption under the panel header so the Δ deltas aren't read as calibrated predictions. **(3) demo-vs-stale relabel:** the dev-only demo-fallback path tagged synthetic `generate_demo_*` output as freshness `"stale"` (which means *real cached data past its window*) → corrected to `"demo"` (the taxonomy's synthetic state, already used by the sibling no-API-key branch); bonus correctness, `forecast_source` now reads `"simulated"` not `"api"` for that path. Updated the 3 `test_callbacks_v1_paths` tests that encoded the old mislabel (their docstrings already said "demo data is used") + added 2 API attribution-contract tests; 100 + 111 targeted tests green, ruff clean, runtime-verified all three surfaces render. **Refs #256/#127 — both stay open** (the Open-Meteo commercial-posture decision + the full `scenario_engine` swap remain). [this session]
+- **2026-07-07** **Product + open-issue blindspot pass → 4 filed, 3 closed, 2 reframed.** A dedicated adversarial sweep (4 parallel lenses; two independent lenses converged on the same #1) for gaps the existing 28 issues missed, now that the surface has grown (US Grid UX #244/#249, public API #250/#251, #225 guard). **Filed:** **#253** (public API + web-tier operational guard — rate-limit + budget alert + monitoring on the now-live *unauthenticated* `/api/v1` on personal GCP billing); **#254** (*a correctness bug in this session's own #244/#251 code* — National Utilization / top-stress is circular for the 5 peak-derived-capacity BAs where `cap = peak×1.15`, and the API mislabels that as "nameplate"); **#255** (the forecast-quality gate judges the *XGBoost-only* holdout while prod serves the *ensemble* — surfaced on SEC); **#256** (data-source attribution/licensing — since partially shipped, see the entry above). **Closed prod-verified/stale:** #199 (generation Redis-first, verified), #194 (Prophet/SARIMAX time-label, verified), #124 (cross-repo link — trigger stale). **Reframed:** #222 de-escalated (dropped `[P0]` — positioning-in-header is polish, not a launch blocker); #153 recast as the honesty *keystone* (typed Redis contracts structurally prevent the whole fabrication-vs-real class the 2026-07 review kept surfacing). **Re-scoped:** #121 (drift monitoring — parts 1–2 shipped via #126/#128, ensemble-weight integration remains). The two highest-stakes findings (#254 circular-util, #255 gate) were directly verified before filing; I owned that #254 is in my own #244/#251 code. **No product code changed in the pass itself** — issues + tracker hygiene only. [this session]
 - **2026-07-07** **#225 closed — US Grid demand-plausibility guard + PACW capacity fix.** Two residual halves of the 2026-07-02 review's least-robust-numbers bug (the reserve half already shipped via #244). **(1) Demand-artifact guard strengthened:** `_is_implausible_demand_artifact` gained a **single-step-collapse** signal — a >60% one-hour drop from the prior real reading that also lands <60% of the day's median is a dropped/partial EIA point (the reported "APS 0.6 GW / −90.7%" and "LADWP −68.6%" cases, which sat *above* the old 10%-of-median floor and rendered as bogus 6%/10% utilization). Both conditions are required, so a gradual overnight trough (descends over many hours) and a return-from-spike (lands at median) are NOT flagged. `prev_mw` now threaded to all 4 render sites + the API's `/grid/summary`. **(2) PACW capacity:** PacifiCorp West (2,628 MW nameplate ≈ served load — the fleet is mostly in the East, PACW imports across the system) crowned the top-stress KPI at "100%". Added to `IS_IMPORT_DOMINATED` — the certain, precedent-matching fix (like SPA), so it now shows the "imports" chip and is excluded from stress ranking on all three surfaces (KPI/card/API). **Considered + rejected:** a data-driven `peak>nameplate → importer` generalization — it conflicts with the deliberate `_STRESS_RELIABLE_CEILING=2.0` design (which intentionally treats the 100-200% band as *genuine* high stress, capped-display) and would need a ~1.0× threshold I can't defend without prod data; caught during self-review before it broke `test_displayed_stress_caps_at_100_percent`. 9 new tests (6 artifact-signal + PACW); 154-test US-Grid/API sweep green. Note: wall-clock staleness (flag a real-but-hours-old reading) is NOT added — all reported symptoms were glitch/artifact values, not old-but-real ones; the timestamp isn't threaded into the render path. Closes #225. [this PR]
 - **2026-07-07** **Public read-only JSON API v1 shipped (#250) — the "platform" claim gets a programmatic surface.** New `api.py` blueprint on the existing Flask server: `GET /api/v1` (index) · `/regions` (51 BAs + nameplate/import-dominated/quality-gate metadata) · `/forecast/{region}?horizon=` (ensemble + per-model hourly series, holdout metrics, ensemble weights; horizon deliberately capped at **168h** — the weather-driven week; the payload's 720-row climatology tail (ADR-008) is not exported as if weather-driven) · `/grid/summary` (national demand / simultaneous 24h peak / utilization / top-stress — same helpers **and same artifact filter** as the US Grid KPI bar, exclusions disclosed via `artifact_excluded_regions`) · `/drift/{region}` (live 1h + horizon-matched grades). Architecture cost ~zero: the web tier was already stateless + Redis-only, so the API is thin routes over the same `gridpulse:*` keys. **Honesty contract:** `scored_at`/model provenance everywhere; cold cache → 503 warming + Retry-After (never fabricated data); unknown region → 404, raw input never reflected; **intervals omitted until #196's per-model calibration**; capacity labeled nameplate (#243). **Adversarial 3-lens review (security/correctness/honesty) caught 6 substantive defects pre-merge, all fixed:** (1) DoS amplification — the fan-out endpoints (~100 Redis reads/request) had no server-side cache → 30s in-process memo of success bodies; (2) `/grid/summary` skipped the UI's `_is_implausible_demand_artifact` filter → API and dashboard would have *disagreed* on national totals whenever a #225-class glitch reading existed → now mirrored + disclosed; (3) deny-list field export would auto-publish any future cache-schema field (e.g. #196's uncalibrated intervals) → allow-lists on models AND fields; (4) `public, max-age` on 503s would let CDNs serve "warming" past the fix → errors now `no-store`; (5) false horizon-cap rationale (payload has 720 rows, not 168) → documented as a deliberate honesty cap; (6) missing doc obligations → HOW_IT_WORKS §1 (API-client edge + surfaces note), TECHNICAL_SPEC §2.5, CANONICAL_FACTS API row. Residual accepted: the quality gate can still touch GCS on a 10-min TTL miss (pre-existing UI path too) — follow-up candidate: scoring job writes the gate to Redis. 21 unit tests + real-app boot smoke; README "Public API" section. Closes #250. [this PR]
 - **2026-07-06** **US Grid UX Phase 2 shipped (Haiku-orchestrated) — the Highest-Stress KPI is now a jump-to-card.** Clicking "Highest-Stress Region · PACW · N%" smooth-scrolls to that BA's card and flashes it (~2.4s ring), staying on the US Grid tab — pure clientside (pattern-matching id `{"type": "us-grid-kpi-jump", "region": <top>}` → `app.clientside_callback` parses the region from the triggered id, finds the card via its stringified dict-id in the DOM, `scrollIntoView` + flash class; dummy `dcc.Store` output; guarded against the re-mount-fires-with-n_clicks=0 pattern-input quirk). **Scope honesty:** the original Phase-2 plan made *two* KPIs clickable, but "Lowest Reserve" became **National Utilization** (#244) — a national aggregate with no card target — so Phase 2 is the Highest-Stress KPI only, clickable **only in the Cards view** (Map/Polygons have no card to scroll to; the items builder takes a `view` param). Foundation: `build_metrics_bar` gained an optional `cell_id` key (id + n_clicks + role=button + tabIndex + clickable class — same additive pattern as Phase 1's `help`). 4 Haiku file-owning agents (foundation-first) + verify; my diff review found the output faithful this time (no Phase-1-style layout bug). 6 new tests; 113-test US-Grid sweep green. Remaining from the proposal: **Phase 3** (Forecast grid-snapshot strip + cross-tab model-story reconciliation) and the optional Phase 4. [this PR]
