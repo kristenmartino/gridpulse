@@ -107,6 +107,43 @@ def _memo_set(key: str, body: Any) -> None:
     _memo[key] = (time.monotonic() + _MEMO_TTL_SECONDS, body)
 
 
+@api_v1.before_request
+def _api_rate_limit():
+    """Per-IP fixed-window rate limit on ``/api/v1/*`` (#253).
+
+    Enforced only in Redis-only mode (staging/prod, ``rate_limit_active``); dev
+    is unthrottled. Fails open on any Redis error. A blocked caller gets a 429
+    with ``Retry-After``; ``_api_headers`` then marks it ``no-store`` so a shared
+    cache can't keep replaying the rejection.
+    """
+    from config import API_RATE_LIMIT_PER_MIN, rate_limit_active
+
+    if not rate_limit_active():
+        return None
+
+    from flask import request
+
+    from ratelimit import caller_ip, check_rate_limit, is_exempt
+
+    ip = caller_ip(request)
+    if is_exempt(ip):
+        return None
+    result = check_rate_limit("api", ip, API_RATE_LIMIT_PER_MIN)
+    if result.allowed:
+        return None
+    log.warning("api_rate_limited", ip=ip, path=request.path, limit=API_RATE_LIMIT_PER_MIN)
+    resp = jsonify(
+        {
+            "error": "rate_limited",
+            "detail": f"Exceeded {API_RATE_LIMIT_PER_MIN} requests/min. Retry after the window resets.",
+            "retry_after_seconds": result.retry_after,
+        }
+    )
+    resp.status_code = 429
+    resp.headers["Retry-After"] = str(result.retry_after)
+    return resp
+
+
 @api_v1.after_request
 def _api_headers(resp):
     """Permissive CORS for read-only GETs; cache successes only.

@@ -59,6 +59,17 @@ same `gridpulse:*` Redis keys as the UI (same warming semantics: cold cache →
 exports fields by allow-list only. See the README "Public API" section for
 curl examples.
 
+**Web-tier operational guard (#253).** Because that surface is public and
+`--allow-unauthenticated` on personal billing, the request path carries the
+same operational discipline the jobs already had: per-IP Redis-backed rate
+limiting on `/api/v1/*` + the Dash callback route (fail-open on any Redis
+error — a limiter that failed closed would self-inflict the outage it exists to
+prevent), a `MAX_CONTENT_LENGTH` body cap, and `/health` + `/metrics` gated so
+public callers get liveness only (the detailed body — Redis state, last-scored,
+cache counts — is behind the `METRICS_ALLOWED_IPS` allowlist). A billing budget,
+a 5xx alert, a pinned-at-max alert, and an uptime check complete it
+(`docs/monitoring/`).
+
 **Why this split:** scoring + training are *expensive* (~5 min and ~3 hr for 51 BAs respectively) and *don't need to be interactive*. Putting them in Cloud Run **Service** would force every web request to wait on them — or rely on a background-thread hack that doesn't survive container recycles. Cloud Run **Jobs** are purpose-built for batch work with proper retries and 5-hour timeouts.
 
 ## §2 — Request lifecycle (what happens when a user loads the Forecast tab)

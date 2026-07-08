@@ -47,6 +47,13 @@ server.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(32).hex())
 Compress(server)
 server.config["COMPRESS_MIN_SIZE"] = 500
 
+# Cap request-body size so an unbounded POST can't buffer into a 4Gi worker
+# (OOM amplifier). Flask returns 413 past this. The API is GET-only and Dash
+# callbacks POST small JSON, so MAX_REQUEST_BYTES (2 MiB default) is headroom. (#253)
+from config import MAX_REQUEST_BYTES  # noqa: E402
+
+server.config["MAX_CONTENT_LENGTH"] = MAX_REQUEST_BYTES
+
 # Add request logging middleware
 add_request_logging(server)
 
@@ -140,6 +147,34 @@ from api import api_v1  # noqa: E402
 
 server.register_blueprint(api_v1)
 
+
+# Per-IP rate limit on the Dash callback route (#253). ``/_dash-update-component``
+# drives CPU-heavy Plotly figure generation against a small pool of request
+# slots, so it's the strongest availability-DoS lever on the public surface.
+# Enforced only in Redis-only mode (staging/prod); fails open on Redis error.
+@server.before_request
+def _rate_limit_dash():
+    if request.path != "/_dash-update-component":
+        return None
+    from config import DASH_RATE_LIMIT_PER_MIN, rate_limit_active
+
+    if not rate_limit_active():
+        return None
+    from ratelimit import caller_ip, check_rate_limit, is_exempt
+
+    ip = caller_ip(request)
+    if is_exempt(ip):
+        return None
+    result = check_rate_limit("dash", ip, DASH_RATE_LIMIT_PER_MIN)
+    if result.allowed:
+        return None
+    log.warning("dash_rate_limited", ip=ip, limit=DASH_RATE_LIMIT_PER_MIN)
+    resp = jsonify({"error": "rate_limited", "retry_after_seconds": result.retry_after})
+    resp.status_code = 429
+    resp.headers["Retry-After"] = str(result.retry_after)
+    return resp
+
+
 # ── Optional in-process precompute (development only) ─────────
 # In staging/production the scoring + training Cloud Run Jobs own the
 # pipeline, so PRECOMPUTE_ENABLED defaults to False (see config._ENV_DEFAULTS).
@@ -180,40 +215,62 @@ if PRECOMPUTE_ENABLED:
         ).start()
 
 
+def _is_internal_caller(flask_request) -> bool:
+    """True for a trusted internal caller — dev, or a source IP in
+    ``METRICS_ALLOWED_IPS`` (spoof-resistant, rightmost XFF hop; P2-52).
+
+    Gates the detailed ``/health`` body and the ``/metrics`` endpoint so an
+    unauthenticated caller can't read internal state (#253).
+    """
+    if os.getenv("ENVIRONMENT", "development") == "development":
+        return True
+    from observability import untrusted_client_ip
+
+    allowed = [ip.strip() for ip in os.getenv("METRICS_ALLOWED_IPS", "127.0.0.1,::1").split(",")]
+    remote = untrusted_client_ip(
+        flask_request.headers.get("X-Forwarded-For"), flask_request.remote_addr
+    )
+    return remote in allowed
+
+
 # ── Health check for Cloud Run ─────────────────────────────────
 @server.route("/health")
 def health():
     """Health endpoint (PR-G3 / #147).
 
-    Shallow by default (process + caches + Redis ping + last-scored
-    freshness); pass ``?deep=1`` to additionally validate a real
-    forecast payload. Always HTTP 200 — health is carried in the
-    ``status`` body field so a degraded-but-serving instance isn't
-    killed by the load balancer. See ``health.build_health_report``.
+    Always HTTP 200 — health is carried in the ``status`` body field so a
+    degraded-but-serving instance isn't killed by the load balancer.
+
+    Public callers get **liveness only** (``{"status": ...}``). The detailed
+    body — Redis state, last-scored freshness, cache counts — and the ``?deep=1``
+    forecast-payload check are gated behind the ``/metrics`` IP allowlist so an
+    unauthenticated caller can't fingerprint internals or advertise "Redis is
+    cold right now" (#253). The top-level status is still public, so the load
+    balancer and the Cloud Monitoring uptime check work unchanged.
     """
     from flask import request as flask_request
 
     from health import build_health_report
 
-    deep = flask_request.args.get("deep", "").lower() in ("1", "true", "yes")
+    internal = _is_internal_caller(flask_request)
+    deep = internal and flask_request.args.get("deep", "").lower() in ("1", "true", "yes")
     body, code = build_health_report(deep=deep)
+    if not internal:
+        body = {"status": body["status"]}
     return jsonify(body), code
 
 
 # ── Performance metrics endpoint (internal only) ───────────────
 @server.route("/metrics")
 def metrics():
-    allowed = [ip.strip() for ip in os.getenv("METRICS_ALLOWED_IPS", "127.0.0.1,::1").split(",")]
     from flask import request as flask_request
 
-    # Spoof-resistant caller IP: rightmost (edge-appended) X-Forwarded-For hop,
-    # not the client-controlled leftmost (2026-07 review P2-52).
-    from observability import untrusted_client_ip
+    if not _is_internal_caller(flask_request):
+        from observability import untrusted_client_ip
 
-    remote = untrusted_client_ip(
-        flask_request.headers.get("X-Forwarded-For"), flask_request.remote_addr
-    )
-    if remote not in allowed and os.getenv("ENVIRONMENT", "development") != "development":
+        remote = untrusted_client_ip(
+            flask_request.headers.get("X-Forwarded-For"), flask_request.remote_addr
+        )
         log.warning("metrics_access_denied", remote_ip=remote)
         return jsonify({"error": "forbidden"}), 403
 

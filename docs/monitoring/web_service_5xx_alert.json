@@ -1,0 +1,29 @@
+{
+  "displayName": "GridPulse — web service sustained 5xx",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The `gridpulse` Cloud Run **service** (the public web tier + JSON API) is returning sustained 5xx responses.\n\nFires on `run.googleapis.com/request_count{response_code_class=\"5xx\"}` for `service_name=\"gridpulse\"` summed > 25 over 5 minutes. All of the project's other alerting protects the JOB tier; this is the request-path equivalent (#253).\n\n**Runbook:**\n1. `curl -s https://gridpulse.kristenmartino.ai/health` — a public liveness `{\"status\": ...}`; `degraded` points at Redis or stale scoring.\n2. From an allowlisted IP, `curl -s '.../health?deep=1'` for the detailed body (Redis / last_scored / forecast_sample).\n3. Tail the service logs: `gcloud run services logs read gridpulse --region=us-east1 --limit=200`.\n4. Redis cold/flushed → the UI renders the warming state (not a 5xx); a spike of 5xx usually means an unhandled exception or an OOM (check `MAX_CONTENT_LENGTH` / memory). Roll back the revision if a bad deploy: `gcloud run services update-traffic gridpulse --to-revisions=<prev>=100`."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "web service 5xx responses (5 min sum > 25)",
+      "conditionThreshold": {
+        "filter": "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"gridpulse\" AND metric.type = \"run.googleapis.com/request_count\" AND metric.labels.response_code_class = \"5xx\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 25,
+        "duration": "0s",
+        "trigger": { "count": 1 },
+        "aggregations": [
+          {
+            "alignmentPeriod": "300s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM",
+            "groupByFields": ["resource.labels.service_name"]
+          }
+        ]
+      }
+    }
+  ],
+  "alertStrategy": { "autoClose": "604800s" }
+}
