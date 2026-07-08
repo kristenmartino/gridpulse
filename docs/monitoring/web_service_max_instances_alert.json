@@ -10,7 +10,7 @@
       "displayName": "web service instance_count >= 4 (sustained 15 min)",
       "conditionThreshold": {
         "filter": "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"gridpulse\" AND metric.type = \"run.googleapis.com/container/instance_count\"",
-        "comparison": "COMPARISON_GTE",
+        "comparison": "COMPARISON_GE",
         "thresholdValue": 4,
         "duration": "900s",
         "trigger": { "count": 1 },
