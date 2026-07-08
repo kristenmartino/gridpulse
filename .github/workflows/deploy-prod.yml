@@ -71,6 +71,13 @@ jobs:
 
       - name: Deploy to Cloud Run (Production)
         run: |
+          # Cost/DoS ceiling note (#253): --max-instances 4 is the effective
+          # spend cap on this --allow-unauthenticated service (~$456/mo pinned
+          # at max vs ~$114 idle). The web-tier guard backstops it: per-IP rate
+          # limiting (API_RATE_LIMIT_PER_MIN / DASH_RATE_LIMIT_PER_MIN, with
+          # RATE_LIMIT_EXEMPT_IPS for trusted shared-NAT egress), a pinned-at-max
+          # alert, and a billing budget (docs/monitoring/). METRICS_ALLOWED_IPS
+          # gates detailed /health + /metrics; unset here → deny-by-default.
           gcloud run deploy ${{ env.SERVICE }} \
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \

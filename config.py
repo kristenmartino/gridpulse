@@ -782,6 +782,36 @@ SCORING_RUNTIME_HEADROOM_FRACTION = float(os.getenv("SCORING_RUNTIME_HEADROOM_FR
 SCORING_RUNTIME_CREEP_RUNS = int(os.getenv("SCORING_RUNTIME_CREEP_RUNS", "3"))
 
 # ---------------------------------------------------------------------------
+# Web-tier operational guard (#253)
+# ---------------------------------------------------------------------------
+# The public JSON API (#250/#251) made the stateless web tier publicly
+# programmable, but the project's operational tooling (job-failure alerting,
+# deep /health, circuit breaker) protects only the JOB tier. These bound the
+# blast radius of the now-public request path on personal billing.
+#
+# Per-IP request rate limits (fixed-window, Redis-backed). Tunable via env so
+# a flood can be clamped without a redeploy.
+API_RATE_LIMIT_PER_MIN = int(os.getenv("API_RATE_LIMIT_PER_MIN", "120"))
+DASH_RATE_LIMIT_PER_MIN = int(os.getenv("DASH_RATE_LIMIT_PER_MIN", "600"))
+# Trusted source IPs that bypass rate limiting entirely — for a known
+# shared-NAT egress (e.g. a Grid Ops control room where many operators sit
+# behind one corporate IP and would otherwise share a single per-IP bucket).
+# Comma-separated env; empty by default. Keyed on the same spoof-resistant IP
+# the limiter uses, so it can't be forged via X-Forwarded-For.
+RATE_LIMIT_EXEMPT_IPS: frozenset[str] = frozenset(
+    ip.strip() for ip in os.getenv("RATE_LIMIT_EXEMPT_IPS", "").split(",") if ip.strip()
+)
+# Rate limiting is enforced only when the web tier is in Redis-only mode
+# (staging/prod, i.e. REQUIRE_REDIS) AND the ``rate_limiting`` flag is on — dev
+# is unthrottled and needs no Redis. Callers gate on ``rate_limit_active()``
+# below; the limiter itself fails OPEN on any Redis error so a Redis blip never
+# self-inflicts an availability outage.
+# Reject oversized request bodies before they buffer into a 4Gi worker (an OOM
+# amplifier). The API is GET-only and Dash callbacks POST small JSON, so 2 MiB
+# is generous headroom; Flask returns 413 automatically past this.
+MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(2 * 1024 * 1024)))
+
+# ---------------------------------------------------------------------------
 # Feature Flags (Backlog J2 — simple in-code toggles)
 # ---------------------------------------------------------------------------
 FEATURE_FLAGS: dict[str, bool] = {
@@ -814,6 +844,10 @@ FEATURE_FLAGS: dict[str, bool] = {
     # acceptably (e.g. SEC: XGBoost 38.6% but ensemble 13.6% → visible); at the
     # 2026-07-03 training 0/51 trip it. Disable in dev to debug noisy regions.
     "forecast_quality_gate": True,
+    # #253: per-IP request rate limiting on the public web surfaces
+    # (/api/v1/* + the Dash callback route), Redis-backed. Enforced only when
+    # the web tier is in Redis-only mode (staging/prod); see rate_limit_active().
+    "rate_limiting": True,
 }
 
 
@@ -843,3 +877,13 @@ def feature_enabled(flag: str) -> bool:
         )
         return False
     return FEATURE_FLAGS[flag]
+
+
+def rate_limit_active() -> bool:
+    """True when per-IP request rate limiting should be enforced (#253).
+
+    Only in Redis-only mode (staging/prod, ``REQUIRE_REDIS``) with the
+    ``rate_limiting`` flag on. Dev is unthrottled (no Redis to back it). Checked
+    at request time so the flag/env can change without recomputing a constant.
+    """
+    return REQUIRE_REDIS and feature_enabled("rate_limiting")
