@@ -219,8 +219,9 @@ def regions():
                     "peak_estimate" if code in PEAK_DERIVED_CAPACITY else "nameplate"
                 ),
                 "import_dominated": code in IS_IMPORT_DOMINATED,
-                # Quality-gated = XGBoost holdout MAPE in the rollback grade;
-                # the UI hides these regions, the API discloses them instead.
+                # Quality-gated = the BA's best served model (ensemble or
+                # champion base, not XGBoost-alone; #255) is still in the 7d
+                # rollback grade. The UI hides these regions; the API discloses.
                 "quality_gated": not is_forecast_quality_acceptable(code),
             }
         )

@@ -65,8 +65,9 @@ def _build_header() -> html.Header:
     # on click + keyboard nav.
     #
     # V3.ζ follow-up: the forecast quality gate
-    # (``is_forecast_quality_acceptable``) hides BAs whose XGBoost
-    # holdout MAPE is in the ``rollback`` grade (>22% on 7d horizon).
+    # (``is_forecast_quality_acceptable``) hides a BA only when its best
+    # served-model MAPE — the champion across the ensemble + 3 bases, not
+    # XGBoost-alone (#255) — is in the ``rollback`` grade (>22% on 7d horizon).
     # Empty groups (e.g. all members hidden) drop their separator too.
     from models.model_service import is_forecast_quality_acceptable
 
