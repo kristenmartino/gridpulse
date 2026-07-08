@@ -502,6 +502,33 @@ IS_IMPORT_DOMINATED: frozenset[str] = frozenset(
     }
 )
 
+# ---------------------------------------------------------------------------
+# Peak-derived-capacity BAs (#254)
+# ---------------------------------------------------------------------------
+# These BAs carry ``REGION_CAPACITY_MW = 12-month peak demand × 1.15`` (a
+# reserve-margin proxy) rather than a measured EIA-860M nameplate — their
+# in-territory generation runs below served load (V3.η, 2026-05-02). That
+# makes utilization = demand / (peak × 1.15) **self-referential**: at its own
+# historical peak a BA reads exactly ~87% (1 / 1.15) and can never surface as
+# stressed above that, so the ratio is not a meaningful stress signal. They are
+# therefore excluded from ``national_utilization_pct`` / ``top_stress`` and the
+# stress sort, the same way import-dominated BAs are, and the public API labels
+# their capacity ``capacity_source = "peak_estimate"`` rather than "nameplate".
+#
+# HST and CPLW are peak-derived too but are ALSO in IS_IMPORT_DOMINATED (their
+# import multiplier is the dominant story), so the union below covers them.
+# SPA is deliberately absent: it is import-dominated but its 2,559 MW IS a true
+# nameplate (the federal dam fleet), so it stays "nameplate" for the API.
+PEAK_DERIVED_CAPACITY: frozenset[str] = frozenset(
+    {"SOCO", "DUK", "CPLE", "PSCO", "FMPP", "HST", "CPLW"}
+)
+
+#: BAs excluded from stress/utilization aggregates because their capacity figure
+#: is not a reliable measured plate — import-dominated (served load >> in-territory
+#: generation) OR peak-derived (plate is a peak × 1.15 estimate). Single source of
+#: truth for "does this BA's utilization mean anything as a stress reading."
+UNRELIABLE_CAPACITY: frozenset[str] = IS_IMPORT_DOMINATED | PEAK_DERIVED_CAPACITY
+
 
 # ---------------------------------------------------------------------------
 # NOAA State → Balancing Authority Mapping

@@ -66,7 +66,7 @@
 | Weather | Open-Meteo (no API key) | 17 vars, historical + forecast |
 | Severe weather alerts | NOAA NWS | State-scoped |
 | Capacity (most BAs) | EIA-860M Feb 2026 | Sum nameplate-MW filtered to `Operating` |
-| Capacity (import-dominated BAs) | Peak demand × 1.15 reserve margin | V3.η fix for CPLW/HST/SPA |
+| Capacity (7 peak-derived BAs) | Peak demand × 1.15 (V3.η) | SOCO, DUK, CPLE, PSCO, FMPP, HST, CPLW — in-territory generation runs below served load, so the plate is a peak-based estimate (`capacity_source = peak_estimate` in the API); excluded from utilization/top-stress (#254). NOT a reserve margin. **SPA is import-dominated but its 2,559 MW is a true nameplate** (federal dam fleet), so it stays `nameplate`. |
 
 ## Forecast accuracy (from holdout backtests)
 

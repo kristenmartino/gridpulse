@@ -41,9 +41,11 @@ from components._callbacks_shared import (
 from components.cards import build_page_title
 from config import (
     IS_IMPORT_DOMINATED,
+    PEAK_DERIVED_CAPACITY,
     REGION_CAPACITY_MW,
     REGION_COORDINATES,
     REGION_NAMES,
+    UNRELIABLE_CAPACITY,
 )
 from data.redis_client import redis_get, redis_key
 
@@ -266,6 +268,21 @@ def _is_implausible_demand_artifact(
     )
 
 
+def _capacity_hover_suffix(region: str) -> str:
+    """Map/hover caveat suffix disclosing what a BA's utilization % is measured against.
+
+    ``" · imports"`` for import-dominated BAs (nameplate far below served load),
+    ``" · est. cap"`` for peak-derived-capacity BAs (plate is peak×1.15, #254),
+    and ``""`` for BAs with a real measured plate. Import-dominated wins when a BA
+    is both (HST/CPLW), matching its primary story.
+    """
+    if region in IS_IMPORT_DOMINATED:
+        return " · imports"
+    if region in PEAK_DERIVED_CAPACITY:
+        return " · est. cap"
+    return ""
+
+
 def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "cards") -> list[dict]:
     """4-up MetricsBar items: Total Demand · National Peak · Top-Stress BA · National Utilization.
 
@@ -299,12 +316,13 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         region: d["current_mw"] / cap
         for region, d in plausible.items()
         if (cap := REGION_CAPACITY_MW.get(region, 0)) > 0
-        # Structurally import-dominated BAs (CPLW, HST, SPA, PACW) are never
-        # valid candidates for "highest stress" — their nameplate is far below
-        # served load, so the stress ratio against it is noise, not real stress
-        # (PACW added #225). The reliability ceiling below is the belt-and-braces
-        # fallback for any BA whose *current* ratio still exceeds 2×.
-        and region not in IS_IMPORT_DOMINATED
+        # Exclude BAs without a reliable measured plate (#254): import-dominated
+        # (CPLW, HST, SPA, PACW — nameplate far below served load, #225) AND
+        # peak-derived (SOCO/DUK/CPLE/PSCO/FMPP — cap is peak×1.15, so util is
+        # self-referential and tops out at ~87%). Neither is a real stress
+        # signal. The reliability ceiling below is the belt-and-braces fallback
+        # for any remaining BA whose *current* ratio still exceeds 2×.
+        and region not in UNRELIABLE_CAPACITY
     }
     # Belt-and-braces fallback: anything above the reliability ceiling
     # is structural (sustained > 100% means the BA imports most of its
@@ -322,9 +340,9 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         top_value = f"{top_region} · {top_stress_pct:.0f}%"
 
         # National utilization = summed current demand ÷ summed nameplate capacity
-        # over the SAME reliable-capacity BA set (import-dominated BAs, whose
-        # capacity is a peak×1.15 estimate, and any BA above the reliability
-        # ceiling are excluded — as they are from Highest-Stress). Nameplate-based,
+        # over the SAME reliable-capacity BA set (BAs without a measured plate —
+        # import-dominated or peak-derived, #254 — and any BA above the reliability
+        # ceiling are excluded, as they are from Highest-Stress). Nameplate-based,
         # NOT a NERC reserve margin (see #243); reads as the national *average*
         # complementing Highest-Stress Region (the per-BA *maximum*). ``util_capacity``
         # is > 0 because every ``reliable_stress`` key has capacity > 0 by construction.
@@ -343,7 +361,7 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         "label": "Highest-Stress Region",
         "value": top_value,
         "tone": top_tone,
-        "help": "BA with the highest utilization = current demand ÷ estimated capacity (capped 100%). Import-dominated BAs excluded.",
+        "help": "BA with the highest utilization = current demand ÷ nameplate capacity (capped 100%). BAs without a measured nameplate — import-dominated or peak-derived-capacity — are excluded, as their ratio isn't a real stress signal.",
     }
     if reliable_stress and view == "cards":
         # Click → clientside scroll to this BA's card (Phase 2).
@@ -369,7 +387,7 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
             "label": "National Utilization",
             "value": util_value,
             "tone": util_tone,
-            "help": "Current demand ÷ nameplate capacity, aggregated across BAs with a reliable capacity figure (import-dominated BAs are excluded, as they are from Highest-Stress). Nameplate-based, so it is not a NERC reserve margin — it is the national average that complements Highest-Stress Region (the per-BA maximum).",
+            "help": "Current demand ÷ nameplate capacity, aggregated across BAs with a reliable measured plate (import-dominated and peak-derived-capacity BAs are excluded, as they are from Highest-Stress). Nameplate-based, so it is not a NERC reserve margin — it is the national average that complements Highest-Stress Region (the per-BA maximum).",
         },
     ]
 
@@ -475,11 +493,11 @@ def _us_grid_card_sort_value(region: str, data: dict, sort: str):
         return -cur  # high → low
     if sort == "stress":
         cap = REGION_CAPACITY_MW.get(region, 0)
-        # Mirror the Highest-Stress KPI: only vertically-integrated BAs with
-        # a real capacity plate rank on utilization; import-dominated BAs
-        # (capacity is a peak×1.15 estimate) sort to the bottom instead of
-        # crowding the top with a noisy ratio.
-        if cap > 0 and cur > 0 and region not in IS_IMPORT_DOMINATED:
+        # Mirror the Highest-Stress KPI: only BAs with a real measured plate
+        # rank on utilization; BAs without one — import-dominated OR peak-derived
+        # (capacity is a peak×1.15 estimate, #254) — sort to the bottom instead
+        # of crowding the top with a self-referential ratio.
+        if cap > 0 and cur > 0 and region not in UNRELIABLE_CAPACITY:
             return -(cur / cap)  # high → low
         return 1.0  # unreliable → bottom (positive sorts after the negatives)
     if sort == "change":
@@ -547,10 +565,7 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
         # ceiling on a given hour: their nameplate is far below served load, so
         # the percentage isn't a meaningful stress signal even when it's
         # mathematically below 100% (PACW added #225).
-        is_import_dominated = (
-            region in IS_IMPORT_DOMINATED or stress_ratio > _STRESS_RELIABLE_CEILING
-        )
-        if is_import_dominated:
+        if region in IS_IMPORT_DOMINATED or stress_ratio > _STRESS_RELIABLE_CEILING:
             stress_chip = html.Span(
                 "imports",
                 className="gp-region-card__stress gp-region-card__stress--imports",
@@ -560,6 +575,21 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
                     f"and is supplied via inter-BA transfers. The utilization % "
                     f"is calculated against an estimated capacity pool, not a "
                     f"measured plate."
+                ),
+            )
+        elif region in PEAK_DERIVED_CAPACITY:
+            # Peak-derived-capacity BAs (SOCO/DUK/CPLE/PSCO/FMPP, #254): capacity
+            # is peak×1.15, so demand/capacity is self-referential (tops out at
+            # ~87% at the BA's own peak). Show a qualitative "est." chip rather
+            # than a util % that reads like a measured-plate stress figure.
+            stress_chip = html.Span(
+                "est.",
+                className="gp-region-card__stress gp-region-card__stress--estimated",
+                title=(
+                    f"{name}'s capacity figure is a peak-demand × 1.15 estimate, "
+                    f"not a measured nameplate plate, so utilization against it "
+                    f"isn't shown as a stress reading (excluded from Highest-Stress "
+                    f"and National Utilization)."
                 ),
             )
         else:
@@ -669,13 +699,12 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     max_demand = max(demand_gw)
     sizes = [10 + (d / max_demand) * 30 for d in demand_gw]
 
-    # V3.η: append " · imports" suffix to the BA name for structurally
-    # import-dominated BAs (CPLW, HST, SPA) so users understand what
-    # the utilization % is measured against (a peak × 1.15 estimate,
-    # not a measured plate capacity).
+    # Annotate the BA name so users understand what the utilization % is
+    # measured against: " · imports" for import-dominated BAs (CPLW, HST, SPA,
+    # PACW) and " · est. cap" for peak-derived-capacity BAs (SOCO/DUK/CPLE/PSCO/
+    # FMPP, #254) — both are estimates, not measured plate capacity.
     hover_text = [
-        f"<b>{name}{' · imports' if r in IS_IMPORT_DOMINATED else ''}</b>"
-        f"<br>Demand: {d:.1f} GW<br>Utilization: {s:.0f}%"
+        f"<b>{name}{_capacity_hover_suffix(r)}</b><br>Demand: {d:.1f} GW<br>Utilization: {s:.0f}%"
         for r, name, d, s in zip(regions, names, demand_gw, stress_pct, strict=False)
     ]
 
@@ -830,10 +859,10 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
 
     names = [REGION_NAMES.get(r, r) for r in regions]
     demand_gw = [populated[r]["current_mw"] / 1000 for r in regions]
-    # V3.η: customdata[3] = " · imports" suffix for import-dominated
-    # BAs, empty string for everyone else. Plotly hovertemplate renders
-    # the empty string invisibly so we don't need separate templates.
-    import_tag = [" · imports" if r in IS_IMPORT_DOMINATED else "" for r in regions]
+    # customdata[3] = capacity-caveat suffix (" · imports" for import-dominated,
+    # " · est. cap" for peak-derived, #254), empty for measured-plate BAs.
+    # Plotly hovertemplate renders the empty string invisibly.
+    import_tag = [_capacity_hover_suffix(r) for r in regions]
     customdata = list(zip(regions, names, demand_gw, import_tag, strict=False))
 
     fig = go.Figure(
