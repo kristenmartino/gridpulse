@@ -161,6 +161,7 @@ def _fetch_eia(
     parser: Callable[[list[dict]], pd.DataFrame],
     empty_cols: list[str],
     use_cache: bool,
+    value_col: str | None = None,
 ) -> pd.DataFrame:
     """Shared fetch skeleton for the demand / generation / interchange endpoints.
 
@@ -171,14 +172,25 @@ def _fetch_eia(
     fetch does not yield a complete, usable frame. ``data_type`` is the GCS
     parquet key + the logging label.
 
-    Three failure modes route to last-known-good *without* writing, so none of
+    ``value_col`` names the single measurement column (e.g. ``"demand_mw"``)
+    that must carry at least one real observation for the frame to be usable;
+    when given, a parsed frame whose ``value_col`` is entirely NaN is treated as
+    a miss (see below). Leave it ``None`` for endpoints whose zero/near-zero
+    readings are legitimate (generation can be ~0 for a fuel; interchange can be
+    ~0 on a tie), where only a row-count-empty frame is a miss.
+
+    Four failure modes route to last-known-good *without* writing, so none of
     them can poison the 24h cache or overwrite the durable GCS fallback:
 
     * the upstream response is empty (#174);
     * a page hard-fails mid-pagination, truncating the series (#269 / P2-06) —
       surfaced as :class:`EIAIncompleteFetchError`;
-    * a 200 parses to an empty frame, e.g. a demand response carrying only
-      day-ahead ``DF`` rows and no ``D`` observations (#270 / P2-07).
+    * a 200 parses to a row-empty frame, e.g. a demand response carrying only
+      day-ahead ``DF`` rows and no ``D`` observations (#270 / P2-07);
+    * a 200 parses to rows whose ``value_col`` is entirely NaN, e.g. a demand
+      window in which every ``D`` observation is null/zero-filled — real rows,
+      no usable signal (#270 sibling; would otherwise overwrite the GCS
+      last-known-good with an all-NaN frame the ``df.empty`` test misses).
     """
     cache = get_cache()
     if use_cache:
@@ -197,17 +209,25 @@ def _fetch_eia(
 
     df = parser(all_records) if all_records else pd.DataFrame(columns=empty_cols)
 
-    # An empty parsed frame — whether from an empty upstream response or a 200
-    # that carried no usable rows (#270) — is a miss, not a result. Caching it
-    # would blank the surface for 24h and shadow the stale/GCS last-known-good,
-    # so fall back without writing. (The original empty-response path lived here
-    # too; folding it in keeps every empty outcome on the same no-write chain.)
-    if df.empty:
+    # A frame with no usable data is a miss, not a result — caching it would
+    # blank the surface for 24h and shadow the stale/GCS last-known-good, so fall
+    # back without writing. Two shapes qualify: a row-empty frame (empty upstream
+    # response, or a 200 that parsed to zero rows — #270), and a rows-present
+    # frame whose measurement column is entirely NaN (a demand window of all
+    # null/zero-filled observations — the #270 sibling the row-count test misses).
+    all_nan = bool(
+        not df.empty
+        and value_col is not None
+        and value_col in df.columns
+        and df[value_col].isna().all()
+    )
+    if df.empty or all_nan:
         log.warning(
             "eia_no_usable_data",
             region=region,
             data_type=data_type,
             raw_records=len(all_records),
+            reason="all_nan" if all_nan else "empty",
         )
         return _last_known_good(cache, cache_key, data_type, region, empty_cols)
 
@@ -267,6 +287,10 @@ def fetch_demand(
         parser=lambda records: _parse_demand_records(records, region),
         empty_cols=["timestamp", "demand_mw", "forecast_mw", "region"],
         use_cache=use_cache,
+        # A demand window whose D observations are all null/zero (coerced to NaN)
+        # carries no usable signal — treat it as a miss so it can't overwrite the
+        # GCS last-known-good. (#270 sibling.)
+        value_col="demand_mw",
     )
 
 
@@ -483,6 +507,15 @@ def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
     # leaves a truncated series. Gate on ``page_failed`` (not a bare
     # ``len < total``) so an imprecise/over-counted ``total`` on a cleanly
     # completed fetch can't force a permanent false-positive fallback. (#269)
+    #
+    # Deliberately NOT flagged: a page that returns a valid 200 with an *empty*
+    # data array while ``offset < total`` (loop then exits via the ``not records``
+    # break, ``page_failed`` False). That shape is indistinguishable from the
+    # benign case where EIA over-reports ``total`` and the real data simply ends
+    # on a page boundary — both surface as ``records == [] while offset < total``.
+    # Raising here would reintroduce false-positive fallbacks on that common
+    # quirk to catch an anomalous mid-stream empty page EIA v2 does not emit under
+    # contiguous pagination. See test_empty_mid_page_is_not_flagged_as_truncation.
     if page_failed and len(all_records) < total:
         log.warning(
             "eia_truncated_fetch", endpoint=endpoint, fetched=len(all_records), expected=total

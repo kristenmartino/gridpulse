@@ -500,6 +500,63 @@ class TestPaginatedFetch:
 
         assert records == []
 
+    @patch("data.eia_client._request_with_backoff")
+    def test_complete_multipage_fetch_does_not_raise(self, mock_req):
+        """A cleanly completed multi-page fetch (every page a real 200, reaching
+        the reported total) returns all rows and does NOT raise — the truncation
+        gate is scoped to hard failures, not normal pagination."""
+        page1 = {
+            "response": {
+                "total": EIA_PAGE_SIZE + 2,
+                "data": [
+                    {"period": f"2024-01-01T{i:02d}", "value": i, "type": "D"}
+                    for i in range(EIA_PAGE_SIZE)
+                ],
+            }
+        }
+        page2 = {
+            "response": {
+                "total": EIA_PAGE_SIZE + 2,
+                "data": [
+                    {"period": "2024-02-01T00", "value": 1, "type": "D"},
+                    {"period": "2024-02-01T01", "value": 2, "type": "D"},
+                ],
+            }
+        }
+        mock_req.side_effect = [page1, page2]
+
+        records = _paginated_fetch("electricity/rto/region-data", {"api_key": "test"})
+
+        assert len(records) == EIA_PAGE_SIZE + 2
+        assert mock_req.call_count == 2
+
+    @patch("data.eia_client._request_with_backoff")
+    def test_empty_mid_page_is_not_flagged_as_truncation(self, mock_req):
+        """Accepted-limitation pin (see _paginated_fetch comment): a valid 200
+        with an *empty* data array mid-pagination is indistinguishable from EIA
+        over-reporting ``total`` with data ending on a page boundary, so it is
+        deliberately NOT raised as EIAIncompleteFetchError — the loop exits via
+        ``not records`` and returns what it has. This test documents that chosen
+        tradeoff so a future change doesn't 'fix' it and reintroduce false-positive
+        fallbacks on the common over-counted-total quirk."""
+        page1 = {
+            "response": {
+                "total": 3 * EIA_PAGE_SIZE,  # says two more pages are due
+                "data": [
+                    {"period": f"2024-01-01T{i:02d}", "value": i, "type": "D"}
+                    for i in range(EIA_PAGE_SIZE)
+                ],
+            }
+        }
+        empty_page = {"response": {"total": 3 * EIA_PAGE_SIZE, "data": []}}
+        mock_req.side_effect = [page1, empty_page]
+
+        # Must NOT raise, and returns only the rows actually delivered.
+        records = _paginated_fetch("electricity/rto/region-data", {"api_key": "test"})
+
+        assert len(records) == EIA_PAGE_SIZE
+        assert mock_req.call_count == 2
+
 
 # ---------------------------------------------------------------------------
 # fetch_demand
@@ -745,6 +802,65 @@ class TestFetchDemand:
         mock_wp.assert_not_called()  # ...nor written to GCS
         mock_rp.assert_called_once_with("demand", "ERCOT")
 
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_all_nan_demand_window_falls_back_and_does_not_cache(
+        self, mock_pf, mock_cache_fn, mock_rp, mock_wp
+    ):
+        """#270 sibling: a 200 whose D observations are all null/zero parses to
+        rows-present-but-all-NaN demand — real rows, no usable signal. That frame
+        must NOT be cached or written over the GCS last-known-good even though
+        ``df.empty`` is False (it has rows)."""
+        gcs_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "demand_mw": [33000.0],
+                "forecast_mw": [34000.0],
+                "region": ["ERCOT"],
+            }
+        )
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None  # no fresh, no stale
+        mock_cache_fn.return_value = mock_cache
+        mock_rp.return_value = gcs_df
+        # All D rows null/zero -> _parse_demand_records coerces every value to NaN,
+        # yielding a non-empty frame whose demand_mw is entirely NaN.
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "value": None, "type": "D"},
+            {"period": "2024-01-01T01", "value": 0, "type": "D"},
+        ]
+
+        df = fetch_demand("ERCOT", start="2024-01-01T00", end="2024-01-02T23")
+
+        pd.testing.assert_frame_equal(df, gcs_df)
+        mock_cache.set.assert_not_called()  # all-NaN frame must NOT poison the cache
+        mock_wp.assert_not_called()  # ...nor overwrite the GCS last-known-good
+        mock_rp.assert_called_once_with("demand", "ERCOT")
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_partially_nan_demand_window_is_still_cached(self, mock_pf, mock_cache_fn, mock_wp):
+        """Guard against over-reach: a window with *some* real demand and some
+        NaN is legitimate (short gaps interpolate downstream) — it is NOT all-NaN,
+        so it must still be cached/persisted as usable data."""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "value": None, "type": "D"},  # gap
+            {"period": "2024-01-01T01", "value": 41000, "type": "D"},  # real
+        ]
+
+        df = fetch_demand("ERCOT", start="2024-01-01T00", end="2024-01-02T23")
+
+        assert not df.empty
+        assert df["demand_mw"].notna().any()  # at least one real observation
+        mock_cache.set.assert_called_once()  # usable -> cached
+        mock_wp.assert_called_once()  # ...and persisted
+
 
 # ---------------------------------------------------------------------------
 # fetch_generation_by_fuel
@@ -793,6 +909,36 @@ class TestFetchGenerationByFuel:
         df = fetch_generation_by_fuel("CAISO", start="2024-01-01T00", end="2024-01-01T23")
 
         pd.testing.assert_frame_equal(df, stale_df)
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_truncated_fetch_falls_back_and_does_not_cache(
+        self, mock_pf, mock_cache_fn, mock_rp, mock_wp
+    ):
+        """#269 uniformity (#174 invariant): generation must share the demand
+        no-poison guarantee — a truncated fetch serves last-known-good and never
+        caches/persists the partial series."""
+        stale_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "fuel_type": ["NG"],
+                "generation_mw": [15000.0],
+                "region": ["CAISO"],
+            }
+        )
+        mock_cache = MagicMock()
+        mock_cache.get.side_effect = [None, stale_df]
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.side_effect = EIAIncompleteFetchError("truncated: 5000/12000 rows")
+
+        df = fetch_generation_by_fuel("CAISO", start="2024-01-01T00", end="2024-01-01T23")
+
+        pd.testing.assert_frame_equal(df, stale_df)
+        mock_cache.set.assert_not_called()
+        mock_wp.assert_not_called()
+        mock_rp.assert_not_called()
 
     @patch("data.eia_client.get_cache")
     @patch("data.eia_client._paginated_fetch")
@@ -877,6 +1023,36 @@ class TestFetchInterchange:
         df = fetch_interchange("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
 
         pd.testing.assert_frame_equal(df, stale_df)
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_truncated_fetch_falls_back_and_does_not_cache(
+        self, mock_pf, mock_cache_fn, mock_rp, mock_wp
+    ):
+        """#269 uniformity (#174 invariant): interchange must share the demand
+        no-poison guarantee — a truncated fetch serves last-known-good and never
+        caches/persists the partial series."""
+        stale_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "from_ba": ["ERCO"],
+                "to_ba": ["SWPP"],
+                "interchange_mw": [500.0],
+            }
+        )
+        mock_cache = MagicMock()
+        mock_cache.get.side_effect = [None, stale_df]
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.side_effect = EIAIncompleteFetchError("truncated: 5000/20000 rows")
+
+        df = fetch_interchange("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        pd.testing.assert_frame_equal(df, stale_df)
+        mock_cache.set.assert_not_called()
+        mock_wp.assert_not_called()
+        mock_rp.assert_not_called()
 
     @patch("data.eia_client.get_cache")
     @patch("data.eia_client._paginated_fetch")
