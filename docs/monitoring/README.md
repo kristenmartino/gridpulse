@@ -54,6 +54,21 @@ gcloud beta monitoring policies create \
 Live as of 2026-05-29: policy
 `projects/nextera-portfolio/alertPolicies/5965243952275624431` (enabled).
 
+**Applied 2026-07-08 (#253 + #171):**
+
+| Resource | Live id |
+|---|---|
+| Cloud Run Job failed execution | `alertPolicies/5965243952275624431` |
+| scoring-job runtime creep (#171) | `alertPolicies/5813319064717268577` |
+| web service sustained 5xx | `alertPolicies/14035657251363314798` |
+| web service pinned at max instances | `alertPolicies/7343953142414788448` |
+| Uptime check — public `/health` | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
+| Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
+
+The uptime check needs its **alert policy** wired (Console → Uptime checks →
+`gridpulse-health` → *Create alerting policy*, bound to the email channel). The
+budget emails the billing-account admins by default (no extra wiring).
+
 ## Verification (one manual step)
 
 CLI confirms the policy is enabled, correctly filtered, and channel-bound.
@@ -114,9 +129,9 @@ which is the signal the 2026-05-29 outage needed.
 gcloud monitoring uptime create gridpulse-health \
   --resource-type=uptime-url \
   --resource-labels=host=gridpulse.kristenmartino.ai,project_id=nextera-portfolio \
-  --path="/health" --port=443 \
-  --content-matcher-content='healthy' \
-  --content-matcher-type=CONTAINS_STRING \
+  --protocol=https --path=/health --port=443 \
+  --matcher-content='healthy' \
+  --matcher-type=contains-string \
   --period=5 --timeout=10
 ```
 
