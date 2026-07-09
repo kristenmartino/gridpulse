@@ -41,13 +41,29 @@ PROPHET_REGRESSORS = [
 ]
 
 
-def create_prophet_model() -> Any:
+# Prophet needs at least ~2 full cycles to *identify* a 365-day seasonality.
+# Fit on less than this (our default training window is ~90 days) the yearly
+# Fourier terms are underdetermined and extrapolate to large spurious swings a
+# few weeks past the training end — the dominant #281 driver: on DUK's 30-day
+# horizon the yearly component alone accounted for a −11.8 GW phantom decline
+# (78% of the total), dragging Prophet's forecast below 0 MW. The weather
+# regressors (temperature / CDD / HDD) already carry the annual demand signal,
+# so yearly seasonality is redundant *and* overfit until the history is long
+# enough to identify it. Below this span it is disabled.
+YEARLY_SEASONALITY_MIN_DAYS = 730
+
+
+def create_prophet_model(yearly_seasonality: bool = False) -> Any:
     """
     Create a configured Prophet model instance.
 
-    Uses logistic growth with floor=0 to structurally prevent negative
-    forecasts. Tight changepoint_prior_scale (0.001) prevents trend
-    extrapolation from drifting away at long horizons (7-30 days).
+    Uses logistic growth with a demand floor/cap on the *trend*. Tight
+    changepoint_prior_scale (0.001) keeps the trend near-flat at long horizons.
+
+    Args:
+        yearly_seasonality: Whether to fit a 365-day seasonal component. Off by
+            default — only meaningful with ≥ ``YEARLY_SEASONALITY_MIN_DAYS`` of
+            history (see #281); ``train_prophet`` sets it from the training span.
 
     Returns:
         Unfitted Prophet model with regressors attached.
@@ -56,7 +72,7 @@ def create_prophet_model() -> Any:
 
     model = ProphetClass(
         growth="logistic",
-        yearly_seasonality=True,
+        yearly_seasonality=yearly_seasonality,
         weekly_seasonality=True,
         daily_seasonality=True,
         changepoint_prior_scale=0.001,
@@ -80,8 +96,12 @@ def train_prophet(
     """
     Train a Prophet model on the given DataFrame.
 
-    Uses logistic growth: floor=0 prevents negative predictions,
-    cap is set to 1.5x historical max demand to bound extrapolation.
+    Logistic growth bounds the TREND to ``[floor=0, cap=1.5×max]``. Note this
+    does NOT guarantee a non-negative forecast — the additive seasonality and
+    regressor terms sit on top of the trend and can push the composite ``yhat``
+    below zero (#281); ``predict_prophet`` clips explicitly for that. Yearly
+    seasonality is enabled only when the training span justifies it (see
+    ``YEARLY_SEASONALITY_MIN_DAYS``).
 
     Args:
         df: Feature-engineered DataFrame with 'timestamp' and target column.
@@ -90,7 +110,14 @@ def train_prophet(
     Returns:
         Fitted Prophet model (with _demand_cap attribute for predict).
     """
-    model = create_prophet_model()
+    # Enable yearly seasonality only when the training window actually spans
+    # enough of the annual cycle to identify it (#281). Our ~90-day window does
+    # not, so this is off in production and the annual signal comes from the
+    # weather regressors instead.
+    ts = df["timestamp"]
+    span_days = int((ts.max() - ts.min()) / pd.Timedelta(days=1)) if len(ts) else 0
+    enable_yearly = span_days >= YEARLY_SEASONALITY_MIN_DAYS
+    model = create_prophet_model(yearly_seasonality=enable_yearly)
 
     # Prophet expects 'ds' and 'y' columns
     train_df = pd.DataFrame(
@@ -239,11 +266,17 @@ def predict_prophet(
     else:
         fc = forecast.tail(periods)
 
+    # Hard physical floor: demand is non-negative. Prophet's logistic ``floor=0``
+    # bounds the TREND only, not the additive composite (trend + seasonality +
+    # regressors), so ``yhat`` — and especially ``yhat_lower`` — can go negative
+    # even with floor=0 set (#281). Clip explicitly; do not rely on Prophet's
+    # floor. (The scoring job re-floors every model + the ensemble at its serve
+    # layer; this covers the dev inline-compute path and Prophet's band too.)
     return {
-        "forecast": fc["yhat"].values,
+        "forecast": np.maximum(fc["yhat"].values, 0.0),
         # Prophet's real 80% posterior interval (interval_width defaults to
         # 0.80). No fabricated 95% band — see the function docstring (#150).
-        "lower_80": fc["yhat_lower"].values,
-        "upper_80": fc["yhat_upper"].values,
+        "lower_80": np.maximum(fc["yhat_lower"].values, 0.0),
+        "upper_80": np.maximum(fc["yhat_upper"].values, 0.0),
         "timestamps": pd.to_datetime(fc["ds"]).values,
     }

@@ -200,6 +200,32 @@ class TestPredictAndWriteForecast:
         assert row0["xgboost"] == 41_000.0
         assert row0["predicted_demand_mw"] == 41_000.0
 
+    def test_negative_predictions_floored_at_zero(self, fake_redis, region_data, monkeypatch):
+        """#281: any model emitting negative demand is clipped at 0 at the serve
+        layer — covers all models + the ensemble, not just Prophet's own clip."""
+        from jobs import phases
+
+        prophet_preds = np.full(HORIZON, 39_000.0)
+        prophet_preds[:10] = -2_000.0  # the #281 negative excursion
+        _patch_predict_one(
+            monkeypatch,
+            {"xgboost": np.full(HORIZON, 41_000.0), "prophet": prophet_preds},
+        )
+
+        result = phases.predict_and_write_forecast(
+            region_data,
+            models={"xgboost": object(), "prophet": object()},
+            model_mapes={"xgboost": 5.0, "prophet": 5.0},
+        )
+
+        assert result.ok
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
+        for row in payload["forecasts"]:
+            assert row["prophet"] >= 0.0
+            assert row["ensemble"] >= 0.0
+            assert row["predicted_demand_mw"] >= 0.0
+        assert payload["forecasts"][0]["prophet"] == 0.0  # −2000 → 0
+
 
 # ────────────────────────────────────────────────────────────────────────
 # PR-C (2026-05-20) — Open-Meteo forecast overlay on future feature frame
@@ -275,6 +301,50 @@ class TestBuildFutureFeatureFrameNoOverlay:
         # NOT the test forecast value (95) — that's only present when
         # weather_df is passed.
         assert (future_df["temperature_2m"] == pytest.approx(95.0, abs=1e-3)).sum() == 0
+
+
+class TestClimatologyRecentWindow:
+    """#281: the (hour, dow) climatology baseline is built from a RECENT trailing
+    window, so it tracks the forecast season instead of regressing toward the
+    cooler annual mean of the full training history."""
+
+    def _split_featured(self, old_temp: float, recent_temp: float, total_days: int = 60):
+        from jobs.phases import CLIMATOLOGY_WINDOW_DAYS
+
+        end = pd.Timestamp("2026-07-09 23:00", tz="UTC")
+        n = total_days * 24
+        ts = pd.date_range(end=end, periods=n, freq="h")
+        cutoff = end - pd.Timedelta(days=CLIMATOLOGY_WINDOW_DAYS)
+        temp = np.where(ts >= cutoff, recent_temp, old_temp).astype(float)
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": 15000.0,
+                "temperature_2m": temp,
+                "cooling_degree_days": np.maximum(0.0, temp - 65),
+            }
+        )
+
+    def test_climatology_reflects_recent_window_not_full_history(self):
+        """Recent 28d at 85°F, older 32d at 50°F. Full-history mean would be
+        ~66°F; the recent-window climatology must land near 85°F."""
+        from jobs.phases import _build_future_feature_frame
+
+        featured = self._split_featured(old_temp=50.0, recent_temp=85.0)
+        future_df = _build_future_feature_frame(featured, horizon=48)  # no weather_df
+        assert future_df["temperature_2m"].mean() == pytest.approx(85.0, abs=1.0)
+        # CDD tracks it (85-65=20), not the diluted full-history value.
+        assert future_df["cooling_degree_days"].mean() == pytest.approx(20.0, abs=1.5)
+
+    def test_short_history_falls_back_without_crashing(self):
+        """A history shorter than the recent-window min-rows guard falls back to
+        the full history and still produces a valid frame."""
+        from jobs.phases import _build_future_feature_frame
+
+        featured = self._split_featured(old_temp=70.0, recent_temp=70.0, total_days=3)
+        future_df = _build_future_feature_frame(featured, horizon=24)
+        assert len(future_df) == 24
+        assert future_df["temperature_2m"].between(60.0, 80.0).all()
 
 
 class TestOverlayWeatherForecast:

@@ -51,6 +51,17 @@ DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 BACKTEST_HORIZONS = (24, 168, 720)
 FORECAST_HORIZON_HOURS = 720
 
+# Window (days) of *recent* history used to build the (hour, dow) climatology
+# baseline for the beyond-Open-Meteo forecast horizon. A season-agnostic mean
+# over the full ~90-day training window understates peak-summer demand — for a
+# July forecast it dilutes in cooler April–June data (on DUK the full-window
+# baseline ran 9.4°F cooler than current and halved CDD, driving ~84% of the
+# residual 30-day decline, #281). The most recent weeks are the closest
+# available proxy for the forecast season, so the climatology is restricted to
+# them (falling back to the full history when the recent window is too thin).
+CLIMATOLOGY_WINDOW_DAYS = 28
+_CLIMATOLOGY_MIN_ROWS = 7 * 24  # ≥ 1 week before trusting the recent window
+
 # PR-E (2026-05-20) — depth of recursive autoregressive-feature inference.
 # For future hours 1..RECURSIVE_AUTOREGRESSIVE_HOURS, the XGBoost predict
 # loop computes ``demand_lag_*`` / ``ramp_rate`` / ``demand_roll_*`` from
@@ -644,7 +655,16 @@ def _build_future_feature_frame(
 
     feature_cols = [c for c in featured.columns if c not in ("timestamp", "demand_mw", "region")]
 
+    # Restrict the climatology baseline to a recent trailing window so it tracks
+    # the forecast season instead of regressing toward the (cooler) annual mean
+    # of the full training window (#281). Fall back to the full history when the
+    # recent slice is too thin to form stable (hour, dow) group means.
     hist = featured.copy()
+    if "timestamp" in hist.columns and len(hist):
+        cutoff = hist["timestamp"].max() - pd.Timedelta(days=CLIMATOLOGY_WINDOW_DAYS)
+        recent = hist[hist["timestamp"] >= cutoff]
+        if len(recent) >= _CLIMATOLOGY_MIN_ROWS:
+            hist = recent.copy()
     hist["_hour"] = hist["timestamp"].dt.hour
     hist["_dow"] = hist["timestamp"].dt.dayofweek
 
@@ -955,7 +975,13 @@ def predict_and_write_forecast(
             )
             if preds is None or len(preds) < FORECAST_HORIZON_HOURS:
                 continue
-            predictions_by_model[name] = preds[:FORECAST_HORIZON_HOURS]
+            # Hard physical floor: demand is strictly non-negative. Prophet's
+            # logistic ``floor=0`` bounds only the trend, not the additive
+            # composite (trend + seasonality + regressors), so a served yhat can
+            # still go negative (#281). Clip every model uniformly here — the
+            # single choke point every series (incl. the ``predicted_demand_mw``
+            # primary and the ensemble inputs) flows through.
+            predictions_by_model[name] = np.maximum(preds[:FORECAST_HORIZON_HOURS], 0.0)
 
         if not predictions_by_model:
             return PhaseResult(region=region, ok=False, error="all_models_failed")
@@ -990,7 +1016,12 @@ def predict_and_write_forecast(
                             have_mape=sorted(mape_input.keys()),
                             missing_mape=sorted(set(predictions_by_model) - set(mape_input)),
                         )
-                ensemble_preds = ensemble_combine(predictions_by_model, ensemble_weights)
+                # Floored inputs make the weighted blend non-negative already;
+                # clip again so the guarantee survives any future change to
+                # ensemble_combine. (#281)
+                ensemble_preds = np.maximum(
+                    ensemble_combine(predictions_by_model, ensemble_weights), 0.0
+                )
             except Exception as exc:  # pragma: no cover — defensive
                 log.warning("scoring_ensemble_failed", region=region, error=str(exc))
                 ensemble_preds = None
