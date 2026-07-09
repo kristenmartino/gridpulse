@@ -24,6 +24,7 @@ def _reset_persistence_state(tmp_cache_dir: str) -> None:
 
     mp._client = None
     mp._latest_cache = None
+    mp._latest_cache_ts = 0.0
     mp.LOCAL_MODEL_CACHE_DIR = tmp_cache_dir
 
 
@@ -303,6 +304,63 @@ class TestLatestPointer:
 
         rewritten = json.loads(store["cache/models/latest.json"].decode("utf-8"))
         assert rewritten["MISO"]["xgboost"] == version
+
+
+# ---------------------------------------------------------------------------
+# latest.json pointer cache TTL (#271 / P2-10)
+# ---------------------------------------------------------------------------
+
+
+class TestLatestPointerTTL:
+    """The pointer cache expires so a long-lived web process reflects daily
+    retraining instead of pinning the pointer for its whole lifetime."""
+
+    def test_cache_hit_within_ttl_does_not_reread(self, tmp_path) -> None:
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        mp._latest_cache = {"PJM": {"xgboost": "v1"}}
+        mp._latest_cache_ts = 1000.0
+
+        # _get_client would raise if consulted — proves the hit short-circuits.
+        boom = MagicMock(side_effect=AssertionError("should not re-read within TTL"))
+        with (
+            patch.object(mp.time, "monotonic", return_value=1000.0 + mp._LATEST_CACHE_TTL - 1),
+            patch.object(mp, "_get_client", boom),
+        ):
+            assert mp._read_latest() == {"PJM": {"xgboost": "v1"}}
+        boom.assert_not_called()
+
+    def test_cache_expires_after_ttl_and_rereads(self, tmp_path) -> None:
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        mp._latest_cache = {"PJM": {"xgboost": "v1"}}  # stale in-process copy
+        mp._latest_cache_ts = 1000.0
+        # GCS now holds a newer pointer (a retrain landed a v2).
+        store: dict[str, bytes] = {
+            "cache/models/latest.json": json.dumps({"PJM": {"xgboost": "v2"}}).encode("utf-8")
+        }
+        fake_client = _make_fake_client(store)
+
+        with (
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp.time, "monotonic", return_value=1000.0 + mp._LATEST_CACHE_TTL + 1),
+            patch.object(mp, "_get_client", return_value=fake_client),
+        ):
+            assert mp._read_latest() == {"PJM": {"xgboost": "v2"}}  # re-read past TTL
+        assert mp._latest_cache == {"PJM": {"xgboost": "v2"}}
+
+    def test_invalidate_forces_reread_next_call(self, tmp_path) -> None:
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        mp._latest_cache = {"PJM": {"xgboost": "v1"}}
+        mp._latest_cache_ts = 1000.0
+        mp.invalidate_latest_cache()
+        assert mp._latest_cache is None
+        assert mp._latest_cache_ts == 0.0
 
 
 # ---------------------------------------------------------------------------

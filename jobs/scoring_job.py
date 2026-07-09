@@ -234,6 +234,17 @@ def _score_region(region: str) -> dict:
         if arima_metrics:
             model_metrics["arima"] = arima_metrics
 
+    # Publish this BA's forecast-quality gate verdict (#271 / P2-10). Computed
+    # here — where the real holdout metrics live — so the stateless web tier reads
+    # an authoritative verdict from Redis instead of fataling open on an outage or
+    # sweeping GCS metas per render. Only regions with a real metric signal carry
+    # a verdict; a no-metric region is simply absent from the map (the web gate
+    # treats absent as warming → visible), so untrained BAs are never hidden.
+    if model_metrics:
+        from models.model_service import gate_verdict_from_metrics
+
+        summary["gate"] = gate_verdict_from_metrics(model_metrics)
+
     has_features = phases.engineer_region_features(region_data) is not None
 
     if has_features and loaded_models:
@@ -411,6 +422,40 @@ def run() -> int:
             "mode": "scoring-job",
         },
     )
+
+    # Publish the consolidated forecast-quality gate verdict map (#271 / P2-10).
+    # The web tier reads this one key (Redis-only) to filter the dropdown /
+    # US-Grid, instead of recomputing per-render from GCS metas.
+    #
+    # MERGE over the last-known map rather than replacing it. A degraded run — a
+    # model-store outage makes load_model() return None for every region, so
+    # model_metrics is empty and no region carries a verdict — would otherwise
+    # write an empty/partial map over the good 51-region one on the same 24h key.
+    # The web tier reads a present-but-empty map as "every region warming ->
+    # visible" (a non-None dict short-circuits before the pass-open log), silently
+    # un-hiding rollback-grade BAs whose stale forecasts are still served — the
+    # exact fail-open this fix exists to remove. Merging preserves un-scored
+    # regions' last-known verdicts; a run that produced NO verdicts at all skips
+    # the write, so the prior map lives out its 24h TTL untouched and self-heals.
+    # (Caught by adversarial verification of this PR.)
+    this_run = {r["region"]: r["gate"] for r in results if isinstance(r.get("gate"), dict)}
+    if this_run:
+        try:
+            from data.redis_client import redis_get, redis_key
+
+            prev = redis_get(redis_key("meta:gate_status"))
+            prev_regions = prev.get("regions") if isinstance(prev, dict) else None
+            merged = dict(prev_regions) if isinstance(prev_regions, dict) else {}
+        except Exception as e:
+            log.warning("scoring_gate_status_prev_read_failed", error=str(e))
+            merged = {}
+        merged.update(this_run)
+        phases.write_meta("gate_status", extra={"regions": merged})
+        log.info("scoring_gate_status_written", total=len(merged), updated=len(this_run))
+    else:
+        # No region produced a verdict this run (total model-store outage). Leave
+        # the last-known map in place rather than clobbering it with {}.
+        log.warning("scoring_gate_status_skipped_no_verdicts")
 
     elapsed = round(time.time() - t0, 2)
     log.info(

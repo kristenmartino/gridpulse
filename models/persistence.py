@@ -29,6 +29,7 @@ import pickle
 import platform
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -56,6 +57,15 @@ _client: Client | None = None
 _client_lock = threading.Lock()
 _latest_cache: dict[str, dict[str, str]] | None = None
 _latest_cache_lock = threading.Lock()
+#: Monotonic time the ``latest.json`` pointer cache was last populated. Before
+#: #271 (P2-10) the cache was pinned for the whole process: the writer refreshes
+#: its own copy after a persist, but the *web* tier never writes and never
+#: invalidated, so a long-lived web process kept serving the model versions it
+#: saw on first read and never reflected daily retraining. A TTL makes the web
+#: tier re-read the pointer periodically (bounded — at most one GCS read per TTL,
+#: not per render) so new versions surface without a redeploy.
+_latest_cache_ts: float = 0.0
+_LATEST_CACHE_TTL = 300.0
 
 
 # ── GCS client ───────────────────────────────────────────────
@@ -196,32 +206,43 @@ def _store_in_local(region: str, model_name: str, version: str, data: bytes) -> 
 
 
 def _read_latest(force: bool = False) -> dict[str, dict[str, str]]:
-    """Read the ``latest.json`` pointer. Returns an empty dict on any failure."""
-    global _latest_cache
-    if _latest_cache is not None and not force:
+    """Read the ``latest.json`` pointer. Returns an empty dict on any failure.
+
+    The cache is honoured only within ``_LATEST_CACHE_TTL`` (unless ``force``);
+    past that it re-reads so a long-lived web process reflects daily retraining
+    instead of pinning the pointer for its whole lifetime (#271 / P2-10).
+    """
+    global _latest_cache, _latest_cache_ts
+    fresh = (time.monotonic() - _latest_cache_ts) < _LATEST_CACHE_TTL
+    if _latest_cache is not None and fresh and not force:
         return _latest_cache
     client = _get_client()
     if client is None:
         _latest_cache = {}
+        _latest_cache_ts = time.monotonic()
         return _latest_cache
     try:
         bucket = client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(_latest_path())
         if not blob.exists():
             _latest_cache = {}
+            _latest_cache_ts = time.monotonic()
             return _latest_cache
         data = blob.download_as_text()
         parsed = json.loads(data)
         if not isinstance(parsed, dict):
             log.warning("model_latest_invalid_shape", path=_latest_path())
             _latest_cache = {}
+            _latest_cache_ts = time.monotonic()
             return _latest_cache
         with _latest_cache_lock:
             _latest_cache = parsed
+            _latest_cache_ts = time.monotonic()
         return parsed
     except Exception as e:
         log.warning("model_latest_read_failed", error=str(e))
         _latest_cache = {}
+        _latest_cache_ts = time.monotonic()
         return {}
 
 
@@ -303,8 +324,9 @@ def _write_latest(region: str, model_name: str, version: str) -> None:
             )
             return
         with _latest_cache_lock:
-            global _latest_cache
+            global _latest_cache, _latest_cache_ts
             _latest_cache = current
+            _latest_cache_ts = time.monotonic()
         log.info(
             "model_latest_updated",
             region=region,
@@ -602,9 +624,10 @@ def load_model(region: str, model_name: str) -> tuple[Any, ModelMetadata] | None
 
 def invalidate_latest_cache() -> None:
     """Force the next :func:`load_model` / :func:`get_model_metadata` call to re-read ``latest.json``."""
-    global _latest_cache
+    global _latest_cache, _latest_cache_ts
     with _latest_cache_lock:
         _latest_cache = None
+        _latest_cache_ts = 0.0
 
 
 def _warn_if_lib_skew(metadata: ModelMetadata) -> None:

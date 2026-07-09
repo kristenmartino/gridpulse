@@ -26,7 +26,9 @@ Coverage:
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def _metrics(**model_mapes):
@@ -34,10 +36,208 @@ def _metrics(**model_mapes):
     return {name: {"mape": v} for name, v in model_mapes.items()}
 
 
-class TestIsForecastQualityAcceptable:
+class TestGateVerdictFromMetrics:
+    """The pure champion-MAPE verdict logic the scoring job publishes and the
+    dev path computes inline (#271)."""
+
+    def test_healthy_champion_acceptable(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        assert gate_verdict_from_metrics(_metrics(ensemble=2.5, xgboost=2.6)) == {
+            "acceptable": True,
+            "best_mape": 2.5,
+        }
+
+    def test_all_models_rollback_unacceptable(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        v = gate_verdict_from_metrics(
+            _metrics(xgboost=25.0, prophet=30.0, arima=28.0, ensemble=26.0)
+        )
+        assert v["acceptable"] is False
+        assert v["best_mape"] == 25.0
+
+    def test_champion_not_xgboost_alone_sec_visible(self):
+        """#255: SEC — XGBoost 38.63% (rollback) but Prophet 11.22% acceptable."""
+        from models.model_service import gate_verdict_from_metrics
+
+        v = gate_verdict_from_metrics(
+            _metrics(xgboost=38.63, prophet=11.22, arima=12.94, ensemble=13.61)
+        )
+        assert v["acceptable"] is True
+        assert v["best_mape"] == 11.22
+
+    def test_no_signal_is_acceptable_none(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        assert gate_verdict_from_metrics({}) == {"acceptable": True, "best_mape": None}
+
+    def test_metrics_without_mape_is_no_signal(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        assert gate_verdict_from_metrics({"xgboost": {"rmse": 100.0}}) == {
+            "acceptable": True,
+            "best_mape": None,
+        }
+
+
+class TestGateProductionReadsPublishedVerdict:
+    """#271 / P2-10: in production the gate reads the scoring-job-published
+    verdict map (Redis-only) — never recomputing from GCS metas — and fails
+    warming-but-logged (not silently open) when the map is absent."""
+
     def setup_method(self):
         from models.model_service import _reset_quality_gate_cache
 
+        _reset_quality_gate_cache()
+
+    def test_published_acceptable_region_visible(self):
+        from models.model_service import is_forecast_quality_acceptable
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"PJM": {"acceptable": True, "best_mape": 3.2}},
+            ),
+        ):
+            assert is_forecast_quality_acceptable("PJM") is True
+
+    def test_published_unacceptable_region_hidden(self):
+        from models.model_service import is_forecast_quality_acceptable
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"CPLW": {"acceptable": False, "best_mape": 26.0}},
+            ),
+        ):
+            assert is_forecast_quality_acceptable("CPLW") is False
+
+    def test_region_absent_from_verdict_passes_warming(self):
+        """A BA not in the published map (not yet scored/trained) stays visible —
+        and still never falls through to get_model_metrics (no request-path GCS)."""
+        from models.model_service import is_forecast_quality_acceptable
+
+        gm = MagicMock()
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"PJM": {"acceptable": True}},
+            ),
+            patch("models.model_service.get_model_metrics", gm),
+        ):
+            assert is_forecast_quality_acceptable("NEWBA") is True
+        gm.assert_not_called()
+
+    def test_verdict_path_never_reads_metrics(self):
+        """With a published verdict, the gate must not touch get_model_metrics —
+        the request-path GCS read this fix removes."""
+        from models.model_service import is_forecast_quality_acceptable
+
+        gm = MagicMock()
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"PJM": {"acceptable": True}},
+            ),
+            patch("models.model_service.get_model_metrics", gm),
+        ):
+            is_forecast_quality_acceptable("PJM")
+        gm.assert_not_called()
+
+    def test_no_verdict_prod_passes_logs_and_avoids_gcs(self):
+        """Cold/flushed Redis (no verdict at all): pass (don't black out the
+        dropdown), LOG (not silent — the fail-open half of P2-10), and never call
+        get_model_metrics (no request-path GCS)."""
+        from models.model_service import is_forecast_quality_acceptable
+
+        gm = MagicMock()
+        logfn = MagicMock()
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("models.model_service._get_gate_status", return_value=None),
+            patch("models.model_service.get_model_metrics", gm),
+            patch("models.model_service._log_gate_unavailable_once", logfn),
+        ):
+            assert is_forecast_quality_acceptable("PJM") is True
+        gm.assert_not_called()
+        logfn.assert_called_once()
+
+    def test_empty_published_map_treated_as_no_verdict(self):
+        """#271 (adversarial-verify catch): a present-but-EMPTY regions map (a
+        degraded scoring publish) must fall through to pass-open+LOG via the real
+        _get_gate_status, NOT be read as 'every region warming -> visible' which
+        would silently un-hide rollback-grade BAs during an outage."""
+        import models.model_service as ms
+
+        ms._reset_quality_gate_cache()
+        logfn = MagicMock()
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("data.redis_client.redis_get", return_value={"regions": {}}),
+            patch("models.model_service._log_gate_unavailable_once", logfn),
+        ):
+            assert ms.is_forecast_quality_acceptable("CPLW") is True
+        logfn.assert_called()  # not silent
+        ms._reset_quality_gate_cache()
+
+    def test_malformed_verdict_entry_does_not_crash(self):
+        """A corrupt non-dict verdict entry must not blow up the dropdown render —
+        treat as warming (visible)."""
+        from models.model_service import is_forecast_quality_acceptable
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("models.model_service._get_gate_status", return_value={"PJM": "corrupt"}),
+        ):
+            assert is_forecast_quality_acceptable("PJM") is True
+
+    def test_gate_status_cached_one_redis_read_per_sweep(self):
+        """#271: a 51-BA dropdown/US-Grid sweep does ONE Redis read, not 51 — the
+        in-process _get_gate_status cache (the whole point of P2-10). Re-reads
+        once the cache is invalidated."""
+        import models.model_service as ms
+
+        ms._reset_quality_gate_cache()
+        calls = {"n": 0}
+
+        def _counting_get(key):
+            calls["n"] += 1
+            return {"regions": {"PJM": {"acceptable": True}}}
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("data.redis_client.redis_get", side_effect=_counting_get),
+        ):
+            for region in ["PJM", "MISO", "ERCOT", "CPLW", "SPA"]:
+                ms.is_forecast_quality_acceptable(region)
+            assert calls["n"] == 1  # cached across the whole sweep
+
+            ms._reset_quality_gate_cache()  # simulate TTL expiry
+            ms.is_forecast_quality_acceptable("PJM")
+            assert calls["n"] == 2  # re-read after invalidation
+        ms._reset_quality_gate_cache()
+
+
+class TestIsForecastQualityAcceptable:
+    """These exercise the DEV-inline branch (compute from get_model_metrics). Pin
+    REQUIRE_REDIS False + no published verdict so the branch is deterministic
+    regardless of the ambient environment or a live Redis (#271 test-hardening)."""
+
+    @pytest.fixture(autouse=True)
+    def _dev_inline_branch(self):
+        from models.model_service import _reset_quality_gate_cache
+
+        _reset_quality_gate_cache()
+        with (
+            patch("config.REQUIRE_REDIS", False),
+            patch("models.model_service._get_gate_status", return_value=None),
+        ):
+            yield
         _reset_quality_gate_cache()
 
     def test_healthy_champion_passes(self):
@@ -189,9 +389,19 @@ class TestQualityGateCache:
 
 
 class TestHiddenAndVisibleHelpers:
-    def setup_method(self):
+    """Dev-inline branch (see TestIsForecastQualityAcceptable) — pinned so the
+    partition is deterministic regardless of environment / live Redis."""
+
+    @pytest.fixture(autouse=True)
+    def _dev_inline_branch(self):
         from models.model_service import _reset_quality_gate_cache
 
+        _reset_quality_gate_cache()
+        with (
+            patch("config.REQUIRE_REDIS", False),
+            patch("models.model_service._get_gate_status", return_value=None),
+        ):
+            yield
         _reset_quality_gate_cache()
 
     def test_partition_by_gate(self):
