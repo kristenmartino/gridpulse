@@ -779,6 +779,24 @@ def run() -> int:
             )
             results.append({"region": region, "ok": False, "error": str(e)})
 
+    # #283 Phase 1: refresh stale/missing weather-normal artifacts for this
+    # task's region slice (drives the days-17-30 forecast tail off a normal
+    # weather year). Quarterly per region — skips fresh ones — and capped per
+    # run, so a cold-start backfill spreads across runs/tasks rather than
+    # hammering the rate-limited ERA5 archive. Best-effort: never fails training.
+    try:
+        from data.weather_normals import refresh_weather_normals
+
+        wn = refresh_weather_normals(regions)
+        log.info(
+            "training_weather_normals",
+            built=len(wn["built"]),
+            skipped=len(wn["skipped"]),
+            failed=len(wn["failed"]),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("training_weather_normals_failed", error=str(e))
+
     ok_count = sum(1 for r in results if r.get("ok"))
     fail_regions = [r["region"] for r in results if not r.get("ok")]
 
