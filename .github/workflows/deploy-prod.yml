@@ -92,7 +92,7 @@ jobs:
             --no-cpu-throttling \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
-            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379,REQUIRE_REDIS=true,PRECOMPUTE_ENABLED=false"
+            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379,REQUIRE_REDIS=true,PRECOMPUTE_ENABLED=false,METRICS_ALLOWED_IPS=${{ secrets.METRICS_ALLOWED_IPS }}"
 
       # The scoring + training Cloud Run Jobs run from the same container image
       # but with different entrypoints. Cloud Scheduler invokes them on cron

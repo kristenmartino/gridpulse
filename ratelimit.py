@@ -57,11 +57,13 @@ def is_exempt(ip: str) -> bool:
     For a known shared-NAT egress (a control room behind one corporate IP)
     where many operators would otherwise share a single per-IP bucket and
     collect spurious 429s. Keyed on the same spoof-resistant IP as the limit
-    (``RATE_LIMIT_EXEMPT_IPS``, empty by default).
+    (``RATE_LIMIT_EXEMPT_IPS``, empty by default). Entries may be exact IPs or
+    CIDR prefixes (e.g. a corporate ``/24`` or an IPv6 ``/64``).
     """
     from config import RATE_LIMIT_EXEMPT_IPS
+    from observability import ip_in_allowlist
 
-    return bool(ip) and ip in RATE_LIMIT_EXEMPT_IPS
+    return ip_in_allowlist(ip, RATE_LIMIT_EXEMPT_IPS)
 
 
 def check_rate_limit(bucket: str, identity: str, limit: int, window_s: int = 60) -> RateLimitResult:

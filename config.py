@@ -796,8 +796,9 @@ DASH_RATE_LIMIT_PER_MIN = int(os.getenv("DASH_RATE_LIMIT_PER_MIN", "600"))
 # Trusted source IPs that bypass rate limiting entirely — for a known
 # shared-NAT egress (e.g. a Grid Ops control room where many operators sit
 # behind one corporate IP and would otherwise share a single per-IP bucket).
-# Comma-separated env; empty by default. Keyed on the same spoof-resistant IP
-# the limiter uses, so it can't be forged via X-Forwarded-For.
+# Comma-separated env; empty by default. Entries may be exact IPs or CIDR
+# prefixes (e.g. a corporate /24 or an IPv6 /64). Keyed on the same
+# spoof-resistant IP the limiter uses, so it can't be forged via X-Forwarded-For.
 RATE_LIMIT_EXEMPT_IPS: frozenset[str] = frozenset(
     ip.strip() for ip in os.getenv("RATE_LIMIT_EXEMPT_IPS", "").split(",") if ip.strip()
 )
