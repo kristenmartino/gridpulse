@@ -16,6 +16,7 @@ billing.
 | `scoring_runtime_creep_alert.json` | **Job tier, early warning (#171).** Log-based (`conditionMatchedLog` on `jsonPayload.event="scoring_runtime_creep"`) — fires when the scoring job's `elapsed_s` exceeds `SCORING_RUNTIME_HEADROOM_FRACTION` of the task timeout for `SCORING_RUNTIME_CREEP_RUNS` consecutive runs. Warns on *approach* (~70% of the cap), before a tick is killed — the gap that let 2026-06-01 happen. |
 | `web_service_5xx_alert.json` | **Web tier (#253).** Fires when the `gridpulse` service returns sustained 5xx (`run.googleapis.com/request_count{response_code_class="5xx"}` summed > 25 / 5 min). The request-path equivalent of the job-failure alert. |
 | `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when the service sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. |
+| `web_service_uptime_alert.json` | **Web tier (#253).** Fires when the public `/health` uptime check fails from >1 probe location over 10 min (service down or shallow-degraded). Filter is check-id-specific — see the note in the file. |
 
 Both web-tier policies apply the same way as the job policies (see "Apply /
 re-apply" below). The **uptime check** and the **billing budget** are separate
@@ -62,12 +63,12 @@ Live as of 2026-05-29: policy
 | scoring-job runtime creep (#171) | `alertPolicies/5813319064717268577` |
 | web service sustained 5xx | `alertPolicies/14035657251363314798` |
 | web service pinned at max instances | `alertPolicies/7343953142414788448` |
-| Uptime check — public `/health` | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
+| /health uptime check failing (alert) | `alertPolicies/1577408926164424010` |
+| Uptime check config — public `/health` | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
 | Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
 
-The uptime check needs its **alert policy** wired (Console → Uptime checks →
-`gridpulse-health` → *Create alerting policy*, bound to the email channel). The
-budget emails the billing-account admins by default (no extra wiring).
+All five alert policies + the uptime check + the budget are live and bound to
+the email channel. The budget also emails the billing-account admins by default.
 
 ## Verification (one manual step)
 

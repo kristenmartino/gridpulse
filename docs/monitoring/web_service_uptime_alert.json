@@ -1,0 +1,29 @@
+{
+  "displayName": "GridPulse — /health uptime check failing",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The public `/health` uptime check (`gridpulse-health`) is failing from more than one probe location — the `gridpulse` web service is down or shallow-degraded (Redis down, or scoring stale enough to flip the shallow `status` to `degraded`; #253).\n\nFires on `monitoring.googleapis.com/uptime_check/check_passed` for `check_id=gridpulse-health-162OIAwsIpE` when >1 probe location reports a failed check over a 10-min window (a single-location blip is ignored). This is the request-path counterpart of the deep-`/health` alert the README long listed as a follow-up.\n\n**NOTE:** the `check_id` in the filter is deployment-specific — if the uptime check is deleted and recreated, GCP assigns a new id and this filter must be updated (`gcloud monitoring uptime list`).\n\n**Runbook:**\n1. `curl -s https://gridpulse.kristenmartino.ai/health` — the public liveness `{\"status\": ...}`; `degraded` points at Redis or stale scoring, no response at the service/deploy.\n2. From an allowlisted IP, `curl -s '.../health?deep=1'` for the detailed body (Redis / last_scored / forecast_sample).\n3. `gcloud run services logs read gridpulse --region=us-east1 --limit=200`.\n4. Bad deploy → roll back the revision: `gcloud run services update-traffic gridpulse --to-revisions=<prev>=100`."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "uptime check failing from >1 location (10 min)",
+      "conditionThreshold": {
+        "filter": "resource.type = \"uptime_url\" AND metric.type = \"monitoring.googleapis.com/uptime_check/check_passed\" AND metric.labels.check_id = \"gridpulse-health-162OIAwsIpE\"",
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 1,
+        "duration": "0s",
+        "trigger": { "count": 1 },
+        "aggregations": [
+          {
+            "alignmentPeriod": "600s",
+            "perSeriesAligner": "ALIGN_NEXT_OLDER",
+            "crossSeriesReducer": "REDUCE_COUNT_FALSE",
+            "groupByFields": ["resource.labels.host"]
+          }
+        ]
+      }
+    }
+  ],
+  "alertStrategy": { "autoClose": "604800s" }
+}
