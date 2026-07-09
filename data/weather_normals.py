@@ -39,17 +39,32 @@ log = structlog.get_logger()
 # — they are recomputed per-timestamp when the forecast frame is built, so a
 # normal of them would be redundant and, for interactions, wrong.
 NORMAL_FEATURE_COLS = [
-    # raw ERA5 weather
+    # ALL 17 raw weather vars (== config.WEATHER_VARIABLES). The tail must source
+    # the WHOLE weather vector from one climatology (#283 Phase 2 verification): a
+    # partial set left correlated companions on the recent-28d climatology (GHI
+    # from the normal but its DNI/diffuse components on recent, the 80m wind from
+    # the normal but 120m/direction on recent), producing physically-incoherent,
+    # out-of-training-distribution vectors at exactly the seasonal turns this
+    # targets. The 3 the ERA5 archive lacks (wind_speed_80m/120m,
+    # soil_temperature_0cm) are imputed by engineer_exogenous_features, same as
+    # everywhere else, so the normal carries them consistently.
     "temperature_2m",
     "apparent_temperature",
     "relative_humidity_2m",
     "dew_point_2m",
     "wind_speed_10m",
     "wind_speed_80m",
+    "wind_speed_120m",
+    "wind_direction_10m",
     "shortwave_radiation",
+    "direct_normal_irradiance",
+    "diffuse_radiation",
     "cloud_cover",
     "precipitation",
+    "snowfall",
     "surface_pressure",
+    "soil_temperature_0cm",
+    "weather_code",
     # derived (averaged directly — see module docstring on Jensen)
     "cooling_degree_days",
     "heating_degree_days",
