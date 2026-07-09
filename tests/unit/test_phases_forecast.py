@@ -903,3 +903,24 @@ class TestGapActualDemand:
         anchor = fe["timestamp"].iloc[10]
         start = fe["timestamp"].iloc[20]
         assert _gap_actual_demand(fe, anchor, start) is None
+
+
+class TestForecastWriteFailureIsFailed:
+    """#268 → #267: a forecast that computed but couldn't persist must return
+    ok=False, so the region is counted failed (not scored)."""
+
+    def test_persist_failure_marks_phase_failed(self, region_data, monkeypatch):
+        import data.redis_client as rc
+        from jobs import phases
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41_000.0)})
+        # persist() calls redis_set; force it to fail so persist raises.
+        monkeypatch.setattr(rc, "redis_set", lambda *a, **k: False)
+
+        result = phases.predict_and_write_forecast(
+            region_data,
+            models={"xgboost": object()},
+            model_mapes={"xgboost": 1.0},
+        )
+        assert result.ok is False
+        assert "redis write failed" in (result.error or "")
