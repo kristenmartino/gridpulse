@@ -800,6 +800,26 @@ def run() -> int:
             },
         )
 
+    # #283 Phase 1: refresh stale/missing weather-normal artifacts for this task's
+    # region slice (drives the days-17-30 forecast tail off a normal weather
+    # year). Runs AFTER the last_trained pointer write so a slow/failing ERA5
+    # fetch can never block it (the refresh caps build ATTEMPTS per run, but a
+    # degraded archive could still burn its whole budget in fetch timeouts).
+    # Quarterly per region — skips fresh ones — so a cold-start backfill spreads
+    # across runs/tasks. Best-effort: never fails training.
+    try:
+        from data.weather_normals import refresh_weather_normals
+
+        wn = refresh_weather_normals(regions)
+        log.info(
+            "training_weather_normals",
+            built=len(wn["built"]),
+            skipped=len(wn["skipped"]),
+            failed=len(wn["failed"]),
+        )
+    except Exception as e:  # noqa: BLE001
+        log.warning("training_weather_normals_failed", error=str(e))
+
     elapsed = round(time.time() - t0, 2)
     log.info(
         "training_job_complete",

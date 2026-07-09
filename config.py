@@ -102,6 +102,18 @@ OPEN_METEO_PARAMS = "&temperature_unit=fahrenheit&wind_speed_unit=mph"
 OPEN_METEO_FORECAST_DAYS = 16
 OPEN_METEO_FORECAST_HOURS = OPEN_METEO_FORECAST_DAYS * 24  # 384
 
+# Weather-normal artifact for the days-17-30 forecast tail (#283 Phase 1).
+# A per-(day_of_year, hour) average over a trailing multi-year ERA5 window — a
+# "normal weather year" — used to drive the demand model past Open-Meteo's ~16d
+# horizon. Trailing (not the full 1940 archive) so decades of warming don't
+# re-introduce a cold bias. Built quarterly by the training job (the fetch is
+# expensive), spread across runs so a cold-start backfill doesn't hammer the
+# rate-limited archive API.
+WEATHER_NORMAL_YEARS = 10
+WEATHER_NORMAL_REFRESH_DAYS = 90  # rebuild a region's normal when older than this
+WEATHER_NORMAL_MAX_REBUILD_PER_RUN = 10  # cap per training run (51 BAs → ~1 week backfill)
+WEATHER_NORMAL_TTL_SECONDS = 200 * 24 * 3600  # Redis TTL > refresh cadence so it survives
+
 NOAA_BASE_URL = "https://api.weather.gov"
 
 # AI Briefing (Overview tab executive briefing via Claude)
@@ -856,6 +868,10 @@ FEATURE_FLAGS: dict[str, bool] = {
     # (/api/v1/* + the Dash callback route), Redis-backed. Enforced only when
     # the web tier is in Redis-only mode (staging/prod); see rate_limit_active().
     "rate_limiting": True,
+    # #283 Phase 2: drive the days-17-30 forecast tail off the weather-normal
+    # artifact (config.WEATHER_NORMAL_*) instead of the recent-28d climatology.
+    # OFF until Phase 2 wires + backtests it; Phase 1 only builds the artifact.
+    "weather_normal_tail": False,
 }
 
 

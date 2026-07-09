@@ -159,6 +159,53 @@ class TestTrainingJob:
         assert meta["regions_trained"] == 1
         assert meta["mode"] == "training-job"
 
+    def test_weather_normal_refresh_is_best_effort_and_after_meta(
+        self,
+        fake_redis,
+        patch_data_sources,
+        patch_single_region,
+        monkeypatch,
+    ) -> None:
+        """#283 Phase 1: a failing/slow weather-normal refresh must neither fail
+        training nor block the last_trained pointer — the refresh runs AFTER the
+        meta write and is best-effort."""
+        import models.arima_model as arima_mod
+        import models.prophet_model as prophet_mod
+        import models.xgboost_model as xgb_mod
+
+        monkeypatch.setattr(
+            xgb_mod,
+            "train_xgboost",
+            lambda df, n_splits=3: {
+                "model": {"booster": "fake"},
+                "feature_importances": {"temperature_2m": 0.5},
+                "cv_scores": [5.0],
+            },
+        )
+        monkeypatch.setattr(prophet_mod, "train_prophet", lambda df: {"type": "prophet"})
+        monkeypatch.setattr(arima_mod, "train_arima", lambda df, **kwargs: {"type": "sarimax"})
+        monkeypatch.setattr("jobs.training_job.save_model", lambda *a, **k: "v1")
+
+        import jobs.phases as phases
+
+        monkeypatch.setattr(
+            phases,
+            "write_backtests",
+            lambda data: phases.PhaseResult(region=data.region, ok=True, details={}),
+        )
+
+        def _boom(regions):
+            raise RuntimeError("archive down")
+
+        monkeypatch.setattr("data.weather_normals.refresh_weather_normals", _boom)
+
+        from jobs import training_job
+
+        # Training still succeeds despite the refresh blowing up...
+        assert training_job.run() == 0
+        # ...and the last_trained pointer was written (refresh runs AFTER it).
+        assert "gridpulse:meta:last_trained" in fake_redis
+
     def test_training_job_xgboost_failure_marks_region_failed(
         self,
         fake_redis,
