@@ -3,6 +3,8 @@
 import json
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 
 class TestRedisClientGracefulFallback:
     """Verify that redis_client returns None when Redis is unavailable."""
@@ -12,7 +14,7 @@ class TestRedisClientGracefulFallback:
         import data.redis_client as rc
 
         rc._redis_client = None
-        rc._redis_init_attempted = False
+        rc._redis_last_attempt = 0.0
 
         with patch.dict("os.environ", {"REDIS_HOST": ""}, clear=False):
             result = rc.redis_get("gridpulse:actuals:FPL")
@@ -23,7 +25,7 @@ class TestRedisClientGracefulFallback:
         import data.redis_client as rc
 
         rc._redis_client = None
-        rc._redis_init_attempted = False
+        rc._redis_last_attempt = 0.0
 
         with (
             patch.dict(
@@ -35,7 +37,7 @@ class TestRedisClientGracefulFallback:
             mock_client.ping.side_effect = ConnectionError("Connection refused")
             mock_redis_mod.Redis.return_value = mock_client
             # Need to reimport to pick up the mock
-            rc._redis_init_attempted = False
+            rc._redis_last_attempt = 0.0
             result = rc.redis_get("gridpulse:actuals:FPL")
             assert result is None
 
@@ -44,7 +46,7 @@ class TestRedisClientGracefulFallback:
         import data.redis_client as rc
 
         rc._redis_client = MagicMock()
-        rc._redis_init_attempted = True
+        rc._redis_last_attempt = 0.0
         assert rc.redis_available() is True
 
     def test_redis_available_returns_false_no_host(self):
@@ -52,7 +54,7 @@ class TestRedisClientGracefulFallback:
         import data.redis_client as rc
 
         rc._redis_client = None
-        rc._redis_init_attempted = True
+        rc._redis_last_attempt = 0.0
         assert rc.redis_available() is False
 
 
@@ -67,7 +69,7 @@ class TestRedisClientReads:
         payload = {"region": "FPL", "demand_mw": [100, 200, 300]}
         mock_client.get.return_value = json.dumps(payload)
         rc._redis_client = mock_client
-        rc._redis_init_attempted = True
+        rc._redis_last_attempt = 0.0
 
         result = rc.redis_get("gridpulse:actuals:FPL")
         assert result == payload
@@ -80,7 +82,7 @@ class TestRedisClientReads:
         mock_client = MagicMock()
         mock_client.get.return_value = None
         rc._redis_client = mock_client
-        rc._redis_init_attempted = True
+        rc._redis_last_attempt = 0.0
 
         result = rc.redis_get("gridpulse:actuals:MISSING")
         assert result is None
@@ -92,7 +94,7 @@ class TestRedisClientReads:
         mock_client = MagicMock()
         mock_client.get.return_value = "not-valid-json{{"
         rc._redis_client = mock_client
-        rc._redis_init_attempted = True
+        rc._redis_last_attempt = 0.0
 
         result = rc.redis_get("gridpulse:actuals:FPL")
         assert result is None
@@ -104,7 +106,7 @@ class TestRedisClientReads:
         mock_client = MagicMock()
         mock_client.get.side_effect = Exception("Connection lost")
         rc._redis_client = mock_client
-        rc._redis_init_attempted = True
+        rc._redis_last_attempt = 0.0
 
         result = rc.redis_get("gridpulse:actuals:FPL")
         assert result is None
@@ -132,7 +134,7 @@ class TestRedisBacktestFormat:
         mock_client = MagicMock()
         mock_client.get.return_value = json.dumps(backtest_payload)
         rc._redis_client = mock_client
-        rc._redis_init_attempted = True
+        rc._redis_last_attempt = 0.0
 
         result = rc.redis_get("gridpulse:backtest:FPL:24")
         assert result is not None
@@ -203,3 +205,63 @@ class TestRedisKeyPrefix:
         assert rc.redis_key("") == "gridpulse:"
         # Colons in the suffix pass through (this is how multi-part keys work)
         assert rc.redis_key("a:b:c") == "gridpulse:a:b:c"
+
+
+class TestRedisReinit:
+    """#268 (P2-03) — a failed connection self-heals instead of pinning Redis
+    off for the whole process."""
+
+    def test_failed_connection_retries_after_backoff(self):
+        import sys
+
+        import data.redis_client as rc
+
+        rc._redis_client = None
+        rc._redis_last_attempt = 0.0
+        client = MagicMock()
+        client.ping.side_effect = [ConnectionError("blip"), True]  # fail, then recover
+        fake_redis = MagicMock()
+        fake_redis.Redis.return_value = client
+        # _get_redis does a local ``import redis``, so inject the mock into
+        # sys.modules (a module-attr patch wouldn't intercept the import).
+        with (
+            patch.dict("os.environ", {"REDIS_HOST": "h", "REDIS_PORT": "6379"}, clear=False),
+            patch.dict(sys.modules, {"redis": fake_redis}),
+        ):
+            assert rc._get_redis() is None  # 1st attempt fails
+            assert rc._get_redis() is None  # within backoff → no re-probe
+            assert client.ping.call_count == 1  # did NOT hammer the connection
+
+            rc._redis_last_attempt = 0.0  # simulate the backoff window elapsing
+            assert rc._get_redis() is client  # re-probes and recovers
+            assert client.ping.call_count == 2
+        rc._redis_client = None
+        rc._redis_last_attempt = 0.0
+
+    def test_healthy_client_is_cached_without_reprobe(self):
+        import data.redis_client as rc
+
+        cached = MagicMock()
+        rc._redis_client = cached
+        rc._redis_last_attempt = 0.0
+        assert rc._get_redis() is cached
+        rc._redis_client = None
+
+
+class TestPersist:
+    """persist() raises on a dropped write so scoring phases surface it (#268)."""
+
+    def test_persist_raises_on_write_failure(self):
+        import data.redis_client as rc
+
+        with (
+            patch("data.redis_client.redis_set", return_value=False),
+            pytest.raises(rc.RedisWriteError),
+        ):
+            rc.persist("gridpulse:x", {"a": 1})
+
+    def test_persist_succeeds_silently(self):
+        import data.redis_client as rc
+
+        with patch("data.redis_client.redis_set", return_value=True):
+            assert rc.persist("gridpulse:x", {"a": 1}) is None

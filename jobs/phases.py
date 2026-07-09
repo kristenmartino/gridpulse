@@ -205,7 +205,7 @@ def _ts_list(series: Any) -> list[str]:
 
 def write_actuals_and_weather(data: RegionData) -> PhaseResult:
     """Write actuals + weather JSON payloads to Redis."""
-    from data.redis_client import redis_key, redis_set
+    from data.redis_client import persist, redis_key
 
     region = data.region
     try:
@@ -221,7 +221,7 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
             "timestamps": _ts_list(demand_df["timestamp"]),
             "demand_mw": demand_df["demand_mw"].tolist(),
         }
-        redis_set(redis_key(f"actuals:{region}"), actuals_payload, ttl=REDIS_TTL)
+        persist(redis_key(f"actuals:{region}"), actuals_payload, ttl=REDIS_TTL)
 
         weather_payload: dict[str, Any] = {
             "region": region,
@@ -232,7 +232,7 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
             if col == "timestamp":
                 continue
             weather_payload[col] = weather_df[col].tolist()
-        redis_set(redis_key(f"weather:{region}"), weather_payload, ttl=REDIS_TTL)
+        persist(redis_key(f"weather:{region}"), weather_payload, ttl=REDIS_TTL)
 
         return PhaseResult(
             region=region,
@@ -909,7 +909,7 @@ def predict_and_write_forecast(
             row from ``xgb_meta.extra["ensemble_holdout_metrics"]``.
             Persisted as the ``model_metrics`` field on the Redis payload.
     """
-    from data.redis_client import redis_key, redis_set
+    from data.redis_client import persist, redis_key
     from models.ensemble import compute_ensemble_weights, ensemble_combine
 
     region = data.region
@@ -1057,7 +1057,11 @@ def predict_and_write_forecast(
             if sanitized:
                 redis_payload["model_metrics"] = sanitized
 
-        redis_set(
+        # persist() (not redis_set) so a dropped forecast write raises → the
+        # except below returns ok=False, and the region is counted as failed,
+        # not scored (#268 → #267). A forecast that computed but never landed in
+        # Redis must not read as a success.
+        persist(
             redis_key(f"forecast:{region}:1h"),
             redis_payload,
             ttl=REDIS_TTL,
