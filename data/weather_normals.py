@@ -55,6 +55,10 @@ NORMAL_FEATURE_COLS = [
     "heating_degree_days",
     "wind_power_estimate",
     "solar_capacity_factor",
+    # temperature_deviation is a 720h-ROLLING feature, so its (doy,hour) normal
+    # is a seasonal slope (~±6°F), not ~0. Stored for completeness, but Phase 2's
+    # tail should RECOMPUTE it from the surrounding normal temperatures rather
+    # than read this value directly. (#283 — flagged in Phase 1 verification.)
     "temperature_deviation",
 ]
 
@@ -127,6 +131,11 @@ def build_weather_normal(
         return None
 
     feat = engineer_exogenous_features(raw)
+    # ``dayofyear`` shifts by one calendar day after Feb 28 between leap and
+    # non-leap years (doy 60 = Feb 29 in a leap year, Mar 1 otherwise). Averaging
+    # across a ~10-year window therefore pools calendar days ~1 day apart for
+    # doy ≥ 60. Accepted: the ±7-day smoothing below spans that 1-day seam, so it
+    # blurs rather than biases — a negligible effect at this horizon. (#283)
     feat["doy"] = feat["timestamp"].dt.dayofyear
     feat["hour"] = feat["timestamp"].dt.hour
     cols = [c for c in NORMAL_FEATURE_COLS if c in feat.columns]
@@ -147,52 +156,51 @@ def build_weather_normal(
     return normal
 
 
-def _to_payload(region: str, normal: pd.DataFrame, years: int) -> dict:
-    feature_cols = [c for c in normal.columns if c not in ("doy", "hour")]
+def _marker_payload(region: str, normal: pd.DataFrame, years: int) -> dict:
+    """The small Redis staleness marker — metadata only, NOT the 366×24 grid.
+
+    The full artifact (~4 MB/BA) lives durably in GCS parquet; Redis holds only
+    this tiny marker so ``refresh_weather_normals`` can decide staleness without
+    a ~210 MB standing allocation across 51 BAs for a feature that is dormant
+    until Phase 2 reads it. Phase 2 adds any fast-read cache it needs when it
+    wires the scoring tail.
+    """
     return {
         "region": region,
         "updated_at": datetime.now(UTC).isoformat(),
         "years": years,
-        "features": feature_cols,
-        "rows": normal.round(4).to_dict(orient="records"),
+        "rows": int(len(normal)),
+        "features": [c for c in normal.columns if c not in ("doy", "hour")],
     }
 
 
 def persist_weather_normal(region: str, normal: pd.DataFrame, years: int | None = None) -> None:
-    """Persist the normal to Redis (fast scoring read) + GCS parquet (durable).
+    """Persist the normal: GCS parquet (durable, full artifact) + a small Redis
+    staleness marker.
 
-    Uses a long Redis TTL (``WEATHER_NORMAL_TTL_SECONDS``) so the artifact
-    survives between quarterly rebuilds. GCS is the durable copy.
+    GCS is written FIRST so a Redis hiccup can never skip the durable copy, and
+    the marker write uses the swallowing ``redis_set`` (not ``persist``) so a
+    Redis failure logs but doesn't abort — the artifact is already safe in GCS.
     """
     from config import WEATHER_NORMAL_TTL_SECONDS, WEATHER_NORMAL_YEARS
     from data.gcs_store import write_parquet
-    from data.redis_client import persist, redis_key
+    from data.redis_client import redis_key, redis_set
 
     years = years or WEATHER_NORMAL_YEARS
-    payload = _to_payload(region, normal, years)
-    persist(
+    write_parquet(normal, WEATHER_NORMAL_DATA_TYPE, region)  # durable, first
+    redis_set(
         redis_key(f"{WEATHER_NORMAL_DATA_TYPE}:{region}"),
-        payload,
+        _marker_payload(region, normal, years),
         ttl=WEATHER_NORMAL_TTL_SECONDS,
     )
-    write_parquet(normal, WEATHER_NORMAL_DATA_TYPE, region)
     log.info("weather_normal_persisted", region=region, rows=len(normal))
 
 
 def load_weather_normal(region: str) -> pd.DataFrame | None:
-    """Load the normal for ``region`` — Redis-first, GCS parquet fallback.
+    """Load the full normal for ``region`` from GCS parquet (the durable store).
 
     Returns a DataFrame ``[doy, hour, <features...>]`` or ``None``.
     """
-    from data.redis_client import redis_get, redis_key
-
-    try:
-        payload = redis_get(redis_key(f"{WEATHER_NORMAL_DATA_TYPE}:{region}"))
-        if isinstance(payload, dict) and isinstance(payload.get("rows"), list) and payload["rows"]:
-            return pd.DataFrame(payload["rows"])
-    except Exception as e:  # noqa: BLE001
-        log.debug("weather_normal_redis_miss", region=region, error=str(e))
-
     from data.gcs_store import read_parquet
 
     gcs = read_parquet(WEATHER_NORMAL_DATA_TYPE, region)
@@ -202,14 +210,14 @@ def load_weather_normal(region: str) -> pd.DataFrame | None:
 
 
 def normal_age_days(region: str) -> float | None:
-    """Age (days) of the persisted normal from its Redis ``updated_at``; ``None``
-    when absent/unreadable (→ treat as needing a rebuild)."""
+    """Age (days) of the persisted normal from its Redis marker ``updated_at``;
+    ``None`` when absent/unreadable (→ treat as needing a rebuild)."""
     from data.redis_client import redis_get, redis_key
 
     try:
-        payload = redis_get(redis_key(f"{WEATHER_NORMAL_DATA_TYPE}:{region}"))
-        if isinstance(payload, dict) and payload.get("updated_at"):
-            updated = datetime.fromisoformat(payload["updated_at"])
+        marker = redis_get(redis_key(f"{WEATHER_NORMAL_DATA_TYPE}:{region}"))
+        if isinstance(marker, dict) and marker.get("updated_at"):
+            updated = datetime.fromisoformat(marker["updated_at"])
             if updated.tzinfo is None:
                 updated = updated.replace(tzinfo=UTC)
             return (datetime.now(UTC) - updated).total_seconds() / 86400.0
@@ -226,11 +234,17 @@ def refresh_weather_normals(
 ) -> dict:
     """Rebuild stale/missing weather normals, capped + throttled.
 
-    The normal is expensive to build (a ~10-year multi-BA ERA5 fetch), so this is
-    a quarterly job, not per-scoring-tick. Called from the daily training job: it
-    skips regions whose normal is younger than ``min_age_days`` and rebuilds at
-    most ``max_rebuild`` per run, so a cold-start backfill spreads over several
-    days rather than hammering the archive API (which rate-limits) in one run.
+    The normal is expensive to build (a ~10-year ERA5 fetch), so this is a
+    quarterly job, not per-scoring-tick. Called from the daily training job: it
+    skips regions whose normal is younger than ``min_age_days`` and does at most
+    ``max_rebuild`` build ATTEMPTS per run, so a cold-start backfill spreads over
+    several days rather than hammering the rate-limited archive in one run.
+
+    The cap bounds ATTEMPTS, not successes: during an ERA5 outage every build
+    fails, so capping successes would let the loop attempt (and 30s-timeout) a
+    fetch for *every* region. Capping attempts bounds the worst-case runtime to
+    ``max_rebuild`` × (fetch timeout) — and the caller runs this AFTER its
+    freshness-pointer write so even that can't block it.
 
     Returns a summary dict ``{built, skipped, failed}``.
     """
@@ -240,25 +254,27 @@ def refresh_weather_normals(
     max_rebuild = max_rebuild if max_rebuild is not None else WEATHER_NORMAL_MAX_REBUILD_PER_RUN
 
     built, skipped, failed = [], [], []
+    attempts = 0
     for region in regions:
-        if len(built) >= max_rebuild:
-            skipped.append(region)  # deferred to a later run (backfill spread)
+        if attempts >= max_rebuild:
+            skipped.append(region)  # per-run work cap → deferred to a later run
             continue
         age = normal_age_days(region)
         if age is not None and age < min_age_days:
             skipped.append(region)  # still fresh
             continue
+        attempts += 1  # count BEFORE building so failures also count against the cap
         try:
             normal = build_weather_normal(region)
             if normal is None or normal.empty:
                 failed.append(region)
-                continue
-            persist_weather_normal(region, normal)
-            built.append(region)
-            time.sleep(throttle_s)  # stay under the archive burst limit
+            else:
+                persist_weather_normal(region, normal)
+                built.append(region)
         except Exception as e:  # noqa: BLE001
             log.warning("weather_normal_refresh_failed", region=region, error=str(e))
             failed.append(region)
+        time.sleep(throttle_s)  # throttle both success + failure paths (burst limit)
 
     summary = {"built": built, "skipped": skipped, "failed": failed}
     log.info(
