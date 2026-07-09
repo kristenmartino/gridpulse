@@ -78,6 +78,10 @@ jobs:
           # RATE_LIMIT_EXEMPT_IPS for trusted shared-NAT egress), a pinned-at-max
           # alert, and a billing budget (docs/monitoring/). METRICS_ALLOWED_IPS
           # gates detailed /health + /metrics; unset here → deny-by-default.
+          # NOTE: --set-env-vars uses the "^@^" custom delimiter (not the default
+          # comma) because METRICS_ALLOWED_IPS is a comma-separated IP/CIDR list
+          # — a comma in a value collides with the default delimiter and fails
+          # the deploy ("Bad syntax for dict arg"). Do not revert to commas.
           gcloud run deploy ${{ env.SERVICE }} \
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
@@ -92,7 +96,7 @@ jobs:
             --no-cpu-throttling \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
-            --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379,REQUIRE_REDIS=true,PRECOMPUTE_ENABLED=false,METRICS_ALLOWED_IPS=${{ secrets.METRICS_ALLOWED_IPS }}"
+            --set-env-vars "^@^ENVIRONMENT=production@LOG_LEVEL=INFO@GCS_BUCKET_NAME=nextera-portfolio-energy-cache@GCS_ENABLED=true@REDIS_HOST=${{ secrets.REDIS_HOST }}@REDIS_PORT=6379@REQUIRE_REDIS=true@PRECOMPUTE_ENABLED=false@METRICS_ALLOWED_IPS=${{ secrets.METRICS_ALLOWED_IPS }}"
 
       # The scoring + training Cloud Run Jobs run from the same container image
       # but with different entrypoints. Cloud Scheduler invokes them on cron
