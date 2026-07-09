@@ -73,6 +73,43 @@ def untrusted_client_ip(xff_header: str | None, remote_addr: str | None) -> str:
     return remote_addr or ""
 
 
+def ip_in_allowlist(ip: str, entries) -> bool:
+    """True when ``ip`` matches any allowlist entry — an exact address or a CIDR.
+
+    Entries may be plain addresses (``"1.2.3.4"``, ``"::1"``) for exact match,
+    or CIDR networks (``"2600:1700:f890:2740::/64"``, ``"10.0.0.0/8"``) to match
+    a whole prefix. The CIDR form is what makes a residential IPv6 usable in an
+    allowlist: the host bits rotate (privacy extensions) but the ``/64`` prefix
+    is stable, so ``…:2740::/64`` keeps matching across rotations (#253).
+
+    Fail-closed on any parse error — a malformed caller IP or entry never
+    matches, so a bad value can't accidentally widen access. Address objects
+    (not strings) are compared, so ``"::1"`` and ``"0:0:0:0:0:0:0:1"`` are
+    equivalent.
+    """
+    import ipaddress
+
+    if not ip:
+        return False
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for raw in entries:
+        entry = raw.strip()
+        if not entry:
+            continue
+        try:
+            if "/" in entry:
+                if addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            elif ipaddress.ip_address(entry) == addr:
+                return True
+        except ValueError:
+            continue  # skip a malformed entry rather than fail the whole check
+    return False
+
+
 def add_request_logging(server) -> None:
     """
     Add request logging middleware to the Flask server.

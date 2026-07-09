@@ -127,6 +127,14 @@ class TestIsExempt:
             # A resolution miss ("") must not accidentally match an empty entry.
             assert ratelimit.is_exempt("") is False
 
+    def test_cidr_entry_matches_prefix(self):
+        """A CIDR exemption (a corporate /24) covers every IP in the range."""
+        import ratelimit
+
+        with patch("config.RATE_LIMIT_EXEMPT_IPS", frozenset({"203.0.113.0/24"})):
+            assert ratelimit.is_exempt("203.0.113.55") is True
+            assert ratelimit.is_exempt("203.0.114.1") is False
+
 
 class TestCallerIp:
     def test_uses_rightmost_xff_hop_spoof_resistant(self):

@@ -218,19 +218,21 @@ if PRECOMPUTE_ENABLED:
 def _is_internal_caller(flask_request) -> bool:
     """True for a trusted internal caller — dev, or a source IP in
     ``METRICS_ALLOWED_IPS`` (spoof-resistant, rightmost XFF hop; P2-52).
+    Entries may be exact IPs or CIDR prefixes (e.g. a ``/64`` for a rotating
+    residential IPv6; #253).
 
     Gates the detailed ``/health`` body and the ``/metrics`` endpoint so an
     unauthenticated caller can't read internal state (#253).
     """
     if os.getenv("ENVIRONMENT", "development") == "development":
         return True
-    from observability import untrusted_client_ip
+    from observability import ip_in_allowlist, untrusted_client_ip
 
-    allowed = [ip.strip() for ip in os.getenv("METRICS_ALLOWED_IPS", "127.0.0.1,::1").split(",")]
+    allowed = os.getenv("METRICS_ALLOWED_IPS", "127.0.0.1,::1").split(",")
     remote = untrusted_client_ip(
         flask_request.headers.get("X-Forwarded-For"), flask_request.remote_addr
     )
-    return remote in allowed
+    return ip_in_allowlist(remote, allowed)
 
 
 # ── Health check for Cloud Run ─────────────────────────────────
