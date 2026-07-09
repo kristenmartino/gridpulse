@@ -780,6 +780,13 @@ PRECOMPUTE_ALL_MODELS = os.getenv("PRECOMPUTE_ALL_MODELS", "true").lower() in ("
 SCORING_TASK_TIMEOUT_S = int(os.getenv("SCORING_TASK_TIMEOUT_S", "1800"))
 SCORING_RUNTIME_HEADROOM_FRACTION = float(os.getenv("SCORING_RUNTIME_HEADROOM_FRACTION", "0.70"))
 SCORING_RUNTIME_CREEP_RUNS = int(os.getenv("SCORING_RUNTIME_CREEP_RUNS", "3"))
+# #267: a hourly scoring run that forecasts fewer than this many BAs emits an
+# alertable ``scoring_partial_failure`` ERROR (matched by a log-based Cloud
+# Monitoring policy) and marks the freshness meta degraded, so a catastrophic
+# partial failure (e.g. 1/51 forecasts) can't hide behind a 0 exit code. A
+# normal run scores ~48-51 (a few untrained/new BAs legitimately have no model),
+# so this absolute floor tolerates the expected no-model tail without noise.
+SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
 
 # ---------------------------------------------------------------------------
 # Web-tier operational guard (#253)

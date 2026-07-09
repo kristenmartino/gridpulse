@@ -277,7 +277,14 @@ def _score_region(region: str) -> dict:
         **(alerts_res.details if alerts_res.ok else {"error": alerts_res.error}),
     }
 
-    summary["ok"] = any(p.get("ok") for p in summary["phases"].values())
+    # A region counts as SCORED only when its forecast phase produced output —
+    # the core deliverable. Before #267 this was ``any(phase ok)``, so a region
+    # whose forecast failed but whose alerts/weather-correlation write succeeded
+    # was still counted "scored"; a run where all 51 forecasts failed then exited
+    # 0 and refreshed last_scored, masking the outage the alerting exists to catch
+    # (P2-01). ``no_model`` regions (untrained BAs) legitimately have no forecast
+    # and count as not-scored, which is correct — they carry no fresh forecast.
+    summary["ok"] = bool(summary["phases"].get("forecast", {}).get("ok"))
     summary["elapsed_s"] = round(time.time() - t0, 2)
     return summary
 
@@ -371,14 +378,36 @@ def run() -> int:
                 )
                 results.append({"region": region, "ok": False, "error": str(e)})
 
+    from config import SCORING_MIN_OK_REGIONS
+
+    def _forecast_errored(r: dict) -> bool:
+        # A REAL forecast failure — attempted and failed — as distinct from an
+        # expected ``no_model`` skip (an untrained/new BA, which is neither
+        # scored nor a failure). A region that crashed entirely has no ``phases``.
+        if r.get("ok"):
+            return False
+        return r.get("phases", {}).get("forecast", {}).get("error") != "no_model"
+
+    # "Scored" now means the forecast phase produced output (#267): a region that
+    # only wrote alerts/weather no longer inflates this count.
     ok_count = sum(1 for r in results if r.get("ok"))
-    fail_regions = [r["region"] for r in results if not r.get("ok")]
+    errored = [r["region"] for r in results if _forecast_errored(r)]
+    fail_regions = [r["region"] for r in results if not r.get("ok")]  # incl. no_model
+    # Partial failure = real forecast ERRORS dragged the scored count below the
+    # floor while some regions still succeeded. All-``no_model`` (a fresh deploy
+    # with nothing trained yet) is expected, not a failure. It's not a total
+    # outage either, so Cloud Scheduler retry wouldn't help — but it must be
+    # VISIBLE: emit an alertable ERROR + degrade the freshness meta.
+    partial_failure = bool(errored) and ok_count < SCORING_MIN_OK_REGIONS
 
     phases.write_meta(
         "last_scored",
         extra={
             "regions_scored": ok_count,
+            "regions_total": len(results),
             "regions_failed": fail_regions,
+            "regions_errored": errored,
+            "partial_failure": partial_failure,
             "mode": "scoring-job",
         },
     )
@@ -388,16 +417,29 @@ def run() -> int:
         "scoring_job_complete",
         ok_count=ok_count,
         fail_count=len(fail_regions),
+        errored_count=len(errored),
         elapsed_s=elapsed,
         failed_regions=fail_regions,
     )
+    if partial_failure:
+        log.error(
+            "scoring_partial_failure",
+            regions_scored=ok_count,
+            regions_total=len(results),
+            min_ok_regions=SCORING_MIN_OK_REGIONS,
+            errored_regions=errored,
+        )
     # #171: warn on runtime creep before it becomes a timeout (see the guardrail).
     _check_runtime_headroom(elapsed)
     sys.stdout.flush()
 
-    # Non-zero exit only when every region failed — Cloud Scheduler retries
-    # are valuable for total outages but noisy for partial failures.
-    return 0 if ok_count > 0 else 1
+    # Non-zero exit only on a true total forecast outage — no region scored AND
+    # at least one forecast actually errored (models exist but every attempt
+    # failed), where a Cloud Scheduler retry is worth firing. An all-``no_model``
+    # run (fresh deploy, nothing trained yet) exits 0 — retrying can't help, and
+    # the untrained state is a training concern, not a scoring failure. Partial
+    # failures surface via the scoring_partial_failure alert, not the exit code.
+    return 1 if (ok_count == 0 and errored) else 0
 
 
 if __name__ == "__main__":  # pragma: no cover

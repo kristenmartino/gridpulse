@@ -1,0 +1,20 @@
+{
+  "displayName": "GridPulse — scoring-job partial failure (#267)",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The `gridpulse-scoring-job` emitted a **`scoring_partial_failure`** log: a completed run produced a **forecast** for fewer than `SCORING_MIN_OK_REGIONS` BAs (default 40 of 51), but at least one succeeded — so it is not a total outage and exits 0.\n\nThis is the gap the failed-execution alert can't see (#267 / P2-01): before the fix, a region counted as 'scored' if *any* phase ran, so a run where all 51 forecasts failed but alerts wrote still exited 0, refreshed `last_scored`, and reported green. Now the count reflects forecasts only, and a catastrophic *partial* failure (e.g. 1/51) fires this alert and degrades deep `/health` — without a noisy Cloud Scheduler retry that wouldn't help a data-driven failure.\n\n**Runbook:**\n1. See how many scored: `gcloud logging read 'jsonPayload.event=\"scoring_job_complete\"' --limit 5 --format='value(jsonPayload.ok_count,jsonPayload.failed_regions)'`.\n2. Common causes: an EIA/Open-Meteo outage (check the circuit breaker #174), a bad model image (all forecasts erroring the same way), or a Redis write failure (see #268 — write failures are still swallowed). Tail a failed region: `gcloud run jobs logs read gridpulse-scoring-job --region=us-east1 --limit=200`.\n3. If it self-heals next tick (transient upstream), no action. If sustained, roll back the image or trigger a make-up run after the upstream recovers."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "scoring_partial_failure log emitted",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"gridpulse-scoring-job\" AND jsonPayload.event=\"scoring_partial_failure\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "3600s" },
+    "autoClose": "604800s"
+  }
+}
