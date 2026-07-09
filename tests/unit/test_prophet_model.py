@@ -74,9 +74,76 @@ class TestCreateProphetModel:
         cls.assert_called_once()
         kwargs = cls.call_args.kwargs
         assert kwargs["growth"] == "logistic", (
-            "logistic growth (with floor=0) is what structurally "
-            "prevents negative forecasts — non-negotiable contract."
+            "logistic growth bounds the trend to [floor, cap]; note this bounds "
+            "the TREND only, not the additive composite — non-negativity is "
+            "enforced by the explicit clip in predict_prophet (#281)."
         )
+
+    def test_yearly_seasonality_off_by_default(self, mock_prophet_class):
+        """#281: yearly seasonality defaults OFF — it needs ≥2yr of history to
+        identify a 365-day cycle; fitting it on the ~90d window drove a phantom
+        multi-GW summer decline into negative demand."""
+        from models.prophet_model import create_prophet_model
+
+        cls, _ = mock_prophet_class
+        create_prophet_model()
+        assert cls.call_args.kwargs["yearly_seasonality"] is False
+
+
+class TestYearlySeasonalityGate:
+    """#281: train_prophet enables yearly seasonality only when the training
+    span can actually identify a 365-day cycle."""
+
+    def _df(self, days: int):
+        import pandas as pd
+
+        ts = pd.date_range("2024-01-01", periods=days, freq="D")
+        return pd.DataFrame({"timestamp": ts, "demand_mw": 15000.0})
+
+    def test_off_for_short_default_window(self, mock_prophet_class):
+        from models.prophet_model import train_prophet
+
+        cls, _ = mock_prophet_class
+        train_prophet(self._df(90))  # ~90-day production window
+        assert cls.call_args.kwargs["yearly_seasonality"] is False
+
+    def test_on_for_multiyear_window(self, mock_prophet_class):
+        from models.prophet_model import train_prophet
+
+        cls, _ = mock_prophet_class
+        train_prophet(self._df(760))  # > YEARLY_SEASONALITY_MIN_DAYS (730)
+        assert cls.call_args.kwargs["yearly_seasonality"] is True
+
+
+class TestPredictProphetFloorsNegative:
+    """#281: predict_prophet clips the composite yhat (and its lower band) at 0 —
+    Prophet's logistic floor bounds only the trend, so the additive composite can
+    still go negative. Non-negativity must be enforced explicitly."""
+
+    def test_negative_composite_is_clipped(self, mock_prophet_class):
+        import pandas as pd
+
+        from models.prophet_model import predict_prophet
+
+        _, instance = mock_prophet_class
+        ts = pd.date_range("2026-07-10", periods=3, freq="h")
+        instance.make_future_dataframe.return_value = pd.DataFrame({"ds": ts})
+        instance.predict.return_value = pd.DataFrame(
+            {
+                "ds": ts,
+                "yhat": [-500.0, 12000.0, -20.0],  # negative composite despite floor=0
+                "yhat_lower": [-800.0, 9000.0, -100.0],
+                "yhat_upper": [200.0, 15000.0, 150.0],
+            }
+        )
+        instance._demand_cap = 30000.0
+
+        out = predict_prophet(instance, pd.DataFrame({"timestamp": ts}), periods=3)
+
+        assert (out["forecast"] >= 0).all(), "negative demand must be clipped"
+        assert (out["lower_80"] >= 0).all(), "negative lower band must be clipped"
+        assert out["forecast"][0] == 0.0 and out["forecast"][2] == 0.0
+        assert out["forecast"][1] == 12000.0  # positive values untouched
 
     def test_attaches_all_seven_regressors(self, mock_prophet_class):
         from models.prophet_model import PROPHET_REGRESSORS, create_prophet_model

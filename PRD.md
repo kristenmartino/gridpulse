@@ -258,7 +258,9 @@ inverse-MAPE at one-line, reversible cost.
 
 **Context.** `FORECAST_HORIZON_HOURS = 720` (30 days). Open-Meteo's free `/forecast` endpoint provides 16 days (384 hours) of GFS-based weather forecast. That leaves 14 days (336 hours) of the demand forecast horizon without real weather inputs.
 
-**Decision.** Use per-(hour-of-day, day-of-week) climatological group means computed from the 92-day historical weather window to fill days 17-30. Render a visible day-16 boundary marker on the Forecast tab so users see the regime transition.
+**Decision.** Use per-(hour-of-day, day-of-week) climatological group means to fill days 17-30. Render a visible day-16 boundary marker on the Forecast tab so users see the regime transition.
+
+**Update (#281).** The group means are computed from a **recent trailing window** (`CLIMATOLOGY_WINDOW_DAYS = 28`), not the full 92-day history. A season-agnostic `(hour, dow)` mean over 92 days is seasonally biased: for a July forecast it dilutes in cooler April–June data, so the baseline understates peak-summer demand (measured on DUK: 9.4°F cooler than current, CDD halved), producing an implausible downward slope past day 16. Restricting the climatology to recent history is a lightweight recency-weighting — a partial adoption of the "Light conditional climatology" idea below — that removes most of the bias without the full anomaly-persistence machinery.
 
 **Alternatives considered.**
 
