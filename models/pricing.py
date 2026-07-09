@@ -124,3 +124,32 @@ def utilization_pct(
     load = np.asarray(load_mw, dtype=float)
     util = load / capacity_mw * 100
     return float(util) if load.ndim == 0 else util
+
+
+#: Grid-stress bands over utilization %: (label, tone). Normal < 70 ≤ Elevated
+#: < 85 ≤ High. Grid-ops-meaningful — a system above ~85% of plate is genuinely
+#: tight. Tones map to the Risk-tab kpi-delta classes.
+def grid_stress(region: str, current_demand_mw: float | None) -> tuple[int | None, str]:
+    """Grid stress = current demand as a % of nameplate capacity (supply tightness).
+
+    The honest replacement for the old alert-count heuristic (#265): counting
+    NWS advisories measured weather coverage, not grid stress, and saturated to
+    100 for nearly every BA. Grid stress is a supply-tightness concept — how
+    close served load is to available capacity — so it comes from demand vs
+    capacity, with active alerts shown separately as context.
+
+    Returns ``(score, label)`` where ``score`` is the utilization percent capped
+    at 100. Returns ``(None, "Capacity n/a")`` for BAs without a reliable
+    measured plate (import-dominated or peak-derived, #254) so no fabricated
+    number is shown, and ``(None, "Unavailable")`` when current demand is missing.
+    """
+    from config import REGION_CAPACITY_MW, UNRELIABLE_CAPACITY
+
+    cap = REGION_CAPACITY_MW.get(region, 0)
+    if region in UNRELIABLE_CAPACITY or cap <= 0:
+        return None, "Capacity n/a"
+    if current_demand_mw is None or not (current_demand_mw > 0):
+        return None, "Unavailable"
+    score = round(min(float(utilization_pct(current_demand_mw, cap)), 100.0))
+    label = "Normal" if score < 70 else ("Elevated" if score < 85 else "High")
+    return score, label

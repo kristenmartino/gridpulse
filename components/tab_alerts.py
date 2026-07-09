@@ -22,7 +22,8 @@ _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
 def _risk_metrics_bar() -> html.Div:
-    """3-up Risk MetricsBar: Stress Score (hero) / Stress Label / Component breakdown.
+    """3-up Risk MetricsBar: Grid Stress (hero, = demand/capacity utilization; #265) /
+    Stress Label / Active NWS alerts (context — not what the score is built from).
 
     Reuses the existing tab5-stress-* IDs as inner spans so the existing
     Risk callback fills these without needing new outputs.
@@ -52,7 +53,7 @@ def _risk_metrics_bar() -> html.Div:
             ),
             html.Div(
                 [
-                    html.Div("Components", className="gp-metric-label"),
+                    html.Div("Active NWS alerts", className="gp-metric-label"),
                     html.Div(
                         id="tab5-stress-breakdown",
                         className="gp-metric-stress-breakdown",

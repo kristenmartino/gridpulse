@@ -631,10 +631,10 @@ class TestAlertsTabFromRedis:
         assert "No active alerts" in alert_cards[0].children
 
     @patch("components._callbacks_alerts.redis_get")
-    def test_stress_below_30_is_positive(self, mock_rg):
-        """Stress score < 30 → 'positive' CSS class on label span."""
+    def test_stress_below_70_is_positive(self, mock_rg):
+        """Utilization stress < 70 → 'positive' CSS class (#265 bands)."""
         payload = _alerts_payload(with_alerts=False)
-        payload["stress_score"] = 15
+        payload["stress_score"] = 40
         mock_rg.return_value = payload
 
         from components.callbacks import _alerts_tab_from_redis
@@ -645,10 +645,10 @@ class TestAlertsTabFromRedis:
         assert "positive" in stress_label_span.className
 
     @patch("components._callbacks_alerts.redis_get")
-    def test_stress_ge_60_is_negative(self, mock_rg):
-        """Stress score >= 60 → 'negative' CSS class on label span."""
+    def test_stress_ge_85_is_negative(self, mock_rg):
+        """Utilization stress >= 85 → 'negative' CSS class (#265 bands)."""
         payload = _alerts_payload(with_alerts=True)
-        payload["stress_score"] = 75
+        payload["stress_score"] = 92
         mock_rg.return_value = payload
 
         from components.callbacks import _alerts_tab_from_redis
@@ -659,10 +659,10 @@ class TestAlertsTabFromRedis:
         assert "negative" in stress_label_span.className
 
     @patch("components._callbacks_alerts.redis_get")
-    def test_stress_mid_range_is_neutral(self, mock_rg):
-        """Stress score 30-59 → 'neutral' CSS class on label span."""
+    def test_stress_70_to_85_is_neutral(self, mock_rg):
+        """Utilization stress 70-85 (Elevated) → 'neutral' CSS class (#265 bands)."""
         payload = _alerts_payload(with_alerts=True)
-        payload["stress_score"] = 45
+        payload["stress_score"] = 78
         mock_rg.return_value = payload
 
         from components.callbacks import _alerts_tab_from_redis

@@ -52,6 +52,17 @@ from data.redis_client import redis_get, redis_key
 log = structlog.get_logger()
 
 
+def _stress_tone(stress: int | None) -> str:
+    """kpi-delta tone for the utilization-based grid-stress score (#265).
+
+    Normal < 70 (positive) ≤ Elevated < 85 (neutral) ≤ High ≥ 85 (negative);
+    a missing score is neutral. Bands mirror ``models.pricing.grid_stress``.
+    """
+    if stress is None:
+        return "neutral"
+    return "positive" if stress < 70 else ("negative" if stress >= 85 else "neutral")
+
+
 def _alerts_tab_from_redis(region):
     """Redis fast path for update_alerts_tab callback.
 
@@ -129,10 +140,7 @@ def _alerts_tab_from_redis(region):
             )
         ]
 
-    if stress is None:
-        stress_color = "neutral"
-    else:
-        stress_color = "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
+    stress_color = _stress_tone(stress)
     n_crit = counts.get("critical", 0)
     n_warn = counts.get("warning", 0)
     n_info = counts.get("info", 0)
@@ -471,9 +479,20 @@ def register_alerts_callbacks(app):
         n_crit = sum(1 for a in alerts if a["severity"] == "critical")
         n_warn = sum(1 for a in alerts if a["severity"] == "warning")
         n_info = sum(1 for a in alerts if a["severity"] == "info")
-        stress = min(100, n_crit * 30 + n_warn * 15 + 20)
-        stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
-        stress_color = "positive" if stress < 30 else ("negative" if stress >= 60 else "neutral")
+        # Grid stress = demand ÷ capacity supply tightness, not alert count (#265).
+        # Matches the scoring job's write_alerts; alert counts are context below.
+        from models.pricing import grid_stress
+
+        _current_demand = None
+        try:
+            _dd = pd.read_json(io.StringIO(demand_json)) if demand_json else None
+            if _dd is not None and not _dd.empty and "demand_mw" in _dd:
+                _s = _dd["demand_mw"].dropna()
+                _current_demand = float(_s.iloc[-1]) if len(_s) else None
+        except Exception:
+            _current_demand = None
+        stress, stress_label = grid_stress(region, _current_demand)
+        stress_color = _stress_tone(stress)
 
         from components.icons import icon as _icon
 
