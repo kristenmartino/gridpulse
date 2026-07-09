@@ -26,12 +26,140 @@ Coverage:
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 
 def _metrics(**model_mapes):
     """Build a ``get_model_metrics``-shaped dict: ``{model: {"mape": v}}``."""
     return {name: {"mape": v} for name, v in model_mapes.items()}
+
+
+class TestGateVerdictFromMetrics:
+    """The pure champion-MAPE verdict logic the scoring job publishes and the
+    dev path computes inline (#271)."""
+
+    def test_healthy_champion_acceptable(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        assert gate_verdict_from_metrics(_metrics(ensemble=2.5, xgboost=2.6)) == {
+            "acceptable": True,
+            "best_mape": 2.5,
+        }
+
+    def test_all_models_rollback_unacceptable(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        v = gate_verdict_from_metrics(
+            _metrics(xgboost=25.0, prophet=30.0, arima=28.0, ensemble=26.0)
+        )
+        assert v["acceptable"] is False
+        assert v["best_mape"] == 25.0
+
+    def test_champion_not_xgboost_alone_sec_visible(self):
+        """#255: SEC — XGBoost 38.63% (rollback) but Prophet 11.22% acceptable."""
+        from models.model_service import gate_verdict_from_metrics
+
+        v = gate_verdict_from_metrics(
+            _metrics(xgboost=38.63, prophet=11.22, arima=12.94, ensemble=13.61)
+        )
+        assert v["acceptable"] is True
+        assert v["best_mape"] == 11.22
+
+    def test_no_signal_is_acceptable_none(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        assert gate_verdict_from_metrics({}) == {"acceptable": True, "best_mape": None}
+
+    def test_metrics_without_mape_is_no_signal(self):
+        from models.model_service import gate_verdict_from_metrics
+
+        assert gate_verdict_from_metrics({"xgboost": {"rmse": 100.0}}) == {
+            "acceptable": True,
+            "best_mape": None,
+        }
+
+
+class TestGateProductionReadsPublishedVerdict:
+    """#271 / P2-10: in production the gate reads the scoring-job-published
+    verdict map (Redis-only) — never recomputing from GCS metas — and fails
+    warming-but-logged (not silently open) when the map is absent."""
+
+    def setup_method(self):
+        from models.model_service import _reset_quality_gate_cache
+
+        _reset_quality_gate_cache()
+
+    def test_published_acceptable_region_visible(self):
+        from models.model_service import is_forecast_quality_acceptable
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"PJM": {"acceptable": True, "best_mape": 3.2}},
+            ),
+        ):
+            assert is_forecast_quality_acceptable("PJM") is True
+
+    def test_published_unacceptable_region_hidden(self):
+        from models.model_service import is_forecast_quality_acceptable
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"CPLW": {"acceptable": False, "best_mape": 26.0}},
+            ),
+        ):
+            assert is_forecast_quality_acceptable("CPLW") is False
+
+    def test_region_absent_from_verdict_passes_warming(self):
+        """A BA not in the published map (not yet scored/trained) stays visible."""
+        from models.model_service import is_forecast_quality_acceptable
+
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"PJM": {"acceptable": True}},
+            ),
+        ):
+            assert is_forecast_quality_acceptable("NEWBA") is True
+
+    def test_verdict_path_never_reads_metrics(self):
+        """With a published verdict, the gate must not touch get_model_metrics —
+        the request-path GCS read this fix removes."""
+        from models.model_service import is_forecast_quality_acceptable
+
+        gm = MagicMock()
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch(
+                "models.model_service._get_gate_status",
+                return_value={"PJM": {"acceptable": True}},
+            ),
+            patch("models.model_service.get_model_metrics", gm),
+        ):
+            is_forecast_quality_acceptable("PJM")
+        gm.assert_not_called()
+
+    def test_no_verdict_prod_passes_logs_and_avoids_gcs(self):
+        """Cold/flushed Redis (no verdict at all): pass (don't black out the
+        dropdown), LOG (not silent — the fail-open half of P2-10), and never call
+        get_model_metrics (no request-path GCS)."""
+        from models.model_service import is_forecast_quality_acceptable
+
+        gm = MagicMock()
+        logfn = MagicMock()
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("models.model_service._get_gate_status", return_value=None),
+            patch("models.model_service.get_model_metrics", gm),
+            patch("models.model_service._log_gate_unavailable_once", logfn),
+        ):
+            assert is_forecast_quality_acceptable("PJM") is True
+        gm.assert_not_called()
+        logfn.assert_called_once()
 
 
 class TestIsForecastQualityAcceptable:

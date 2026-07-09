@@ -234,6 +234,17 @@ def _score_region(region: str) -> dict:
         if arima_metrics:
             model_metrics["arima"] = arima_metrics
 
+    # Publish this BA's forecast-quality gate verdict (#271 / P2-10). Computed
+    # here — where the real holdout metrics live — so the stateless web tier reads
+    # an authoritative verdict from Redis instead of fataling open on an outage or
+    # sweeping GCS metas per render. Only regions with a real metric signal carry
+    # a verdict; a no-metric region is simply absent from the map (the web gate
+    # treats absent as warming → visible), so untrained BAs are never hidden.
+    if model_metrics:
+        from models.model_service import gate_verdict_from_metrics
+
+        summary["gate"] = gate_verdict_from_metrics(model_metrics)
+
     has_features = phases.engineer_region_features(region_data) is not None
 
     if has_features and loaded_models:
@@ -411,6 +422,16 @@ def run() -> int:
             "mode": "scoring-job",
         },
     )
+
+    # Publish the consolidated forecast-quality gate verdict map (#271 / P2-10).
+    # The web tier reads this one key (Redis-only) to filter the dropdown /
+    # US-Grid, instead of recomputing per-render from GCS metas. Its 24h TTL
+    # makes it self-healing: a later scoring failure leaves the last-known verdict
+    # in place, so an outage no longer *forgets* which BAs are unusable. Only
+    # regions with a real metric signal appear; absent = warming (visible).
+    gate_status = {r["region"]: r["gate"] for r in results if isinstance(r.get("gate"), dict)}
+    phases.write_meta("gate_status", extra={"regions": gate_status})
+    log.info("scoring_gate_status_written", regions=len(gate_status))
 
     elapsed = round(time.time() - t0, 2)
     log.info(

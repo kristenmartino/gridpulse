@@ -315,3 +315,49 @@ class TestScoringPartialFailureSemantics:
         assert code == 0
         assert meta["regions_scored"] == 1
         assert meta["partial_failure"] is False
+
+    def test_gate_status_published_from_region_verdicts(self, monkeypatch):
+        """#271 / P2-10: run() publishes gridpulse:meta:gate_status carrying each
+        region's verdict. Regions with no metric signal (untrained) carry no
+        verdict and are absent from the map — the web gate treats absent as
+        warming (visible), so untrained BAs are never hidden."""
+        from jobs import phases, scoring_job
+
+        outcomes = [
+            {
+                "region": "PJM",
+                "ok": True,
+                "phases": {"forecast": {"ok": True}},
+                "gate": {"acceptable": True, "best_mape": 3.2},
+            },
+            {
+                "region": "CPLW",
+                "ok": True,
+                "phases": {"forecast": {"ok": True}},
+                "gate": {"acceptable": False, "best_mape": 26.0},
+            },
+            {  # untrained — no "gate" key
+                "region": "NEW",
+                "ok": False,
+                "phases": {"forecast": {"ok": False, "error": "no_model"}},
+            },
+        ]
+        by_region = {o["region"]: o for o in outcomes}
+        captured: dict = {}
+        monkeypatch.setattr(
+            phases, "ordered_regions", lambda default: [o["region"] for o in outcomes]
+        )
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(
+            phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
+        )
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+
+        scoring_job.run()
+
+        gate = captured.get("gate_status")
+        assert gate is not None, "gate_status meta must be published"
+        regions = gate["regions"]
+        assert regions["PJM"] == {"acceptable": True, "best_mape": 3.2}
+        assert regions["CPLW"] == {"acceptable": False, "best_mape": 26.0}
+        assert "NEW" not in regions  # untrained → absent → warming/visible

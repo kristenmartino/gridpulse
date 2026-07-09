@@ -335,32 +335,63 @@ def is_trained(region: str) -> bool:
 
 # Module-level cache so we don't read 51 meta.json blobs on every page
 # render. Keyed by region; refreshed every ``_QUALITY_GATE_TTL`` seconds.
-# Daily training cadence makes 10 min plenty fresh for production.
+# Daily training cadence makes 10 min plenty fresh for production. Only the
+# dev/offline inline path (:func:`get_best_holdout_mape`) uses this now — the
+# production path reads the scoring-job-published verdict instead (#271).
 _QUALITY_GATE_TTL = 600
 _quality_gate_cache: dict[str, tuple[float | None, float]] = {}
 
+# Web-tier cache for the scoring-job-published gate verdict map
+# (``gridpulse:meta:gate_status``). One Redis read serves a whole 51-BA
+# dropdown / US-Grid sweep instead of 51. (#271 / P2-10)
+_GATE_STATUS_TTL = 60.0
+_gate_status_cache: tuple[dict | None, float] | None = None
+_gate_unavailable_logged_at = 0.0
+
+
+def gate_verdict_from_metrics(model_metrics: dict) -> dict:
+    """Compute a region's forecast-quality gate verdict from its model metrics.
+
+    Returns ``{"acceptable": bool, "best_mape": float | None}``. ``best_mape`` is
+    the champion — ``min`` MAPE across every *served* model (the ensemble + the
+    three base models) — or ``None`` when no finite MAPE exists yet.
+
+    ``acceptable`` is True when there is no signal (``best_mape is None`` →
+    "warming up", don't hide a not-yet-trained BA) or when the champion is at or
+    under the 7-day ``rollback`` grade (≤22% per ``MAPE_BY_HORIZON``). It is
+    False only when *no* served model reaches the acceptable grade — the gate
+    must not hide a BA we can forecast acceptably with *some* served model.
+    Keying off XGBoost-alone (pre-#255) hid SEC (XGBoost 38.6%, ensemble 13.6%);
+    keying off the ensemble alone would newly hide SPA (ensemble 22.8%, XGBoost
+    21.1%). The champion (``min``, ensemble included) avoids both.
+
+    Pure — no I/O — so the scoring job calls it to PUBLISH the per-region verdict
+    and the dev/offline path calls it inline. The stateless web tier never
+    recomputes; it reads the published verdict (#271 / P2-10).
+    """
+    mapes = [
+        float(m["mape"])
+        for m in model_metrics.values()
+        if isinstance(m, dict) and m.get("mape") is not None and np.isfinite(m["mape"])
+    ]
+    best = min(mapes) if mapes else None
+    if best is None:
+        return {"acceptable": True, "best_mape": None}
+    from config import MAPE_BY_HORIZON
+
+    return {"acceptable": best <= MAPE_BY_HORIZON["7d"]["rollback"], "best_mape": best}
+
 
 def get_best_holdout_mape(region: str) -> float | None:
-    """Best achievable holdout MAPE for ``region`` — the per-region champion
-    across every *served* model (the ensemble + the three base models). Used
-    by the forecast-quality gate.
+    """Best achievable holdout MAPE for ``region`` — the champion across every
+    served model (ensemble + 3 bases), or ``None`` when no real metric exists.
 
-    The gate must not hide a BA we can forecast acceptably with *some* served
-    model. Keying off XGBoost-alone (the pre-#255 behaviour) hid SEC — XGBoost
-    38.6%, yet its served ensemble is 13.6% and its best base (Prophet) 11.2%.
-    Keying off the ensemble alone would instead newly hide SPA (ensemble 22.8%
-    vs its XGBoost 21.1%). Gating on the champion — ``min`` over all available
-    model MAPEs, ensemble included — hides a BA only when *no* served model
-    reaches the ``acceptable`` grade. Returns ``None`` (no signal → don't gate)
-    when no real metric exists yet, preserving the "warming up" UX.
-
-    Reads via :func:`get_model_metrics`, which is Redis-*first* in production
-    (``forecast:{region}:1h.model_metrics``, written by the scoring job with
-    per-model + ensemble rows), so the gate does no GCS read when Redis is warm
-    — the common case. On the cold-Redis warming window it still falls through
-    to GCS metas (Redis-first, not Redis-only); the gate's full Redis-only +
-    fail-closed redesign is tracked as P2-10 / #189. This change is scoped to
-    *which* MAPE the gate reads.
+    Reads via :func:`get_model_metrics` (Redis-first, GCS-meta fallback), so this
+    is the **dev/offline** gate path only — reachable from
+    :func:`is_forecast_quality_acceptable` when ``REQUIRE_REDIS`` is False. In
+    production the gate reads the scoring-job-published verdict and never calls
+    this (which is what kept a cold-Redis web tier sweeping GCS metas per render,
+    P2-10 / #271). Also used directly for metric display + by the gate tests.
     """
     import time
 
@@ -374,48 +405,106 @@ def get_best_holdout_mape(region: str) -> float | None:
         # Operational outage (Redis/GCS) → no signal, don't black out the
         # dropdown. Matches the pre-#255 fail-open contract.
         metrics = {}
-    # get_model_metrics already cleans mapes to finite floats; the isfinite
-    # guard is defense-in-depth so a stray NaN can never sink min() and flip
-    # the gate to "hide" (NaN <= threshold is False).
-    mapes = [
-        float(m["mape"])
-        for m in metrics.values()
-        if isinstance(m, dict) and m.get("mape") is not None and np.isfinite(m["mape"])
-    ]
-    best = min(mapes) if mapes else None
+    best = gate_verdict_from_metrics(metrics)["best_mape"]
     _quality_gate_cache[region] = (best, time.time())
     return best
 
 
-def is_forecast_quality_acceptable(region: str) -> bool:
-    """Return True when the region has at least one *served* forecast in the
-    ``acceptable`` grade or better (per ``mape_grade()``) for the 7-day
-    horizon. Returns True when no MAPE signal exists yet so the gate doesn't
-    hide newly-added BAs that haven't been trained.
+def _get_gate_status() -> dict | None:
+    """Read the scoring-job-published gate verdict map from
+    ``gridpulse:meta:gate_status`` (``{region: {"acceptable", "best_mape"}}``),
+    briefly cached in-process so a 51-BA sweep does one Redis read, not 51.
 
-    Returns False only when the region's **best achievable** holdout MAPE — the
-    champion across the ensemble + the three base models — is in the
-    ``rollback`` grade (>22% per ``MAPE_BY_HORIZON["7d"]``), i.e. *no* served
-    model can forecast the BA acceptably. Pre-#255 this keyed off XGBoost-alone,
-    which hid SEC even though its served ensemble (13.6%) is well within grade;
-    production serves the ensemble (ADR-004), so gating on XGBoost-alone
-    contradicted what the product forecasts.
-
-    The ``forecast_quality_gate`` feature flag short-circuits the check when
-    False (default in dev, on in staging/prod).
+    Returns ``None`` when no verdict is published (cold/flushed Redis) or on a
+    read error. Redis-only — never touches GCS, so it can't drag the request
+    path into per-render meta reads. (#271 / P2-10)
     """
-    from config import MAPE_BY_HORIZON, feature_enabled
+    global _gate_status_cache
+    import time
+
+    now = time.time()
+    if _gate_status_cache is not None and now - _gate_status_cache[1] < _GATE_STATUS_TTL:
+        return _gate_status_cache[0]
+
+    regions: dict | None = None
+    try:
+        from data.redis_client import redis_get, redis_key
+
+        payload = redis_get(redis_key("meta:gate_status"))
+        if isinstance(payload, dict) and isinstance(payload.get("regions"), dict):
+            regions = payload["regions"]
+    except Exception as e:  # pragma: no cover — defensive (Redis outage)
+        log.debug("gate_status_read_failed", error=str(e))
+        regions = None
+    _gate_status_cache = (regions, now)
+    return regions
+
+
+def _log_gate_unavailable_once() -> None:
+    """Warn (rate-limited to once per ``_GATE_STATUS_TTL``) that the published
+    gate verdict is missing in production, so the pass-open fallback is never
+    *silent* — the fail-open-on-outage half of the P2-10 bug. Health/freshness
+    reflect the same outage via the missing-scoring (``last_scored``) signal."""
+    global _gate_unavailable_logged_at
+    import time
+
+    now = time.time()
+    if now - _gate_unavailable_logged_at >= _GATE_STATUS_TTL:
+        _gate_unavailable_logged_at = now
+        log.warning("forecast_gate_status_unavailable_pass_open")
+
+
+def is_forecast_quality_acceptable(region: str) -> bool:
+    """Return True when ``region`` may be shown in the dropdown / US-Grid — i.e.
+    at least one served model forecasts it in the ``acceptable`` grade or better
+    (7-day horizon), or no MAPE signal exists yet (warming — don't hide a
+    not-yet-trained BA). False only when *no* served model clears the rollback
+    grade.
+
+    Resolution (#271 / P2-10):
+
+    * **Production** reads the scoring-job-published verdict map
+      (``gridpulse:meta:gate_status``, Redis-only). A region present in the map
+      uses its published ``acceptable``; a region absent (not yet scored/trained)
+      passes (warming). When the whole map is missing — cold/flushed Redis, where
+      the app is already rendering its warming state — the gate passes but LOGS
+      (``_log_gate_unavailable_once``) so the fallback isn't silent, and does
+      **not** read GCS. This replaces the old path that fataled open on any
+      Redis/GCS exception AND swept per-render GCS metas on cold Redis.
+    * **Dev/offline** (``REQUIRE_REDIS`` False, no scoring job publishing) falls
+      back to computing the verdict inline from local metrics.
+
+    The ``forecast_quality_gate`` feature flag short-circuits to True when False.
+    """
+    from config import REQUIRE_REDIS, feature_enabled
 
     if not feature_enabled("forecast_quality_gate"):
         return True
 
-    mape = get_best_holdout_mape(region)
-    if mape is None:
-        # No signal — don't hide the region. Preserves "warming up" UX
-        # for BAs whose first training run hasn't completed yet.
-        return True
+    status = _get_gate_status()
+    if status is not None:
+        verdict = status.get(region)
+        if verdict is None:
+            # Region not in the published map — not yet scored/trained. Warming:
+            # don't hide a BA whose first training run hasn't landed.
+            return True
+        return bool(verdict.get("acceptable", True))
 
-    return mape <= MAPE_BY_HORIZON["7d"]["rollback"]
+    # No published verdict map.
+    if not REQUIRE_REDIS:
+        # Dev/offline: nothing publishes gate_status, so compute inline from
+        # local metrics (the pre-#271 path). Safe — dev reads local pickles, not
+        # the request-path GCS the stateless web tier must avoid.
+        mape = get_best_holdout_mape(region)
+        if mape is None:
+            return True
+        from config import MAPE_BY_HORIZON
+
+        return mape <= MAPE_BY_HORIZON["7d"]["rollback"]
+
+    # Production, no verdict at all (cold/flushed Redis). Pass but not silently.
+    _log_gate_unavailable_once()
+    return True
 
 
 def stable_visible_regions(all_regions) -> list[str]:
@@ -435,9 +524,12 @@ def hidden_regions(all_regions) -> list[str]:
 
 
 def _reset_quality_gate_cache() -> None:
-    """Test hook — clear the TTL cache so unit tests can vary the
-    underlying meta.json without waiting 10 minutes."""
+    """Test hook — clear the gate caches so unit tests can vary the underlying
+    metrics / published verdict without waiting out the TTLs."""
+    global _gate_status_cache, _gate_unavailable_logged_at
     _quality_gate_cache.clear()
+    _gate_status_cache = None
+    _gate_unavailable_logged_at = 0.0
 
 
 # ── Private helpers ──────────────────────────────────────────────
