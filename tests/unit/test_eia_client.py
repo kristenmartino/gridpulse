@@ -19,8 +19,10 @@ import pytest
 from data.eia_client import (
     EIA_CIRCUIT_PROBE_INTERVAL,
     EIA_CIRCUIT_TRIP_THRESHOLD,
+    EIA_PAGE_SIZE,
     EIA_REGION_CODES,
     MAX_RETRIES,
+    EIAIncompleteFetchError,
     _circuit_breaker,
     _EIACircuitBreaker,
     _get_eia_code,
@@ -466,6 +468,38 @@ class TestPaginatedFetch:
         # Only one call because offset (5000) >= total (0)
         assert mock_req.call_count == 1
 
+    @patch("data.eia_client._request_with_backoff")
+    def test_mid_pagination_failure_raises_incomplete(self, mock_req):
+        """#269 / P2-06: a page hard-failing while ``total`` says rows remain is a
+        truncation, not a clean end — raise so the caller falls back rather than
+        caching the partial series."""
+        # Page 1 succeeds with a full page (total says a second page is due),
+        # then page 2 hard-fails (None).
+        full_page = {
+            "response": {
+                "total": EIA_PAGE_SIZE + 100,
+                "data": [
+                    {"period": f"2024-01-01T{i:02d}", "value": i, "type": "D"}
+                    for i in range(EIA_PAGE_SIZE)
+                ],
+            }
+        }
+        mock_req.side_effect = [full_page, None]
+
+        with pytest.raises(EIAIncompleteFetchError):
+            _paginated_fetch("electricity/rto/region-data", {"api_key": "test"})
+        assert mock_req.call_count == 2
+
+    @patch("data.eia_client._request_with_backoff")
+    def test_first_page_failure_is_not_truncation(self, mock_req):
+        """A first-page failure (nothing accumulated, total still 0) is the
+        ordinary empty case — returns [] without raising EIAIncompleteFetchError."""
+        mock_req.return_value = None
+
+        records = _paginated_fetch("electricity/rto/region-data", {"api_key": "test"})
+
+        assert records == []
+
 
 # ---------------------------------------------------------------------------
 # fetch_demand
@@ -644,6 +678,72 @@ class TestFetchDemand:
         assert len(df) == 2  # 2 demand rows (D type)
         assert df["demand_mw"].iloc[0] == 40000.0
         assert df["forecast_mw"].iloc[0] == 41000.0
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_truncated_fetch_falls_back_and_does_not_cache(
+        self, mock_pf, mock_cache_fn, mock_rp, mock_wp
+    ):
+        """#269 / P2-06: a truncated multi-page fetch (EIAIncompleteFetchError) must
+        serve last-known-good and never cache/persist the partial series over it."""
+        stale_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "demand_mw": [35000.0],
+                "forecast_mw": [36000.0],
+                "region": ["ERCOT"],
+            }
+        )
+        mock_cache = MagicMock()
+        # fresh miss, then stale hit on allow_stale=True
+        mock_cache.get.side_effect = [None, stale_df]
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.side_effect = EIAIncompleteFetchError("truncated: 5000/7000 rows")
+
+        df = fetch_demand("ERCOT", start="2024-01-01T00", end="2024-01-02T23")
+
+        pd.testing.assert_frame_equal(df, stale_df)
+        mock_cache.set.assert_not_called()  # partial must NOT poison the cache
+        mock_wp.assert_not_called()  # ...nor overwrite the GCS last-known-good
+        mock_rp.assert_not_called()  # stale cache satisfied the fallback
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_df_only_200_parses_empty_falls_back_and_does_not_cache(
+        self, mock_pf, mock_cache_fn, mock_rp, mock_wp
+    ):
+        """#270 / P2-07: a 200 carrying only day-ahead (DF) rows parses to a
+        zero-row demand frame — it must fall back to last-known-good (here GCS)
+        and never cache the empty frame that would blank the surface for 24h."""
+        gcs_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "demand_mw": [33000.0],
+                "forecast_mw": [34000.0],
+                "region": ["ERCOT"],
+            }
+        )
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None  # no fresh, no stale
+        mock_cache_fn.return_value = mock_cache
+        mock_rp.return_value = gcs_df
+        # A non-empty response with only DF rows: _parse_demand_records filters to
+        # type == "D", so the parsed demand frame is empty.
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "value": 41000, "type": "DF"},
+            {"period": "2024-01-01T01", "value": 41200, "type": "DF"},
+        ]
+
+        df = fetch_demand("ERCOT", start="2024-01-01T00", end="2024-01-02T23")
+
+        pd.testing.assert_frame_equal(df, gcs_df)
+        mock_cache.set.assert_not_called()  # empty frame must NOT be cached
+        mock_wp.assert_not_called()  # ...nor written to GCS
+        mock_rp.assert_called_once_with("demand", "ERCOT")
 
 
 # ---------------------------------------------------------------------------
