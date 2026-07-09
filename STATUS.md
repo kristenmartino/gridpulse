@@ -173,17 +173,21 @@ these are the newest tracked gaps and slot ahead of the P2/P3 elegance backlog:
   `/grid/summary`), the API field renamed `nameplate_capacity_mw → capacity_mw`
   with a `capacity_source` enum, and the docs desynced by the bug corrected. See
   recent-decisions.
-- ◑ **[#253](https://github.com/kristenmartino/gridpulse/issues/253) — code
-  SHIPPED 2026-07-08 (this PR); GCP-apply steps pending (yours).** The now-live
-  unauthenticated `/api/v1` had no request-path guard. Shipped in-app: per-IP
+- ◑ **[#253](https://github.com/kristenmartino/gridpulse/issues/253) — code +
+  GCP APPLIED; only the #263 merge/deploy remains.** The now-live unauthenticated
+  `/api/v1` had no request-path guard. Shipped in-app (#261, deployed): per-IP
   Redis rate limiting on `/api/v1/*` + the Dash callback route (fail-open),
   `MAX_CONTENT_LENGTH`, and `/health`/`/metrics` gated to liveness-only for the
-  public. Authored as-code (you apply on GCP — billing/monitoring): 5xx +
-  pinned-at-max alert policies, an uptime check, and a billing budget
-  (`docs/monitoring/`). **Remaining (yours):** run the `gcloud` budget/uptime
-  commands + `gcloud beta monitoring policies create` for the 2 new JSONs, and
-  set `METRICS_ALLOWED_IPS` to your IP for remote detailed-`/health`/`/metrics`.
-  Edge-level (Cloud Armor) rate limiting stays a follow-up.
+  public; the exempt/allowlist matchers now take CIDR prefixes so a rotating
+  IPv6 `/64` stays valid (#263). **Applied live in GCP 2026-07-08:** 5 alert
+  policies (5xx, pinned-at-max, uptime, scoring-creep #171, job-failure), the
+  public-`/health` uptime check, and a $150/mo budget with a forecast-anomaly
+  rule — all bound to the email channel (ids recorded in `docs/monitoring/README`).
+  `METRICS_ALLOWED_IPS` secret set to the operator IPv4 + IPv6 `/64`. **Remaining:**
+  merge **#263** (carries the CIDR matcher, the `deploy-prod.yml`
+  `METRICS_ALLOWED_IPS` wiring, and the `COMPARISON_GT` fix main was missing) →
+  auto-deploy activates the secret. Edge-level (Cloud Armor) rate limiting stays
+  a follow-up. Close #253 after #263 deploys.
 - ✅ **[#255](https://github.com/kristenmartino/gridpulse/issues/255) — SHIPPED
   2026-07-08 (this PR).** The forecast-quality gate keyed off *XGBoost-alone*
   while prod serves the ensemble, hiding SEC (XGBoost 38.6%) despite its served
