@@ -253,3 +253,65 @@ class TestScoringJob:
         # last_scored still gets written with the failure summary.
         assert fake_redis["gridpulse:meta:last_scored"]["regions_scored"] == 0
         assert "ERCOT" in fake_redis["gridpulse:meta:last_scored"]["regions_failed"]
+
+
+class TestScoringPartialFailureSemantics:
+    """#267 — a run's exit code + freshness meta must reflect FORECAST outcomes,
+    not 'any phase ran'. no_model (untrained) is expected, not a failure; a real
+    forecast error is."""
+
+    def _run(self, monkeypatch, outcomes):
+        from jobs import phases, scoring_job
+
+        regions = [o["region"] for o in outcomes]
+        by_region = {o["region"]: o for o in outcomes}
+        captured: dict = {}
+        monkeypatch.setattr(phases, "ordered_regions", lambda default: regions)
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(
+            phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
+        )
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+        code = scoring_job.run()
+        return code, captured.get("last_scored", {})
+
+    def _fc(self, region, *, ok=False, error=None):
+        ph = {"forecast": {"ok": ok} if ok else {"ok": False, "error": error}}
+        return {"region": region, "ok": ok, "phases": ph}
+
+    def test_all_no_model_exits_0_not_partial(self, monkeypatch):
+        """Fresh deploy — every BA untrained. Nothing to retry; not a failure."""
+        code, meta = self._run(
+            monkeypatch, [self._fc("A", error="no_model"), self._fc("B", error="no_model")]
+        )
+        assert code == 0
+        assert meta["partial_failure"] is False
+        assert meta["regions_scored"] == 0
+        assert meta["regions_errored"] == []
+
+    def test_all_forecasts_errored_exits_1(self, monkeypatch):
+        """Models exist but every forecast errored → total outage → retry."""
+        code, meta = self._run(
+            monkeypatch, [self._fc("A", error="boom"), self._fc("B", error="boom")]
+        )
+        assert code == 1
+        assert meta["regions_errored"] == ["A", "B"]
+
+    def test_partial_failure_alerts_but_exits_0(self, monkeypatch):
+        """1 scored, 50 errored → below the floor with real errors → partial
+        failure (visible + degrades health), but exits 0 (retry wouldn't help)."""
+        outcomes = [self._fc("OK", ok=True)] + [self._fc(f"E{i}", error="boom") for i in range(50)]
+        code, meta = self._run(monkeypatch, outcomes)
+        assert code == 0
+        assert meta["partial_failure"] is True
+        assert meta["regions_scored"] == 1
+        assert len(meta["regions_errored"]) == 50
+
+    def test_forecast_ok_but_other_phase_failed_still_scored(self, monkeypatch):
+        """The old bug in reverse: a good forecast counts even if alerts failed."""
+        s = self._fc("OK", ok=True)
+        s["phases"]["alerts"] = {"ok": False, "error": "noaa_down"}
+        code, meta = self._run(monkeypatch, [s])
+        assert code == 0
+        assert meta["regions_scored"] == 1
+        assert meta["partial_failure"] is False

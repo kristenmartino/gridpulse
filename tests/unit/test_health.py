@@ -75,6 +75,22 @@ class TestCheckLastScored:
         assert r["status"] == "degraded"
         assert r["stale"] is True
 
+    def test_fresh_but_partial_failure_required_is_degraded(self):
+        """#267: a recent marker over a mostly-failed run must still degrade — a
+        fresh timestamp can't mask ~50 stale forecasts."""
+        meta = self._meta(minutes_ago=10)
+        meta["partial_failure"] = True
+        meta["regions_scored"] = 1
+        with (
+            patch("config.REQUIRE_REDIS", True),
+            patch("data.redis_client.redis_available", return_value=True),
+            patch("data.redis_client.redis_get", return_value=meta),
+        ):
+            r = health._check_last_scored()
+        assert r["status"] == "degraded"
+        assert r["stale"] is False  # not stale — degraded on partial_failure
+        assert r["partial_failure"] is True
+
     def test_stale_marker_not_required_is_ok(self):
         """When Redis isn't required, staleness isn't held against health."""
         with (

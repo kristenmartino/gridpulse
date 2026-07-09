@@ -105,11 +105,18 @@ def _check_last_scored() -> dict[str, Any]:
         return {"status": "degraded" if required else "skipped", "error": str(exc)}
 
     stale = age > LAST_SCORED_STALE_SECONDS
+    # #267: a recent-but-mostly-failed run must not read healthy. The scoring job
+    # flags partial_failure when its forecast succeeded for < SCORING_MIN_OK_REGIONS
+    # BAs, so a fresh timestamp over ~50 stale forecasts still degrades.
+    partial = bool(payload.get("partial_failure"))
     return {
-        "status": "degraded" if (stale and required) else "ok",
+        "status": "degraded" if (required and (stale or partial)) else "ok",
         "age_seconds": int(age),
         "threshold_seconds": LAST_SCORED_STALE_SECONDS,
         "stale": stale,
+        "partial_failure": partial,
+        "regions_scored": payload.get("regions_scored"),
+        "regions_total": payload.get("regions_total"),
         "updated_at": payload["updated_at"],
     }
 
