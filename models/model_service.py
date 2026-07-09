@@ -431,7 +431,17 @@ def _get_gate_status() -> dict | None:
         from data.redis_client import redis_get, redis_key
 
         payload = redis_get(redis_key("meta:gate_status"))
-        if isinstance(payload, dict) and isinstance(payload.get("regions"), dict):
+        # Require a NON-EMPTY regions map. An empty {} — a degraded scoring run
+        # that produced no verdicts, or a corrupted write — must be treated as
+        # "no verdict" (return None -> the caller's pass-open+log path), NOT read
+        # as "every region warming -> visible", which would silently un-hide
+        # rollback-grade BAs during an outage. (#271, defense-in-depth alongside
+        # the scoring-side merge-guard.)
+        if (
+            isinstance(payload, dict)
+            and isinstance(payload.get("regions"), dict)
+            and payload["regions"]
+        ):
             regions = payload["regions"]
     except Exception as e:  # pragma: no cover — defensive (Redis outage)
         log.debug("gate_status_read_failed", error=str(e))
@@ -484,9 +494,10 @@ def is_forecast_quality_acceptable(region: str) -> bool:
     status = _get_gate_status()
     if status is not None:
         verdict = status.get(region)
-        if verdict is None:
-            # Region not in the published map — not yet scored/trained. Warming:
-            # don't hide a BA whose first training run hasn't landed.
+        if not isinstance(verdict, dict):
+            # Region absent (not yet scored/trained) or a malformed entry.
+            # Warming: don't hide a BA whose first training run hasn't landed,
+            # and never let a corrupt map entry crash the dropdown render.
             return True
         return bool(verdict.get("acceptable", True))
 

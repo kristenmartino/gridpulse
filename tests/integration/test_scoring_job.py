@@ -206,6 +206,53 @@ class TestScoringJob:
         assert meta["regions_scored"] == 1
         assert meta["mode"] == "scoring-job"
 
+    def test_real_score_region_attaches_and_publishes_gate_verdict(
+        self,
+        fake_redis,
+        patch_data_sources,
+        patch_single_region,
+        monkeypatch,
+    ) -> None:
+        """#271 (adversarial-verify catch): exercise the REAL _score_region gate
+        wiring end-to-end — _extract_holdout_metrics → gate_verdict_from_metrics →
+        summary['gate'] → published gate_status map — not pre-baked verdict dicts.
+        A loaded model with MAPE 5.0 (≤ 22 rollback) yields an acceptable verdict."""
+        from models import persistence as mp
+
+        fake_model = _fake_xgb_model()
+        fake_meta = mp.ModelMetadata(
+            region="ERCOT",
+            model_name="xgboost",
+            version="v-test",
+            data_hash="h",
+            trained_at="",
+            train_rows=1,
+            mape=5.0,  # → _extract_holdout_metrics {"mape": 5.0} → acceptable
+            lib_versions={},
+            extra={},
+        )
+        monkeypatch.setattr(
+            "jobs.scoring_job.load_model",
+            lambda region, model_name: (fake_model, fake_meta),
+        )
+        import models.xgboost_model as xgb_mod
+
+        monkeypatch.setattr(xgb_mod, "predict_xgboost", lambda model, x: np.full(len(x), 41_000.0))
+        import models.model_service as model_service
+
+        monkeypatch.setattr(
+            model_service,
+            "get_forecasts",
+            lambda region, df: {"ensemble": df["demand_mw"].values, "metrics": {}},
+        )
+
+        from jobs import scoring_job
+
+        assert scoring_job.run() == 0
+
+        gate = fake_redis["gridpulse:meta:gate_status"]
+        assert gate["regions"]["ERCOT"] == {"acceptable": True, "best_mape": 5.0}
+
     def test_scoring_job_missing_model_still_writes_actuals(
         self,
         fake_redis,
@@ -361,3 +408,72 @@ class TestScoringPartialFailureSemantics:
         assert regions["PJM"] == {"acceptable": True, "best_mape": 3.2}
         assert regions["CPLW"] == {"acceptable": False, "best_mape": 26.0}
         assert "NEW" not in regions  # untrained → absent → warming/visible
+
+    def test_degraded_run_with_no_verdicts_skips_gate_status_publish(self, monkeypatch):
+        """#271 (adversarial-verify catch): a run where every region failed to
+        load models produces NO verdicts. It must NOT publish an empty gate_status
+        map — that would clobber the last-known good one on the same 24h key, and
+        the web tier would read a present-but-empty map as 'every region warming
+        -> visible', silently un-hiding rollback-grade BAs. Skip -> the prior map
+        lives out its TTL."""
+        from jobs import phases, scoring_job
+
+        outcomes = [  # all no_model, none carries a "gate"
+            {
+                "region": "A",
+                "ok": False,
+                "phases": {"forecast": {"ok": False, "error": "no_model"}},
+            },
+            {
+                "region": "B",
+                "ok": False,
+                "phases": {"forecast": {"ok": False, "error": "no_model"}},
+            },
+        ]
+        by_region = {o["region"]: o for o in outcomes}
+        captured: dict = {}
+        monkeypatch.setattr(phases, "ordered_regions", lambda default: ["A", "B"])
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(
+            phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
+        )
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+
+        scoring_job.run()
+
+        assert "last_scored" in captured  # run completed
+        assert "gate_status" not in captured  # but did NOT clobber the gate map
+
+    def test_partial_run_merges_verdicts_over_last_known(self, monkeypatch):
+        """#271 (adversarial-verify catch): a run that re-scored only some regions
+        merges over the last-known published map, PRESERVING a previously-hidden
+        BA it didn't re-score this tick (rather than dropping it to visible)."""
+        from jobs import phases, scoring_job
+
+        outcomes = [
+            {
+                "region": "PJM",
+                "ok": True,
+                "phases": {"forecast": {"ok": True}},
+                "gate": {"acceptable": True, "best_mape": 3.0},
+            },
+        ]
+        by_region = {o["region"]: o for o in outcomes}
+        captured: dict = {}
+        monkeypatch.setattr(phases, "ordered_regions", lambda default: ["PJM"])
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(
+            phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
+        )
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+        # Last-known published map already hides CPLW (not re-scored this run).
+        monkeypatch.setattr(
+            "data.redis_client.redis_get",
+            lambda key: {"regions": {"CPLW": {"acceptable": False, "best_mape": 30.0}}},
+        )
+
+        scoring_job.run()
+
+        regions = captured["gate_status"]["regions"]
+        assert regions["PJM"] == {"acceptable": True, "best_mape": 3.0}  # updated
+        assert regions["CPLW"] == {"acceptable": False, "best_mape": 30.0}  # preserved
