@@ -526,6 +526,106 @@ def _overlay_weather_forecast(
     return future_df
 
 
+def _overlay_weather_normal_tail(
+    future_df: pd.DataFrame,
+    featured: pd.DataFrame,
+    weather_df: pd.DataFrame | None,
+    horizon: int,
+) -> pd.DataFrame:
+    """#283 Phase 2: past the Open-Meteo coverage boundary, drive the forecast
+    tail off a **normal weather year** instead of the recent-28d climatology.
+
+    For the tail hours (those with no real Open-Meteo forecast), the WEATHER +
+    derived feature columns are replaced with the per-BA ``(day_of_year, hour)``
+    weather-normal (``data.weather_normals``); ``AUTOREGRESSIVE_DEMAND_FEATURES``
+    are left on the recent-28d window so they keep anchoring the tail to *current*
+    load (which is how load growth is handled without an explicit ratio). The
+    stored derived normals (CDD/HDD/wind_power/solar_cf) are injected DIRECTLY —
+    they were averaged at hourly resolution to avoid the Jensen underestimate of
+    CDD(mean-temp) at shoulder temps — while ``temp_x_hour`` and
+    ``temperature_deviation`` are recomputed from the injected normal temps
+    (``temperature_deviation``'s stored normal is a seasonal slope, not a level).
+
+    No-op — returns the input unchanged — when the ``weather_normal_tail`` flag is
+    off, the region's artifact isn't built yet, or every hour is Open-Meteo-covered,
+    so a flag-off run is byte-identical to the recent-28d path. The scoring job is
+    the only caller; it reads the normal from GCS (via an in-process cache), not the
+    web tier.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("weather_normal_tail"):
+        return future_df
+    if featured.empty or "region" not in featured.columns:
+        return future_df
+    region = str(featured["region"].iloc[0])
+
+    from data.weather_normals import NORMAL_FEATURE_COLS, load_weather_normal_cached
+
+    normal = load_weather_normal_cached(region)
+    if normal is None or normal.empty or "doy" not in normal.columns:
+        return future_df  # flag on but artifact not backfilled yet → recent-28d
+
+    future_df = future_df.copy()
+    ts = pd.to_datetime(future_df["timestamp"], utc=True)
+
+    # Tail = future hours NOT covered by the real Open-Meteo forecast (mirrors the
+    # coverage the overlay used), so the normal only fills the beyond-day-16 gap.
+    covered = pd.Series(False, index=future_df.index)
+    if weather_df is not None and not weather_df.empty:
+        wx_ts = set(pd.to_datetime(weather_df["timestamp"], utc=True))
+        covered = ts.isin(wx_ts)
+    tail = (~covered).to_numpy()
+    if not tail.any():
+        return future_df
+
+    lut = normal.drop_duplicates(["doy", "hour"]).set_index(["doy", "hour"])
+    doy = ts.dt.dayofyear.to_numpy()
+    hour = ts.dt.hour.to_numpy()
+    inject_cols = [
+        c
+        for c in NORMAL_FEATURE_COLS
+        if c != "temperature_deviation" and c in lut.columns and c in future_df.columns
+    ]
+    for col in inject_cols:
+        series = lut[col]
+        vals = np.array(
+            [series.get((d, h), np.nan) for d, h in zip(doy, hour, strict=False)], dtype=float
+        )
+        m = tail & ~np.isnan(vals)
+        future_df.loc[m, col] = vals[m]
+
+    # Recompute temp_x_hour + temperature_deviation from the injected normal temps
+    # (days 1-16 are unchanged, so their values recompute identically).
+    from data.feature_engineering import (
+        compute_temp_hour_interaction,
+        compute_temperature_deviation,
+    )
+
+    if "temperature_2m" in future_df.columns and "hour_sin" in future_df.columns:
+        future_df["temp_x_hour"] = compute_temp_hour_interaction(
+            future_df["temperature_2m"], future_df["hour_sin"]
+        ).values
+    if (
+        "temperature_2m" in future_df.columns
+        and "temperature_2m" in featured.columns
+        and len(featured) > 0
+    ):
+        combined = pd.concat(
+            [
+                featured["temperature_2m"].reset_index(drop=True),
+                future_df["temperature_2m"].reset_index(drop=True),
+            ],
+            ignore_index=True,
+        )
+        future_df["temperature_deviation"] = (
+            compute_temperature_deviation(combined).tail(horizon).values
+        )
+
+    log.info("weather_normal_tail_applied", region=region, tail_hours=int(tail.sum()))
+    return future_df
+
+
 def _resolve_forecast_start(
     featured: pd.DataFrame,
     demand_df: pd.DataFrame,
@@ -693,6 +793,11 @@ def _build_future_feature_frame(
     # beyond the forecast horizon (~day 16+), climatology stays.
     if weather_df is not None and not weather_df.empty:
         future_df = _overlay_weather_forecast(future_df, featured, weather_df, horizon)
+
+    # #283 Phase 2: past the Open-Meteo boundary, swap the recent-28d climatology
+    # weather for the (day_of_year, hour) weather-normal. No-op when the flag is
+    # off / the artifact isn't built, so a flag-off run is byte-identical to today.
+    future_df = _overlay_weather_normal_tail(future_df, featured, weather_df, horizon)
 
     return future_df
 

@@ -209,6 +209,26 @@ def load_weather_normal(region: str) -> pd.DataFrame | None:
     return None
 
 
+#: In-process cache for :func:`load_weather_normal`. The scoring tail reads the
+#: normal every tick, but it only changes quarterly, so a GCS read per tick per
+#: BA is wasteful. ``None`` results are cached too, so a not-yet-backfilled BA
+#: doesn't re-hit GCS every tick. Per-process; resets on job restart.
+_normal_cache: dict[str, tuple[object, float]] = {}
+_NORMAL_CACHE_TTL_S = 6 * 3600.0
+
+
+def load_weather_normal_cached(region: str) -> pd.DataFrame | None:
+    """:func:`load_weather_normal` with a short in-process cache (see
+    ``_normal_cache``). Used by the scoring-job forecast tail (#283 Phase 2)."""
+    now = time.time()
+    hit = _normal_cache.get(region)
+    if hit is not None and now - hit[1] < _NORMAL_CACHE_TTL_S:
+        return hit[0]  # may be a cached DataFrame OR a cached None
+    normal = load_weather_normal(region)
+    _normal_cache[region] = (normal, now)
+    return normal
+
+
 def normal_age_days(region: str) -> float | None:
     """Age (days) of the persisted normal from its Redis marker ``updated_at``;
     ``None`` when absent/unreadable (→ treat as needing a rebuild)."""
