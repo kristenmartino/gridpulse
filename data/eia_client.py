@@ -116,6 +116,41 @@ def _get_eia_code(region: str) -> str:
     return EIA_REGION_CODES.get(region, region)
 
 
+class EIAIncompleteFetchError(RuntimeError):
+    """A paginated fetch hard-failed partway through, leaving fewer rows than the
+    server-reported total. Raised by :func:`_paginated_fetch` so the caller routes
+    to last-known-good instead of caching/persisting a truncated series that would
+    poison the 24h cache and overwrite the GCS fallback (#269 / P2-06)."""
+
+
+def _last_known_good(
+    cache,
+    cache_key: str,
+    data_type: str,
+    region: str,
+    empty_cols: list[str],
+) -> pd.DataFrame:
+    """Serve the most recent *real* data for a key without writing anything.
+
+    The uniform ``stale cache -> GCS parquet -> typed-empty`` chain is the #174
+    outage-resilience contract. Centralised here so every path that must fall
+    back — an empty upstream response, a truncated multi-page fetch (#269), and
+    a 200 that parses to zero rows (#270) — shares the same last-known-good
+    lookup and, critically, never caches or persists over prior real data.
+    """
+    stale = cache.get(cache_key, allow_stale=True)
+    if stale is not None:
+        log.info("eia_stale_fallback", region=region, data_type=data_type, rows=len(stale))
+        return stale
+    from data.gcs_store import read_parquet
+
+    gcs_df = read_parquet(data_type, region)
+    if gcs_df is not None and not gcs_df.empty:
+        log.info("eia_gcs_fallback", region=region, data_type=data_type, rows=len(gcs_df))
+        return gcs_df
+    return pd.DataFrame(columns=empty_cols)
+
+
 def _fetch_eia(
     *,
     region: str,
@@ -126,15 +161,36 @@ def _fetch_eia(
     parser: Callable[[list[dict]], pd.DataFrame],
     empty_cols: list[str],
     use_cache: bool,
+    value_col: str | None = None,
 ) -> pd.DataFrame:
     """Shared fetch skeleton for the demand / generation / interchange endpoints.
 
     Each public fetcher computes its own default dates, cache key, params, and
     parser, then delegates the identical flow here (#185): cache read ->
-    paginated fetch -> ``(stale cache -> GCS parquet -> typed-empty)`` fallback
-    -> parse -> cache + GCS write. The uniform GCS fallback across all three is
-    the #174 outage-resilience contract, now expressed once instead of copied
-    three times. ``data_type`` is the GCS parquet key + the logging label.
+    paginated fetch -> parse -> cache + GCS write, with a ``stale cache -> GCS
+    parquet -> typed-empty`` fallback (:func:`_last_known_good`) whenever the
+    fetch does not yield a complete, usable frame. ``data_type`` is the GCS
+    parquet key + the logging label.
+
+    ``value_col`` names the single measurement column (e.g. ``"demand_mw"``)
+    that must carry at least one real observation for the frame to be usable;
+    when given, a parsed frame whose ``value_col`` is entirely NaN is treated as
+    a miss (see below). Leave it ``None`` for endpoints whose zero/near-zero
+    readings are legitimate (generation can be ~0 for a fuel; interchange can be
+    ~0 on a tie), where only a row-count-empty frame is a miss.
+
+    Four failure modes route to last-known-good *without* writing, so none of
+    them can poison the 24h cache or overwrite the durable GCS fallback:
+
+    * the upstream response is empty (#174);
+    * a page hard-fails mid-pagination, truncating the series (#269 / P2-06) —
+      surfaced as :class:`EIAIncompleteFetchError`;
+    * a 200 parses to a row-empty frame, e.g. a demand response carrying only
+      day-ahead ``DF`` rows and no ``D`` observations (#270 / P2-07);
+    * a 200 parses to rows whose ``value_col`` is entirely NaN, e.g. a demand
+      window in which every ``D`` observation is null/zero-filled — real rows,
+      no usable signal (#270 sibling; would otherwise overwrite the GCS
+      last-known-good with an all-NaN frame the ``df.empty`` test misses).
     """
     cache = get_cache()
     if use_cache:
@@ -143,22 +199,38 @@ def _fetch_eia(
             return cached
 
     log.info("eia_fetching", region=region, data_type=data_type)
-    all_records = _paginated_fetch(endpoint, params)
+    try:
+        all_records = _paginated_fetch(endpoint, params)
+    except EIAIncompleteFetchError as exc:
+        # Truncated multi-page fetch — the partial rows must not be cached or
+        # persisted over last-known-good. (#269 / P2-06)
+        log.warning("eia_incomplete_fetch", region=region, data_type=data_type, error=str(exc))
+        return _last_known_good(cache, cache_key, data_type, region, empty_cols)
 
-    if not all_records:
-        log.warning("eia_no_data", region=region, data_type=data_type)
-        stale = cache.get(cache_key, allow_stale=True)
-        if stale is not None:
-            return stale
-        from data.gcs_store import read_parquet
+    df = parser(all_records) if all_records else pd.DataFrame(columns=empty_cols)
 
-        gcs_df = read_parquet(data_type, region)
-        if gcs_df is not None and not gcs_df.empty:
-            log.info("eia_gcs_fallback", region=region, data_type=data_type, rows=len(gcs_df))
-            return gcs_df
-        return pd.DataFrame(columns=empty_cols)
+    # A frame with no usable data is a miss, not a result — caching it would
+    # blank the surface for 24h and shadow the stale/GCS last-known-good, so fall
+    # back without writing. Two shapes qualify: a row-empty frame (empty upstream
+    # response, or a 200 that parsed to zero rows — #270), and a rows-present
+    # frame whose measurement column is entirely NaN (a demand window of all
+    # null/zero-filled observations — the #270 sibling the row-count test misses).
+    all_nan = bool(
+        not df.empty
+        and value_col is not None
+        and value_col in df.columns
+        and df[value_col].isna().all()
+    )
+    if df.empty or all_nan:
+        log.warning(
+            "eia_no_usable_data",
+            region=region,
+            data_type=data_type,
+            raw_records=len(all_records),
+            reason="all_nan" if all_nan else "empty",
+        )
+        return _last_known_good(cache, cache_key, data_type, region, empty_cols)
 
-    df = parser(all_records)
     cache.set(cache_key, df, ttl=CACHE_TTL_SECONDS)
     from data.gcs_store import write_parquet
 
@@ -215,6 +287,10 @@ def fetch_demand(
         parser=lambda records: _parse_demand_records(records, region),
         empty_cols=["timestamp", "demand_mw", "forecast_mw", "region"],
         use_cache=use_cache,
+        # A demand window whose D observations are all null/zero (coerced to NaN)
+        # carries no usable signal — treat it as a miss so it can't overwrite the
+        # GCS last-known-good. (#270 sibling.)
+        value_col="demand_mw",
     )
 
 
@@ -392,9 +468,20 @@ def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
 
     Returns:
         List of all data records across pages.
+
+    Raises:
+        EIAIncompleteFetchError: if a page hard-fails (``_request_with_backoff``
+            returns ``None``) while the server-reported ``total`` says more rows
+            remain. The accumulated rows are a truncated series that must not be
+            cached/persisted over last-known-good, so this signals the caller to
+            fall back instead (#269 / P2-06). A *first*-page failure (nothing
+            accumulated, ``total`` still 0) is not a truncation — it returns an
+            empty list and takes the ordinary empty-response fallback.
     """
     all_records: list[dict] = []
     offset = 0
+    total = 0
+    page_failed = False
 
     while True:
         params["offset"] = offset
@@ -402,6 +489,7 @@ def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
 
         response = _request_with_backoff(url, params)
         if response is None:
+            page_failed = True
             break
 
         data = response.get("response", {})
@@ -414,6 +502,27 @@ def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
         offset += EIA_PAGE_SIZE
         if offset >= total or not records:
             break
+
+    # A page hard-failing mid-pagination — while ``total`` says rows remain —
+    # leaves a truncated series. Gate on ``page_failed`` (not a bare
+    # ``len < total``) so an imprecise/over-counted ``total`` on a cleanly
+    # completed fetch can't force a permanent false-positive fallback. (#269)
+    #
+    # Deliberately NOT flagged: a page that returns a valid 200 with an *empty*
+    # data array while ``offset < total`` (loop then exits via the ``not records``
+    # break, ``page_failed`` False). That shape is indistinguishable from the
+    # benign case where EIA over-reports ``total`` and the real data simply ends
+    # on a page boundary — both surface as ``records == [] while offset < total``.
+    # Raising here would reintroduce false-positive fallbacks on that common
+    # quirk to catch an anomalous mid-stream empty page EIA v2 does not emit under
+    # contiguous pagination. See test_empty_mid_page_is_not_flagged_as_truncation.
+    if page_failed and len(all_records) < total:
+        log.warning(
+            "eia_truncated_fetch", endpoint=endpoint, fetched=len(all_records), expected=total
+        )
+        raise EIAIncompleteFetchError(
+            f"paginated fetch truncated: {len(all_records)}/{total} rows for {endpoint}"
+        )
 
     return all_records
 
