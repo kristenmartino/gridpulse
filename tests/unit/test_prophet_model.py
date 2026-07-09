@@ -114,6 +114,32 @@ class TestYearlySeasonalityGate:
         train_prophet(self._df(760))  # > YEARLY_SEASONALITY_MIN_DAYS (730)
         assert cls.call_args.kwargs["yearly_seasonality"] is True
 
+    def test_on_at_exactly_min_days_span(self, mock_prophet_class):
+        """Boundary: span == YEARLY_SEASONALITY_MIN_DAYS (730) → yearly ON.
+
+        span_days = periods - 1 (a daily range of N rows spans N-1 days), so
+        731 daily rows give a 730-day span — exactly the gate. The far-from-
+        boundary tests above (89/759) leave ``>=`` vs ``>`` and the constant's
+        value unpinned; this case fails if the gate drifts to ``>`` or the
+        constant moves up."""
+        from models.prophet_model import train_prophet
+
+        cls, _ = mock_prophet_class
+        train_prophet(self._df(731))  # span == 730
+        assert cls.call_args.kwargs["yearly_seasonality"] is True
+
+    def test_off_just_below_min_days_span(self, mock_prophet_class):
+        """Boundary: span == 729 (one day under the 730 gate) → yearly OFF.
+
+        730 daily rows → 729-day span. Pins the other side of the ``>=``: a
+        gate that drifted down (e.g. constant → 729) would wrongly turn yearly
+        ON here."""
+        from models.prophet_model import train_prophet
+
+        cls, _ = mock_prophet_class
+        train_prophet(self._df(730))  # span == 729
+        assert cls.call_args.kwargs["yearly_seasonality"] is False
+
 
 class TestPredictProphetFloorsNegative:
     """#281: predict_prophet clips the composite yhat (and its lower band) at 0 —
@@ -133,7 +159,11 @@ class TestPredictProphetFloorsNegative:
                 "ds": ts,
                 "yhat": [-500.0, 12000.0, -20.0],  # negative composite despite floor=0
                 "yhat_lower": [-800.0, 9000.0, -100.0],
-                "yhat_upper": [200.0, 15000.0, 150.0],
+                # A negative UPPER band is possible when the entire posterior
+                # sits below zero (#281); upper_80's own np.maximum clip must
+                # floor it too — an all-positive yhat_upper here would leave
+                # that clip untested (a dropped clip would survive).
+                "yhat_upper": [-50.0, 15000.0, 150.0],
             }
         )
         instance._demand_cap = 30000.0
@@ -142,7 +172,9 @@ class TestPredictProphetFloorsNegative:
 
         assert (out["forecast"] >= 0).all(), "negative demand must be clipped"
         assert (out["lower_80"] >= 0).all(), "negative lower band must be clipped"
+        assert (out["upper_80"] >= 0).all(), "negative upper band must be clipped"
         assert out["forecast"][0] == 0.0 and out["forecast"][2] == 0.0
+        assert out["upper_80"][0] == 0.0  # −50 upper band → 0
         assert out["forecast"][1] == 12000.0  # positive values untouched
 
     def test_attaches_all_seven_regressors(self, mock_prophet_class):

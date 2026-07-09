@@ -226,6 +226,61 @@ class TestPredictAndWriteForecast:
             assert row["predicted_demand_mw"] >= 0.0
         assert payload["forecasts"][0]["prophet"] == 0.0  # −2000 → 0
 
+    def test_ensemble_floor_survives_negative_ensemble_combine(
+        self, fake_redis, region_data, monkeypatch
+    ):
+        """#281: the serve-layer ``np.maximum(ensemble_combine(...), 0)`` must
+        floor the *ensemble* even when ``ensemble_combine`` itself emits a
+        negative — the comment on that clip states it must survive a future
+        ``ensemble_combine`` that returns a negative composite.
+
+        ``test_negative_predictions_floored_at_zero`` above cannot exercise this:
+        every per-model pred is floored at line ~984 *before* the blend, so its
+        negative never reaches ``ensemble_combine``'s output. Here all per-model
+        preds are positive and ``ensemble_combine`` is patched to return
+        negatives, leaving only the ensemble ``np.maximum`` between the negative
+        and Redis. Delete that clip and this test fails.
+
+        NB: ``predict_and_write_forecast`` does a *function-local*
+        ``from models.ensemble import ensemble_combine`` (jobs/phases.py:933), so
+        the effective patch target is the source module ``models.ensemble`` —
+        patching ``jobs.phases`` would be shadowed by that local import.
+        """
+        import models.ensemble as ens
+        from jobs import phases
+
+        _patch_predict_one(
+            monkeypatch,
+            {
+                "xgboost": np.full(HORIZON, 41_000.0),
+                "prophet": np.full(HORIZON, 39_000.0),
+            },
+        )
+
+        # Blend returns negatives for the first 10 hours regardless of its
+        # (already-floored) inputs — stands in for a future ensemble_combine
+        # that can emit a negative composite.
+        negative_blend = np.full(HORIZON, 40_000.0)
+        negative_blend[:10] = -3_000.0
+
+        def _fake_ensemble_combine(preds_by_model, weights):
+            return negative_blend
+
+        monkeypatch.setattr(ens, "ensemble_combine", _fake_ensemble_combine)
+
+        result = phases.predict_and_write_forecast(
+            region_data,
+            models={"xgboost": object(), "prophet": object()},
+            model_mapes={"xgboost": 5.0, "prophet": 5.0},
+        )
+
+        assert result.ok
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
+        for row in payload["forecasts"]:
+            assert row["ensemble"] >= 0.0
+            assert row["predicted_demand_mw"] >= 0.0
+        assert payload["forecasts"][0]["ensemble"] == 0.0  # −3000 blend → 0
+
 
 # ────────────────────────────────────────────────────────────────────────
 # PR-C (2026-05-20) — Open-Meteo forecast overlay on future feature frame
