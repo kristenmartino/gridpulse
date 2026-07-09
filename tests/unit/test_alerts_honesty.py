@@ -96,8 +96,11 @@ class TestWriteAlertsHonesty:
         payload = captured["payload"]
         assert payload["alerts"] == []
         assert payload["alerts_source"] == "unavailable"
-        assert payload["stress_score"] is None
-        assert payload["stress_label"] == "Unavailable"
+        # #265: grid stress = demand/capacity, decoupled from the alert feed —
+        # a NOAA outage no longer nulls it. FPL has a reliable plate + demand,
+        # so stress reflects (low) utilization here, not "Unavailable".
+        assert payload["stress_score"] is not None
+        assert payload["stress_label"] == "Normal"
         assert payload["alert_counts"] == {"critical": 0, "warning": 0, "info": 0}
         # The real (data-derived) sections must still be present.
         assert payload["anomaly"]["timestamps"]
@@ -327,7 +330,11 @@ class TestLiveNOAAWiring:
         assert payload["alerts_source"] == "noaa"
         assert payload["alerts_total"] == 2
         assert payload["alert_counts"] == {"critical": 1, "warning": 1, "info": 0}
-        assert payload["stress_score"] == 30 + 15 + 20
+        # #265: stress is demand/capacity utilization now, NOT an alert-count sum
+        # (was 30+15+20). Alert counts survive as context (asserted above). The
+        # fixture's small demand vs ERCOT's plate → low single-digit utilization.
+        assert payload["stress_score"] is not None
+        assert payload["stress_score"] < 5
         assert payload["alerts"][0]["event"] == "Heat Advisory"
 
     def test_expired_alerts_are_filtered(self, monkeypatch):

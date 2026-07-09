@@ -1585,26 +1585,32 @@ def write_alerts(data: RegionData) -> PhaseResult:
             n_crit = sum(1 for a in alerts if a["severity"] == "critical")
             n_warn = sum(1 for a in alerts if a["severity"] == "warning")
             n_info = sum(1 for a in alerts if a["severity"] == "info")
-            stress = min(100, n_crit * 30 + n_warn * 15 + 20)
-            stress_label = "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
         else:
             try:
                 alerts, n_crit, n_warn, n_info, alerts_total = _live_noaa_alerts(region)
                 alerts_source = "noaa"
-                # Heuristic stress index over REAL alert counts (weights are
-                # a UI contract from the original design, not calibrated —
-                # tracked in the 2026-07 review's unsupported-claims ledger).
-                stress = min(100, n_crit * 30 + n_warn * 15 + 20)
-                stress_label = (
-                    "Normal" if stress < 30 else ("Elevated" if stress < 60 else "Critical")
-                )
             except Exception as noaa_err:
                 log.warning("job_alerts_noaa_unavailable", region=region, error=str(noaa_err))
                 alerts = []
                 alerts_source = "unavailable"
                 n_crit = n_warn = n_info = 0
-                stress = None
-                stress_label = "Unavailable"
+
+        # Grid stress = supply tightness (current demand ÷ nameplate capacity),
+        # NOT a count of NWS alerts (#265). The old alert-count heuristic
+        # saturated to 100 for nearly every BA — a multi-state footprint always
+        # has some active advisory. Alert counts ride along as context in
+        # alert_counts below; stress is independent of the alert feed.
+        from models.pricing import grid_stress
+
+        _dseries = (
+            data.demand_df["demand_mw"].dropna()
+            if data.demand_df is not None and not data.demand_df.empty
+            else None
+        )
+        current_demand = (
+            float(_dseries.iloc[-1]) if _dseries is not None and len(_dseries) else None
+        )
+        stress, stress_label = grid_stress(region, current_demand)
 
         # Compute the ±2σ band over the FULL demand series, then slice to the
         # displayed 168h window, so the 24h rolling window is already warm at the
