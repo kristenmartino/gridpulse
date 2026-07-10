@@ -89,6 +89,16 @@ from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
 
+# Recent trailing window (days) for the (hour, dow) climatology used by
+# ``_create_future_features``, with a min-rows guard before trusting it.
+# Duplicated from ``jobs.phases`` (CLIMATOLOGY_WINDOW_DAYS /
+# _CLIMATOLOGY_MIN_ROWS) rather than imported — the web tier deliberately
+# does not import the jobs module (see ``_callbacks_shared`` for the same
+# convention). Keep the values in sync with jobs/phases.py; rationale for
+# the recent-window restriction is documented there (#281/#282).
+_CLIMATOLOGY_WINDOW_DAYS = 28
+_CLIMATOLOGY_MIN_ROWS = 7 * 24  # ≥ 1 week before trusting the recent window
+
 
 def _confidence_half_width(horizon_hours: int) -> float:
     """Return the indicative-range half-width as a fraction, scaled by horizon.
@@ -737,6 +747,13 @@ def _create_future_features(
     hour-of-day + day-of-week averages from training data so that the
     model sees realistic daily/weekly patterns instead of a single frozen
     value repeated across the forecast horizon.
+
+    The (hour, dow) group means are computed over the most recent
+    ``_CLIMATOLOGY_WINDOW_DAYS`` of training data (full history when the
+    recent slice is thinner than ``_CLIMATOLOGY_MIN_ROWS``) so the future
+    features track the forecast season instead of regressing toward the
+    cooler mean of the full ~90-day window — mirrors the #281/#282 fix in
+    ``jobs.phases._build_future_feature_frame``.
     """
     feature_cols = [c for c in train_df.columns if c not in ["timestamp", "demand_mw", "region"]]
 
@@ -758,8 +775,16 @@ def _create_future_features(
 
     # Use historical (hour, day_of_week) averages so models see realistic
     # daily demand curves and weather patterns instead of a single frozen
-    # value repeated for every future hour.
+    # value repeated for every future hour. Restrict to a recent trailing
+    # window so the baseline tracks the forecast season rather than the
+    # full-history mean (#281/#282); fall back to the full history when
+    # the recent slice is too thin for stable (hour, dow) group means.
     hist = train_df.copy()
+    if "timestamp" in hist.columns and len(hist):
+        cutoff = hist["timestamp"].max() - pd.Timedelta(days=_CLIMATOLOGY_WINDOW_DAYS)
+        recent = hist[hist["timestamp"] >= cutoff]
+        if len(recent) >= _CLIMATOLOGY_MIN_ROWS:
+            hist = recent.copy()
     hist["_hour"] = hist["timestamp"].dt.hour
     hist["_dow"] = hist["timestamp"].dt.dayofweek
 

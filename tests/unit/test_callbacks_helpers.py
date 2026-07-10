@@ -668,6 +668,60 @@ class TestCreateFutureFeatures:
         assert result["temperature_2m"].nunique() > 1
 
 
+class TestCreateFutureFeaturesRecentWindow:
+    """#281/#282 mirrored to the dev inline path: the (hour, dow) group means
+    are built from a RECENT trailing window, so future weather features track
+    the forecast season instead of the diluted mean of the full ~90d history.
+    Mirrors ``TestClimatologyRecentWindow`` in test_phases_forecast.py."""
+
+    def _split_train_df(self, old_temp: float, recent_temp: float, total_days: int = 90):
+        from components._callbacks_forecast import _CLIMATOLOGY_WINDOW_DAYS
+
+        end = pd.Timestamp("2026-07-09 23:00", tz="UTC")
+        n = total_days * 24
+        ts = pd.date_range(end=end, periods=n, freq="h")
+        cutoff = end - pd.Timedelta(days=_CLIMATOLOGY_WINDOW_DAYS)
+        temp = np.where(ts >= cutoff, recent_temp, old_temp).astype(float)
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": 25000.0,
+                "region": "FPL",
+                "temperature_2m": temp,
+                "cooling_degree_days": np.maximum(0.0, temp - 65),
+            }
+        )
+
+    def test_group_means_reflect_recent_window_not_full_history(self):
+        """Recent 28d at 85°F, older 62d at 50°F. Full-history mean would be
+        ~61°F; the recent-window group means must land near 85°F."""
+        from components.callbacks import _create_future_features
+
+        train = self._split_train_df(old_temp=50.0, recent_temp=85.0)
+        last_ts = train["timestamp"].max()
+        future_ts = pd.date_range(
+            start=last_ts + pd.Timedelta(hours=1), periods=168, freq="h", tz="UTC"
+        )
+        result = _create_future_features(train, future_ts)
+        assert result["temperature_2m"].mean() == pytest.approx(85.0, abs=1.0)
+        # CDD tracks it (85-65=20), not the diluted full-history value.
+        assert result["cooling_degree_days"].mean() == pytest.approx(20.0, abs=1.5)
+
+    def test_thin_history_falls_back_to_full_window(self):
+        """A history shorter than the min-rows guard falls back to the full
+        history and still produces a valid frame."""
+        from components.callbacks import _create_future_features
+
+        train = self._split_train_df(old_temp=70.0, recent_temp=70.0, total_days=3)
+        last_ts = train["timestamp"].max()
+        future_ts = pd.date_range(
+            start=last_ts + pd.Timedelta(hours=1), periods=24, freq="h", tz="UTC"
+        )
+        result = _create_future_features(train, future_ts)
+        assert len(result) == 24
+        assert result["temperature_2m"].between(60.0, 80.0).all()
+
+
 # ===========================================================================
 # _fetch_generation_cached
 # ===========================================================================
