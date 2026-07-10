@@ -1641,19 +1641,34 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
     try:
         feature_importance = _real_feature_importance(xgb_model)
 
-        # Locate the freshest usable backtest payload: prefer the 24h horizon.
+        # Locate the freshest USABLE backtest payload: prefer the 24h horizon.
+        # "Usable" validates the whole shape — ≥24 ALIGNED rows across actual,
+        # the chosen prediction series, AND timestamps — so downstream never
+        # defends against a partially-formed payload. (Verify catch on the
+        # first cut: a residual series written with missing/short timestamps
+        # crashed the Models-tab renderer and synthesized hour-of-day by index
+        # — a malformed payload now simply loses to the next horizon.)
         bt_payload: dict | None = None
         bt_horizon: int | None = None
+        pred_model: str | None = None
+        n = 0
         for horizon in BACKTEST_HORIZONS:  # (24, 168, 720)
             cached = redis_get(
                 redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}")
             )
             if not isinstance(cached, dict):
                 continue
-            actual = cached.get("actual") or []
             preds_map = cached.get("predictions") or {}
-            if isinstance(preds_map, dict) and preds_map and len(actual) >= 24:
-                bt_payload, bt_horizon = cached, horizon
+            if not (isinstance(preds_map, dict) and preds_map):
+                continue
+            model = "xgboost" if "xgboost" in preds_map else next(iter(preds_map))
+            usable = min(
+                len(cached.get("actual") or []),
+                len(preds_map.get(model) or []),
+                len(cached.get("timestamps") or []),
+            )
+            if usable >= 24:
+                bt_payload, bt_horizon, pred_model, n = cached, horizon, model, usable
                 break
 
         # No backtest yet (fresh deploy, pre-first-training-run) → honest
@@ -1673,17 +1688,12 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
             log.info("job_diagnostics_unavailable", region=region, reason="no_backtest_yet")
             return PhaseResult(region=region, ok=True, details={"diagnostics": "unavailable"})
 
-        preds_map = bt_payload["predictions"]
-        pred_model = "xgboost" if "xgboost" in preds_map else next(iter(preds_map))
-        diag_pred = np.asarray(preds_map[pred_model], dtype=float)
-        diag_actual = np.asarray(bt_payload["actual"], dtype=float)
-        n = min(len(diag_actual), len(diag_pred))
-        diag_actual, diag_pred = diag_actual[:n], diag_pred[:n]
+        # The gate above guarantees ≥ n aligned rows in all three arrays.
+        diag_pred = np.asarray(bt_payload["predictions"][pred_model], dtype=float)[:n]
+        diag_actual = np.asarray(bt_payload["actual"], dtype=float)[:n]
         diag_residuals = diag_actual - diag_pred
-        diag_ts = pd.to_datetime(pd.Series(bt_payload.get("timestamps", [])[:n]))
-        # Defensive: timestamps missing/short → synthesize hours by index.
-        hours_of_day = diag_ts.dt.hour if len(diag_ts) == n else pd.Series(np.arange(n) % 24)
-        error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(diag_residuals)})
+        diag_ts = pd.to_datetime(pd.Series(bt_payload["timestamps"][:n]))
+        error_by_hour = pd.DataFrame({"hour": diag_ts.dt.hour, "abs_error": np.abs(diag_residuals)})
         hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
 
         redis_set(
@@ -1700,7 +1710,7 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
                     "model": pred_model,
                     "exog_mode": DEFAULT_BACKTEST_EXOG_MODE,
                 },
-                "timestamps": _ts_list(diag_ts) if len(diag_ts) == n else [],
+                "timestamps": _ts_list(diag_ts),
                 "actual": diag_actual.tolist(),
                 # Canonical field name; the old payload called this "ensemble",
                 # which would mislabel an XGBoost backtest series.

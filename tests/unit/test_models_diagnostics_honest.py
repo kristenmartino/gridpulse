@@ -41,15 +41,17 @@ def _region_data(region: str = "ERCOT") -> phases.RegionData:
 _REAL_XGB = {"feature_importances": {"demand_lag_1h": 0.5, "temperature_2m": 0.2, "hour_sin": 0.1}}
 
 
-def _backtest_payload(n=120, offset=400.0):
+def _backtest_payload(n=120, offset=400.0, models=("xgboost",), n_timestamps=None):
     ts = pd.date_range("2026-06-20", periods=n, freq="h", tz="UTC")
     actual = 20000.0 + 3000.0 * np.sin(np.arange(n) * 2 * np.pi / 24)
-    preds = actual - offset  # constant under-forecast → residuals == +offset
+    n_ts = n if n_timestamps is None else n_timestamps
     return {
         "horizon": 24,
         "actual": actual.tolist(),
-        "predictions": {"xgboost": preds.tolist()},
-        "timestamps": [t.isoformat() for t in ts],
+        # dict-insertion order preserved: a non-xgboost model listed first
+        # exercises the xgboost-preference branch.
+        "predictions": {m: (actual - offset * (i + 1)).tolist() for i, m in enumerate(models)},
+        "timestamps": [t.isoformat() for t in ts[:n_ts]],
         "metrics": {"xgboost": {"mape": 2.0, "rmse": 450.0, "mae": 400.0, "r2": 0.97}},
     }
 
@@ -64,12 +66,24 @@ def _fake_backtest_redis(payloads_by_horizon: dict[int, dict]):
     return _get
 
 
+#: Structural pin for the #220 root cause: write_diagnostics must NEVER touch
+#: the strict-gated web-tier v1 forecast path again — a "fallback" re-adding it
+#: would ship green in dev (where get_forecasts simulates) and re-break prod.
+_FORBID_V1 = patch(
+    "models.model_service.get_forecasts",
+    side_effect=AssertionError(
+        "web-tier v1 get_forecasts must not be called from write_diagnostics (#220)"
+    ),
+)
+
+
 class TestWriteDiagnosticsFromBacktests:
     def test_no_backtest_writes_honest_unavailable_marker(self):
         """Fresh deploy, pre-first-training-run: unavailable marker with the
         TRUE reason, no fabricated residuals, real SHAP preserved."""
         captured: dict = {}
         with (
+            _FORBID_V1,
             patch("data.redis_client.redis_get", return_value=None),
             patch(
                 "data.redis_client.redis_set",
@@ -91,6 +105,7 @@ class TestWriteDiagnosticsFromBacktests:
         genuinely non-zero, provenance names the horizon + model."""
         captured: dict = {}
         with (
+            _FORBID_V1,
             patch(
                 "data.redis_client.redis_get",
                 side_effect=_fake_backtest_redis({24: _backtest_payload()}),
@@ -124,6 +139,7 @@ class TestWriteDiagnosticsFromBacktests:
         captured: dict = {}
         deep = _backtest_payload(n=168, offset=900.0)
         with (
+            _FORBID_V1,
             patch(
                 "data.redis_client.redis_get",
                 side_effect=_fake_backtest_redis({24: _backtest_payload(), 168: deep}),
@@ -140,6 +156,7 @@ class TestWriteDiagnosticsFromBacktests:
     def test_falls_back_to_deeper_horizon_when_24h_missing(self):
         captured: dict = {}
         with (
+            _FORBID_V1,
             patch(
                 "data.redis_client.redis_get",
                 side_effect=_fake_backtest_redis({168: _backtest_payload(n=168)}),
@@ -154,9 +171,98 @@ class TestWriteDiagnosticsFromBacktests:
         assert captured["payload"]["diagnostics_source"] == "backtest"
         assert captured["payload"]["residual_source"]["horizon"] == 168
 
+    def test_short_backtest_loses_to_deeper_horizon(self):
+        """The ≥24-aligned-rows gate: a degenerate 10-row 24h payload must not
+        win over a full 168h payload."""
+        captured: dict = {}
+        with (
+            _FORBID_V1,
+            patch(
+                "data.redis_client.redis_get",
+                side_effect=_fake_backtest_redis(
+                    {24: _backtest_payload(n=10), 168: _backtest_payload(n=168)}
+                ),
+            ),
+            patch(
+                "data.redis_client.redis_set",
+                side_effect=lambda k, p, ttl=None: captured.update(payload=p) or True,
+            ),
+        ):
+            phases.write_diagnostics(_region_data(), _REAL_XGB)
+
+        assert captured["payload"]["residual_source"]["horizon"] == 168
+
+    def test_only_short_backtest_writes_unavailable(self):
+        captured: dict = {}
+        with (
+            _FORBID_V1,
+            patch(
+                "data.redis_client.redis_get",
+                side_effect=_fake_backtest_redis({24: _backtest_payload(n=10)}),
+            ),
+            patch(
+                "data.redis_client.redis_set",
+                side_effect=lambda k, p, ttl=None: captured.update(payload=p) or True,
+            ),
+        ):
+            phases.write_diagnostics(_region_data(), _REAL_XGB)
+
+        assert captured["payload"]["diagnostics_source"] == "unavailable"
+        assert captured["payload"]["reason"] == "no_backtest_yet"
+
+    def test_xgboost_preferred_in_multi_model_payload(self):
+        """predictions listing prophet FIRST must still calibrate on xgboost —
+        and the residuals must match the xgboost series, not prophet's."""
+        captured: dict = {}
+        with (
+            _FORBID_V1,
+            patch(
+                "data.redis_client.redis_get",
+                side_effect=_fake_backtest_redis(
+                    # prophet offset=400, xgboost offset=800 (models order i+1)
+                    {24: _backtest_payload(models=("prophet", "xgboost"))}
+                ),
+            ),
+            patch(
+                "data.redis_client.redis_set",
+                side_effect=lambda k, p, ttl=None: captured.update(payload=p) or True,
+            ),
+        ):
+            phases.write_diagnostics(_region_data(), _REAL_XGB)
+
+        payload = captured["payload"]
+        assert payload["residual_source"]["model"] == "xgboost"
+        assert np.allclose(payload["residuals"], 800.0)  # xgboost's offset, not prophet's 400
+
+    def test_misaligned_timestamps_payload_is_skipped(self):
+        """Verify catch: a payload whose timestamps don't cover the series is
+        UNUSABLE — it loses to the next horizon rather than being written with
+        empty timestamps (which crashed the renderer) or index-synthesized
+        hour-of-day (fabricated attribution)."""
+        captured: dict = {}
+        bad_24 = _backtest_payload(n=120, n_timestamps=5)  # timestamps too short
+        with (
+            _FORBID_V1,
+            patch(
+                "data.redis_client.redis_get",
+                side_effect=_fake_backtest_redis({24: bad_24, 168: _backtest_payload(n=168)}),
+            ),
+            patch(
+                "data.redis_client.redis_set",
+                side_effect=lambda k, p, ttl=None: captured.update(payload=p) or True,
+            ),
+        ):
+            phases.write_diagnostics(_region_data(), _REAL_XGB)
+
+        payload = captured["payload"]
+        assert payload["residual_source"]["horizon"] == 168  # bad 24h skipped
+        # And the written payload is always fully aligned.
+        assert len(payload["timestamps"]) == len(payload["residuals"])
+
     def test_no_model_yields_none_feature_importance_not_placeholder(self):
         captured: dict = {}
         with (
+            _FORBID_V1,
             patch("data.redis_client.redis_get", return_value=None),
             patch(
                 "data.redis_client.redis_set",
@@ -280,6 +386,36 @@ class TestModelsTabHonestRender:
         assert len(f_time.data) >= 1
         assert float(np.asarray(f_pred.data[0].x)[0]) == 19700.0  # legacy field read
         assert "walk-forward" not in self._collect_text(f_time)  # no false provenance
+
+    def test_mismatched_timestamps_render_degrades_honestly(self):
+        """Reader belt-and-braces (verify catch): a malformed payload with
+        non-empty residuals but mismatched timestamps must show the honest
+        unavailable state — never crash the whole Models-tab callback in
+        lttb_downsample."""
+        from components import _callbacks_models as mod
+
+        payload = {
+            "region": "ERCOT",
+            "diagnostics_source": "backtest",
+            "residual_source": {"kind": "walk_forward_backtest", "horizon": 24, "model": "xgboost"},
+            "timestamps": [],  # malformed: residuals present, timestamps missing
+            "actual": [20000.0] * 48,
+            "predicted": [19600.0] * 48,
+            "residuals": [400.0] * 48,
+            "hourly_error": {"hours": list(range(24)), "values": [400.0] * 24},
+            "feature_importance": {"names": ["demand_lag_1h"], "values": [0.5]},
+        }
+        with (
+            patch.object(mod, "redis_get", return_value=payload),
+            patch("models.model_service.get_model_metrics", return_value={}),
+        ):
+            result = mod._models_tab_from_redis(
+                "ERCOT", ["prophet", "arima", "xgboost", "ensemble"]
+            )
+
+        assert result is not None  # no exception — degraded, not dead
+        _, f_time, _, _, _, _ = result
+        assert "unavailable" in self._collect_text(f_time).lower()
 
     def test_shap_fig_empty_when_no_importances(self):
         from components._callbacks_models import _build_shap_fig

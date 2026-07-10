@@ -195,7 +195,15 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     # The copy states the TRUE self-heal condition (#220): these populate from
     # the training job's backtests, not from scoring ticks — the old message
     # promised a fill that scoring could never deliver.
-    if diagnostics_source == "unavailable" or residuals.size == 0:
+    # The length guard is belt-and-braces against a malformed/foreign payload
+    # (the writer's horizon gate guarantees alignment): mismatched
+    # timestamps/residuals would crash the LTTB downsample below and error the
+    # whole Models-tab callback — honest degradation beats a dead tab.
+    if (
+        diagnostics_source == "unavailable"
+        or residuals.size == 0
+        or len(timestamps) != residuals.size
+    ):
         log.info("diagnostics_unavailable_render", region=region, source=diagnostics_source)
         unavail = _empty_figure(
             "Residual diagnostics unavailable — no backtest results published "
@@ -236,12 +244,10 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             )
         return fig
 
-    # Residuals span the full training window (60-90 days hourly =
-    # 1440-2160 points). At 1280px chart width that's ~1.7 raw points
-    # per pixel — well past the resolution where the eye can resolve
-    # them. LTTB downsample to ~720 keeps the silhouette intact, drops
-    # ~70% of the wire JSON, and saves Plotly a real chunk of layout
-    # cost on the client.
+    # Residuals span the walk-forward backtest window (#220): ~120 points at
+    # the preferred 24h horizon (LTTB no-ops at ≤720), up to ~840/~3600 on the
+    # 168h/720h fallbacks — where downsampling to ~720 keeps the silhouette
+    # intact, trims the wire JSON, and saves Plotly client layout cost.
     from data.preprocessing import lttb_downsample
 
     resid_x, resid_y = lttb_downsample(
