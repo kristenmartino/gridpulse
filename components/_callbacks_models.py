@@ -110,11 +110,13 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     """
     default_models = ["prophet", "arima", "xgboost", "ensemble"]
     selected_models = selected_models or default_models
-    # The Redis diagnostics payload carries ENSEMBLE residual series only, so
-    # this fast path can satisfy exactly two selections: the default full
-    # model set (the Models tab's initial state) and an ensemble-only
-    # selection. Any narrower per-model subset needs per-model residuals this
-    # payload lacks, so it falls through to compute.
+    # The Redis diagnostics payload carries ONE residual series (the
+    # walk-forward-backtest series named in ``residual_source`` — XGBoost in
+    # production, disclosed on the charts), so this fast path can satisfy
+    # exactly two selections: the default full model set (the Models tab's
+    # initial state) and an ensemble-only selection. Any narrower per-model
+    # subset needs per-model residuals this payload lacks, so it falls
+    # through to compute.
     #
     # Compare by VALUE, not identity. The callback passes the checklist's
     # value — a distinct list object that *equals* ``default_models`` but is
@@ -143,11 +145,16 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
 
     metrics = get_model_metrics(region)
     timestamps = pd.to_datetime(cached.get("timestamps", []))
-    ensemble = np.array(cached.get("ensemble", []))
+    # "predicted" is the canonical series name (#220 — the diagnostics payload
+    # now carries walk-forward-backtest predictions, model named in
+    # residual_source); "ensemble" is the legacy pre-#220 field kept as a
+    # fallback for payloads still in Redis within their TTL.
+    predicted = np.array(cached.get("predicted", cached.get("ensemble", [])))
     residuals = np.array(cached.get("residuals", []))
     hourly_err = cached.get("hourly_error", {})
     fi = cached.get("feature_importance") or {}
     diagnostics_source = cached.get("diagnostics_source")
+    residual_source = cached.get("residual_source") or {}
 
     # Metrics table
     name_map = {
@@ -180,17 +187,20 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
         className="metrics-table",
     )
 
-    # Honest empty state when the scoring job had no real forecast to residual
-    # against (prod strict-gate → diagnostics_source="unavailable"). Do NOT
-    # render the four residual charts from fabricated zero residuals (#166 /
-    # 2026-07 review P2-32). The metrics table above is real (meta.json holdout)
-    # and SHAP is real (trained model) — keep those; blank only the residuals.
+    # Honest empty state when no backtest results exist yet for this region
+    # (fresh deploy before the first nightly training run). Do NOT render the
+    # four residual charts from fabricated zero residuals (#166 / 2026-07
+    # review P2-32). The metrics table above is real (meta.json holdout) and
+    # SHAP is real (trained model) — keep those; blank only the residuals.
+    # The copy states the TRUE self-heal condition (#220): these populate from
+    # the training job's backtests, not from scoring ticks — the old message
+    # promised a fill that scoring could never deliver.
     if diagnostics_source == "unavailable" or residuals.size == 0:
         log.info("diagnostics_unavailable_render", region=region, source=diagnostics_source)
         unavail = _empty_figure(
-            "Residual diagnostics unavailable — no scored forecast to compare "
-            "against yet. Populates after the scoring job writes a forecast for "
-            "this region."
+            "Residual diagnostics unavailable — no backtest results published "
+            "for this region yet. Populates after the nightly training job "
+            "writes its walk-forward backtest."
         )
         return (
             table,
@@ -200,6 +210,31 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             unavail,
             _build_shap_fig(fi, selected_models, uirev),
         )
+
+    # Provenance caption for the four residual panels (#220): these residuals
+    # are HOLDOUT walk-forward-backtest errors (horizon + model from the
+    # payload), not live-forecast errors — say so on the charts themselves.
+    if residual_source.get("kind") == "walk_forward_backtest":
+        provenance = (
+            f"{residual_source.get('horizon', '?')}h walk-forward backtest residuals · "
+            f"{str(residual_source.get('model', '')).upper()}"
+        )
+    else:
+        provenance = None
+
+    def _add_provenance(fig):
+        if provenance:
+            fig.add_annotation(
+                x=0,
+                y=1.08,
+                xref="paper",
+                yref="paper",
+                text=provenance,
+                showarrow=False,
+                xanchor="left",
+                font=dict(size=10, color="rgba(160,180,200,0.85)"),
+            )
+        return fig
 
     # Residuals span the full training window (60-90 days hourly =
     # 1440-2160 points). At 1280px chart width that's ~1.7 raw points
@@ -234,7 +269,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
 
     fig_resid_pred = go.Figure(
         go.Scatter(
-            x=ensemble,
+            x=predicted,
             y=residuals,
             mode="markers",
             marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
@@ -269,7 +304,14 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
 
     fig_shap = _build_shap_fig(fi, selected_models, uirev)
 
-    return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
+    return (
+        table,
+        _add_provenance(fig_resid_time),
+        _add_provenance(fig_resid_hist),
+        _add_provenance(fig_resid_pred),
+        _add_provenance(fig_heatmap),
+        fig_shap,
+    )
 
 
 #: Grades the verdict-confirmation rule recognizes. An unknown grade string

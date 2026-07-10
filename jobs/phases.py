@@ -1613,52 +1613,76 @@ def _real_feature_importance(xgb_model: dict | None) -> dict | None:
 
 
 def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
-    """Write the model-diagnostics payload (actuals vs ensemble, residuals, importance).
+    """Write the model-diagnostics payload (residuals + importance) from REAL
+    walk-forward backtest results (#166 / #220).
 
-    Residual diagnostics require a REAL forecast to compare actuals against.
-    In production the web-tier ``get_forecasts`` is strict-gated (#149) and
-    returns ``{"source": "unavailable"}``; the previous
-    ``diag.get("ensemble", actuals)`` default substituted actual demand as the
-    "prediction" and wrote **identically-zero residuals** every tick, which the
-    Models tab rendered as a perfect model (2026-07 review P2-32, issue #166).
-    We now write an explicit ``diagnostics_source="unavailable"`` marker with no
-    fabricated residuals instead. Interim honesty fix — the real fix (#166)
-    derives residuals from genuine backtest data.
+    History: residual diagnostics need a real prediction series to compare
+    actuals against. The original implementation substituted actual demand as
+    the "prediction" and wrote identically-zero residuals (2026-07 review
+    P2-32); the #166 interim fix wrote an honest ``unavailable`` marker — but
+    it sourced from the legacy v1 ``get_forecasts``, which is strict-gated in
+    production (#149) and NEVER produces a series on the job container, so the
+    Models tab's four residual panels were permanently empty in prod (#220).
+
+    Now the residual series comes from the Redis walk-forward backtest payload
+    (``backtest:{exog_mode}:{region}:{horizon}``, written by the nightly
+    training job): genuine holdout ``actual`` / ``predictions`` / ``residuals``
+    — the same source the Forecast tab's P10–P90 band calibrates on. The 24h
+    horizon is preferred (day-ahead error, the operational standard), falling
+    back to 168h/720h. Provenance rides on the payload (``residual_source``)
+    so the UI can disclose horizon + model. When no backtest exists yet (fresh
+    deploy before the first training run) the honest ``unavailable`` marker is
+    written with the TRUE self-heal reason — ``no_backtest_yet`` — rather than
+    the old copy's false promise that the next scoring tick would fill it.
     """
-    from data.redis_client import redis_key, redis_set
-    from models.model_service import get_forecasts
+    from data.redis_client import redis_get, redis_key, redis_set
 
     region = data.region
     try:
-        diag = get_forecasts(region, data.demand_df)
-        diag_source = diag.get("source")
-        diag_ensemble = diag.get("ensemble")
         feature_importance = _real_feature_importance(xgb_model)
 
-        # No real forecast → honest unavailable payload (no zero residuals).
-        if diag_source == "unavailable" or diag_ensemble is None:
+        # Locate the freshest usable backtest payload: prefer the 24h horizon.
+        bt_payload: dict | None = None
+        bt_horizon: int | None = None
+        for horizon in BACKTEST_HORIZONS:  # (24, 168, 720)
+            cached = redis_get(
+                redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}")
+            )
+            if not isinstance(cached, dict):
+                continue
+            actual = cached.get("actual") or []
+            preds_map = cached.get("predictions") or {}
+            if isinstance(preds_map, dict) and preds_map and len(actual) >= 24:
+                bt_payload, bt_horizon = cached, horizon
+                break
+
+        # No backtest yet (fresh deploy, pre-first-training-run) → honest
+        # unavailable marker, no fabricated residuals.
+        if bt_payload is None:
             redis_set(
                 redis_key(f"diagnostics:{region}"),
                 {
                     "region": region,
                     "diagnostics_source": "unavailable",
-                    "metrics": dict(diag.get("metrics", {})),
+                    "reason": "no_backtest_yet",
+                    "metrics": {},
                     "feature_importance": feature_importance,
                 },
                 ttl=REDIS_TTL,
             )
-            log.info(
-                "job_diagnostics_unavailable", region=region, reason=diag_source or "no_forecast"
-            )
+            log.info("job_diagnostics_unavailable", region=region, reason="no_backtest_yet")
             return PhaseResult(region=region, ok=True, details={"diagnostics": "unavailable"})
 
-        diag_metrics = diag.get("metrics", {})
-        if not isinstance(diag_ensemble, np.ndarray):
-            diag_ensemble = np.array(diag_ensemble)
-        diag_actual = data.demand_df["demand_mw"].values[: len(diag_ensemble)]
-        diag_residuals = diag_actual - diag_ensemble
-        diag_ts = data.demand_df["timestamp"].iloc[: len(diag_ensemble)]
-        hours_of_day = diag_ts.dt.hour
+        preds_map = bt_payload["predictions"]
+        pred_model = "xgboost" if "xgboost" in preds_map else next(iter(preds_map))
+        diag_pred = np.asarray(preds_map[pred_model], dtype=float)
+        diag_actual = np.asarray(bt_payload["actual"], dtype=float)
+        n = min(len(diag_actual), len(diag_pred))
+        diag_actual, diag_pred = diag_actual[:n], diag_pred[:n]
+        diag_residuals = diag_actual - diag_pred
+        diag_ts = pd.to_datetime(pd.Series(bt_payload.get("timestamps", [])[:n]))
+        # Defensive: timestamps missing/short → synthesize hours by index.
+        hours_of_day = diag_ts.dt.hour if len(diag_ts) == n else pd.Series(np.arange(n) % 24)
         error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(diag_residuals)})
         hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
 
@@ -1666,12 +1690,23 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
             redis_key(f"diagnostics:{region}"),
             {
                 "region": region,
-                "diagnostics_source": diag_source,
-                "timestamps": _ts_list(diag_ts),
+                "diagnostics_source": "backtest",
+                # Provenance for the UI's disclosure caption: which series these
+                # residuals actually are. (#220 — never imply live-forecast
+                # residuals when they're holdout-backtest residuals.)
+                "residual_source": {
+                    "kind": "walk_forward_backtest",
+                    "horizon": int(bt_horizon),
+                    "model": pred_model,
+                    "exog_mode": DEFAULT_BACKTEST_EXOG_MODE,
+                },
+                "timestamps": _ts_list(diag_ts) if len(diag_ts) == n else [],
                 "actual": diag_actual.tolist(),
-                "ensemble": diag_ensemble.tolist(),
+                # Canonical field name; the old payload called this "ensemble",
+                # which would mislabel an XGBoost backtest series.
+                "predicted": diag_pred.tolist(),
                 "residuals": diag_residuals.tolist(),
-                "metrics": dict(diag_metrics),
+                "metrics": dict(bt_payload.get("metrics", {})),
                 "hourly_error": {
                     "hours": hourly_error.index.tolist(),
                     "values": hourly_error.values.tolist(),
@@ -1683,7 +1718,7 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
         return PhaseResult(
             region=region,
             ok=True,
-            details={"metrics": list(diag_metrics), "points": len(diag_ensemble)},
+            details={"residual_horizon": int(bt_horizon), "points": int(n)},
         )
     except Exception as e:
         log.warning("job_diagnostics_failed", region=region, error=str(e))
