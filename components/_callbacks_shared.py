@@ -346,7 +346,10 @@ def _compute_data_hash(demand_df, weather_df, region: str) -> str:
 
 
 def _collect_backtest_residuals(
-    region: str, model_name: str, horizon_hours: int
+    region: str,
+    model_name: str,
+    horizon_hours: int,
+    horizon_resolved: bool = False,
 ) -> tuple[np.ndarray, str | None]:
     """Collect recent backtest residuals by model/region/horizon from cache layers.
 
@@ -358,6 +361,15 @@ def _collect_backtest_residuals(
     honestly instead of implying it was calibrated on the displayed model
     (2026-07 critical-review finding P1-2). Residuals from the exact
     requested model always take precedence over substitutes.
+
+    ``horizon_resolved=True`` (the #283 Phase 3b widening estimator) EXCLUDES
+    the horizon-agnostic training-holdout source below. The flat estimator's
+    trade-off — "the right model's residuals beat a substitute model's
+    right-horizon residuals" — INVERTS for a lead-resolved band: pooling the
+    same 168h holdout into every anchor collapses the per-horizon spread into
+    a window-size artifact (a fake fan), so there the right horizon matters
+    more than the right model, and a per-horizon substitute (disclosed via
+    ``calibration_model``) is the honest source.
     """
     exact_chunks: list[np.ndarray] = []
     substitute_chunks: list[np.ndarray] = []
@@ -410,18 +422,20 @@ def _collect_backtest_residuals(
     # The training job persists every model's holdout forecast against the
     # SAME actuals, so ensemble/prophet/arima self-calibrate from their OWN
     # residuals instead of substituting XGBoost (#196). Treated as an
-    # exact-model source (horizon-agnostic: the bands apply a single pooled
-    # quantile across the horizon regardless, so the right model's residuals
-    # beat a substitute model's right-horizon residuals).
-    holdout = redis_get(redis_key(f"holdout:{region}"))
-    if isinstance(holdout, dict):
-        h_actual = np.asarray(holdout.get("actual", []), dtype=float)
-        h_preds = holdout.get("predictions", {})
-        if isinstance(h_preds, dict) and model_name in h_preds:
-            h_pred = np.asarray(h_preds.get(model_name, []), dtype=float)
-            n = min(len(h_actual), len(h_pred))
-            if n > 0:
-                exact_chunks.append(h_actual[:n] - h_pred[:n])
+    # exact-model source for the FLAT estimator (horizon-agnostic: a single
+    # pooled quantile is applied across the horizon regardless, so the right
+    # model's residuals beat a substitute model's right-horizon residuals).
+    # Skipped when ``horizon_resolved`` — see the docstring.
+    if not horizon_resolved:
+        holdout = redis_get(redis_key(f"holdout:{region}"))
+        if isinstance(holdout, dict):
+            h_actual = np.asarray(holdout.get("actual", []), dtype=float)
+            h_preds = holdout.get("predictions", {})
+            if isinstance(h_preds, dict) and model_name in h_preds:
+                h_pred = np.asarray(h_preds.get(model_name, []), dtype=float)
+                n = min(len(h_actual), len(h_pred))
+                if n > 0:
+                    exact_chunks.append(h_actual[:n] - h_pred[:n])
 
     if exact_chunks:
         chunks, calibration_model = exact_chunks, model_name
@@ -431,6 +445,86 @@ def _collect_backtest_residuals(
         return np.array([], dtype=float), None
     residuals = np.concatenate(chunks)
     return residuals[np.isfinite(residuals)], calibration_model
+
+
+# Anchor lead times for the lead-resolved (widening) interval — mirrors
+# ``jobs.phases.BACKTEST_HORIZONS`` (deliberately not imported: the web tier
+# doesn't import the jobs module). Each anchor's backtest residuals estimate
+# "typical error of an H-hour-ahead forecast", pinned at lead H.
+_INTERVAL_ANCHOR_HORIZONS = (24, 168, 720)
+
+
+def _widening_interval_from_backtests(
+    region: str,
+    model_name: str,
+    target_coverage: float = 0.80,
+) -> dict:
+    """Lead-time-resolved empirical interval anchors (#283 Phase 3b).
+
+    The flat estimator below applies one q10/q90 pair — pooled across every
+    lead time of a single backtest horizon — uniformly over the whole chart,
+    so it reads too wide near the origin and too narrow at the deep tail. This
+    estimator computes the same empirical quantiles **per backtest horizon**
+    (24h / 168h / 720h) and returns them as anchors at those lead times, so
+    the caller can interpolate a band that *widens with lead time* — the
+    honest shape of forecast uncertainty.
+
+    Two statistical choices (both surfaced by the Phase 3b verification):
+
+    * **Horizon-resolved residuals only** (``horizon_resolved=True``): the
+      horizon-agnostic 168h training-holdout pool is excluded — feeding the
+      same pool into every anchor collapses the per-horizon spread into a
+      window-size artifact (a fake fan). A per-horizon XGBoost substitute
+      (disclosed) beats horizon-agnostic exact-model residuals here.
+    * **Effective-lead pinning**: a horizon-H backtest pools residuals over
+      leads 1..H, so its quantiles measure roughly the mid-window (~H/2)
+      error, not the lead-H error. Each anchor is therefore pinned at
+      ``effective_lead = H/2``. Leads beyond the deepest effective lead hold
+      flat at the deepest measured value — a KNOWN-NARROW deep-tail bias
+      (the true lead-720 error exceeds the lead-1..720 pooled quantile);
+      preferred over pretending the pool measured lead H exactly.
+
+    Returns ``{"available": False}`` unless ≥2 anchors have enough residuals
+    (the caller then falls back to the flat estimator, then the heuristic
+    envelope). ``calibration_model`` follows the same disclosure contract as
+    the flat estimator: exact-model calibration is claimed only when EVERY
+    anchor used the requested model's residuals; otherwise it names the
+    substitute so the band label can disclose it.
+    """
+    from models.evaluation import empirical_error_quantiles
+
+    alpha = (1.0 - target_coverage) / 2.0
+    anchors: list[dict] = []
+    calib_models: set[str] = set()
+    for h in _INTERVAL_ANCHOR_HORIZONS:
+        residuals, calib = _collect_backtest_residuals(region, model_name, h, horizon_resolved=True)
+        if residuals.size < max(24, h // 2):
+            continue
+        tail_size = int(min(residuals.size, max(h * 5, 120)))
+        q = empirical_error_quantiles(residuals[-tail_size:], lower_q=alpha, upper_q=1.0 - alpha)
+        anchors.append(
+            {
+                "horizon": int(h),
+                "effective_lead": max(1, h // 2),
+                "lower_error": float(q["lower_error"]),
+                "upper_error": float(q["upper_error"]),
+                "sample_size": int(q["sample_size"]),
+            }
+        )
+        if calib is not None:
+            calib_models.add(calib)
+
+    if len(anchors) < 2:
+        return {"available": False}
+
+    substitutes = sorted(m for m in calib_models if m != model_name)
+    calibration_model = model_name if not substitutes else substitutes[0]
+    return {
+        "available": True,
+        "anchors": sorted(anchors, key=lambda a: a["horizon"]),
+        "target_coverage": float(target_coverage),
+        "calibration_model": calibration_model,
+    }
 
 
 def _empirical_interval_from_backtests(
@@ -622,6 +716,8 @@ __all__ = [
     # Prediction-interval helpers (cross-tab)
     "_collect_backtest_residuals",
     "_empirical_interval_from_backtests",
+    "_widening_interval_from_backtests",
+    "_INTERVAL_ANCHOR_HORIZONS",
     # Stress thresholds
     "_STRESS_RELIABLE_CEILING",
     # Map tokens
