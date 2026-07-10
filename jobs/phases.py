@@ -62,6 +62,13 @@ FORECAST_HORIZON_HOURS = 720
 CLIMATOLOGY_WINDOW_DAYS = 28
 _CLIMATOLOGY_MIN_ROWS = 7 * 24  # ≥ 1 week before trusting the recent window
 
+# Decay timescale (hours) for the #283 Phase 3 seam anomaly-blend: the current
+# weather anomaly (real − normal at the Open-Meteo boundary) persists into the
+# tail as exp(−Δh / τ). ~5 days ⇒ ~37% of the anomaly survives 5 days past the
+# boundary, ~6% by day 30 — matching how long a weather regime typically holds
+# before reverting to climatology.
+_SEAM_ANOMALY_TAU_HOURS = 120.0
+
 # PR-E (2026-05-20) — depth of recursive autoregressive-feature inference.
 # For future hours 1..RECURSIVE_AUTOREGRESSIVE_HOURS, the XGBoost predict
 # loop computes ``demand_lag_*`` / ``ramp_rate`` / ``demand_roll_*`` from
@@ -595,7 +602,36 @@ def _overlay_weather_normal_tail(
         m = tail & ~np.isnan(vals)
         future_df.loc[m, col] = vals[m]
 
-    # Recompute temp_x_hour + temperature_deviation from the injected normal temps
+    # Seam anomaly-blend (#283 Phase 3): carry the CURRENT weather anomaly
+    # (real − normal at the last covered day, per hour-of-day) into the near tail
+    # with exponential decay, so (a) there's no discontinuity where the real
+    # Open-Meteo forecast hands off to the normal at the ~day-16 boundary, and
+    # (b) the current regime persists a few days before reverting to the normal —
+    # anomaly persistence, which the Phase-0 winter-persistence finding validated.
+    # Only runs when there ARE covered hours (nothing to persist otherwise), and
+    # only shifts hours strictly past the boundary (decay=0 elsewhere), so covered
+    # rows and pre-boundary Open-Meteo gaps keep their exact values.
+    covered_idx = np.where(covered.to_numpy())[0]
+    if covered_idx.size:
+        last_cov = int(covered_idx.max())
+        pos = np.arange(len(future_df))
+        decay = np.where(pos > last_cov, np.exp(-(pos - last_cov) / _SEAM_ANOMALY_TAU_HOURS), 0.0)
+        last_day = covered_idx[covered_idx > last_cov - 24]  # the last covered day
+        for col in inject_cols:
+            nvs = lut[col]
+            col_real = future_df[col].to_numpy()
+            anom_by_hour: dict[int, float] = {}
+            for i in last_day:
+                nv = nvs.get((doy[i], hour[i]), np.nan)
+                rv = col_real[i]
+                if np.isfinite(nv) and np.isfinite(rv):
+                    anom_by_hour[int(hour[i])] = float(rv) - float(nv)
+            if not anom_by_hour:
+                continue
+            anom_vec = np.array([anom_by_hour.get(int(h), 0.0) for h in hour])
+            future_df[col] = future_df[col].to_numpy() + anom_vec * decay
+
+    # Recompute temp_x_hour + temperature_deviation from the injected+blended temps
     # (days 1-16 are unchanged, so their values recompute identically).
     from data.feature_engineering import (
         compute_temp_hour_interaction,

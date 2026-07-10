@@ -104,28 +104,45 @@ class TestWeatherNormalTail:
             out = _overlay_weather_normal_tail(fut, _featured(), None, len(fut))
         assert (out["relative_humidity_2m"] == 55.0).all()  # unchanged recent-28d value
 
-    def test_open_meteo_covered_hours_are_untouched(self):
-        fut = _future(horizon=48)
-        # Seed covered-row derived columns with their canonical recompute so we can
-        # assert they're byte-identical after the call (#3).
+    def test_seam_blend_no_jump_covered_untouched_and_decays_to_normal(self):
+        """#283 Phase 3: covered hours stay exact; the tail does NOT jump to the
+        raw normal at the boundary (the current -20°F anomaly persists, decaying)
+        and reverts toward the normal deep in the tail."""
+        fut = _future(horizon=400)
         from data.feature_engineering import compute_temp_hour_interaction
 
         fut["temp_x_hour"] = compute_temp_hour_interaction(
             fut["temperature_2m"], fut["hour_sin"]
         ).to_numpy()
-        # Open-Meteo covers the first 24 hours; the normal fills only 24-48.
-        wx = pd.DataFrame({"timestamp": fut["timestamp"].iloc[:24]})
+        # Open-Meteo covers the first 100 hours (real temp 70); normal is 90 →
+        # boundary anomaly = -20°F.
+        wx = pd.DataFrame({"timestamp": fut["timestamp"].iloc[:100]})
         with (
             patch("config.feature_enabled", return_value=True),
             patch("data.weather_normals.load_weather_normal_cached", return_value=_normal()),
         ):
             out = _overlay_weather_normal_tail(fut, _featured(), wx, len(fut))
-        assert (out["temperature_2m"].iloc[:24] == 70.0).all()  # covered: recent-28d kept
-        assert (out["temperature_2m"].iloc[24:] == 90.0).all()  # tail: normal injected
-        # covered-hour derived columns unchanged (temp unchanged there → recompute identical)
-        assert np.allclose(
-            out["temp_x_hour"].iloc[:24].to_numpy(), fut["temp_x_hour"].iloc[:24].to_numpy()
-        )
+        temp = out["temperature_2m"].to_numpy()
+        # covered hours untouched (real 70) + covered-hour derived byte-identical
+        assert (temp[:100] == 70.0).all()
+        assert np.allclose(out["temp_x_hour"].to_numpy()[:100], fut["temp_x_hour"].to_numpy()[:100])
+        # NO JUMP at the seam: first tail hour continues from ~70, not a leap to 90
+        assert abs(temp[100] - temp[99]) < 3.0
+        assert temp[100] < 75.0  # blended toward the current regime, not the 90 normal
+        # ...decays back toward the normal deep in the tail
+        assert temp[-1] > 85.0  # ~90 recovered by hour 400
+        assert temp[-1] > temp[100]  # rises across the tail
+
+    def test_seam_blend_skipped_without_coverage(self):
+        """weather_df=None → no boundary anomaly to persist → the tail is the pure
+        normal (blend is a no-op), exercised by the injection test above too."""
+        fut = _future(horizon=48)
+        with (
+            patch("config.feature_enabled", return_value=True),
+            patch("data.weather_normals.load_weather_normal_cached", return_value=_normal()),
+        ):
+            out = _overlay_weather_normal_tail(fut, _featured(), None, len(fut))
+        assert (out["temperature_2m"] == 90.0).all()  # pure normal, no anomaly to blend
 
     def test_all_covered_is_noop(self):
         fut = _future(horizon=24)
