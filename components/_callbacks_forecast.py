@@ -81,6 +81,7 @@ from components._callbacks_shared import (
     _compute_data_hash,
     _empirical_interval_from_backtests,
     _layout,
+    _widening_interval_from_backtests,
 )
 from components.accessibility import LINE_STYLES
 from config import CACHE_TTL_SECONDS, OPEN_METEO_FORECAST_HOURS, REQUIRE_REDIS
@@ -219,29 +220,57 @@ def _add_confidence_bands(
     from models.evaluation import apply_empirical_interval
 
     interval_meta = {"method": "heuristic", "target_coverage": 0.80}
-    empirical = None
-    if region:
-        empirical = _empirical_interval_from_backtests(region, model_name, horizon_hours)
-    if empirical and bool(empirical.get("available")):
-        lower, upper = apply_empirical_interval(
-            predictions,
-            float(empirical["lower_error"]),
-            float(empirical["upper_error"]),
-        )
-        interval_meta = {"method": "empirical", **empirical}
-    else:
-        hw = _confidence_half_width(horizon_hours)
-        upper = predictions * (1 + hw)
-        lower = predictions * (1 - hw)
+    lower = upper = None
 
-    if interval_meta["method"] == "empirical":
+    # #283 Phase 3b: lead-time-resolved P10–P90 band. Anchor error quantiles at
+    # the 24h/168h/720h backtest lead times, interpolate across the chart's lead
+    # axis, and enforce monotone widening — forecast uncertainty cannot shrink
+    # with lead time; a non-monotone wiggle between anchors is single-origin
+    # backtest sampling noise, not signal. np.interp holds the ends constant
+    # outside the anchor range, so a 24h view degrades to the flat 24h-anchor
+    # band. The P50 of the fan is the forecast line itself.
+    widening = _widening_interval_from_backtests(region, model_name) if region else None
+    if widening and bool(widening.get("available")):
+        n = len(predictions)
+        lead = np.arange(1, n + 1, dtype=float)
+        hs = np.array([a["horizon"] for a in widening["anchors"]], dtype=float)
+        lo_anchor = np.array([a["lower_error"] for a in widening["anchors"]], dtype=float)
+        up_anchor = np.array([a["upper_error"] for a in widening["anchors"]], dtype=float)
+        lo_vec = np.minimum.accumulate(np.interp(lead, hs, lo_anchor))  # non-increasing
+        up_vec = np.maximum.accumulate(np.interp(lead, hs, up_anchor))  # non-decreasing
+        upper = predictions + up_vec
+        # Physical floor: demand is non-negative (#282) — the deep-tail P10
+        # offset can exceed a small forecast value.
+        lower = np.maximum(predictions + lo_vec, 0.0)
+        interval_meta = {"method": "empirical_widening", **widening}
+
+    if lower is None:
+        empirical = None
+        if region:
+            empirical = _empirical_interval_from_backtests(region, model_name, horizon_hours)
+        if empirical and bool(empirical.get("available")):
+            lower, upper = apply_empirical_interval(
+                predictions,
+                float(empirical["lower_error"]),
+                float(empirical["upper_error"]),
+            )
+            interval_meta = {"method": "empirical", **empirical}
+        else:
+            hw = _confidence_half_width(horizon_hours)
+            upper = predictions * (1 + hw)
+            lower = predictions * (1 - hw)
+
+    if interval_meta["method"] in ("empirical", "empirical_widening"):
         # Disclose the calibration source when the residuals came from a
         # substitute model — the prod backtest payload only carries XGBoost
         # predictions, so a Prophet/ARIMA/ensemble band is typically
         # XGBoost-calibrated (2026-07 critical-review finding P1-2/F6-003).
         calib = interval_meta.get("calibration_model")
         calib_note = "" if calib in (None, model_name) else f" ({calib}-calibrated)"
-        band_name = f"80% empirical prediction interval{calib_note}"
+        if interval_meta["method"] == "empirical_widening":
+            band_name = f"P10–P90 empirical range, widens with lead{calib_note}"
+        else:
+            band_name = f"80% empirical prediction interval{calib_note}"
     else:
         band_name = "80% indicative range"
 
@@ -842,7 +871,15 @@ def _outlook_tab_from_redis(
     has_climatology_segment = _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
     interval_caption = ""
-    if interval_meta.get("method") == "empirical":
+    if interval_meta.get("method") == "empirical_widening":
+        _calib = interval_meta.get("calibration_model")
+        _calib_note = "" if _calib in (None, model_name) else f", {_calib}-calibrated"
+        _anchor_hs = "/".join(f"{a['horizon']}h" for a in interval_meta.get("anchors", []))
+        interval_caption = (
+            f"<br><sup>P10–P90 empirical outcome range — widens with lead time "
+            f"(anchored on {_anchor_hs} backtest residuals{_calib_note})</sup>"
+        )
+    elif interval_meta.get("method") == "empirical":
         _calib = interval_meta.get("calibration_model")
         _calib_note = "" if _calib in (None, model_name) else f", {_calib}-calibrated"
         interval_caption = (
@@ -1354,7 +1391,13 @@ def register_forecast_callbacks(app):
         # Layout
         horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
         interval_caption = ""
-        if interval_meta.get("method") == "empirical":
+        if interval_meta.get("method") == "empirical_widening":
+            _anchor_hs = "/".join(f"{a['horizon']}h" for a in interval_meta.get("anchors", []))
+            interval_caption = (
+                f"<br><sup>P10–P90 empirical outcome range — widens with lead time "
+                f"(anchored on {_anchor_hs} backtest residuals)</sup>"
+            )
+        elif interval_meta.get("method") == "empirical":
             interval_caption = (
                 f"<br><sup>80% empirical prediction interval "
                 f"(calibration window: last "

@@ -433,6 +433,70 @@ def _collect_backtest_residuals(
     return residuals[np.isfinite(residuals)], calibration_model
 
 
+# Anchor lead times for the lead-resolved (widening) interval — mirrors
+# ``jobs.phases.BACKTEST_HORIZONS`` (deliberately not imported: the web tier
+# doesn't import the jobs module). Each anchor's backtest residuals estimate
+# "typical error of an H-hour-ahead forecast", pinned at lead H.
+_INTERVAL_ANCHOR_HORIZONS = (24, 168, 720)
+
+
+def _widening_interval_from_backtests(
+    region: str,
+    model_name: str,
+    target_coverage: float = 0.80,
+) -> dict:
+    """Lead-time-resolved empirical interval anchors (#283 Phase 3b).
+
+    The flat estimator below applies one q10/q90 pair — pooled across every
+    lead time of a single backtest horizon — uniformly over the whole chart,
+    so it reads too wide near the origin and too narrow at the deep tail. This
+    estimator computes the same empirical quantiles **per backtest horizon**
+    (24h / 168h / 720h) and returns them as anchors at those lead times, so
+    the caller can interpolate a band that *widens with lead time* — the
+    honest shape of forecast uncertainty.
+
+    Returns ``{"available": False}`` unless ≥2 anchors have enough residuals
+    (the caller then falls back to the flat estimator, then the heuristic
+    envelope). ``calibration_model`` follows the same disclosure contract as
+    the flat estimator: exact-model calibration is claimed only when EVERY
+    anchor used the requested model's residuals; otherwise it names the
+    substitute so the band label can disclose it.
+    """
+    from models.evaluation import empirical_error_quantiles
+
+    alpha = (1.0 - target_coverage) / 2.0
+    anchors: list[dict] = []
+    calib_models: set[str] = set()
+    for h in _INTERVAL_ANCHOR_HORIZONS:
+        residuals, calib = _collect_backtest_residuals(region, model_name, h)
+        if residuals.size < max(24, h // 2):
+            continue
+        tail_size = int(min(residuals.size, max(h * 5, 120)))
+        q = empirical_error_quantiles(residuals[-tail_size:], lower_q=alpha, upper_q=1.0 - alpha)
+        anchors.append(
+            {
+                "horizon": int(h),
+                "lower_error": float(q["lower_error"]),
+                "upper_error": float(q["upper_error"]),
+                "sample_size": int(q["sample_size"]),
+            }
+        )
+        if calib is not None:
+            calib_models.add(calib)
+
+    if len(anchors) < 2:
+        return {"available": False}
+
+    substitutes = sorted(m for m in calib_models if m != model_name)
+    calibration_model = model_name if not substitutes else substitutes[0]
+    return {
+        "available": True,
+        "anchors": sorted(anchors, key=lambda a: a["horizon"]),
+        "target_coverage": float(target_coverage),
+        "calibration_model": calibration_model,
+    }
+
+
 def _empirical_interval_from_backtests(
     region: str,
     model_name: str,
