@@ -294,9 +294,14 @@ class TestAddConfidenceBandsWidening:
             {"horizon": 24, "lower_error": -900.0, "upper_error": -200.0, "sample_size": 24},
             {"horizon": 720, "lower_error": -6000.0, "upper_error": -500.0, "sample_size": 720},
         ]
-        _, upper, lower, _ = self._run(_widening(anchors), preds=np.full(720, 800.0))
+        # preds MUST sit below the held |q90| (100 < 200) so pre-clamp upper is
+        # NEGATIVE (-100) while lower floors to 0 — i.e. the clamp itself is
+        # exercised, not just the floor arithmetic. (Re-verify catch: with
+        # preds=800 the clamp was a no-op and its removal survived the suite.)
+        _, upper, lower, _ = self._run(_widening(anchors), preds=np.full(720, 100.0))
         assert (lower >= 0.0).all()
         assert (upper >= lower).all()  # clamped, no inversion
+        assert upper[0] == 0.0  # the clamp (not the floor) produced this edge
 
     def test_unavailable_falls_back_to_flat_empirical(self):
         """Widening unavailable → the pre-3b flat empirical path (regression pin
