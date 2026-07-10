@@ -611,25 +611,36 @@ def _overlay_weather_normal_tail(
     # Only runs when there ARE covered hours (nothing to persist otherwise), and
     # only shifts hours strictly past the boundary (decay=0 elsewhere), so covered
     # rows and pre-boundary Open-Meteo gaps keep their exact values.
+    #
+    # Blend as a CONVEX combination — tail = (1−w)·normal[tail] + w·real[boundary],
+    # w = decay — NOT an additive anomaly. A weighted average of two physically
+    # valid values (the Jensen-correct tail normal and a real covered observation)
+    # stays in-bounds; an additive `normal[tail] + (real − normal[boundary])` can
+    # drive convex/bounded derived features out of range (CDD<0, solar_cf>1) when
+    # the boundary-day and tail-day normals sit at different seasonal levels. At
+    # w→1 the tail continues from the current regime (continuity); at w→0 it is the
+    # Jensen-correct normal (the Phase-2 tail), so the deep tail keeps that benefit.
     covered_idx = np.where(covered.to_numpy())[0]
     if covered_idx.size:
         last_cov = int(covered_idx.max())
         pos = np.arange(len(future_df))
         decay = np.where(pos > last_cov, np.exp(-(pos - last_cov) / _SEAM_ANOMALY_TAU_HOURS), 0.0)
         last_day = covered_idx[covered_idx > last_cov - 24]  # the last covered day
-        for col in inject_cols:
-            nvs = lut[col]
-            col_real = future_df[col].to_numpy()
-            anom_by_hour: dict[int, float] = {}
+        # Circular (wind_direction) and categorical (weather_code) features can't be
+        # linearly blended — leave them at the injected normal.
+        blend_cols = [c for c in inject_cols if c not in ("wind_direction_10m", "weather_code")]
+        for col in blend_cols:
+            real_by_hour: dict[int, float] = {}
+            col_now = future_df[col].to_numpy(dtype=float)  # covered=real, tail=normal
             for i in last_day:
-                nv = nvs.get((doy[i], hour[i]), np.nan)
-                rv = col_real[i]
-                if np.isfinite(nv) and np.isfinite(rv):
-                    anom_by_hour[int(hour[i])] = float(rv) - float(nv)
-            if not anom_by_hour:
+                rv = col_now[i]
+                if np.isfinite(rv):
+                    real_by_hour[int(hour[i])] = float(rv)  # the current (real) value
+            if not real_by_hour:
                 continue
-            anom_vec = np.array([anom_by_hour.get(int(h), 0.0) for h in hour])
-            future_df[col] = future_df[col].to_numpy() + anom_vec * decay
+            real_vec = np.array([real_by_hour.get(int(h), np.nan) for h in hour])
+            w = np.where(np.isnan(real_vec), 0.0, decay)  # no real for this hour → no blend
+            future_df[col] = col_now * (1.0 - w) + np.nan_to_num(real_vec) * w
 
     # Recompute temp_x_hour + temperature_deviation from the injected+blended temps
     # (days 1-16 are unchanged, so their values recompute identically).

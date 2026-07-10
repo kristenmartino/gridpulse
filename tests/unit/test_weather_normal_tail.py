@@ -153,3 +153,130 @@ class TestWeatherNormalTail:
         ):
             out = _overlay_weather_normal_tail(fut, _featured(), wx, len(fut))
         assert (out["temperature_2m"] == 70.0).all()  # nothing to fill → unchanged
+
+    def test_convex_blend_keeps_derived_in_bounds(self):
+        """Phase-3a verification catch (HIGH): the blend is a CONVEX combination, so
+        a bounded/convex derived feature can't be driven out of range. An ADDITIVE
+        anomaly would go negative here — covered real CDD 0 (cool) with a high
+        boundary-day normal CDD but a low tail-day normal."""
+        ts = pd.date_range("2026-08-01", periods=48, freq="h", tz="UTC")
+        fut = pd.DataFrame(
+            {
+                "timestamp": ts,
+                "hour_sin": np.sin(2 * np.pi * ts.hour / 24),
+                "temperature_2m": np.full(48, 60.0),
+                "cooling_degree_days": np.full(48, 0.0),  # covered real CDD = 0
+            }
+        )
+        doy_a, doy_b = ts[0].dayofyear, ts[24].dayofyear
+        rows = [
+            {
+                "doy": d,
+                "hour": h,
+                "temperature_2m": 90.0,
+                # high normal on the boundary day, low on the tail day → additive
+                # `tail + (0 − 25)·decay` would be ≈ −24
+                "cooling_degree_days": 25.0 if d == doy_a else (1.0 if d == doy_b else 10.0),
+            }
+            for d in range(1, 367)
+            for h in range(24)
+        ]
+        wx = pd.DataFrame({"timestamp": ts[:24]})  # covers the boundary day
+        with (
+            patch("config.feature_enabled", return_value=True),
+            patch(
+                "data.weather_normals.load_weather_normal_cached", return_value=pd.DataFrame(rows)
+            ),
+        ):
+            out = _overlay_weather_normal_tail(fut, _featured(), wx, len(fut))
+        assert (out["cooling_degree_days"] >= -1e-9).all()  # never physically-impossible
+
+    def test_circular_and_categorical_features_not_blended(self):
+        """wind_direction_10m (circular) and weather_code (categorical) can't be
+        linearly blended (a blend of 10° and 350° → ~180°, wrong) — they stay at
+        the injected normal."""
+        ts = pd.date_range("2026-08-01", periods=48, freq="h", tz="UTC")
+        fut = pd.DataFrame(
+            {
+                "timestamp": ts,
+                "hour_sin": np.sin(2 * np.pi * ts.hour / 24),
+                "temperature_2m": np.full(48, 70.0),
+                "wind_direction_10m": np.full(48, 10.0),  # covered real = 10°
+                "weather_code": np.full(48, 1.0),
+            }
+        )
+        rows = [
+            {
+                "doy": d,
+                "hour": h,
+                "temperature_2m": 90.0,
+                "wind_direction_10m": 350.0,
+                "weather_code": 3.0,
+            }
+            for d in range(1, 367)
+            for h in range(24)
+        ]
+        wx = pd.DataFrame({"timestamp": ts[:24]})
+        with (
+            patch("config.feature_enabled", return_value=True),
+            patch(
+                "data.weather_normals.load_weather_normal_cached", return_value=pd.DataFrame(rows)
+            ),
+        ):
+            out = _overlay_weather_normal_tail(fut, _featured(), wx, len(fut))
+        assert (out["wind_direction_10m"].iloc[24:] == 350.0).all()  # injected normal, unblended
+        assert (out["weather_code"].iloc[24:] == 3.0).all()
+
+    def test_diurnal_anomaly_persisted_per_hour(self):
+        """Per-hour-of-day remap: a diurnal real profile (warm afternoons, cool
+        nights) persists into the near tail — a flat shift can't reproduce this."""
+        ts = pd.date_range("2026-08-01", periods=48, freq="h", tz="UTC")
+        real_temp = 72.0 + 12.0 * np.sin(2 * np.pi * (ts.hour - 9) / 24)  # diurnal
+        fut = pd.DataFrame(
+            {
+                "timestamp": ts,
+                "hour_sin": np.sin(2 * np.pi * ts.hour / 24),
+                "temperature_2m": real_temp.to_numpy(),
+            }
+        )
+        wx = pd.DataFrame({"timestamp": ts[:24]})  # covered day carries the diurnal profile
+        with (
+            patch("config.feature_enabled", return_value=True),
+            patch(
+                "data.weather_normals.load_weather_normal_cached", return_value=_normal(temp=72.0)
+            ),
+        ):
+            out = _overlay_weather_normal_tail(fut, _featured(), wx, len(fut))
+        near = out.iloc[24:48]  # first tail day, all 24 hours (decay ≈ 1)
+        aft = near[near["timestamp"].dt.hour.isin([14, 15, 16, 17])]["temperature_2m"].mean()
+        night = near[near["timestamp"].dt.hour.isin([2, 3, 4, 5])]["temperature_2m"].mean()
+        assert aft > night + 5  # diurnal shape carried through, not a flat 72 normal
+
+    def test_decay_magnitude_matches_tau(self):
+        """~1/e of the anomaly survives 120h (τ) past the boundary."""
+        fut = _future(horizon=200)
+        wx = pd.DataFrame({"timestamp": fut["timestamp"].iloc[:24]})  # boundary at idx 23
+        with (
+            patch("config.feature_enabled", return_value=True),
+            patch("data.weather_normals.load_weather_normal_cached", return_value=_normal()),
+        ):
+            out = _overlay_weather_normal_tail(fut, _featured(), wx, len(fut))
+        # convex: temp = 90 − 20·w; at 120h past the boundary w = 1/e → 90 − 20/e ≈ 82.6
+        temp_at_tau = out["temperature_2m"].to_numpy()[23 + 120]
+        assert abs(temp_at_tau - (90.0 - 20.0 / np.e)) < 0.5
+
+    def test_last_covered_day_with_gaps_does_not_crash(self):
+        """Non-contiguous Open-Meteo coverage in the final 24h: hours-of-day missing
+        from the last covered day simply get no persistence (stay at the normal)."""
+        ts = pd.date_range("2026-08-01", periods=48, freq="h", tz="UTC")
+        fut = _future(horizon=48)
+        # cover 0-23 EXCEPT 11-14 (an interior gap in the last covered day)
+        keep = [i for i in range(24) if i not in (11, 12, 13, 14)]
+        wx = pd.DataFrame({"timestamp": ts[keep]})
+        with (
+            patch("config.feature_enabled", return_value=True),
+            patch("data.weather_normals.load_weather_normal_cached", return_value=_normal()),
+        ):
+            out = _overlay_weather_normal_tail(fut, _featured(), wx, len(fut))
+        assert len(out) == 48  # no crash
+        assert (out["temperature_2m"].iloc[keep] == 70.0).all()  # covered rows exact
