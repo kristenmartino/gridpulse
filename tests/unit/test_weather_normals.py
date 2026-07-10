@@ -196,6 +196,55 @@ class TestPersistAndLoad:
             assert wn.normal_age_days("DUK") is None
 
 
+class TestLoadWeatherNormalCached:
+    """#283 Phase 2: the scoring tail reads the normal every tick, so it's cached
+    in-process (quarterly-changing data). Pins the three docstring claims."""
+
+    def setup_method(self):
+        import data.weather_normals as wn
+
+        wn._normal_cache.clear()
+
+    def teardown_method(self):
+        import data.weather_normals as wn
+
+        wn._normal_cache.clear()
+
+    def test_one_gcs_read_within_ttl(self):
+        import data.weather_normals as wn
+
+        load = MagicMock(return_value=pd.DataFrame({"doy": [1]}))
+        with patch("data.weather_normals.load_weather_normal", load):
+            a = wn.load_weather_normal_cached("DUK")
+            b = wn.load_weather_normal_cached("DUK")
+        assert load.call_count == 1  # memoized — one underlying GCS read
+        assert a is b
+
+    def test_none_is_cached(self):
+        import data.weather_normals as wn
+
+        load = MagicMock(return_value=None)
+        with patch("data.weather_normals.load_weather_normal", load):
+            assert wn.load_weather_normal_cached("PJM") is None
+            assert wn.load_weather_normal_cached("PJM") is None
+        assert load.call_count == 1  # a not-yet-backfilled BA doesn't re-hit GCS every tick
+
+    def test_rereads_after_ttl(self):
+        import data.weather_normals as wn
+
+        load = MagicMock(side_effect=[pd.DataFrame({"doy": [1]}), pd.DataFrame({"doy": [2]})])
+        clock = [1000.0]
+        with (
+            patch("data.weather_normals.load_weather_normal", load),
+            patch("data.weather_normals.time.time", side_effect=lambda: clock[0]),
+        ):
+            first = wn.load_weather_normal_cached("MISO")
+            clock[0] += wn._NORMAL_CACHE_TTL_S + 1  # past the TTL
+            second = wn.load_weather_normal_cached("MISO")
+        assert load.call_count == 2  # re-read after expiry
+        assert first["doy"].iloc[0] == 1 and second["doy"].iloc[0] == 2
+
+
 class TestRefreshWeatherNormals:
     def test_skips_fresh_regions(self):
         import data.weather_normals as wn
