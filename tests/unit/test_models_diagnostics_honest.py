@@ -351,7 +351,11 @@ class TestModelsTabHonestRender:
         for fig in (f_time, f_hist, f_pred, f_heat):
             assert len(fig.data) >= 1  # a real trace, not the empty placeholder
             text = self._collect_text(fig)
-            assert "24h walk-forward backtest residuals" in text
+            # Full caption incl. the exog-mode disclosure: the forecast_exog
+            # backtest measures the degraded climatology-exog scenario, whose
+            # residuals read worse than the real-weather holdout MAPE in the
+            # metrics table — undisclosed, that contrast looks contradictory.
+            assert "24h walk-forward backtest residuals (climatology-exog)" in text
             assert "XGBOOST" in text
         # residuals-vs-predicted reads the canonical "predicted" series.
         assert float(np.asarray(f_pred.data[0].x)[0]) == 19600.0
