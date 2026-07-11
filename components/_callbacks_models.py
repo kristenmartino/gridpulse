@@ -102,6 +102,13 @@ def _build_shap_fig(fi: dict, selected_models: list[str], uirev: str) -> go.Figu
     return fig
 
 
+#: Human-readable exog-mode labels for the residual-panel provenance caption
+#: (#220). ``forecast_exog`` = climatology/naive exogenous inputs — the
+#: deliberately degraded no-weather-info scenario; ``oracle_exog`` = actual
+#: observed weather. Unknown modes fall through and display raw.
+_EXOG_MODE_CAPTIONS = {"forecast_exog": "climatology-exog", "oracle_exog": "oracle-exog"}
+
+
 def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     """Redis fast path for update_models_tab callback.
 
@@ -222,10 +229,17 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     # Provenance caption for the four residual panels (#220): these residuals
     # are HOLDOUT walk-forward-backtest errors (horizon + model from the
     # payload), not live-forecast errors — say so on the charts themselves.
+    # The exog MODE is disclosed too: the production backtest runs with
+    # climatology/naive exogenous inputs (``forecast_exog``), deliberately
+    # measuring the degraded no-weather-info scenario — its residuals read
+    # WORSE than the real-weather holdout MAPE in the metrics table above,
+    # and without the label that contrast looks like a contradiction.
     if residual_source.get("kind") == "walk_forward_backtest":
+        exog_mode = residual_source.get("exog_mode")
+        exog_note = f" ({_EXOG_MODE_CAPTIONS.get(exog_mode, exog_mode)})" if exog_mode else ""
         provenance = (
-            f"{residual_source.get('horizon', '?')}h walk-forward backtest residuals · "
-            f"{str(residual_source.get('model', '')).upper()}"
+            f"{residual_source.get('horizon', '?')}h walk-forward backtest residuals"
+            f"{exog_note} · {str(residual_source.get('model', '')).upper()}"
         )
     else:
         provenance = None
