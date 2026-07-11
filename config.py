@@ -868,10 +868,16 @@ FEATURE_FLAGS: dict[str, bool] = {
     # (/api/v1/* + the Dash callback route), Redis-backed. Enforced only when
     # the web tier is in Redis-only mode (staging/prod); see rate_limit_active().
     "rate_limiting": True,
-    # #283 Phase 2: drive the days-17-30 forecast tail off the weather-normal
-    # artifact (config.WEATHER_NORMAL_*) instead of the recent-28d climatology.
-    # OFF until Phase 2 wires + backtests it; Phase 1 only builds the artifact.
-    "weather_normal_tail": False,
+    # #283: drive the days-17-30 forecast tail off the per-BA (day_of_year,
+    # hour) weather-normal artifact (config.WEATHER_NORMAL_*) instead of the
+    # recent-28d climatology, with a seam anomaly-blend at the Open-Meteo
+    # boundary. ON since Phase 4 (2026-07-11) after both gates passed: the
+    # Phase-0 weather backtest (normal beats recent-28d ~10:2 at seasonal turns
+    # across 6 BAs) and the Phase-4 demand spot-check (DUK, June-10 origin vs
+    # realized actuals: tail MAE 3,442 → 3,146 MW, −8.6%). Per-BA graceful
+    # fallback to recent-28d wherever the artifact isn't backfilled yet (the
+    # nightly training job builds ≤10/run; full 51-BA coverage ~2026-07-15).
+    "weather_normal_tail": True,
 }
 
 

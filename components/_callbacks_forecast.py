@@ -114,10 +114,13 @@ def _add_forecast_horizon_divider(
     """Mark the boundary between Open-Meteo forecast and climatology fallback.
 
     Open-Meteo's free ``/forecast`` endpoint covers 16 days (384 hours).
-    Beyond that, ``jobs/phases._build_future_feature_frame`` falls back
-    to per-(hour, dow) climatological group means for the future weather
-    features. The model still produces a forecast there, but its weather
-    inputs are seasonal-average shaped, not actual forward-looking values.
+    Beyond that, ``jobs/phases._build_future_feature_frame`` drives the
+    weather features from the per-BA (day_of_year, hour) weather-normal
+    (#283; seam anomaly-blend at the boundary), falling back to the
+    recent-28d (hour, dow) climatology where a BA's normal artifact isn't
+    backfilled yet. The model still produces a forecast there, but its
+    weather inputs are seasonal-average shaped, not actual forward-looking
+    values — which is exactly what the divider discloses.
 
     This helper makes that distinction visible on the chart:
 
@@ -909,9 +912,14 @@ def _outlook_tab_from_redis(
     # the regime split. See ADR-008.
     horizon_caption = ""
     if has_climatology_segment:
+        # "Seasonal climatology baseline" is the honest umbrella for both tail
+        # modes during the artifact backfill: the (day_of_year, hour)
+        # weather-normal where a BA's artifact exists (#283), the recent-28d
+        # (hour, dow) climatology otherwise. The web tier can't tell which the
+        # scoring job used per-BA, so the label claims only what is always true.
         horizon_caption = (
             "<br><sup>Days 1-16: real Open-Meteo forecast · "
-            "Days 17-30: (hour-of-day, day-of-week) climatology baseline</sup>"
+            "Days 17-30: seasonal climatology baseline</sup>"
         )
     fig.update_layout(
         **_layout(

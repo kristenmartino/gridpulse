@@ -262,6 +262,14 @@ inverse-MAPE at one-line, reversible cost.
 
 **Update (#281).** The group means are computed from a **recent trailing window** (`CLIMATOLOGY_WINDOW_DAYS = 28`), not the full 92-day history. A season-agnostic `(hour, dow)` mean over 92 days is seasonally biased: for a July forecast it dilutes in cooler April–June data, so the baseline understates peak-summer demand (measured on DUK: 9.4°F cooler than current, CDD halved), producing an implausible downward slope past day 16. Restricting the climatology to recent history is a lightweight recency-weighting — a partial adoption of the "Light conditional climatology" idea below — that removes most of the bias without the full anomaly-persistence machinery.
 
+**Update (#283, 2026-07-11) — the tail is now a weather-normalized "normal weather year", level-anchored.** The days-17-30 weather inputs come from a per-BA **(day_of_year, hour) weather-normal** built from a trailing ~10-year ERA5 window (all 17 raw weather vars + Jensen-correct derived features, ±7-day circular day-of-year smoothing), with:
+
+- a **seam anomaly-blend** at the Open-Meteo boundary — the current weather anomaly persists into the near tail as a convex blend decaying over ~5 days (the anomaly-persistence half of option 3 below, realized), so there is no regime discontinuity at hour 384;
+- **level anchoring via the autoregressive demand features**, which stay on the recent window — the tail tracks *current* load levels (year-over-year growth handled with no explicit trend term);
+- **per-BA graceful fallback** to the #281 recent-28d climatology wherever a BA's normal artifact isn't backfilled yet (the nightly training job builds ≤10 per run; full 51-BA coverage ~2026-07-15).
+
+This realizes — and goes beyond — option 3 ("Light conditional climatology"), chosen via a 5-method study (issue #283) and admitted through two evidence gates: a **weather backtest** across 6 climate-diverse BAs (the normal beats the recent-28d baseline ~10:2 on season-relevant error at seasonal turns, often halving temperature MAE; a wash mid-season) and a **retrospective demand spot-check** (DUK, 2026-06-10 origin scored against realized actuals: days-17-30 MAE 3,442 → 3,146 MW, **−8.6%**, the origin straddling the early-summer ramp — the exact phase-lag case a recency-only window gets wrong). The P10–P90 empirical fan and the day-16 divider remain the honesty envelope around the whole horizon.
+
 **Alternatives considered.**
 
 1. **Shorten the horizon to 16 days.** Honest about the data, but loses the 30-day-view feature that's already shipped and used for monthly capacity-planning context. Net regression for some user workflows.
@@ -285,12 +293,12 @@ Days 17-30 exist primarily for visual completeness on the Forecast tab and as th
 - Dotted vertical divider at hour 384 (day 16)
 - "← Open-Meteo forecast" annotation on the left segment
 - "climatology baseline →" annotation on the right segment
-- Subtitle: "Days 1-16: real Open-Meteo forecast · Days 17-30: (hour-of-day, day-of-week) climatology baseline"
+- Subtitle: "Days 1-16: real Open-Meteo forecast · Days 17-30: seasonal climatology baseline" (weather-normal where the per-BA artifact exists; recent-28d otherwise — both are climatologies, so the umbrella label stays honest across the backfill)
 - Faint background shade past the divider so the climatology segment reads as visually distinct
 
 Users seeing demand changes past day 16 can correctly interpret them as seasonal/diurnal patterns rather than forward-looking forecast signal.
 
-**Revisit triggers.** Light conditional climatology becomes worth doing if:
+**Revisit triggers** *(fired 2026-07: the #281 incident was exactly trigger 2/3-class evidence; option 3 was implemented and extended as the #283 weather-normal tail — see the update above)*. Originally, Light conditional climatology becomes worth doing if:
 
 - Production usage analytics show meaningful engagement with days 17-30 (e.g., persona views beyond Data Scientist regularly hitting the 30-day toggle), OR
 - A specific user-research signal indicates the climatology baseline is being mistaken for a real forecast despite the UI labels, OR
