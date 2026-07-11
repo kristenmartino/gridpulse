@@ -200,9 +200,7 @@ class TestPredictAndWriteForecast:
         assert row0["xgboost"] == 41_000.0
         assert row0["predicted_demand_mw"] == 41_000.0
 
-    def test_degenerate_series_gets_horizon_guard_entry(
-        self, fake_redis, region_data, monkeypatch
-    ):
+    def test_degenerate_series_gets_horizon_guard_entry(self, fake_redis, region_data, monkeypatch):
         """#296: a model whose 30-day trajectory decays out of the recent
         demand band gets a ``horizon_guard`` payload entry with the largest
         still-sane horizon; sane models (and a sane ensemble) get none."""
@@ -235,9 +233,7 @@ class TestPredictAndWriteForecast:
         # The flagged series stays in the rows for transparency.
         assert "arima" in payload["forecasts"][0]
 
-    def test_all_sane_series_write_no_horizon_guard(
-        self, fake_redis, region_data, monkeypatch
-    ):
+    def test_all_sane_series_write_no_horizon_guard(self, fake_redis, region_data, monkeypatch):
         from jobs import phases
 
         _patch_predict_one(
