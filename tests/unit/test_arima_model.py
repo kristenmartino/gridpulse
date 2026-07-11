@@ -83,8 +83,12 @@ class TestTrainArimaPayload:
         # Lean payload contract — every key the predict path reads.
         for key in ("params", "order", "seasonal_order", "exog_cols", "tail_y", "tail_exog"):
             assert key in result, f"train_arima payload missing {key!r}"
+        # #296 observability field (True/False/None) — always present.
+        assert "long_horizon_ok" in result
 
-        assert result["order"] == (2, 1, 2)
+        # d capped to 0: (2,1,2)+(1,1,1,24) is doubly integrated (d+D=2),
+        # which extrapolates the recent trend as a permanent line (#296).
+        assert result["order"] == (2, 0, 2)
         assert result["seasonal_order"] == (1, 1, 1, 24)
         assert isinstance(result["params"], np.ndarray)
         # Params should be a 1-D coefficient vector
@@ -140,9 +144,25 @@ class TestCachedOrderFastPath:
             mock_auto.assert_not_called()
 
     def test_cached_order_value_round_trips_to_payload(self, sarimax_df, mock_sarimax):
-        """The cached order must appear verbatim in the saved payload —
-        if train_arima silently re-selected, the next run's cache
-        lookup would chase the wrong order."""
+        """A cached order that already satisfies d+D <= 1 must appear
+        verbatim in the saved payload — if train_arima silently
+        re-selected, the next run's cache lookup would chase the wrong
+        order."""
+        from models.arima_model import train_arima
+
+        result = train_arima(
+            sarimax_df,
+            cached_order=(1, 0, 1),
+            cached_seasonal_order=(0, 1, 0, 24),
+        )
+        assert result["order"] == (1, 0, 1)
+        assert result["seasonal_order"] == (0, 1, 0, 24)
+
+    def test_cached_doubly_integrated_order_is_capped(self, sarimax_df, mock_sarimax):
+        """#296: orders stashed in meta.extra by pre-fix training runs can
+        still carry d=1 alongside D=1. The cap must fire on the cached
+        path too, and the capped order round-trips into the payload so
+        the training job's order cache converges after one cycle."""
         from models.arima_model import train_arima
 
         result = train_arima(
@@ -150,7 +170,7 @@ class TestCachedOrderFastPath:
             cached_order=(1, 1, 1),
             cached_seasonal_order=(0, 1, 0, 24),
         )
-        assert result["order"] == (1, 1, 1)
+        assert result["order"] == (1, 0, 1)
         assert result["seasonal_order"] == (0, 1, 0, 24)
 
 
@@ -338,6 +358,19 @@ class TestArimaConstants:
             "Seasonal D must be >= 1; D=0 produces drifting forecasts"
         )
         assert DEFAULT_SEASONAL_ORDER[3] == 24, "Daily seasonality (m=24) expected"
+
+    def test_defaults_are_not_doubly_integrated(self):
+        """#296: total integration must stay d + D <= 1. The pre-fix
+        default (2,1,2)(1,1,1,24) was itself doubly integrated — its
+        forecast function contains a linear trend estimated from the
+        recent window, extrapolated forever (SC/PSCO decayed through
+        0 MW, BPAT grew ~2x over the 30-day view)."""
+        from models.arima_model import DEFAULT_ORDER, DEFAULT_SEASONAL_ORDER
+
+        assert DEFAULT_ORDER[1] + DEFAULT_SEASONAL_ORDER[1] <= 1, (
+            "d + D must be <= 1; a doubly-integrated SARIMAX extrapolates "
+            "the training window's local trend as a permanent line (#296)"
+        )
 
 
 class TestGetExogNaNHandling:

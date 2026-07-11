@@ -725,6 +725,24 @@ MAPE_BY_HORIZON: dict[str, dict[str, float]] = {
 # docs/BACKTEST_RESULTS.md "Ensemble weighting" and PRD.md ADR-004.
 ENSEMBLE_WEIGHT_EXPONENT: float = 3.0
 
+# Long-horizon forecast sanity guard (#296). A doubly-integrated SARIMAX
+# (d=1 AND D=1) extrapolates the training window's local weather-driven
+# trend as a permanent linear trend — SC/PSCO decayed to 0 MW and BPAT grew
+# ~2x across the 30-day view while every AR/MA root sat on the stationary
+# side. The guard compares a long-horizon forecast against a band derived
+# from recent real demand; violations are handled at fit time
+# (models/arima_model.py refits with the safe default order) and at serve
+# time (jobs/phases.py writes ``horizon_guard`` into the forecast payload
+# so the UI discloses instead of drawing fiction). Fractions are generous
+# by design: a real August can run hotter than July, but demand does not
+# halve below — or grow 60% past — the trailing month's envelope within
+# 30 days.
+LONG_HORIZON_GUARD_FLOOR_FRAC: float = 0.5  # forecast min ≥ 50% of recent min
+LONG_HORIZON_GUARD_CEIL_FRAC: float = 1.6  # forecast max ≤ 160% of recent max
+LONG_HORIZON_GUARD_DRIFT_FRAC: float = 0.40  # first→last daily-mean shift ≤ 40% of recent mean
+LONG_HORIZON_GUARD_MIN_RECENT_ROWS: int = 7 * 24  # need ≥ 1 week of history to judge
+LONG_HORIZON_GUARD_DRIFT_MIN_LEN: int = 360  # drift check only on ≥15-day series
+
 
 def mape_grade(mape: float, horizon: str = "48h") -> str:
     """Return a governance grade for the given MAPE and forecast horizon.

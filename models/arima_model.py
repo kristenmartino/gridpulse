@@ -24,10 +24,19 @@ ARIMA_EXOG_COLS = [
     "heating_degree_days",
 ]
 
-# Default order if auto_arima is too slow or fails
-# D=1 (seasonal differencing) is critical to prevent forecast drift
-DEFAULT_ORDER = (2, 1, 2)
+# Default order if auto_arima is too slow or fails.
+# D=1 (seasonal differencing) carries the daily cycle; d must stay 0 so
+# total integration is d+D=1 (#296). Stacking d=1 on D=1 makes the model
+# doubly integrated, and a doubly-integrated forecast function contains a
+# linear trend whose slope is estimated from the recent window — it
+# extrapolates the last weeks' weather-driven trend forever (SC/PSCO
+# decayed through 0 MW, BPAT grew ~2x across the 30-day view).
+DEFAULT_ORDER = (2, 0, 2)
 DEFAULT_SEASONAL_ORDER = (1, 1, 1, 24)
+
+# Fit-time long-horizon sanity check horizon (#296) — matches the served
+# 30-day view (jobs.phases.FORECAST_HORIZON_HOURS).
+GUARD_CHECK_HORIZON = 720
 
 # Tail length (hours) kept with the pickled payload so SARIMAX can be
 # reconstructed and its Kalman filter initialized at predict time. 10 full
@@ -117,6 +126,20 @@ def train_arima(
         )
         seasonal_order = (seasonal_order[0], 1, seasonal_order[2], seasonal_order[3])
 
+    # Cap total integration at d + D <= 1 (#296). This runs on EVERY path —
+    # auto-selected, cached (orders stashed in meta.extra by earlier runs
+    # may still carry d=1), and default — so a doubly-integrated
+    # configuration can never reach the fit. The healed order round-trips
+    # into the payload, so the training job's order cache converges to the
+    # capped form after one cycle.
+    if order[1] >= 1 and seasonal_order[1] >= 1:
+        log.info(
+            "arima_capping_integration",
+            original_order=order,
+            seasonal_order=seasonal_order,
+        )
+        order = (order[0], 0, order[2])
+
     from statsmodels.tsa.statespace.sarimax import SARIMAX
 
     log.info("arima_training", order=order, seasonal_order=seasonal_order, rows=len(y))
@@ -159,18 +182,19 @@ def train_arima(
 
     except Exception as e:
         log.error("arima_training_failed", error=str(e), fallback="default_order")
-        # Fallback to simpler model — still keep D=1
+        # Fallback to simpler model — still keep D=1, and d=0 so total
+        # integration stays d + D <= 1 (#296).
         try:
             model = SARIMAX(
                 y,
                 exog=exog,
-                order=(1, 1, 1),
+                order=(1, 0, 1),
                 seasonal_order=(1, 1, 1, 24),
                 enforce_stationarity=False,
                 enforce_invertibility=False,
             )
             fitted = model.fit(disp=False, maxiter=100)
-            order = (1, 1, 1)
+            order = (1, 0, 1)
             seasonal_order = (1, 1, 1, 24)
         except Exception as e2:
             log.error("arima_fallback_failed", error=str(e2), fallback="no_seasonal")
@@ -185,6 +209,16 @@ def train_arima(
             fitted = model.fit(disp=False, maxiter=100)
             order = (1, 1, 1)
             seasonal_order = (0, 0, 0, 0)
+
+    # #296: fit-time long-horizon sanity check. Forecast 720h against a
+    # plausible weather day and verify the trajectory stays inside a band
+    # around the training window; a degenerate fit is refit with the safe
+    # default structure. Belt-and-braces with the d-cap above — order
+    # capping removes the known mechanism, this catches any structure
+    # that still extrapolates nonsense at 30 days.
+    fitted, order, seasonal_order, long_horizon_ok = _apply_long_horizon_guard(
+        fitted, y, exog, order, seasonal_order
+    )
 
     # Lean payload: save only the fitted params and the tail of training data
     # needed to re-initialize SARIMAX at predict time. A full SARIMAXResults
@@ -204,7 +238,99 @@ def train_arima(
         "tail_y": tail_y,
         "tail_exog": tail_exog,
         "train_end": train_end,
+        # #296 observability: True = 720h check passed, False = degenerate
+        # even after the safe-default refit, None = check could not run.
+        # Enforcement lives in the serve-time horizon guard (jobs/phases.py);
+        # this field is for meta/debugging.
+        "long_horizon_ok": long_horizon_ok,
     }
+
+
+def _apply_long_horizon_guard(
+    fitted: Any,
+    y: np.ndarray,
+    exog: np.ndarray | None,
+    order: tuple,
+    seasonal_order: tuple,
+) -> tuple[Any, tuple, tuple, bool | None]:
+    """Fit-time 720h sanity check with safe-default refit (#296).
+
+    Forecasts ``GUARD_CHECK_HORIZON`` steps from the fitted model (exog =
+    the last training day repeated, a plausible weather regime) and runs
+    ``models.evaluation.check_long_horizon_sanity`` against the training
+    series. On a degenerate trajectory the model is refit with
+    ``DEFAULT_ORDER``/``DEFAULT_SEASONAL_ORDER`` and re-checked; if the
+    refit heals, the refit wins and its (capped) orders round-trip into
+    the payload — and from there into the training job's order cache.
+
+    Never raises: any infrastructure failure logs and returns the
+    original fit with ``ok=None`` (unknown), because a guard must not be
+    able to take down training.
+
+    Returns:
+        (fitted, order, seasonal_order, ok) — ok is True (passed), False
+        (degenerate even after refit), or None (check could not run).
+    """
+    from models.evaluation import check_long_horizon_sanity
+
+    def _check(candidate: Any) -> str | None:
+        horizon_exog = None
+        if exog is not None:
+            last_day = np.asarray(exog[-24:], dtype=float)
+            reps = -(-GUARD_CHECK_HORIZON // max(len(last_day), 1))  # ceil div
+            horizon_exog = np.tile(last_day, (reps, 1))[:GUARD_CHECK_HORIZON]
+        forecast = np.asarray(
+            candidate.forecast(steps=GUARD_CHECK_HORIZON, exog=horizon_exog), dtype=float
+        )
+        return check_long_horizon_sanity(forecast, y)
+
+    try:
+        reason = _check(fitted)
+    except Exception as e:
+        log.warning("arima_long_horizon_check_failed", error=str(e))
+        return fitted, order, seasonal_order, None
+
+    if reason is None:
+        return fitted, order, seasonal_order, True
+
+    log.warning(
+        "arima_long_horizon_degenerate",
+        reason=reason,
+        order=order,
+        seasonal_order=seasonal_order,
+    )
+    if (tuple(order), tuple(seasonal_order)) == (DEFAULT_ORDER, DEFAULT_SEASONAL_ORDER):
+        return fitted, order, seasonal_order, False
+
+    try:
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+        refit_model = SARIMAX(
+            y,
+            exog=exog,
+            order=DEFAULT_ORDER,
+            seasonal_order=DEFAULT_SEASONAL_ORDER,
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+        refitted = refit_model.fit(disp=False, maxiter=200)
+        re_reason = _check(refitted)
+    except Exception as e:
+        log.warning("arima_long_horizon_refit_failed", error=str(e))
+        return fitted, order, seasonal_order, False
+
+    if re_reason is None:
+        log.info(
+            "arima_long_horizon_refit_healed",
+            original_order=order,
+            original_seasonal=seasonal_order,
+        )
+        return refitted, DEFAULT_ORDER, DEFAULT_SEASONAL_ORDER, True
+
+    # The safe default didn't heal it either — keep the order that matched
+    # the data best and let the serve-time guard withhold long horizons.
+    log.warning("arima_long_horizon_refit_still_degenerate", reason=re_reason)
+    return fitted, order, seasonal_order, False
 
 
 def predict_arima(
@@ -393,7 +519,16 @@ def _auto_select_order(
             max_q=2,
             max_P=1,
             max_Q=1,
-            max_d=1,
+            # d is pinned to 0 because D=1 is forced below: allowing the
+            # KPSS/ADF test to also pick d=1 produced doubly-integrated
+            # models whose 30-day forecasts extrapolate the training
+            # window's local weather trend as a permanent line (#296 —
+            # SC/PSCO decayed to 0 MW, BPAT grew ~2x). Total integration
+            # must stay d + D <= 1; pinning d here lets the stepwise
+            # search pick p/q consistently with the structure that will
+            # actually be fit.
+            max_d=0,
+            d=0,
             max_D=1,
             start_D=1,  # Start with seasonal differencing
             D=1,  # Force D=1 to prevent drift

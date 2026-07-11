@@ -778,6 +778,97 @@ class TestOutlookTabFromRedis:
         # Main forecast trace should have exactly 24 points
         assert len(fig.data[0].y) == 24
 
+    @patch("components._callbacks_forecast.redis_get")
+    def test_horizon_guard_withholds_flagged_model(self, mock_rg):
+        """#296: a model flagged by the scoring job's horizon guard renders
+        the honest withheld state (annotation, em-dash stats) instead of a
+        degenerate line at horizons past ``max_ok_horizon``."""
+        payload = _forecast_payload(72, "xgboost")
+        payload["horizon_guard"] = {
+            "xgboost": {"max_ok_horizon": 24, "flagged_horizon": 168, "reason": "below_recent_band"}
+        }
+        mock_rg.return_value = payload
+
+        from components.callbacks import _outlook_tab_from_redis
+
+        result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
+        assert result is not None
+        assert len(result) == 9
+        fig, _data_through, peak_str, _pt, avg_str, min_str, _mt, range_str, _insight = result
+        assert len(fig.data) == 0  # no forecast line drawn
+        annotation_text = fig.layout.annotations[0].text
+        assert "withheld" in annotation_text
+        assert "XGBOOST" in annotation_text
+        assert peak_str == avg_str == min_str == range_str == "—"
+
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
+    def test_horizon_guard_allows_verified_horizons(self, mock_rg, mock_bands, mock_trail):
+        """The same guarded model still renders normally at horizons up to
+        ``max_ok_horizon`` — the guard is by-horizon, not by-model."""
+        payload = _forecast_payload(72, "xgboost")
+        payload["horizon_guard"] = {
+            "xgboost": {"max_ok_horizon": 24, "flagged_horizon": 168, "reason": "below_recent_band"}
+        }
+        mock_rg.return_value = payload
+
+        from components.callbacks import _outlook_tab_from_redis
+
+        result = _outlook_tab_from_redis("FPL", 24, "xgboost", None, None, "grid_ops")
+        assert result is not None
+        fig = result[0]
+        assert len(fig.data) > 0  # normal render
+        assert "MW" in result[2]
+
+    @patch("components._callbacks_forecast.redis_get")
+    def test_horizon_guard_resolves_primary_for_predicted_demand_mw(self, mock_rg):
+        """When the rows carry only ``predicted_demand_mw``, the guard for
+        the payload's ``primary_model`` applies to that series."""
+        payload = {
+            "scored_at": "2024-06-01T12:00:00Z",
+            "primary_model": "xgboost",
+            "forecasts": [
+                {"timestamp": t, "predicted_demand_mw": 30_000 + i * 10}
+                for i, t in enumerate(_ts(72))
+            ],
+            "horizon_guard": {
+                "xgboost": {
+                    "max_ok_horizon": 0,
+                    "flagged_horizon": 24,
+                    "reason": "sustained_drift",
+                }
+            },
+        }
+        mock_rg.return_value = payload
+
+        from components.callbacks import _outlook_tab_from_redis
+
+        result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
+        assert result is not None
+        fig = result[0]
+        assert len(fig.data) == 0
+        assert "withheld" in fig.layout.annotations[0].text
+
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
+    def test_horizon_guard_ignores_other_models(self, mock_rg, mock_bands, mock_trail):
+        """A guard entry for a different model must not withhold the
+        selected one."""
+        payload = _forecast_payload(72, "xgboost")
+        payload["horizon_guard"] = {
+            "arima": {"max_ok_horizon": 168, "flagged_horizon": 720, "reason": "below_recent_band"}
+        }
+        mock_rg.return_value = payload
+
+        from components.callbacks import _outlook_tab_from_redis
+
+        result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
+        assert result is not None
+        assert len(result[0].data) > 0
+        assert "MW" in result[2]
+
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")
     @patch("components._callbacks_forecast.redis_get")

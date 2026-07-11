@@ -213,3 +213,56 @@ def compute_interval_coverage_drift(
         "recent_coverage": recent_cov,
         "drift": recent_cov - target_coverage,
     }
+
+
+def check_long_horizon_sanity(
+    forecast: np.ndarray,
+    recent_demand: np.ndarray,
+) -> str | None:
+    """Detect a structurally degenerate long-horizon forecast (#296).
+
+    A forecast is degenerate when it exits a generous band around recent
+    real demand — the signature of a doubly-integrated SARIMAX
+    extrapolating the training window's local trend as a permanent linear
+    trend (SC/PSCO → 0 MW, BPAT → ~2x within 30 days), but the check is
+    model-agnostic: any model whose trajectory collapses, explodes, or
+    drifts one-directionally past the band is flagged.
+
+    Args:
+        forecast: Forecast series (hourly MW). Any length; the drift
+            check only engages on series of at least
+            ``config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN`` hours so a
+            legitimate intra-week weather swing on a 24h/168h slice is
+            never flagged as drift.
+        recent_demand: Recent real demand (hourly MW) that defines the
+            plausibility band. Non-finite and non-positive entries are
+            ignored.
+
+    Returns:
+        A reason string — ``"non_finite"``, ``"below_recent_band"``,
+        ``"above_recent_band"``, or ``"sustained_drift"`` — when the
+        forecast is degenerate; ``None`` when it passes or when there is
+        too little recent history to judge (< 1 week).
+    """
+    import config
+
+    r = np.asarray(recent_demand, dtype=float)
+    r = r[np.isfinite(r) & (r > 0)]
+    if r.size < config.LONG_HORIZON_GUARD_MIN_RECENT_ROWS:
+        return None  # not enough history to define a band — don't guess
+
+    f = np.asarray(forecast, dtype=float)
+    if f.size == 0 or not np.isfinite(f).all():
+        return "non_finite"
+
+    if float(f.min()) < config.LONG_HORIZON_GUARD_FLOOR_FRAC * float(r.min()):
+        return "below_recent_band"
+    if float(f.max()) > config.LONG_HORIZON_GUARD_CEIL_FRAC * float(r.max()):
+        return "above_recent_band"
+
+    if f.size >= config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN:
+        shift = abs(float(f[-24:].mean()) - float(f[:24].mean()))
+        if shift > config.LONG_HORIZON_GUARD_DRIFT_FRAC * float(r.mean()):
+            return "sustained_drift"
+
+    return None
