@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import pickle
+from contextlib import ExitStack, contextmanager
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -25,6 +26,7 @@ def _reset_persistence_state(tmp_cache_dir: str) -> None:
     mp._client = None
     mp._latest_cache = None
     mp._latest_cache_ts = 0.0
+    mp._latest_cache_is_failure = False
     mp.LOCAL_MODEL_CACHE_DIR = tmp_cache_dir
 
 
@@ -279,6 +281,31 @@ class TestLatestPointer:
         assert "CAISO" in merged
         assert "xgboost" in merged["CAISO"]
 
+    def test_successful_write_clears_failure_flag(self, tmp_path) -> None:
+        """#272: a successful save_model proves GCS is healthy — the writer's
+        cache refresh must clear the failure flag so the pointer returns to the
+        normal success TTL instead of re-probing every 30s."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        mp._latest_cache_is_failure = True  # pretend a recent read failed
+        store: dict[str, bytes] = {}
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=_make_fake_client(store)),
+        ):
+            mp.save_model(
+                region="MISO",
+                model_name="xgboost",
+                model_obj={"k": "v"},
+                data_hash="h",
+                train_rows=1,
+            )
+        assert mp._latest_cache_is_failure is False
+        assert mp._latest_cache is not None and "MISO" in mp._latest_cache
+
     def test_latest_merge_tolerates_corrupt_pointer(self, tmp_path) -> None:
         """A corrupt ``latest.json`` does not cause save_model to raise."""
         import models.persistence as mp
@@ -358,9 +385,240 @@ class TestLatestPointerTTL:
         _reset_persistence_state(str(tmp_path / "cache"))
         mp._latest_cache = {"PJM": {"xgboost": "v1"}}
         mp._latest_cache_ts = 1000.0
+        mp._latest_cache_is_failure = True
         mp.invalidate_latest_cache()
         assert mp._latest_cache is None
         assert mp._latest_cache_ts == 0.0
+        assert mp._latest_cache_is_failure is False
+
+
+class _RaisingBucketClient:
+    """Client whose blob reads raise — simulates a GCS outage/blip."""
+
+    def __init__(self, exc=None):
+        self._exc = exc or ConnectionError("gcs blip")
+
+    def bucket(self, name):
+        raise self._exc
+
+
+class TestLatestPointerFailureSemantics:
+    """#272 (P2-11) — a failed pointer read must never negative-cache the ``{}``
+    sentinel over a valid pointer, and a true failure re-probes on the SHORT
+    failure TTL, not the 300s success TTL."""
+
+    @contextmanager
+    def _gcs_env(self, mp, client, monotonic=None):
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(mp, "GCS_ENABLED", True))
+            stack.enter_context(patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"))
+            stack.enter_context(patch.object(mp, "GCS_PATH_PREFIX", "cache"))
+            stack.enter_context(patch.object(mp, "_get_client", return_value=client))
+            stack.enter_context(patch.object(mp.time, "sleep", lambda s: None))
+            if monotonic is not None:
+                stack.enter_context(patch.object(mp.time, "monotonic", monotonic))
+            yield
+
+    def test_failure_serves_last_known_good_not_empty(self, tmp_path) -> None:
+        """THE P2-11 core: a blip must not erase a previously-good pointer —
+        the model store stays loadable on the stale-by-minutes value."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        good = {"PJM": {"xgboost": "v1"}}
+        mp._latest_cache = good
+        mp._latest_cache_ts = 1000.0
+        with self._gcs_env(
+            mp, _RaisingBucketClient(), monotonic=lambda: 1000.0 + mp._LATEST_CACHE_TTL + 1
+        ):
+            out = mp._read_latest()  # TTL expired → re-read → blip
+        assert out == good  # last-known-good, NOT {}
+        assert mp._latest_cache == good
+        assert mp._latest_cache_is_failure is True  # short re-probe window armed
+
+    def test_failure_with_no_prior_uses_short_ttl(self, tmp_path) -> None:
+        """Cold process + blip: {} is cached only for _LATEST_FAILURE_TTL (30s),
+        not the 300s success TTL — the old negative-cache made the whole store
+        unloadable for minutes."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        clock = [1000.0]
+        with self._gcs_env(mp, _RaisingBucketClient(), monotonic=lambda: clock[0]):
+            assert mp._read_latest() == {}  # cold failure → sentinel
+            assert mp._latest_cache_is_failure is True
+            # Within the failure TTL: served from cache (no re-probe storm).
+            clock[0] = 1000.0 + mp._LATEST_FAILURE_TTL - 1
+            assert mp._read_latest() == {}
+        # Past the failure TTL (but well under the success TTL): re-probes and
+        # RECOVERS when GCS is healthy again.
+        store = {"cache/models/latest.json": json.dumps({"PJM": {"xgboost": "v2"}}).encode()}
+        with self._gcs_env(
+            mp,
+            _make_fake_client(store),
+            monotonic=lambda: 1000.0 + mp._LATEST_FAILURE_TTL + 1,
+        ):
+            assert mp._read_latest() == {"PJM": {"xgboost": "v2"}}
+        assert mp._latest_cache_is_failure is False  # healed → success TTL again
+
+    def test_missing_pointer_is_valid_and_uses_success_ttl(self, tmp_path) -> None:
+        """A legitimately-absent latest.json (fresh bucket) is a VALID empty
+        result — cached at the normal TTL, not failure semantics."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        with self._gcs_env(mp, _make_fake_client({}), monotonic=lambda: 1000.0):
+            assert mp._read_latest() == {}  # no latest.json in store
+        assert mp._latest_cache_is_failure is False
+        boom = MagicMock(side_effect=AssertionError("should not re-read within success TTL"))
+        with (
+            patch.object(mp, "_get_client", boom),
+            patch.object(mp.time, "monotonic", return_value=1000.0 + mp._LATEST_FAILURE_TTL + 5),
+        ):
+            assert mp._read_latest() == {}  # still cached — success TTL applies
+        boom.assert_not_called()
+
+    def test_transient_blip_healed_by_in_call_retry(self, tmp_path) -> None:
+        """A sub-second blip is absorbed by the in-call retry — no failure
+        semantics engage at all."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        store = {"cache/models/latest.json": json.dumps({"PJM": {"xgboost": "v3"}}).encode()}
+        healthy = _make_fake_client(store)
+        flaky = MagicMock()
+        flaky.bucket.side_effect = [ConnectionError("blip"), healthy.bucket("x")]
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=flaky),
+            patch.object(mp.time, "sleep", lambda s: None),
+        ):
+            out = mp._read_latest()
+        assert out == {"PJM": {"xgboost": "v3"}}
+        assert mp._latest_cache_is_failure is False  # retry healed it silently
+
+    def test_gcs_disabled_empty_is_not_failure(self, tmp_path) -> None:
+        """Dev (GCS off): the empty store is the valid answer — success TTL,
+        no failure flag, no re-probe churn."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        with (
+            patch.object(mp, "GCS_ENABLED", False),
+            patch.object(mp, "_get_client", return_value=None),
+        ):
+            assert mp._read_latest() == {}
+        assert mp._latest_cache_is_failure is False
+
+    def test_client_unavailable_with_gcs_enabled_is_failure(self, tmp_path) -> None:
+        """GCS ENABLED but _get_client() → None (auth blip / metadata-server
+        timeout on a Cloud Run cold start): failure semantics — last-known-good
+        kept warm, {} + short TTL cold — never a valid-empty at success TTL."""
+        import models.persistence as mp
+
+        # Warm: prior good pointer survives the client outage.
+        _reset_persistence_state(str(tmp_path / "cache"))
+        good = {"PJM": {"xgboost": "v1"}}
+        mp._latest_cache = good
+        mp._latest_cache_ts = 1000.0
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "_get_client", return_value=None),
+            patch.object(mp.time, "monotonic", return_value=1000.0 + mp._LATEST_CACHE_TTL + 1),
+        ):
+            assert mp._read_latest() == good  # last-known-good, NOT {}
+        assert mp._latest_cache_is_failure is True
+        # Cold: sentinel + failure flag (short re-probe window).
+        _reset_persistence_state(str(tmp_path / "cache"))
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "_get_client", return_value=None),
+        ):
+            assert mp._read_latest() == {}
+        assert mp._latest_cache_is_failure is True
+
+    def test_corrupt_pointer_content_uses_failure_semantics(self, tmp_path) -> None:
+        """A latest.json that parses but isn't a dict (corruption) must not
+        negative-cache {} over a good pointer — failure semantics apply."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        good = {"PJM": {"xgboost": "v1"}}
+        mp._latest_cache = good
+        mp._latest_cache_ts = 1000.0
+        corrupt = {"cache/models/latest.json": json.dumps(["not", "a", "dict"]).encode()}
+        with self._gcs_env(
+            mp,
+            _make_fake_client(corrupt),
+            monotonic=lambda: 1000.0 + mp._LATEST_CACHE_TTL + 1,
+        ):
+            assert mp._read_latest() == good  # prior pointer retained
+        assert mp._latest_cache == good
+        assert mp._latest_cache_is_failure is True
+        # Cold-cache variant: sentinel + failure flag.
+        _reset_persistence_state(str(tmp_path / "cache"))
+        with self._gcs_env(mp, _make_fake_client(corrupt), monotonic=lambda: 1000.0):
+            assert mp._read_latest() == {}
+        assert mp._latest_cache_is_failure is True
+
+    def test_sustained_outage_reprobes_once_per_failure_ttl(self, tmp_path) -> None:
+        """Repeated failures RE-STAMP the timestamp: during a sustained outage
+        the re-probe cadence stays bounded at once per failure TTL — not a
+        thundering probe (3 attempts + backoff) on every call."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        probes = {"n": 0}
+
+        class _CountingRaisingClient:
+            def bucket(self, name):
+                probes["n"] += 1
+                raise ConnectionError("gcs outage")
+
+        clock = [1000.0]
+        with self._gcs_env(mp, _CountingRaisingClient(), monotonic=lambda: clock[0]):
+            mp._read_latest()  # 1st failure: probes (1 + retries) times
+            per_call = probes["n"]
+            assert per_call == 1 + mp._LATEST_READ_RETRIES
+            clock[0] = 1000.0 + mp._LATEST_FAILURE_TTL + 1
+            mp._read_latest()  # past failure TTL: re-probes once more
+            assert probes["n"] == 2 * per_call
+            clock[0] += 5  # within 30s of the SECOND failure's re-stamp
+            mp._read_latest()  # must be served from cache — no probe storm
+            assert probes["n"] == 2 * per_call
+
+    def test_success_on_final_retry_attempt(self, tmp_path) -> None:
+        """Pins the retry budget: two failures then success on the third (last)
+        attempt still heals in-call — a retries=1 regression would fail this.
+        Also pins the backoff progression."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        store = {"cache/models/latest.json": json.dumps({"PJM": {"xgboost": "v9"}}).encode()}
+        healthy = _make_fake_client(store)
+        flaky = MagicMock()
+        flaky.bucket.side_effect = [
+            ConnectionError("blip1"),
+            ConnectionError("blip2"),
+            healthy.bucket("x"),
+        ]
+        sleeps: list[float] = []
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=flaky),
+            patch.object(mp.time, "sleep", sleeps.append),
+        ):
+            assert mp._read_latest() == {"PJM": {"xgboost": "v9"}}
+        assert mp._latest_cache_is_failure is False
+        # Backoff progression: base × 1, base × 2.
+        assert sleeps == [
+            mp._LATEST_READ_RETRY_BACKOFF_S,
+            mp._LATEST_READ_RETRY_BACKOFF_S * 2,
+        ]
 
 
 # ---------------------------------------------------------------------------
