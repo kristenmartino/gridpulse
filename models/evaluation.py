@@ -231,9 +231,13 @@ def check_long_horizon_sanity(
     Args:
         forecast: Forecast series (hourly MW). Any length; the drift
             check only engages on series of at least
-            ``config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN`` hours so a
+            ``config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN`` hours (so a
             legitimate intra-week weather swing on a 24h/168h slice is
-            never flagged as drift.
+            never flagged) and only fires when the daily-mean trajectory
+            is near-perfectly linear
+            (``LONG_HORIZON_GUARD_DRIFT_LINEARITY_R2``) — the
+            doubly-integrated signature — so a legitimate seasonal ramp
+            is never flagged.
         recent_demand: Recent real demand (hourly MW) that defines the
             plausibility band. Non-finite and non-positive entries are
             ignored.
@@ -261,8 +265,23 @@ def check_long_horizon_sanity(
         return "above_recent_band"
 
     if f.size >= config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN:
-        shift = abs(float(f[-24:].mean()) - float(f[:24].mean()))
+        n_days = f.size // 24
+        daily = f[: n_days * 24].reshape(n_days, 24).mean(axis=1)
+        shift = abs(float(daily[-1]) - float(daily[0]))
         if shift > config.LONG_HORIZON_GUARD_DRIFT_FRAC * float(r.mean()):
-            return "sustained_drift"
+            # A large first→last shift alone is NOT degenerate — spring→summer
+            # ramps legitimately move daily means by >40% of the trailing
+            # month inside 30 days (perfect forecasts across the 2026 spring
+            # ramp false-flagged 21/51 BAs without this gate). The #296
+            # signature is that the trajectory is a near-perfect LINE: a
+            # doubly-integrated model's forecast function is linear in the
+            # trend and has no weekly structure, while a real seasonal ramp
+            # carries weekday/weekend texture and decelerates. Only flag when
+            # the daily means fit a line almost exactly.
+            x = np.arange(daily.size, dtype=float)
+            corr = np.corrcoef(x, daily)[0, 1]
+            r2 = float(corr * corr) if np.isfinite(corr) else 0.0
+            if r2 > config.LONG_HORIZON_GUARD_DRIFT_LINEARITY_R2:
+                return "sustained_drift"
 
     return None

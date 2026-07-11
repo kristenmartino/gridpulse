@@ -742,6 +742,15 @@ LONG_HORIZON_GUARD_CEIL_FRAC: float = 1.6  # forecast max ≤ 160% of recent max
 LONG_HORIZON_GUARD_DRIFT_FRAC: float = 0.40  # first→last daily-mean shift ≤ 40% of recent mean
 LONG_HORIZON_GUARD_MIN_RECENT_ROWS: int = 7 * 24  # need ≥ 1 week of history to judge
 LONG_HORIZON_GUARD_DRIFT_MIN_LEN: int = 360  # drift check only on ≥15-day series
+# The drift arm fires only when the daily-mean trajectory is a near-perfect
+# LINE (OLS R² above this). A doubly-integrated SARIMAX's forecast function is
+# exactly linear in the trend and carries no weekly structure, so its daily
+# means fit a line at R² ≈ 0.99+; a legitimate seasonal ramp (spring→summer)
+# carries weekday/weekend texture and synoptic swings and decelerates.
+# Without this gate, perfect forecasts built from real EIA demand across the
+# 2026 spring ramp false-flagged 21/51 BAs (verification finding) — exactly
+# the seasonal trajectory the #283 weather-normal tail is built to produce.
+LONG_HORIZON_GUARD_DRIFT_LINEARITY_R2: float = 0.95
 
 
 def mape_grade(mape: float, horizon: str = "48h") -> str:

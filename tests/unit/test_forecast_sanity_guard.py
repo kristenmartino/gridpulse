@@ -105,6 +105,55 @@ class TestCheckLongHorizonSanity:
         decay = _daily_cycle(H) - np.linspace(0.0, 13_000.0, H)
         assert check_long_horizon_sanity(decay, junk) == "below_recent_band"
 
+    def test_zero_recent_rows_do_not_disarm_floor(self, recent):
+        """#296 mutation pin (verification finding): dropping the ``r > 0``
+        half of the recent-demand filter must fail this test. Uses
+        serve-path-realistic inputs — zero rows in recent demand (real
+        pre-fix cache states) and a forecast already clipped at 0 by the
+        serve floor, so its min is exactly 0.0. Without the positivity
+        filter, the poisoned floor is 0.5 x 0 = 0 and the collapse serves
+        unguarded."""
+        from models.evaluation import check_long_horizon_sanity
+
+        junk = recent.copy()
+        junk[:24] = 0.0  # zero rows only — no negative sentinel to hide behind
+        clipped_decay = np.maximum(_daily_cycle(H) - np.linspace(0.0, 13_000.0, H), 0.0)
+        assert check_long_horizon_sanity(clipped_decay, junk) == "below_recent_band"
+
+    def test_flat_zero_collapse_flagged_despite_zero_poisoned_recent(self, recent):
+        """A total collapse to 0 MW must flag even when recent demand
+        carries zero rows — this shape has no drift signature (flat), so
+        the positive-min band floor is the only detector."""
+        from models.evaluation import check_long_horizon_sanity
+
+        junk = recent.copy()
+        junk[:24] = 0.0
+        assert check_long_horizon_sanity(np.zeros(H), junk) == "below_recent_band"
+
+    def test_realistic_seasonal_ramp_not_flagged_as_drift(self, recent):
+        """#296 verification MEDIUM regression: a decelerating seasonal ramp
+        with weekday/weekend texture and synoptic noise — the exact shape
+        the #283 weather-normal tail produces across spring→summer — must
+        NOT be flagged, even when the first→last daily-mean shift exceeds
+        the 40% threshold. (Perfect forecasts built from real EIA demand
+        across the 2026 spring ramp false-flagged 21/51 BAs before the
+        linearity gate.)"""
+        from models.evaluation import check_long_horizon_sanity
+
+        rng = np.random.default_rng(7)
+        days = np.arange(30)
+        ramp = 10_000.0 + 4_800.0 * np.sqrt(days / 29.0)  # saturating, not linear
+        weekly = np.where((days % 7) >= 5, -600.0, 200.0)  # weekend dips
+        noise = rng.normal(0.0, 300.0, size=30)  # synoptic variation
+        daily_means = ramp + weekly + noise
+        series = np.repeat(daily_means, 24) + np.tile(
+            2_000.0 * np.sin(2 * np.pi * np.arange(24) / 24), 30
+        )
+        # Precondition: the shift alone would have tripped the old check.
+        shift = abs(daily_means[-1] - daily_means[0])
+        assert shift > config.LONG_HORIZON_GUARD_DRIFT_FRAC * recent.mean()
+        assert check_long_horizon_sanity(series, recent) is None
+
 
 class TestHorizonGuardForSeries:
     def test_all_horizons_pass_returns_none(self, recent):
@@ -218,6 +267,25 @@ class TestApplyLongHorizonGuardFitTime:
             mock_sarimax.assert_not_called()
         assert out_fitted is fitted
         assert ok is False
+
+    def test_short_history_returns_indeterminate_not_verified(self):
+        """#296 verification finding: with fewer than a week of valid
+        training rows the check cannot run — the payload must record
+        long_horizon_ok=None ('check could not run'), NOT True ('720h
+        check passed'), and no refit may be attempted."""
+        from models.arima_model import _apply_long_horizon_guard
+
+        fitted = MagicMock()
+        fitted.forecast.return_value = _daily_cycle(H) - np.linspace(0.0, 13_000.0, H)
+        with patch("statsmodels.tsa.statespace.sarimax.SARIMAX") as mock_sarimax:
+            out_fitted, order, seasonal, ok = _apply_long_horizon_guard(
+                fitted, _daily_cycle(96), None, (2, 1, 0), (1, 1, 0, 24)
+            )
+            mock_sarimax.assert_not_called()
+        assert out_fitted is fitted
+        assert (order, seasonal) == ((2, 1, 0), (1, 1, 0, 24))
+        assert ok is None
+        fitted.forecast.assert_not_called()
 
     def test_check_failure_returns_unknown_not_raise(self):
         """A guard must not be able to take down training."""

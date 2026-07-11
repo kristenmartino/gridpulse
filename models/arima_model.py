@@ -271,7 +271,18 @@ def _apply_long_horizon_guard(
         (fitted, order, seasonal_order, ok) — ok is True (passed), False
         (degenerate even after refit), or None (check could not run).
     """
+    import config
     from models.evaluation import check_long_horizon_sanity
+
+    # The checker returns None both for "passed" and for "too little history
+    # to judge" — at the guard level those must not both read as ok=True
+    # (the payload documents None = check could not run). Detect the
+    # indeterminate case up front with the checker's own validity criteria.
+    y_arr = np.asarray(y, dtype=float)
+    valid_rows = int(np.count_nonzero(np.isfinite(y_arr) & (y_arr > 0)))
+    if valid_rows < config.LONG_HORIZON_GUARD_MIN_RECENT_ROWS:
+        log.info("arima_long_horizon_check_skipped", valid_rows=valid_rows)
+        return fitted, order, seasonal_order, None
 
     def _check(candidate: Any) -> str | None:
         horizon_exog = None
@@ -524,13 +535,10 @@ def _auto_select_order(
             # models whose 30-day forecasts extrapolate the training
             # window's local weather trend as a permanent line (#296 —
             # SC/PSCO decayed to 0 MW, BPAT grew ~2x). Total integration
-            # must stay d + D <= 1; pinning d here lets the stepwise
-            # search pick p/q consistently with the structure that will
-            # actually be fit.
+            # must stay d + D <= 1.
             max_d=0,
             d=0,
             max_D=1,
-            start_D=1,  # Start with seasonal differencing
             D=1,  # Force D=1 to prevent drift
             stepwise=True,
             suppress_warnings=True,

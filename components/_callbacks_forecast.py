@@ -80,6 +80,7 @@ from components._callbacks_shared import (
     COLORS,
     _compute_data_hash,
     _empirical_interval_from_backtests,
+    _guard_max_ok,
     _layout,
     _widening_interval_from_backtests,
 )
@@ -804,25 +805,36 @@ _GUARD_REASON_COPY = {
 }
 
 
-def _guarded_outlook_state(region, model_name, horizon_hours, guard, data_through_str):
+def _guarded_outlook_state(region, model_name, horizon_hours, guard, data_through_str, ensemble_ok):
     """Honest unavailable state for a guard-withheld model+horizon (#296).
 
     The scoring job flagged this model's forecast as degenerate at this
     horizon (``horizon_guard`` on the Redis payload). Rendering the line
     anyway would draw fiction — SC/PSCO ARIMA decayed to 0 MW, BPAT grew
     ~2x — so the chart states what happened and what still works instead.
+
+    ``ensemble_ok`` gates the guidance copy: recommending "the Ensemble
+    model" would be wrong when the ensemble itself is the flagged series,
+    is flagged at this horizon too, or is absent from the payload.
     """
-    max_ok = int(guard.get("max_ok_horizon") or 0)
+    max_ok = _guard_max_ok(guard) or 0
     reason_copy = _GUARD_REASON_COPY.get(
         str(guard.get("reason")), "it failed the long-horizon sanity check"
     )
     horizon_labels = {24: "24-hour", 168: "7-day", 720: "30-day"}
     label = horizon_labels.get(horizon_hours, f"{horizon_hours}h")
-    verified = (
-        f"Verified up to {max_ok}h — try a shorter horizon or the Ensemble model."
-        if max_ok > 0
-        else "Try the Ensemble model."
-    )
+    if max_ok > 0:
+        verified = (
+            f"Verified up to {max_ok}h — try a shorter horizon or the Ensemble model."
+            if ensemble_ok
+            else f"Verified up to {max_ok}h — try a shorter horizon."
+        )
+    else:
+        verified = (
+            "Try the Ensemble model."
+            if ensemble_ok
+            else "Try a different model, or check back after the next scoring run."
+        )
     fig = go.Figure()
     fig.update_layout(**_layout(uirevision=f"{region}:{horizon_hours}"))
     fig.add_annotation(
@@ -882,12 +894,21 @@ def _outlook_tab_from_redis(
     # series about to be drawn is flagged as degenerate at this horizon,
     # render an honest withheld state instead of the line. The guard map
     # is keyed by model name; ``predicted_demand_mw`` resolves to the
-    # payload's primary model.
+    # payload's primary model. Malformed guard shapes fail OPEN (normal
+    # render + warning log) — see ``_guard_max_ok``.
     guarded_model = (
         pred_key if pred_key != "predicted_demand_mw" else str(cached.get("primary_model", ""))
     )
-    guard = (cached.get("horizon_guard") or {}).get(guarded_model)
-    if guard and horizon_hours > int(guard.get("max_ok_horizon") or 0):
+    guard_map = cached.get("horizon_guard")
+    if not isinstance(guard_map, dict):
+        if guard_map is not None:
+            log.warning("outlook_horizon_guard_malformed", region=region, shape="map")
+        guard_map = {}
+    guard = guard_map.get(guarded_model)
+    max_ok = _guard_max_ok(guard)
+    if guard is not None and max_ok is None:
+        log.warning("outlook_horizon_guard_malformed", region=region, model=guarded_model)
+    if max_ok is not None and horizon_hours > max_ok:
         log.info(
             "outlook_horizon_guard_withheld",
             region=region,
@@ -895,13 +916,28 @@ def _outlook_tab_from_redis(
             horizon=horizon_hours,
             reason=guard.get("reason"),
         )
+        # Recommend the ensemble only when it exists in this payload, is a
+        # different series than the one being withheld, and is itself
+        # unflagged (or verified) at this horizon.
+        ensemble_guard = guard_map.get("ensemble")
+        ensemble_max_ok = _guard_max_ok(ensemble_guard)
+        ensemble_ok = (
+            guarded_model != "ensemble"
+            and "ensemble" in forecasts[0]
+            and (
+                ensemble_guard is None
+                or (ensemble_max_ok is not None and horizon_hours <= ensemble_max_ok)
+            )
+        )
         data_through_str = cached.get("scored_at", "Unknown")
         if data_through_str != "Unknown":
             import contextlib
 
             with contextlib.suppress(Exception):
                 data_through_str = pd.Timestamp(data_through_str).strftime("%Y-%m-%d %H:%M UTC")
-        return _guarded_outlook_state(region, model_name, horizon_hours, guard, data_through_str)
+        return _guarded_outlook_state(
+            region, model_name, horizon_hours, guard, data_through_str, ensemble_ok
+        )
 
     predictions = np.array([f.get(pred_key, f.get("predicted_demand_mw", 0)) for f in forecasts])
 

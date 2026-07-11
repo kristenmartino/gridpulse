@@ -173,6 +173,69 @@ class TestCachedOrderFastPath:
         assert result["order"] == (1, 0, 1)
         assert result["seasonal_order"] == (0, 1, 0, 24)
 
+    def test_auto_selected_doubly_integrated_order_is_capped(self, sarimax_df, mock_sarimax):
+        """#296 mutation pin for the AUTO path: even if the pmdarima-side
+        d=0 pin is ever reverted (or pmdarima returns d=1 for any other
+        reason), the train_arima cap must still strip d before the fit.
+        Narrowing the cap to the cached path only must fail this test."""
+        from models import arima_model
+
+        with patch.object(arima_model, "_auto_select_order") as mock_auto:
+            mock_auto.return_value = ((2, 1, 2), (1, 1, 1, 24))
+            result = arima_model.train_arima(sarimax_df, auto_order=True)
+
+        assert result["order"] == (2, 0, 2)
+        assert result["seasonal_order"] == (1, 1, 1, 24)
+
+    def test_auto_arima_search_pins_d_to_zero(self, monkeypatch):
+        """#296: the pmdarima search itself must be constrained (d=0,
+        max_d=0, D=1) — reverting the pin re-opens the KPSS d=1 path that
+        produced the doubly-integrated fleet."""
+        import sys
+
+        fake_auto = MagicMock()
+        fake_auto.order = (1, 0, 1)
+        fake_auto.seasonal_order = (0, 1, 1, 24)
+        fake_pm = MagicMock()
+        fake_pm.auto_arima.return_value = fake_auto
+        monkeypatch.setitem(sys.modules, "pmdarima", fake_pm)
+
+        from models.arima_model import _auto_select_order
+
+        y = 40_000.0 + 5_000.0 * np.sin(2 * np.pi * np.arange(600) / 24)
+        order, seasonal_order = _auto_select_order(y, None)
+
+        kwargs = fake_pm.auto_arima.call_args.kwargs
+        assert kwargs["d"] == 0
+        assert kwargs["max_d"] == 0
+        assert kwargs["D"] == 1
+        assert order == (1, 0, 1)
+        assert seasonal_order == (0, 1, 1, 24)
+
+    def test_long_horizon_guard_is_wired_into_training(self, sarimax_df, mock_sarimax):
+        """#296 mutation pin (verification HIGH): deleting the
+        _apply_long_horizon_guard call from train_arima must fail this
+        test. All four guard outputs — fitted (via params), order,
+        seasonal_order, and long_horizon_ok — must round-trip into the
+        payload."""
+        from models import arima_model
+
+        sentinel_fitted = MagicMock()
+        sentinel_fitted.params = np.array([7.0, 8.0], dtype=np.float64)
+        with patch.object(arima_model, "_apply_long_horizon_guard") as mock_guard:
+            mock_guard.return_value = (sentinel_fitted, (9, 0, 9), (9, 1, 9, 24), False)
+            result = arima_model.train_arima(
+                sarimax_df,
+                cached_order=(2, 0, 2),
+                cached_seasonal_order=(1, 1, 1, 24),
+            )
+            mock_guard.assert_called_once()
+
+        assert result["order"] == (9, 0, 9)
+        assert result["seasonal_order"] == (9, 1, 9, 24)
+        assert result["long_horizon_ok"] is False
+        np.testing.assert_array_equal(result["params"], np.array([7.0, 8.0]))
+
 
 class TestPredictArima:
     """Prediction supports both the lean payload (params + tail) and a
