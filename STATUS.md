@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-08
+# Status — updated 2026-07-11
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,23 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-07-11 — Forecast honesty: #283 shipped end-to-end, audit critical tier
+closed, #296 SARIMAX degeneracy found + fixed.** The #283 seasonal-forecasting
+arc completed all phases and the `weather_normal_tail` flag is **ON in prod**
+(demand-gated go-live; per-BA artifact backfill completes ~Jul 15). The
+buried-ledger audit's standalone criticals are **all fixed** (#267–#272). A
+verify-close sweep closed #193 and #174 on file:line evidence and re-scoped
+#196 to its three concrete remnants. From user prod screenshots (SC, then
+BPAT/PSCO), **#296** surfaced: 8/51 BAs' 30-day SARIMAX forecasts degenerate
+(decay through 0 MW or grow ~2×) — root-caused to **double integration**
+(auto-selected d=1 stacked on forced D=1 extrapolates the training window's
+weather trend as a permanent line; all 8 flagged BAs are d+D=2, zero false
+positives on the 39 d+D=1 BAs), fixed this PR with a d+D≤1 cap + fit-time
+sanity refit + serve-time per-horizon guard + honest UI withheld state.
+Remaining board: the audit ledger clusters **#273** (misleading live numbers,
+~15), **#274** (reliability, 7), **#275** (doc/config honesty, 23), plus #196's
+narrowed remnants.
 
 **2026-07-08 — Post-keystone: honesty & robustness hardening.** The 2026-07
 critical-review keystone is *behind us* — the recursive re-measure shipped
@@ -121,46 +138,29 @@ theatrical and should be partially reverted:
 
 ## Next 3 (priority order)
 
-The 2026-07 critical-review remediation is **code-complete and merged**
-(#191/#192/#204/#205/#207/#208/#209/#210). The whole board now hinges on one
-deploy + re-measurement — see the Active-focus block above for the full
-per-finding map.
+*(Refreshed 2026-07-11 against `gh issue list` — the pre-#296 version of this
+block still centered the long-completed 2026-07-03 re-measure keystone; the
+2026-07 critical-review remediation and the buried-ledger critical tier
+(#267–#272) are both fully shut.)*
 
-1. **RE-MEASURE (the keystone).** ✅ **Export + published-table refresh DONE
-   (2026-07-03, this PR)** — training re-ran on the daily job, docs now carry the
-   recursive numbers (see the Active-focus block + the 2026-07-03 recent-decision
-   entry). **Remaining:** confirm `drift:{region}.rolling_smape_7d` for Prophet/ARIMA
-   dropped now that #194 time-aligned them. (Original keystone note kept below for the
-   drift-watch step.) `main` is
-   already deployed (#215, 20:08 UTC 2026-07-02). Trigger a
-   `gridpulse-training-job` run (`gcloud run jobs execute gridpulse-training-job
-   --region us-east1`, or the 04:00 UTC daily run) so every BA re-scores its
-   holdout recursively (#195/#209). **No `force` flag exists** — the data-hash
-   resume naturally invalidates as the training window advances. Then run
-   `scripts/export_holdout_metrics.py` against prod GCS and refresh the
-   published tables (`BACKTEST_RESULTS.md` / `_holdout_table.md` /
-   `CANONICAL_FACTS.md` / `README.md`, ~13 values); watch
-   `drift:{region}.rolling_smape_7d` for Prophet/ARIMA to confirm #194's
-   time-alignment dropped their live drift. **Capture the before/after numbers**
-   — they close #170/#181 re-analysis and fill the INTERVIEW_PREP STAR stories.
-   Retrain note: legacy ARIMA pickles fall back to gap=0 for one retrain cycle
-   (Prophet corrects immediately).
-2. **Close the verified findings + follow-ups (after #1).** Close #193–#203 as
-   prod-verification confirms each (**#195 closed 2026-07-04** — commensurable
-   holdout shipped); then the gated follow-ups: #196 per-model
-   residual calibration, variance-smoothing, weather-realism, and the
-   **#170** revisit on the now-commensurable, time-aligned data. **#181 done
-   (2026-07-04)** — ensemble sharpened to (1/MAPE)³; see recent-decisions.
-3. **P2/P3 elegance backlog (#189)** and product-forward work
-   (`docs/internal/EXECUTION_BRIEF.md`) once the remediation loop is fully shut.
-   Deploy-independent P2 correctness/cleanups already shipped this session:
-   P2-24 governance tone + P2-52 /metrics XFF (#213), P2-31 fabricated-forecast
-   integrity + Scenarios-Redis (#214), P2-27/28 self-validating coverage monitor
-   removed (#215). Remaining P2s need a product call (P2-38/P2-41 dead-code:
-   delete vs resurrect). **P2-25 drift-panel de-alarm SHIPPED 2026-07-06**
-   (was gated on the #170/#181 revisit — the 07-06 horizon-grade keystone
-   answered that gate early: resolved 24h grades exonerated Prophet/SARIMAX,
-   giving the de-alarm its confirming data source; see recent-decisions).
+1. **[#273](https://github.com/kristenmartino/gridpulse/issues/273) —
+   misleading numbers on live surfaces (~15 ledger items).** The top honesty
+   cluster from the buried-ledger audit: values a user can currently read off
+   prod that are wrong, mislabeled, or silently synthetic. Same class as the
+   bugs users keep catching by eye (#220, #296) — get ahead of the next
+   screenshot.
+2. **[#274](https://github.com/kristenmartino/gridpulse/issues/274) — backend
+   reliability/correctness cluster (7 items).** Medium-severity failure modes
+   in jobs/data paths, same family as the shipped #267–#272 criticals.
+3. **#296 follow-through + [#275](https://github.com/kristenmartino/gridpulse/issues/275) + [#196](https://github.com/kristenmartino/gridpulse/issues/196) remnants.**
+   After the #296 PR deploys: confirm `scoring_horizon_guard_flagged` fires for
+   the 8 degenerate BAs (ARIMA-30d withheld honestly), then the 04:00 UTC
+   training run heals orders (`arima_capping_integration` logs; flags clear on
+   the healed BAs) — then close #296. Watch item: weather-normal backfill hits
+   51/51 ~Jul 15 (spot-check + close the #283 tail). Then the #275 doc/config
+   honesty sweep (23 small items) and #196's narrowed remnants (per-model
+   backtest prediction vectors; caption pooled-count semantics + legacy-key
+   dedup; Overview hero flat-width).
 
 **Blindspot-pass follow-ups (filed 2026-07-07, #253–#256).** Priority order —
 these are the newest tracked gaps and slot ahead of the P2/P3 elegance backlog:
@@ -173,8 +173,8 @@ these are the newest tracked gaps and slot ahead of the P2/P3 elegance backlog:
   `/grid/summary`), the API field renamed `nameplate_capacity_mw → capacity_mw`
   with a `capacity_source` enum, and the docs desynced by the bug corrected. See
   recent-decisions.
-- ◑ **[#253](https://github.com/kristenmartino/gridpulse/issues/253) — code +
-  GCP APPLIED; only the #263 merge/deploy remains.** The now-live unauthenticated
+- ✅ **[#253](https://github.com/kristenmartino/gridpulse/issues/253) — CLOSED
+  (#263 merged + deployed; noted 2026-07-11).** Original status for history: The now-live unauthenticated
   `/api/v1` had no request-path guard. Shipped in-app (#261, deployed): per-IP
   Redis rate limiting on `/api/v1/*` + the Dash callback route (fail-open),
   `MAX_CONTENT_LENGTH`, and `/health`/`/metrics` gated to liveness-only for the
@@ -257,6 +257,8 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
 
 ## Recent decisions (last 7 days)
 
+- **2026-07-11** **#296 — 30-day SARIMAX forecasts degenerated on 8/51 BAs (SC/PSCO/SCEG/PJM/PACW decay toward or through 0 MW; AZPS/BPAT/LDWP grow 1.5–1.8×); root cause was double integration, not the mechanisms first hypothesized.** Found from user prod screenshots. First-pass hypotheses (no-intercept mean reversion; explosive AR roots) were **published to the issue and then overturned by payload forensics**: reconstructing the actual prod pickles (SC/PSCO/BPAT + healthy DUK control) showed every AR/MA root stationary-side and the decay *linear through* zero — drift. Mechanism: auto_arima could select d=1 on top of the force-enforced seasonal D=1; two zero-frequency unit roots put a **linear trend in the forecast function**, slope estimated from the training window — so the model converts the region's recent weather regime (PNW July heat ramp ⇒ BPAT up; CO monsoon cooldown / post-heat-wave Carolinas ⇒ PSCO/SC down) into a permanent line, while the exog weather response contributes only ±0.03–1 GW at day 30 vs 3–6 GW of drift. Fleet sweep on all 51 real payloads: **8 degenerate, all 8 d+D=2; 0 false positives across the 39 d+D=1 BAs** (also caught PJM decaying negative — nobody had screenshotted it). **Layered fix:** d pinned to 0 in auto-selection (D=1 stays), **d+D≤1 cap on every path** incl. cached meta.extra orders (healed order round-trips so the cache converges in one cycle), doubly-integrated defaults corrected, fit-time 720h sanity check w/ safe-default refit (never raises; `long_horizon_ok` observability field), **serve-time per-horizon guard uniform across every served series (each model + the ensemble)** writing `horizon_guard` {max_ok_horizon, flagged_horizon, reason} into the forecast payload, and a Forecast-tab **withheld state that says why** ("failed the long-horizon sanity guard") instead of drawing fiction — the #227 by-horizon philosophy on the serving surface. Ensembles stay unguarded-in-blend by documented decision (verified sane on all 3 reported BAs; inverse-MAPE³ keeps bad inputs small; cap heals at source). Guard band: floor 0.5× / ceil 1.6× recent 28d envelope + 0.40× sustained-drift on ≥15-day slices, `config.LONG_HORIZON_GUARD_*`. +34 tests across checker/fit-guard/serve-guard/UI; 430 green across the affected sweep. The **#282 floor** was working as designed throughout (clamped SC/PSCO at 0) — a floor can't fix a degenerate model, and BPAT's explosive polarity has no symmetric ceiling: the guard is the containment. [this PR]
+- **2026-07-11** **Verify-close sweep: #193 and #174 closed on file:line evidence; #196 re-scoped to its real remnants; stale-comment note on #275.** Three parallel evidence-trace agents audited long-open issues against current `main`. **#193 (demo alerts as real)** — fully resolved: real NOAA wired (#204), demo paths dev-gated + disclosed, outages degrade honestly, stress decoupled from demo alerts; closed w/ 10 evidence items. **#174 (EIA outage resilience)** — fully resolved: `_EIACircuitBreaker` + uniform stale-cache→GCS fallback across demand/generation/interchange + tests, hardened further by #269/#270; closed w/ 11 evidence items. **#196 (interval calibration)** — partially resolved (holdout self-calibration, substitute disclosure, #283-3b lead-resolved widening all shipped); re-scoped to: per-model backtest prediction vectors, caption pooled-count semantics + legacy-key dedup, Overview hero flat-width. Roadmap now truthful: audit critical tier closed, #296 the newest live item. [gh-only, this session]
 - **2026-07-11** **#272 (P2-11) — a GCS blip can no longer negative-cache the model store; failures now serve last-known-good.** The audit finding: one failed `latest.json` read stored the `{}` sentinel in the pointer cache, making all 51 regions × 3 models unloadable — originally for the process lifetime; #280's 300s TTL had already shrunk that to ≤5 min, but the residual was still real: the failure path **overwrote a previously-good pointer with `{}`** and cached the failure at the full success TTL, and during a scoring run (fresh process, ~all 51 region loads starting inside the window) a single blip at run start could silently skip most of the fleet's forecasts — silently, because pointer-miss reads as `no_model`, which the #267 semantics correctly treat as expected-not-an-error. **Fix (three layers in `_read_latest`): (1) in-call retry** (2 quick attempts, 0.5s/1s backoff) absorbs sub-second blips with no semantics change; **(2) last-known-good on failure** — a prior pointer (or a prior legitimately-empty read) keeps being served instead of `{}`; the pointer only changes on the daily training write, so stale-by-minutes is safe (the same last-known-good philosophy as the EIA #269 and gate-map #271 fixes); **(3) failure-aware TTL** — only a cold process with no prior value caches the sentinel, and then for `_LATEST_FAILURE_TTL=30s` (re-probe in seconds), not 300s. Legitimately-missing pointers (fresh bucket) and dev/GCS-off remain valid empty results at the normal TTL — failure and absence are no longer conflated. Writer-refresh and `invalidate_latest_cache` clear the failure flag. +5 tests (last-known-good served over `{}` — the P2-11 core; cold-failure 30s re-probe + recovery; missing-pointer keeps success TTL; in-call retry heals a blip silently; GCS-off not-a-failure) + reset-helper/invalidate updated; 300 green across the persistence/model-service/gate/jobs sweep; ruff clean. Closes #272 — the last standalone critical from the 2026-07 buried-ledger audit (#267–#272 now all fixed). [this PR]
 - **2026-07-11** **#283 Phase 4 — `weather_normal_tail` flipped ON: the days-17-30 forecast tail is live on the weather-normal, gated on real demand evidence.** The go-live gate ran as a **retrospective demand spot-check** against realized actuals: DUK, forecast origin 2026-06-10 (so days 17-30 = Jun 26–Jul 10 had 336/336 realized hours), XGBoost trained only on pre-origin data, both tail modes on otherwise-identical features, using the **production 10-year artifact** (built by the nightly training job, verified 366×24/17-var). Result: **tail MAE 3,442 → 3,146 MW (−8.6%), MAPE 21.1% → 19.2%**, no negatives — the recent-28d window had filled the late-June tail with May-diluted 72.4°F weather while the normal correctly said 80.1°F; the origin straddles the early-summer ramp, exactly the phase-lag case the Phase-0 weather backtest predicted (normal ~10:2 at seasonal turns across 6 BAs). Honest framing recorded: both variants under-predict a hot late-June (~20% MAPE absolute) — a climatology-class tail cannot see a heat wave, which is what the P10–P90 fan + divider label disclose; the **delta** is the decision number. **Flip mechanics:** one flag + docs. Per-BA graceful fallback makes the early flip safe — 20/51 backfilled BAs upgrade immediately, the rest join as the nightly refresh lands (~Jul 15). Docs in the same PR (CLAUDE.md end-of-PR check): ADR-008 (PRD §10) gains the #283 update (weather-normalized normal-weather-year, level-anchored; option-3 "Light conditional climatology" marked realized-and-exceeded; revisit-triggers marked fired), HOW_IT_WORKS day-16 paragraph rewritten, and the Forecast-tab regime subtitle re-worded to the honest umbrella "seasonal climatology baseline" (the web tier can't tell which tail mode the scoring job used per-BA during backfill, so the label claims only what is always true). [this PR]
 - **2026-07-10** **#220 — the Models tab's 4 residual panels were PERMANENTLY empty in prod (structural, not warming); now populated from real walk-forward-backtest residuals.** User-spotted live on prod (ERCOT: metrics + SHAP populated, all 4 residual panels showing "no scored forecast to compare against yet"). **Root cause:** `write_diagnostics` sourced from the legacy v1 `get_forecasts`, which the #149 strict gate makes return "unavailable" on the job container **every tick, for every region** — so the #166 interim honesty fix (correctly) wrote the unavailable marker forever, and the panel copy's "populates after the scoring job writes a forecast" was a false promise no scoring tick could keep. **Fix — populate from the data that already exists:** the diagnostics phase now reads the nightly training job's Redis backtest payloads (`backtest:{forecast_exog}:{region}:{horizon}` — genuine holdout actual/predictions/residuals, the same source the #283 Phase 3b P10–P90 band calibrates on), preferring the **24h horizon** (day-ahead error, the operational standard) with 168h/720h fallback. The payload now carries **provenance** (`residual_source`: kind/horizon/model/exog_mode) and names the series `predicted` (the old "ensemble" field name would mislabel an XGBoost backtest series; the UI reads `predicted` with a legacy-`ensemble` fallback for in-TTL payloads). The UI **captions all four charts** ("24h walk-forward backtest residuals · XGBOOST") so holdout residuals are never mistaken for live-forecast residuals, and the unavailable copy now states the TRUE self-heal condition ("populates after the nightly training job writes its walk-forward backtest") — reachable only pre-first-training-run. v1 `get_forecasts` dependence deleted from the phase. 10 tests rewritten/added (no-backtest honest marker w/ reason; real residuals + provenance; 24h-preferred + deeper-fallback; feature-importance None w/o model; unavailable render w/ truthful copy; populated render w/ provenance captions on all 4; legacy-field back-compat w/o false provenance); **A 3-lens adversarial verification confirmed 6 findings on the first cut** — notably a latent crash in my own defensive branch (a malformed backtest payload with short timestamps would have written residuals with empty timestamps, crashing the whole Models-tab callback in lttb_downsample — worse than the honest empty state — plus index-synthesized hour-of-day, a fabricated attribution) and a mutation-verified test gap (re-adding the v1 `get_forecasts` call — the #220 root cause — passed all tests). **Fixed:** the horizon gate now validates the WHOLE payload shape (≥24 aligned rows across actual + chosen series + timestamps; a malformed payload loses to the next horizon), the defective defensive branch is deleted, the reader gained a belt-and-braces length guard (mismatch → honest unavailable, never a dead tab), and `_FORBID_V1` (get_forecasts → AssertionError) is patched into every job-side test so the root cause can't silently return. Tests 10 → 15 (short-payload loses to deeper horizon / only-short → unavailable / xgboost preferred in multi-model payloads with residuals matching the xgboost series / misaligned-timestamps skipped / reader degrades honestly on malformed payloads); 269 green across the sweep; ruff clean. Closes #220 (found + diagnosed same-day from a user prod screenshot). [this PR]

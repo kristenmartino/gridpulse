@@ -342,6 +342,54 @@ Kalman-filter operation. I also refused to ship it on the offline number alone �
 it's staged to watch live drift post-deploy, because the issue flagged a second,
 overlapping cause (a time-mislabel) whose share only the live re-score can settle.*
 
+### 14. "Tell me about a time you were wrong — and how you found out."
+**I published the wrong root cause for a fleet-wide forecast failure; a domain question and four pickles overturned it.**
+
+Situation: Users spotted 30-day SARIMAX forecasts decaying to 0 MW on some
+regions (Santee Cooper, Colorado) and exploding to ~2× on another (BPA). I
+filed the issue with a plausible textbook mechanism — no intercept term plus
+an unconstrained fit means mean-reversion to zero, or an explosive AR root on
+the growth case — and started on that fix.
+
+Task: Before implementing, a stakeholder asked whether I'd considered how US
+regional weather patterns interact with each model. That question deserved
+evidence, not a hand-wave — so I made the diagnosis prove itself first.
+
+Action: I pulled the actual fitted model payloads for three degenerate regions
+plus a healthy control from the production model store, reconstructed them
+exactly as the serving path does, and decomposed the 720-hour forecast:
+characteristic-root analysis plus a forecast run with weather inputs zeroed
+out to separate the regression contribution from the time-series structure.
+Both of my published claims died on contact: every AR/MA root was on the
+stationary side, and the decay was *linear through* zero — drift, not
+reversion, and an intercept wouldn't have fixed it. The real mechanism: the
+code force-enforced seasonal differencing (D=1) "to prevent drift," but the
+order search could still add d=1 — and a doubly-integrated process carries a
+linear trend in its forecast function, slope estimated from the last weeks of
+data, extrapolated forever. Which is exactly where the weather question
+landed: the Pacific Northwest's July heat ramp became a permanent upward
+line; Colorado's monsoon cooldown became a permanent decline. A 51-region
+sweep on the real payloads sealed it — 8 degenerate, all 8 doubly integrated,
+zero failures among the singly-integrated. I corrected the public issue
+before shipping, then fixed it in layers: cap total integration at d+D≤1 on
+every path including cached orders, a fit-time 720h sanity check with
+safe-default refit, a serve-time per-horizon guard on every model *and* the
+ensemble, and a UI state that says "withheld — failed the sanity guard"
+instead of drawing fiction.
+
+Result: The fix heals 5 of 8 regions outright at the next training run, the
+guard withholds anything that still slips through, and the thresholds
+validated with zero false positives across the 39 healthy regions. The wrong
+mechanism never made it into code.
+
+**Lesson to convey**: *A plausible mechanism that pattern-matches the
+symptom is a hypothesis, not a diagnosis — the fix for "no intercept" and the
+fix for "double integration" are different code, and shipping the first would
+have left the bug alive. Payload forensics on four pickles was two hours;
+it changed the fix, and it turned a stakeholder's domain instinct into the
+actual causal story: the model was converting three weeks of regional weather
+into a permanent climate trend.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
