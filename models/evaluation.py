@@ -213,3 +213,75 @@ def compute_interval_coverage_drift(
         "recent_coverage": recent_cov,
         "drift": recent_cov - target_coverage,
     }
+
+
+def check_long_horizon_sanity(
+    forecast: np.ndarray,
+    recent_demand: np.ndarray,
+) -> str | None:
+    """Detect a structurally degenerate long-horizon forecast (#296).
+
+    A forecast is degenerate when it exits a generous band around recent
+    real demand — the signature of a doubly-integrated SARIMAX
+    extrapolating the training window's local trend as a permanent linear
+    trend (SC/PSCO → 0 MW, BPAT → ~2x within 30 days), but the check is
+    model-agnostic: any model whose trajectory collapses, explodes, or
+    drifts one-directionally past the band is flagged.
+
+    Args:
+        forecast: Forecast series (hourly MW). Any length; the drift
+            check only engages on series of at least
+            ``config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN`` hours (so a
+            legitimate intra-week weather swing on a 24h/168h slice is
+            never flagged) and only fires when the daily-mean trajectory
+            is near-perfectly linear
+            (``LONG_HORIZON_GUARD_DRIFT_LINEARITY_R2``) — the
+            doubly-integrated signature — so a legitimate seasonal ramp
+            is never flagged.
+        recent_demand: Recent real demand (hourly MW) that defines the
+            plausibility band. Non-finite and non-positive entries are
+            ignored.
+
+    Returns:
+        A reason string — ``"non_finite"``, ``"below_recent_band"``,
+        ``"above_recent_band"``, or ``"sustained_drift"`` — when the
+        forecast is degenerate; ``None`` when it passes or when there is
+        too little recent history to judge (< 1 week).
+    """
+    import config
+
+    r = np.asarray(recent_demand, dtype=float)
+    r = r[np.isfinite(r) & (r > 0)]
+    if r.size < config.LONG_HORIZON_GUARD_MIN_RECENT_ROWS:
+        return None  # not enough history to define a band — don't guess
+
+    f = np.asarray(forecast, dtype=float)
+    if f.size == 0 or not np.isfinite(f).all():
+        return "non_finite"
+
+    if float(f.min()) < config.LONG_HORIZON_GUARD_FLOOR_FRAC * float(r.min()):
+        return "below_recent_band"
+    if float(f.max()) > config.LONG_HORIZON_GUARD_CEIL_FRAC * float(r.max()):
+        return "above_recent_band"
+
+    if f.size >= config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN:
+        n_days = f.size // 24
+        daily = f[: n_days * 24].reshape(n_days, 24).mean(axis=1)
+        shift = abs(float(daily[-1]) - float(daily[0]))
+        if shift > config.LONG_HORIZON_GUARD_DRIFT_FRAC * float(r.mean()):
+            # A large first→last shift alone is NOT degenerate — spring→summer
+            # ramps legitimately move daily means by >40% of the trailing
+            # month inside 30 days (perfect forecasts across the 2026 spring
+            # ramp false-flagged 21/51 BAs without this gate). The #296
+            # signature is that the trajectory is a near-perfect LINE: a
+            # doubly-integrated model's forecast function is linear in the
+            # trend and has no weekly structure, while a real seasonal ramp
+            # carries weekday/weekend texture and decelerates. Only flag when
+            # the daily means fit a line almost exactly.
+            x = np.arange(daily.size, dtype=float)
+            corr = np.corrcoef(x, daily)[0, 1]
+            r2 = float(corr * corr) if np.isfinite(corr) else 0.0
+            if r2 > config.LONG_HORIZON_GUARD_DRIFT_LINEARITY_R2:
+                return "sustained_drift"
+
+    return None

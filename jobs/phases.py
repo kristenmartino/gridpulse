@@ -69,6 +69,13 @@ _CLIMATOLOGY_MIN_ROWS = 7 * 24  # ≥ 1 week before trusting the recent window
 # before reverting to climatology.
 _SEAM_ANOMALY_TAU_HOURS = 120.0
 
+# #296 serve-time horizon guard: each served model series (and the ensemble)
+# is checked against a band derived from this many hours of recent real
+# demand; the horizons checked mirror the UI's 24h/7d/30d views. Thresholds
+# live in config (LONG_HORIZON_GUARD_*).
+_GUARD_RECENT_ROWS = 28 * 24
+_GUARD_HORIZONS = (24, 168, 720)
+
 # PR-E (2026-05-20) — depth of recursive autoregressive-feature inference.
 # For future hours 1..RECURSIVE_AUTOREGRESSIVE_HOURS, the XGBoost predict
 # loop computes ``demand_lag_*`` / ``ramp_rate`` / ``demand_roll_*`` from
@@ -1044,6 +1051,46 @@ def _predict_one(
     return None
 
 
+def _horizon_guard_for_series(
+    series: np.ndarray,
+    recent_demand: np.ndarray,
+) -> dict[str, Any] | None:
+    """Check a served forecast series at each UI horizon slice (#296).
+
+    Runs ``models.evaluation.check_long_horizon_sanity`` on the 24h/168h/
+    720h prefixes of ``series`` against recent real demand. The drift
+    check inside the checker only engages on ≥15-day slices, so a
+    legitimate weather swing across a 24h/168h view is never flagged as
+    drift — short slices are judged on the band alone.
+
+    Returns:
+        ``None`` when every checkable horizon passes; otherwise a dict
+        ``{"max_ok_horizon": <largest passing horizon, 0 if none>,
+        "flagged_horizon": <first failing horizon>, "reason": <str>}``
+        for the payload's ``horizon_guard`` map.
+    """
+    from models.evaluation import check_long_horizon_sanity
+
+    passing: list[int] = []
+    first_reason: str | None = None
+    first_failed: int | None = None
+    for h in _GUARD_HORIZONS:
+        if len(series) < h:
+            continue
+        reason = check_long_horizon_sanity(series[:h], recent_demand)
+        if reason is None:
+            passing.append(h)
+        elif first_reason is None:
+            first_reason, first_failed = reason, h
+    if first_reason is None:
+        return None
+    return {
+        "max_ok_horizon": max(passing, default=0),
+        "flagged_horizon": first_failed,
+        "reason": first_reason,
+    }
+
+
 def predict_and_write_forecast(
     data: RegionData,
     models: dict[str, Any] | None,
@@ -1179,6 +1226,33 @@ def predict_and_write_forecast(
                 ensemble_preds = None
                 ensemble_weights = None
 
+        # #296: serve-time long-horizon sanity guard, uniform across every
+        # served series (per-model AND ensemble). A series whose 24h/168h/720h
+        # slice exits the recent-demand band gets a ``horizon_guard`` entry in
+        # the payload; the Forecast tab withholds that model at flagged
+        # horizons and says why, instead of drawing a degenerate line. The
+        # flagged series stays in the payload rows for transparency, and it
+        # still enters the ensemble blend: the fit-time d-cap removes the
+        # known degeneracy at the source, inverse-MAPE³ weighting keeps a bad
+        # model's contribution small, and all three affected BAs' ensembles
+        # verified sane — revisit if a flagged *ensemble* ever shows up here.
+        horizon_guard: dict[str, dict[str, Any]] = {}
+        series_to_guard: dict[str, np.ndarray] = dict(predictions_by_model)
+        if ensemble_preds is not None:
+            series_to_guard["ensemble"] = ensemble_preds
+        if "demand_mw" in featured.columns:
+            recent_demand = featured["demand_mw"].tail(_GUARD_RECENT_ROWS).to_numpy(dtype=float)
+            for name, series in series_to_guard.items():
+                guard = _horizon_guard_for_series(series, recent_demand)
+                if guard is not None:
+                    horizon_guard[name] = guard
+                    log.warning(
+                        "scoring_horizon_guard_flagged",
+                        region=region,
+                        model=name,
+                        **guard,
+                    )
+
         # Pick the primary that powers ``predicted_demand_mw`` for back-compat.
         # XGBoost when available; otherwise the first successful model.
         primary_name = (
@@ -1212,6 +1286,8 @@ def predict_and_write_forecast(
             redis_payload["ensemble_weights"] = {
                 k: round(v, 4) for k, v in ensemble_weights.items()
             }
+        if horizon_guard:
+            redis_payload["horizon_guard"] = horizon_guard
 
         # #131: write per-model holdout metrics into the forecast payload
         # so the web tier can read them from Redis instead of falling

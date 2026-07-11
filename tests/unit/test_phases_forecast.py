@@ -200,6 +200,71 @@ class TestPredictAndWriteForecast:
         assert row0["xgboost"] == 41_000.0
         assert row0["predicted_demand_mw"] == 41_000.0
 
+    def test_degenerate_series_gets_horizon_guard_entry(self, fake_redis, region_data, monkeypatch):
+        """#296: a model whose 30-day trajectory decays out of the recent
+        demand band gets a ``horizon_guard`` payload entry with the largest
+        still-sane horizon; sane models (and a sane ensemble) get none."""
+        from jobs import phases
+
+        # ARIMA decays linearly 40k → −10k over 720h (the SC/PSCO shape);
+        # the serve floor clips the tail at 0, far below the 20k band floor.
+        # The 24h/168h prefixes stay in-band → max_ok_horizon = 168.
+        arima_preds = 40_000.0 - np.linspace(0.0, 50_000.0, HORIZON)
+        _patch_predict_one(
+            monkeypatch,
+            {"xgboost": np.full(HORIZON, 41_000.0), "arima": arima_preds},
+        )
+
+        result = phases.predict_and_write_forecast(
+            region_data,
+            models={"xgboost": object(), "arima": object()},
+            # xgboost dominates the blend (inverse-MAPE³), keeping the
+            # ensemble sane despite the degenerate arima input.
+            model_mapes={"xgboost": 1.0, "arima": 8.0},
+        )
+
+        assert result.ok
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
+        guard = payload["horizon_guard"]
+        assert set(guard.keys()) == {"arima"}
+        assert guard["arima"]["max_ok_horizon"] == 168
+        assert guard["arima"]["flagged_horizon"] == 720
+        assert guard["arima"]["reason"] == "below_recent_band"
+        # The flagged series stays in the rows for transparency.
+        assert "arima" in payload["forecasts"][0]
+
+    def test_all_sane_series_write_no_horizon_guard(self, fake_redis, region_data, monkeypatch):
+        from jobs import phases
+
+        _patch_predict_one(
+            monkeypatch,
+            {"xgboost": np.full(HORIZON, 41_000.0), "prophet": np.full(HORIZON, 39_000.0)},
+        )
+        result = phases.predict_and_write_forecast(
+            region_data,
+            models={"xgboost": object(), "prophet": object()},
+            model_mapes={"xgboost": 2.0, "prophet": 3.0},
+        )
+        assert result.ok
+        assert "horizon_guard" not in fake_redis["gridpulse:forecast:ERCOT:1h"]
+
+    def test_degenerate_ensemble_is_guarded_too(self, fake_redis, region_data, monkeypatch):
+        """When every input decays, the blend decays with them — the served
+        ``ensemble`` series must carry its own guard entry."""
+        from jobs import phases
+
+        decay = 40_000.0 - np.linspace(0.0, 50_000.0, HORIZON)
+        _patch_predict_one(monkeypatch, {"xgboost": decay.copy(), "arima": decay.copy()})
+
+        result = phases.predict_and_write_forecast(
+            region_data,
+            models={"xgboost": object(), "arima": object()},
+            model_mapes={"xgboost": 2.0, "arima": 2.0},
+        )
+        assert result.ok
+        guard = fake_redis["gridpulse:forecast:ERCOT:1h"]["horizon_guard"]
+        assert set(guard.keys()) == {"xgboost", "arima", "ensemble"}
+
     def test_negative_predictions_floored_at_zero(self, fake_redis, region_data, monkeypatch):
         """#281: any model emitting negative demand is clipped at 0 at the serve
         layer — covers all models + the ensemble, not just Prophet's own clip."""

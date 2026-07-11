@@ -72,6 +72,7 @@ from components._callbacks_shared import (
     DEFAULT_BACKTEST_EXOG_MODE,
     _empirical_interval_from_backtests,
     _empty_figure,
+    _guard_max_ok,
     _latest_real_demand,
     _layout,
 )
@@ -151,6 +152,26 @@ def _read_ensemble_forecast_from_redis(
         pred_key = "predicted_demand_mw"
     else:
         return None
+
+    # #296: honor the scoring job's horizon guard. The hero draws a 24h
+    # forecast bridge, so only a series flagged even at 24h (total
+    # collapse, max_ok_horizon < 24) is withheld — falling back to the
+    # existing actual-only / warming render rather than drawing a
+    # degenerate line. Malformed guard shapes fail open (see
+    # ``_guard_max_ok``).
+    guard_map = cached.get("horizon_guard")
+    if isinstance(guard_map, dict):
+        guarded_series = (
+            pred_key if pred_key == "ensemble" else str(cached.get("primary_model", ""))
+        )
+        max_ok = _guard_max_ok(guard_map.get(guarded_series))
+        if max_ok is not None and max_ok < 24:
+            log.info(
+                "overview_hero_horizon_guard_withheld",
+                region=region,
+                model=guarded_series,
+            )
+            return None
 
     try:
         timestamps = [pd.to_datetime(row["timestamp"]) for row in forecasts]

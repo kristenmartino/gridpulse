@@ -679,6 +679,23 @@ _MAP_COLORSCALE = [
 ]
 
 
+def _guard_max_ok(entry) -> int | None:
+    """Parse a ``horizon_guard`` entry's ``max_ok_horizon``; None if malformed.
+
+    Shared by the Forecast tab and the Overview hero (#296). Malformed
+    entries fail OPEN (the caller renders normally): the series is real
+    model output, and a corrupt guard entry — e.g. writer/reader version
+    skew between the independently-deployed scoring job and web tier —
+    must never take down a healthy forecast.
+    """
+    if not isinstance(entry, dict):
+        return None
+    try:
+        return int(entry.get("max_ok_horizon") or 0)
+    except (TypeError, ValueError):
+        return None
+
+
 # ── Module re-export surface ─────────────────────────────────────────
 #
 # ``components/callbacks.py`` does ``from components._callbacks_shared
@@ -706,6 +723,8 @@ __all__ = [
     "PLOT_CONFIG",
     "_layout",
     "_empty_figure",
+    # #296 horizon guard
+    "_guard_max_ok",
     # Color palette
     "COLORS",
     "_MODEL_BAND_COLORS",

@@ -143,6 +143,49 @@ class TestReadEnsembleForecastFromRedis:
         assert predictions[0] == pytest.approx(payload["forecasts"][0]["predicted_demand_mw"])
 
     @patch("components._callbacks_overview.redis_get")
+    def test_horizon_guard_total_collapse_withholds_hero_series(self, mock_redis_get):
+        """#296: when the served series is flagged even at 24h
+        (max_ok_horizon < 24 — total collapse), the hero must fall back to
+        the actual-only/warming render (None), not draw the degenerate
+        line. Flags at longer horizons don't affect the 24h hero bridge."""
+        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+
+        payload = _redis_forecast_payload()
+        payload["horizon_guard"] = {
+            "ensemble": {"max_ok_horizon": 0, "flagged_horizon": 24, "reason": "non_finite"}
+        }
+        mock_redis_get.return_value = payload
+        assert _read_ensemble_forecast_from_redis("FPL") is None
+
+        # Flagged only past 24h -> hero unaffected.
+        payload = _redis_forecast_payload()
+        payload["horizon_guard"] = {
+            "ensemble": {
+                "max_ok_horizon": 168,
+                "flagged_horizon": 720,
+                "reason": "below_recent_band",
+            }
+        }
+        mock_redis_get.return_value = payload
+        assert _read_ensemble_forecast_from_redis("FPL") is not None
+
+        # Guard on the primary applies when rows lack the ensemble column.
+        payload = _redis_forecast_payload()
+        for row in payload["forecasts"]:
+            del row["ensemble"]
+        payload["horizon_guard"] = {
+            "xgboost": {"max_ok_horizon": 0, "flagged_horizon": 24, "reason": "non_finite"}
+        }
+        mock_redis_get.return_value = payload
+        assert _read_ensemble_forecast_from_redis("FPL") is None
+
+        # Malformed guard fails open.
+        payload = _redis_forecast_payload()
+        payload["horizon_guard"] = {"ensemble": "corrupt"}
+        mock_redis_get.return_value = payload
+        assert _read_ensemble_forecast_from_redis("FPL") is not None
+
+    @patch("components._callbacks_overview.redis_get")
     def test_reads_correct_redis_key(self, mock_redis_get):
         from components._callbacks_overview import _read_ensemble_forecast_from_redis
 
