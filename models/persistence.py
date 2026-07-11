@@ -66,6 +66,15 @@ _latest_cache_lock = threading.Lock()
 #: not per render) so new versions surface without a redeploy.
 _latest_cache_ts: float = 0.0
 _LATEST_CACHE_TTL = 300.0
+#: #272 (P2-11): whether the cached value came from a FAILED read. A failure
+#: never overwrites a previously-good pointer (last-known-good is served
+#: instead) and is re-probed on the short ``_LATEST_FAILURE_TTL`` — the old
+#: behavior negative-cached the ``{}`` sentinel at the full TTL, making the
+#: whole model store unloadable for minutes after one transient GCS blip.
+_latest_cache_is_failure: bool = False
+_LATEST_FAILURE_TTL = 30.0
+_LATEST_READ_RETRIES = 2  # quick in-call retries before failure semantics engage
+_LATEST_READ_RETRY_BACKOFF_S = 0.5
 
 
 # ── GCS client ───────────────────────────────────────────────
@@ -205,45 +214,83 @@ def _store_in_local(region: str, model_name: str, version: str, data: bytes) -> 
 # ── latest.json ──────────────────────────────────────────────
 
 
-def _read_latest(force: bool = False) -> dict[str, dict[str, str]]:
-    """Read the ``latest.json`` pointer. Returns an empty dict on any failure.
+def _cache_latest_success(value: dict) -> dict:
+    """Cache a VALID pointer read (incl. a legitimately-missing pointer's ``{}``)
+    at the normal TTL."""
+    global _latest_cache, _latest_cache_ts, _latest_cache_is_failure
+    with _latest_cache_lock:
+        _latest_cache = value
+        _latest_cache_ts = time.monotonic()
+        _latest_cache_is_failure = False
+    return value
 
-    The cache is honoured only within ``_LATEST_CACHE_TTL`` (unless ``force``);
-    past that it re-reads so a long-lived web process reflects daily retraining
-    instead of pinning the pointer for its whole lifetime (#271 / P2-10).
+
+def _handle_latest_failure(reason: str) -> dict:
+    """Failure semantics for a pointer read (#272 / P2-11): never let a blip
+    erase a valid pointer.
+
+    * A previously-read value (good pointer OR a legitimately-empty ``{}``)
+      keeps being served — **last-known-good** — so a transient GCS outage
+      mid-process never makes the whole model store unloadable. The pointer
+      only changes on the daily training write, so stale-by-minutes is safe.
+    * Only when there is NO prior value does the sentinel ``{}`` get cached,
+      and then only for ``_LATEST_FAILURE_TTL`` (not the full success TTL), so
+      a cold process re-probes within seconds instead of serving an empty
+      model store for five minutes.
+    """
+    global _latest_cache, _latest_cache_ts, _latest_cache_is_failure
+    with _latest_cache_lock:
+        if _latest_cache is None:
+            _latest_cache = {}
+        else:
+            log.warning("model_latest_serving_stale", reason=reason)
+        _latest_cache_ts = time.monotonic()
+        _latest_cache_is_failure = True  # short re-probe window either way
+        return _latest_cache
+
+
+def _read_latest(force: bool = False) -> dict[str, dict[str, str]]:
+    """Read the ``latest.json`` pointer.
+
+    The cache is honoured only within its TTL (unless ``force``): the normal
+    ``_LATEST_CACHE_TTL`` after a successful read (#271 / P2-10 — a long-lived
+    web process reflects daily retraining), or the short ``_LATEST_FAILURE_TTL``
+    after a FAILED read (#272 / P2-11 — a blip re-probes in seconds). Failures
+    retry briefly in-call and then fall back to the last-known-good pointer
+    rather than negative-caching an empty store; see ``_handle_latest_failure``.
     """
     global _latest_cache, _latest_cache_ts
-    fresh = (time.monotonic() - _latest_cache_ts) < _LATEST_CACHE_TTL
+    ttl = _LATEST_FAILURE_TTL if _latest_cache_is_failure else _LATEST_CACHE_TTL
+    fresh = (time.monotonic() - _latest_cache_ts) < ttl
     if _latest_cache is not None and fresh and not force:
         return _latest_cache
     client = _get_client()
     if client is None:
-        _latest_cache = {}
-        _latest_cache_ts = time.monotonic()
-        return _latest_cache
-    try:
-        bucket = client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(_latest_path())
-        if not blob.exists():
-            _latest_cache = {}
-            _latest_cache_ts = time.monotonic()
-            return _latest_cache
-        data = blob.download_as_text()
-        parsed = json.loads(data)
-        if not isinstance(parsed, dict):
-            log.warning("model_latest_invalid_shape", path=_latest_path())
-            _latest_cache = {}
-            _latest_cache_ts = time.monotonic()
-            return _latest_cache
-        with _latest_cache_lock:
-            _latest_cache = parsed
-            _latest_cache_ts = time.monotonic()
-        return parsed
-    except Exception as e:
-        log.warning("model_latest_read_failed", error=str(e))
-        _latest_cache = {}
-        _latest_cache_ts = time.monotonic()
-        return {}
+        if not GCS_ENABLED:
+            # Dev / GCS-off: an empty store is the VALID answer, not a failure.
+            return _cache_latest_success({})
+        return _handle_latest_failure("client_unavailable")
+    last_exc: Exception | None = None
+    for attempt in range(1 + _LATEST_READ_RETRIES):
+        try:
+            bucket = client.bucket(GCS_BUCKET_NAME)
+            blob = bucket.blob(_latest_path())
+            if not blob.exists():
+                # Legitimately-missing pointer (fresh bucket) — a valid result.
+                return _cache_latest_success({})
+            parsed = json.loads(blob.download_as_text())
+            if not isinstance(parsed, dict):
+                # Corrupted pointer content — won't self-heal until the next
+                # training write; failure semantics (keep last-known-good).
+                log.warning("model_latest_invalid_shape", path=_latest_path())
+                return _handle_latest_failure("invalid_shape")
+            return _cache_latest_success(parsed)
+        except Exception as e:
+            last_exc = e
+            if attempt < _LATEST_READ_RETRIES:
+                time.sleep(_LATEST_READ_RETRY_BACKOFF_S * (attempt + 1))
+    log.warning("model_latest_read_failed", error=str(last_exc))
+    return _handle_latest_failure("read_failed")
 
 
 _LATEST_WRITE_MAX_RETRIES = 5
@@ -324,9 +371,10 @@ def _write_latest(region: str, model_name: str, version: str) -> None:
             )
             return
         with _latest_cache_lock:
-            global _latest_cache, _latest_cache_ts
+            global _latest_cache, _latest_cache_ts, _latest_cache_is_failure
             _latest_cache = current
             _latest_cache_ts = time.monotonic()
+            _latest_cache_is_failure = False
         log.info(
             "model_latest_updated",
             region=region,
@@ -624,10 +672,11 @@ def load_model(region: str, model_name: str) -> tuple[Any, ModelMetadata] | None
 
 def invalidate_latest_cache() -> None:
     """Force the next :func:`load_model` / :func:`get_model_metadata` call to re-read ``latest.json``."""
-    global _latest_cache, _latest_cache_ts
+    global _latest_cache, _latest_cache_ts, _latest_cache_is_failure
     with _latest_cache_lock:
         _latest_cache = None
         _latest_cache_ts = 0.0
+        _latest_cache_is_failure = False
 
 
 def _warn_if_lib_skew(metadata: ModelMetadata) -> None:
