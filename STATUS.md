@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-11
+# Status — updated 2026-07-14
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -152,15 +152,23 @@ block still centered the long-completed 2026-07-03 re-measure keystone; the
 2. **[#274](https://github.com/kristenmartino/gridpulse/issues/274) — backend
    reliability/correctness cluster (7 items).** Medium-severity failure modes
    in jobs/data paths, same family as the shipped #267–#272 criticals.
-3. **#296 follow-through + [#275](https://github.com/kristenmartino/gridpulse/issues/275) + [#196](https://github.com/kristenmartino/gridpulse/issues/196) remnants.**
-   After the #296 PR deploys: confirm `scoring_horizon_guard_flagged` fires for
-   the 8 degenerate BAs (ARIMA-30d withheld honestly), then the 04:00 UTC
-   training run heals orders (`arima_capping_integration` logs; flags clear on
-   the healed BAs) — then close #296. Watch item: weather-normal backfill hits
-   51/51 ~Jul 15 (spot-check + close the #283 tail). Then the #275 doc/config
-   honesty sweep (23 small items) and #196's narrowed remnants (per-model
-   backtest prediction vectors; caption pooled-count semantics + legacy-key
-   dedup; Overview hero flat-width).
+3. **[#275](https://github.com/kristenmartino/gridpulse/issues/275) +
+   [#196](https://github.com/kristenmartino/gridpulse/issues/196) remnants +
+   [#299](https://github.com/kristenmartino/gridpulse/issues/299).**
+   ✅ The #296 follow-through completed 2026-07-14 and the issue is CLOSED on
+   prod evidence: guard flagged the degenerate fleet on every pre-healing run
+   (incl. Prophet collapses on JEA/SEC/LDWP and one flagged SCEG *ensemble*
+   the screenshots never caught), the Jul 12 training run capped all 12
+   doubly-integrated orders (verified in GCS metas: SC (2,0,0), PSCO (2,0,2),
+   BPAT (2,0,1), PJM (0,0,2)…), flags collapsed to zero by Jul 14, and the
+   SC/PSCO/BPAT 30-day ARIMA views verified level on the live site. Remaining
+   in this slot: the #275 doc/config honesty sweep (23 small items), #196's
+   narrowed remnants (per-model backtest prediction vectors; caption
+   pooled-count semantics + legacy-key dedup; Overview hero flat-width), and
+   #299 (Prophet seam bias-correction, filed 2026-07-11). Watch item:
+   weather-normal backfill hits 51/51 ~Jul 15 (spot-check + close the #283
+   tail). Newer follow-up also open: #297 (pmdarima univariate-search fix,
+   needs its own fleet re-validation).
 
 **Blindspot-pass follow-ups (filed 2026-07-07, #253–#256).** Priority order —
 these are the newest tracked gaps and slot ahead of the P2/P3 elegance backlog:
