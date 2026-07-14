@@ -82,6 +82,7 @@ from components._callbacks_shared import (
     _empirical_interval_from_backtests,
     _guard_max_ok,
     _layout,
+    _pipeline_alive,
     _widening_interval_from_backtests,
 )
 from components.accessibility import LINE_STYLES
@@ -429,9 +430,36 @@ def _run_forecast_outlook(
 
     # REQUIRE_REDIS: the scheduled scoring job owns forecast generation.
     # If neither the in-memory cache nor the SQLite cache has a hit, surface
-    # a warming state rather than training inline. The Dash UI treats this
+    # a degraded state rather than training inline. The Dash UI treats this
     # like any other degraded state and renders a skeleton.
     if REQUIRE_REDIS:
+        # P2-35 (#273): "warming — will appear shortly" is only honest while
+        # the pipeline is genuinely cold (first runs after a deploy/flush).
+        # When scoring runs are demonstrably landing — the forecast payload
+        # exists but can't serve this selection, or this region's actuals
+        # are fresh while its forecast key is absent — the state is
+        # PERSISTENT unavailability, and it will not self-heal "shortly".
+        unavailable = False
+        try:
+            forecast_payload = redis_get(redis_key(f"forecast:{region}:1h"))
+            if isinstance(forecast_payload, dict) and forecast_payload.get("forecasts"):
+                unavailable = True  # scoring writes land; this selection can't render
+            elif _pipeline_alive(region):
+                unavailable = True  # pipeline alive, forecast key never lands
+        except Exception:  # pragma: no cover — defensive; keep the softer copy
+            pass
+        if unavailable:
+            log.info(
+                "forecast_unavailable_state",
+                region=region,
+                horizon=horizon_hours,
+                model=model_name,
+            )
+            return {
+                "error": "unavailable",
+                "status": "unavailable",
+                "message": "The pipeline is live but no forecast exists for this selection.",
+            }
         log.info(
             "forecast_warming_state",
             region=region,
@@ -1515,14 +1543,24 @@ def register_forecast_callbacks(app):
         if "error" in result:
             # Soften the warming case (pipeline still populating Redis after
             # a deploy / cache eviction) — that's an expected transient state,
-            # not a hard failure. Keep the loud message for genuine errors.
+            # not a hard failure. The unavailable case (P2-35/#273) is calm
+            # but explicitly NON-transient: the pipeline is live and this
+            # selection still can't render, so "will appear shortly" would
+            # be a forever-lie. Keep the loud message for genuine errors.
             is_warming = result["error"] == "warming"
-            text = (
-                "Pipeline is warming up — forecast will appear shortly"
-                if is_warming
-                else f"Forecast failed: {result['error']}"
-            )
-            color = "#71717a" if is_warming else "#f87171"  # tertiary | danger
+            is_unavailable = result["error"] == "unavailable"
+            if is_warming:
+                text = "Pipeline is warming up — forecast will appear shortly"
+            elif is_unavailable:
+                text = (
+                    f"Forecast unavailable for {region or 'this region'}"
+                    "<br><sup>The data pipeline is live, but no forecast exists for this "
+                    "selection — typically the region's models haven't trained yet or its "
+                    "forecast phase is failing. This won't resolve on its own.</sup>"
+                )
+            else:
+                text = f"Forecast failed: {result['error']}"
+            color = "#71717a" if (is_warming or is_unavailable) else "#f87171"  # tertiary | danger
             fig = go.Figure()
             fig.update_layout(**_layout(uirevision=uirev))
             fig.add_annotation(

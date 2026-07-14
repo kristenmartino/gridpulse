@@ -679,6 +679,35 @@ _MAP_COLORSCALE = [
 ]
 
 
+def _pipeline_alive(region: str, max_age_hours: float = 3.0) -> bool:
+    """True when the scoring pipeline is demonstrably writing this region —
+    a fresh ``actuals:{region}`` ``scored_at`` within ``max_age_hours``
+    (the job runs hourly; 3h = several consecutive missed ticks).
+
+    P2-35 (#273): used to distinguish a genuine cold/warming state (nothing
+    written yet — "will appear shortly" is honest) from a persistently
+    unavailable surface (the pipeline IS running but this region's
+    forecast/alert payload never lands — "shortly" was a forever-lie).
+    Fails closed: any read/parse problem returns False, keeping the softer
+    warming copy.
+    """
+    import pandas as pd
+
+    from data.redis_client import redis_get, redis_key
+
+    try:
+        payload = redis_get(redis_key(f"actuals:{region}"))
+        if not isinstance(payload, dict):
+            return False
+        scored_at = pd.Timestamp(payload.get("scored_at"))
+        if scored_at.tzinfo is None:
+            scored_at = scored_at.tz_localize("UTC")
+        age_hours = (pd.Timestamp.now(tz="UTC") - scored_at) / pd.Timedelta(hours=1)
+        return 0 <= age_hours <= max_age_hours
+    except Exception:
+        return False
+
+
 def _guard_max_ok(entry) -> int | None:
     """Parse a ``horizon_guard`` entry's ``max_ok_horizon``; None if malformed.
 
@@ -725,6 +754,8 @@ __all__ = [
     "_empty_figure",
     # #296 horizon guard
     "_guard_max_ok",
+    # P2-35 warming-vs-unavailable discriminator
+    "_pipeline_alive",
     # Color palette
     "COLORS",
     "_MODEL_BAND_COLORS",

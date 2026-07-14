@@ -219,10 +219,19 @@ def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
         if isinstance(drift_payload, dict):
             models = drift_payload.get("models") or {}
             ens = models.get("ensemble") or {}
-            # Require a meaningful window — 24 hourly records minimum before
-            # the 7d figure is statistically defensible. Below that, it swings
-            # wildly on each new tick.
+            # Require a meaningful window — 24 records minimum inside the
+            # WINDOW before its figure is statistically defensible. P2-21
+            # (#273): ``n_records`` is total retained history (trimmed by
+            # count, not age), so gating on it let a "live 7d" headline rest
+            # on a handful of in-window observations. Gate each window on
+            # its own post-filter count (``n_7d``/``n_30d``); payloads
+            # written before #273 lack the counts — fall back to the old
+            # total-count gate for the one tick until they rewrite.
             n_records = int(ens.get("n_records", 0) or 0)
+            n_7d = ens.get("n_7d")
+            n_30d = ens.get("n_30d")
+            ok_7d = (int(n_7d) >= 24) if n_7d is not None else n_records >= 24
+            ok_30d = (int(n_30d) >= 24) if n_30d is not None else n_records >= 24
             # Track WHICH metric supplied the value — an sMAPE number must
             # never be labeled "MAPE" (2026-07 critical-review finding P1-8;
             # for artifact-prone BAs the two can differ by an order of
@@ -237,9 +246,9 @@ def _resolve_forecast_mape(region: str) -> tuple[float | None, str]:
             if live_30d is None:
                 live_30d = ens.get("rolling_mape_30d")
                 metric_30d = "MAPE"
-            if live_7d is not None and n_records >= 24 and np.isfinite(float(live_7d)):
+            if live_7d is not None and ok_7d and np.isfinite(float(live_7d)):
                 return float(live_7d), f"live 7d {metric_7d}"
-            if live_30d is not None and n_records >= 24 and np.isfinite(float(live_30d)):
+            if live_30d is not None and ok_30d and np.isfinite(float(live_30d)):
                 return float(live_30d), f"live 30d {metric_30d}"
     except Exception as exc:  # pragma: no cover — defensive
         log.debug("forecast_mape_drift_read_failed", region=region, error=str(exc))

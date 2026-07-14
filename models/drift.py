@@ -474,12 +474,17 @@ def compute_drift_payload(
         new_rec = new_records.get(model_name)
         merged = merge_and_trim(prior, new_rec, max_records=max_records)
 
-        # How many of the 7d window's records the low-actual filter excludes —
-        # a transparency signal for the UI / diagnostics (0 for normal regions,
-        # nonzero only where near-zero-actual artifacts occur, e.g. LDWP).
-        _, n_low_excl_7d = filter_low_actuals(
+        # Per-window sample counts (P2-21/#273): the number of records that
+        # actually feed each rolling mean, post low-actual filter. ``n_records``
+        # is the TOTAL retained history (trimmed by count, not age — it can be
+        # dominated by records far older than either window), so consumers
+        # gating "is this 7d figure statistically defensible?" must use
+        # ``n_7d``, never ``n_records``. n_low_excl_7d stays as the
+        # transparency signal for how many the filter dropped.
+        kept_7d, n_low_excl_7d = filter_low_actuals(
             _within_window(merged, WINDOW_7D_HOURS, now_iso=now_iso)
         )
+        kept_30d, _ = filter_low_actuals(_within_window(merged, WINDOW_30D_HOURS, now_iso=now_iso))
 
         models_out[model_name] = {
             # sMAPE is the headline drift metric (bounded, near-zero-robust).
@@ -495,6 +500,8 @@ def compute_drift_payload(
                 merged, WINDOW_30D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
             ),
             "n_records": len(merged),
+            "n_7d": len(kept_7d),
+            "n_30d": len(kept_30d),
             "n_low_actual_excluded_7d": n_low_excl_7d,
             "records": serialize_records(merged),
         }
@@ -640,7 +647,10 @@ def _horizon_rollup_block(
     #227: judge each horizon against its OWN band, not the 1h band."""
     from config import mape_grade
 
-    _, n_low_excl_7d = filter_low_actuals(_within_window(merged, WINDOW_7D_HOURS, now_iso=now_iso))
+    kept_7d, n_low_excl_7d = filter_low_actuals(
+        _within_window(merged, WINDOW_7D_HOURS, now_iso=now_iso)
+    )
+    kept_30d, _ = filter_low_actuals(_within_window(merged, WINDOW_30D_HOURS, now_iso=now_iso))
     mape_7d = rolling_mape(
         merged, WINDOW_7D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
     )
@@ -652,6 +662,10 @@ def _horizon_rollup_block(
             merged, WINDOW_30D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
         ),
         "n_records": len(merged),
+        # P2-21 (#273): per-window post-filter sample counts — the honest
+        # denominators behind the 7d/30d means (n_records is total history).
+        "n_7d": len(kept_7d),
+        "n_30d": len(kept_30d),
         "n_low_actual_excluded_7d": n_low_excl_7d,
         "grade": mape_grade(mape_7d, horizon=grade_horizon) if mape_7d is not None else None,
         "records": serialize_records(merged),
