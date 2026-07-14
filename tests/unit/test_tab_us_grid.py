@@ -285,11 +285,45 @@ class TestSparkline:
         spark = _build_us_grid_sparkline([100.0])
         assert "gp-region-card__sparkline--empty" in spark.className
 
-    def test_two_or_more_values_renders_svg(self):
+    def test_two_or_more_values_renders_real_svg_img(self):
+        """Regression for the dcc.Markdown sanitizer bug: the sparkline must
+        render as an ``html.Img`` carrying a *complete* ``<svg>`` (wrapper +
+        polyline), not a ``dcc.Markdown`` whose outer ``<svg>`` Dash strips —
+        which left an orphaned ``<polyline>`` that never painted.
+        """
+        from urllib.parse import unquote
+
         from components.callbacks import _build_us_grid_sparkline
 
         spark = _build_us_grid_sparkline([100.0, 110.0, 105.0])
         assert spark.className == "gp-region-card__sparkline"
+
+        img = spark.children
+        assert isinstance(img, html.Img), f"expected html.Img, got {type(img)!r}"
+        assert not isinstance(img, dcc.Markdown)
+        assert img.alt == ""
+
+        assert img.src.startswith("data:image/svg+xml,")
+        decoded = unquote(img.src.split(",", 1)[1])
+        # A self-contained <svg> with the polyline *inside* it — not an
+        # orphaned child.
+        assert decoded.startswith("<svg")
+        assert "</svg>" in decoded
+        assert "<polyline" in decoded
+        assert decoded.index("<svg") < decoded.index("<polyline") < decoded.index("</svg>")
+        # currentColor can't inherit inside an <img>, so the accent is baked in.
+        assert 'stroke="#35c6ff"' in decoded
+
+    def test_color_arg_is_baked_into_stroke(self):
+        """The explicit ``color`` arg overrides the default baked stroke."""
+        from urllib.parse import unquote
+
+        from components.callbacks import _build_us_grid_sparkline
+
+        spark = _build_us_grid_sparkline([1.0, 2.0, 3.0], color="#ff0000")
+        decoded = unquote(spark.children.src.split(",", 1)[1])
+        assert 'stroke="#ff0000"' in decoded
+        assert 'stroke="#35c6ff"' not in decoded
 
 
 def _find_by_id(component, target_id):

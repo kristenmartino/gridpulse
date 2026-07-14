@@ -23,6 +23,8 @@ explicit re-import block so existing
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import numpy as np
 import plotly.graph_objects as go
 import structlog
@@ -36,6 +38,7 @@ from components._callbacks_shared import (
     _MAP_LAND_COLOR,
     _MAP_SUBUNIT_COLOR,
     _STRESS_RELIABLE_CEILING,
+    ACCENT,
     _latest_real_demand,
 )
 from components.cards import build_page_title
@@ -393,8 +396,27 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
     ]
 
 
-def _build_us_grid_sparkline(values: list[float]) -> html.Div:
-    """Inline-SVG sparkline for the last ~24h of a region's demand."""
+def _build_us_grid_sparkline(values: list[float], color: str = ACCENT) -> html.Div:
+    """SVG sparkline for the last ~24h of a region's demand.
+
+    Rendered as an ``html.Img`` pointing at a ``data:`` URI rather than
+    ``dcc.Markdown(svg, dangerously_allow_html=True)``: Dash's Markdown
+    sanitizer strips the outer ``<svg>`` tag and keeps only its orphaned
+    ``<polyline>`` child, so the inline-markup approach never actually
+    painted anything. An ``<img>`` renders the SVG as an isolated
+    document, so ``currentColor`` can't inherit the card's accent — the
+    stroke color is therefore baked in explicitly (defaults to the brand
+    accent ``ACCENT``, which mirrors the ``--accent-base`` token the old
+    ``currentColor`` resolved to via ``.gp-region-card__sparkline``).
+
+    Args:
+        values: Recent demand samples (oldest → newest), in MW.
+        color: Stroke color for the polyline. Defaults to the brand accent.
+
+    Returns:
+        ``html.Div`` wrapping an ``html.Img`` sparkline, or an empty
+        marker div when there are fewer than two points to plot.
+    """
     if not values or len(values) < 2:
         return html.Div("", className="gp-region-card__sparkline gp-region-card__sparkline--empty")
 
@@ -409,14 +431,17 @@ def _build_us_grid_sparkline(values: list[float]) -> html.Div:
     )
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width:g} {height:g}" '
-        f'class="gp-region-card__sparkline-svg" preserveAspectRatio="none" '
-        f'aria-hidden="true">'
-        f'<polyline points="{points}" fill="none" stroke="currentColor" '
+        f'preserveAspectRatio="none">'
+        f'<polyline points="{points}" fill="none" stroke="{color}" '
         f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />'
         f"</svg>"
     )
     return html.Div(
-        dcc.Markdown(svg, dangerously_allow_html=True),
+        html.Img(
+            src="data:image/svg+xml," + quote(svg),
+            className="gp-region-card__sparkline-svg",
+            alt="",
+        ),
         className="gp-region-card__sparkline",
     )
 

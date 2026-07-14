@@ -16,7 +16,9 @@ Usage:
 
 from __future__ import annotations
 
-from dash import dcc, html
+from urllib.parse import quote
+
+from dash import html
 
 # ── Lucide path data (MIT) ────────────────────────────────────────────
 # Each value is an SVG inner-fragment string. The wrapper sets common
@@ -113,8 +115,18 @@ def icon(name: str, size: str = "md", className: str | None = None) -> html.Span
         className: Optional extra CSS classes appended to the wrapper.
 
     Returns:
-        ``html.Span`` whose innerHTML is the SVG. Stroke uses
-        ``currentColor`` so callers can theme via ``color: ...``.
+        ``html.Span`` painted by the SVG glyph. The glyph is applied as a
+        CSS ``mask-image`` (a ``data:`` URI) over a ``currentColor``
+        background, so callers still theme the icon with ``color: ...`` —
+        exactly as the prior ``stroke="currentColor"`` inline SVG did.
+
+    Why a mask, not ``dcc.Markdown`` or ``<img>``: Dash's Markdown
+    sanitizer strips the outer ``<svg>`` tag (keeping only its orphaned
+    ``<path>`` children), so the inline-markup approach never actually
+    painted. An ``<img>`` with a ``data:`` URI paints, but its SVG is an
+    isolated document that can't inherit ``currentColor`` — icons render
+    in many colors (danger / warning / muted / accent), so a baked color
+    won't do. A CSS mask paints *and* keeps color inheritance.
     """
     path = _PATHS.get(name)
     if path is None:
@@ -123,18 +135,23 @@ def icon(name: str, size: str = "md", className: str | None = None) -> html.Span
         return html.Span(className=f"icon icon--{size} icon--missing")
 
     px = _SIZES.get(size, _SIZES["md"])
+    # The stroke color baked here is irrelevant to the rendered result: the
+    # mask uses only the glyph's alpha, and the visible color comes from
+    # ``background-color: currentColor`` showing through. An opaque stroke
+    # is required so the drawn lines have alpha=1.
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{px}" height="{px}" '
-        'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" '
-        f'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{path}</svg>'
+        'viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" '
+        f'stroke-linecap="round" stroke-linejoin="round">{path}</svg>'
     )
+    mask = f"url('data:image/svg+xml,{quote(svg)}')"
     cls = f"icon icon--{size}"
     if className:
         cls = f"{cls} {className}"
-    # Dash-html doesn't expose a "raw HTML" sink, so the SVG goes through
-    # dcc.Markdown which (with dangerously_allow_html) passes inline SVG
-    # straight through to the DOM. Same pattern the header monogram uses.
+    # Only the mask-image is dynamic (per glyph); size, background-color,
+    # and mask geometry come from the ``.icon`` / ``.icon--{size}`` rules
+    # in custom.css (matching the pre-existing CSS-driven icon sizing).
     return html.Span(
-        dcc.Markdown(svg, dangerously_allow_html=True),
         className=cls,
+        style={"maskImage": mask, "WebkitMaskImage": mask},
     )
