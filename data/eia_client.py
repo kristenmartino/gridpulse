@@ -341,6 +341,13 @@ def fetch_generation_by_fuel(
         parser=lambda records: _parse_generation_records(records, region),
         empty_cols=["timestamp", "fuel_type", "generation_mw", "region"],
         use_cache=use_cache,
+        # P2-08 (#273): with nulls now preserved as NaN, an all-null window
+        # must route to the last-known-good chain like demand does — NOT
+        # parse to a rows-present all-NaN frame that gets cached 24h and
+        # written over the GCS last-known-good (verification HIGH). Safe
+        # only because _parse_mw_value has no 0→NaN coercion: a legitimate
+        # all-zero window parses to 0.0 and can never trip this gate.
+        value_col="generation_mw",
     )
 
 
@@ -384,6 +391,10 @@ def fetch_interchange(
         parser=lambda records: _parse_interchange_records(records),
         empty_cols=["timestamp", "from_ba", "to_ba", "interchange_mw"],
         use_cache=use_cache,
+        # P2-08 (#273): same all-NaN gate as generation — see the comment
+        # there. Keeps a transient all-null window on the last-known-good
+        # snapshot instead of poisoning cache/GCS and blanking the chip.
+        value_col="interchange_mw",
     )
 
 

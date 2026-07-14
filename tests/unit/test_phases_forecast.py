@@ -1160,8 +1160,15 @@ class TestFutureFrameHolidayFlag:
 
 
 class TestWriteGenerationNullHonesty:
-    """P2-08 (#273): parsed EIA nulls (now NaN) must never fabricate 0 MW
-    generation readings in the served payload."""
+    """P2-08 (#273): an ALL-null generation window must never serve/cache an
+    all-zero payload (the poison class #279 closed for demand).
+
+    Scope note (verification catch): a PARTIAL null — one fuel null at an
+    hour where others report — still reads 0 in the served series, because
+    the post-pivot fillna(0) cannot distinguish a dropped null row from a
+    fuel-column alignment gap. That residual matches pre-fix behavior and
+    is tracked as a #273 follow-up (nullable payload lists + NaN-aware
+    consumers); these tests deliberately do NOT claim it fixed."""
 
     def _run(self, gen_df, fake_redis, monkeypatch):
         import jobs.phases as phases

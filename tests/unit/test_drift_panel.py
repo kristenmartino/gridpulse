@@ -10,8 +10,10 @@ The function reads:
 
 …and renders a per-model table with 1h-grade chips classifying each model
 by its LIVE 1h-ahead MAPE's own governance grade (``mape_grade`` on the
-**1-hour-ahead** band — the drift metric is 1h-ahead), with the
-live÷holdout ratio shown for reference only (#217, band fixed to 1h).
+**1-hour-ahead** band — the drift metric is 1h-ahead). The former
+live÷holdout ratio column was removed in #273: the holdout is the
+training job's 168h recursive score — context at a different lead, not
+comparable (band fixed to 1h per #217).
 
 **Verdict-confirmation rule (#217 de-alarm):** a model above the 5% 1h
 band only gets the "Rollback" verdict when its own 24h-ahead grade (from
@@ -212,8 +214,45 @@ class TestWarmingStates:
 class TestStatusThresholds:
     """Status derives from the LIVE 1h-ahead MAPE's own governance grade
     (``mape_grade`` on the **1-hour-ahead** band — the drift metric is
-    1h-ahead), NOT a cross-horizon live÷holdout ratio (#217). 1h bands:
+    1h-ahead), NOT a cross-horizon live÷holdout ratio (#217; the ratio
+    column itself was removed entirely in #273). 1h bands:
     excellent ≤1.0, target ≤2.5, acceptable ≤5.0, rollback >5.0."""
+
+
+class TestLeadHonestLabels:
+    """#273: the panel's columns carry their forecast leads and the ratio
+    column is gone — a full or partial revert of the label fix must fail."""
+
+    @patch("components._callbacks_models.redis_get")
+    @patch("models.model_service.get_model_metrics")
+    def test_headers_carry_leads_and_ratio_column_is_gone(self, mock_metrics, mock_redis_get):
+        from components._callbacks_models import _build_drift_panel
+
+        mock_redis_get.return_value = _drift_payload(xgboost=_drift_model(0.8))
+        mock_metrics.return_value = _holdout_metrics(xgboost=4.3)
+
+        result = _build_drift_panel("PJM")
+        text = _find_all_text(result)
+        assert "Holdout (168h recursive)" in text
+        assert "Live 1h-ahead (7d avg)" in text
+        assert "Live 1h-ahead (30d avg)" in text
+        assert "not directly comparable" in text
+        assert "Live ÷ Holdout" not in text
+        assert "×" not in text  # no rendered ratio values
+
+        # No cell carries the retired ratio class anywhere in the tree.
+        def _has_ratio_cell(node) -> bool:
+            cls = getattr(node, "className", "") or ""
+            if "gp-drift-cell--ratio" in cls:
+                return True
+            children = getattr(node, "children", None)
+            if isinstance(children, (list, tuple)):
+                return any(_has_ratio_cell(c) for c in children)
+            if children is not None and not isinstance(children, str):
+                return _has_ratio_cell(children)
+            return False
+
+        assert not _has_ratio_cell(result)
 
     @patch("components._callbacks_models.redis_get")
     @patch("models.model_service.get_model_metrics")

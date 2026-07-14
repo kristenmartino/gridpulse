@@ -292,10 +292,16 @@ def write_generation(region: str) -> PhaseResult:
         gen_df["timestamp"] = pd.to_datetime(gen_df["timestamp"])
 
         # P2-08 (#273): the parser now preserves EIA nulls as NaN instead of
-        # fabricating 0 MW readings. Drop them before the pivot so a missing
-        # observation never deflates a fuel's series or the renewable share;
-        # the pivot's fillna(0) below then only fills fuel-column ALIGNMENT
-        # gaps (hours where a fuel has no row at all), not parsed nulls.
+        # fabricating readings, and an ALL-null window returns an honest
+        # empty result below instead of serving zeros (the upstream
+        # value_col gate in eia_client additionally routes that case to
+        # last-known-good before it ever reaches here). KNOWN RESIDUAL,
+        # deliberately unchanged in this pass: a null for ONE fuel at an
+        # hour where other fuels report still reads 0 in the served series,
+        # because after dropna the pivot's fillna(0) can't distinguish a
+        # parsed null from a fuel-column alignment gap. Fixing that needs
+        # nullable payload lists plus NaN-aware aggregation in all three
+        # consumer surfaces — tracked as a #273 follow-up, not claimed here.
         gen_df = gen_df.dropna(subset=["generation_mw"])
         if gen_df.empty:
             log.info("job_generation_all_null", region=region)
