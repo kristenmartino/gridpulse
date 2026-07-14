@@ -16,7 +16,7 @@ existing IDs as inner spans of MetricsBar cells / ModelMetricsCard slots.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from components.cards import build_page_footer
+from components.cards import metric_label_with_help
 
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
@@ -143,15 +143,35 @@ def _metrics_bar() -> html.Div:
     populates the children of each ID; this layout just provides the
     structural shell + label/unit text.
     """
+    # Branded dbc.Tooltip on each metric label's ``ⓘ`` glyph — replaces the
+    # native ``title=`` (audit's weakest craft area) and matches the Overview
+    # KPI bar's affordance. Stable ``outlook-*-help`` ids, so no collision
+    # with build_metrics_bar's ``gp-mhelp-*`` ids.
+    peak_label, peak_tt = metric_label_with_help(
+        "Peak Demand",
+        "Highest forecasted demand over the selected horizon (default 7 days).",
+        "outlook-peak-help",
+    )
+    avg_label, avg_tt = metric_label_with_help(
+        "Average",
+        "Mean forecasted demand over the selected horizon.",
+        "outlook-avg-help",
+    )
+    min_label, min_tt = metric_label_with_help(
+        "Min Demand",
+        "Lowest forecasted demand over the selected horizon.",
+        "outlook-min-help",
+    )
+    range_label, range_tt = metric_label_with_help(
+        "Range",
+        "Forecast peak − forecast min over the selected horizon.",
+        "outlook-range-help",
+    )
     cells = [
         # Peak (hero)
         html.Div(
             [
-                html.Div(
-                    "Peak Demand",
-                    className="gp-metric-label",
-                    title="Highest forecasted demand over the selected horizon (default 7 days).",
-                ),
+                peak_label,
                 html.Div(
                     [
                         html.Span(
@@ -170,11 +190,7 @@ def _metrics_bar() -> html.Div:
         # Average
         html.Div(
             [
-                html.Div(
-                    "Average",
-                    className="gp-metric-label",
-                    title="Mean forecasted demand over the selected horizon.",
-                ),
+                avg_label,
                 html.Div(
                     [
                         html.Span(
@@ -193,11 +209,7 @@ def _metrics_bar() -> html.Div:
         # Min
         html.Div(
             [
-                html.Div(
-                    "Min Demand",
-                    className="gp-metric-label",
-                    title="Lowest forecasted demand over the selected horizon.",
-                ),
+                min_label,
                 html.Div(
                     [
                         html.Span(
@@ -216,11 +228,7 @@ def _metrics_bar() -> html.Div:
         # Range
         html.Div(
             [
-                html.Div(
-                    "Range",
-                    className="gp-metric-label",
-                    title="Forecast peak − forecast min over the selected horizon.",
-                ),
+                range_label,
                 html.Div(
                     [
                         html.Span(
@@ -237,7 +245,10 @@ def _metrics_bar() -> html.Div:
             className="gp-metric-cell",
         ),
     ]
-    return html.Div(cells, className="gp-metrics-bar gp-metrics-bar--4up")
+    return html.Div(
+        cells + [peak_tt, avg_tt, min_tt, range_tt],
+        className="gp-metrics-bar gp-metrics-bar--4up",
+    )
 
 
 def _panel_toggle_strip() -> html.Div:
@@ -527,8 +538,8 @@ def layout() -> html.Div:
                     _panel_generation(),
                     # 7c. Scenarios panel (R4a-4 — working)
                     _panel_scenarios(),
-                    # 8. Footer
-                    build_page_footer(),
+                    # Footer promoted to a single app-level footer
+                    # (components/layout.py build_layout()).
                 ],
                 className="gp-section-stack",
             ),

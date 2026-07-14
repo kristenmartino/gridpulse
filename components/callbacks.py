@@ -695,6 +695,39 @@ def register_callbacks(app):
             style={"color": color, "fontSize": "0.75rem", "fontWeight": "500"},
         )
 
+    # ── App-level footer freshness anchor ─────────────────────
+    # Mirrors the header-freshness signal (same data-freshness-store) so the
+    # single app-level footer carries a machine-readable data-last-updated
+    # timestamp + a visible "Updated …" line. Honest about warming: renders an
+    # em dash until a real latest_data value exists.
+
+    @app.callback(
+        [
+            Output("footer-last-updated", "children"),
+            Output("footer-last-updated", "data-last-updated"),
+        ],
+        Input("data-freshness-store", "data"),
+    )
+    def update_footer_last_updated(freshness_json):
+        import json
+        from datetime import datetime
+
+        if not freshness_json:
+            return "Updated —", ""
+        try:
+            freshness = json.loads(freshness_json)
+        except (ValueError, TypeError):
+            return "Updated —", ""
+
+        latest_data = freshness.get("latest_data", "") if isinstance(freshness, dict) else ""
+        if not latest_data:
+            return "Updated —", ""
+        try:
+            latest_dt = datetime.fromisoformat(str(latest_data).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            return "Updated —", ""
+        return f"Updated {latest_dt.strftime('%b %d %H:%M UTC')}", str(latest_data)
+
     # ── SPRINT 4: C2 — SCENARIO BOOKMARKS (URL STATE) ─────────
 
     @app.callback(

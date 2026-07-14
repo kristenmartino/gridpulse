@@ -110,23 +110,37 @@ def slider_aria_label(name: str, value: float, unit: str, min_val: float, max_va
 
 def forecast_summary(
     region: str,
-    peak_mw: float,
-    peak_time: str,
-    mape: float,
-    headroom_pct: float,
+    peak_mw: float | None = None,
+    peak_time: str | None = None,
+    mape: float | None = None,
+    headroom_pct: float | None = None,
+    mape_label: str = "MAPE",
 ) -> str:
     """
     Generate a screen-reader-friendly summary of the demand forecast tab.
 
+    Honesty rule: only clauses backed by a real value are emitted. Any of
+    ``peak_mw``/``peak_time``, ``mape``, or ``headroom_pct`` left as ``None``
+    is dropped rather than announced as a fabricated or zero figure, so the
+    aria-live region respects the warming/unavailable states.
+
+    ``mape_label`` is rendered verbatim next to the accuracy figure — pass
+    the metric name actually used (e.g. ``"sMAPE"`` or ``"live 7d MAPE"``)
+    so an sMAPE value is never announced as MAPE.
+
     Returns:
         Plain text summary suitable for aria-live regions.
     """
-    return (
-        f"Demand forecast for {region}. "
-        f"Today's peak demand is forecast at {peak_mw:,.0f} megawatts at {peak_time}. "
-        f"Forecast accuracy over the past 7 days is {mape:.1f}% MAPE. "
-        f"Capacity headroom is {headroom_pct:.0f}%."
-    )
+    parts = [f"Demand forecast for {region}."]
+    if peak_mw is not None and peak_time:
+        parts.append(
+            f"Today's peak demand is forecast at {peak_mw:,.0f} megawatts at {peak_time}."
+        )
+    if mape is not None:
+        parts.append(f"Recent forecast accuracy is {mape:.1f}% {mape_label}.")
+    if headroom_pct is not None:
+        parts.append(f"Capacity headroom is {headroom_pct:.0f}%.")
+    return " ".join(parts)
 
 
 def scenario_summary(

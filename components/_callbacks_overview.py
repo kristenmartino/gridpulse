@@ -77,7 +77,7 @@ from components._callbacks_shared import (
     _latest_real_demand,
     _layout,
 )
-from components.accessibility import CB_PALETTE
+from components.accessibility import CB_PALETTE, forecast_summary
 from components.cards import (
     build_insight_card,
     build_kpi_row,
@@ -794,6 +794,53 @@ def _build_overview_insight(
     }
     eyebrow = eyebrow_map.get(persona_id, "Summary")
     return build_insight_card(eyebrow, body)
+
+
+def _build_overview_sr_summary(region: str) -> str:
+    """Plain-text Overview forecast summary for the aria-live region.
+
+    Honesty rule (mirrors the visible insight card / hero chart): announce
+    only values backed by real data. The forecast peak comes from the same
+    Redis ensemble payload the hero chart reads — ``None`` (dropped) when
+    Redis is cold — and the accuracy figure from ``_resolve_forecast_mape``,
+    which returns ``None`` when no live-drift/holdout metric exists. When
+    neither is available (warming / unavailable), announce a warming state
+    instead of a fabricated headline. ``mape_source`` is passed through as
+    the metric label so an sMAPE number is never announced as MAPE.
+    """
+    region_name = REGION_NAMES.get(region, region)
+
+    peak_mw: float | None = None
+    peak_time: str | None = None
+    try:
+        payload = _read_ensemble_forecast_from_redis(region)
+        if payload is not None:
+            forecast_ts_all, ensemble_arr, _ = payload
+            horizon = min(24, len(ensemble_arr))
+            if horizon > 0:
+                f_arr = ensemble_arr[:horizon]
+                peak_mw = float(f_arr.max())
+                peak_time = f"{forecast_ts_all[int(f_arr.argmax())].strftime('%H:%M')} UTC"
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("overview_sr_summary_forecast_failed", region=region, error=str(exc))
+
+    mape_value, mape_source = _resolve_forecast_mape(region)
+
+    # No real forecast and no real accuracy metric → warming state, not a
+    # hollow "Demand forecast for X." with nothing behind it.
+    if peak_mw is None and mape_value is None:
+        return (
+            f"Demand data for {region_name} is warming up. The forecast summary "
+            "will populate after the next pipeline cycle."
+        )
+
+    return forecast_summary(
+        region_name,
+        peak_mw=peak_mw,
+        peak_time=peak_time,
+        mape=mape_value,
+        mape_label=mape_source or "MAPE",
+    )
 
 
 # ── Overview panels block (Step 7b — drivers / generation / models / risk / scenarios) ──
@@ -2581,6 +2628,7 @@ def register_overview_callbacks(app):
             Output("overview-spotlight-chart", "figure"),
             Output("overview-model-card", "children"),
             Output("overview-insight-card", "children"),
+            Output("overview-sr-summary", "children"),
         ],
         [
             Input("demand-store", "data"),
@@ -2598,7 +2646,7 @@ def register_overview_callbacks(app):
     ):
         """Render the v2 linear-stack Overview: title, metrics, chart, model, insight."""
         if active_tab != "tab-overview":
-            return [no_update] * 5
+            return [no_update] * 6
 
         persona_id = persona_id or "grid_ops"
         region = region or "FPL"
@@ -2628,7 +2676,11 @@ def register_overview_callbacks(app):
             # 5. InsightCard
             insight = _build_overview_insight(region, demand_df, persona_id)
 
-            return (title, metrics_bar, chart, model_card, insight)
+            # 6. Screen-reader forecast summary (aria-live region). Built from
+            #    the same honest Redis reads as the hero chart / insight above.
+            sr_summary = _build_overview_sr_summary(region)
+
+            return (title, metrics_bar, chart, model_card, insight, sr_summary)
         except Exception as exc:
             log.exception("update_overview_tab_failed")
             err_msg = f"{type(exc).__name__}: {exc}"
@@ -2636,7 +2688,9 @@ def register_overview_callbacks(app):
                 err_msg,
                 style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
             )
-            return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div)
+            # Leave the aria-live region untouched on error — don't read a
+            # Python exception string out to screen-reader users.
+            return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div, no_update)
 
 
 __all__ = [
@@ -2646,6 +2700,7 @@ __all__ = [
     "_build_overview_hero_chart",
     "_build_overview_model_card",
     "_build_overview_insight",
+    "_build_overview_sr_summary",
     # 7b — Overview panels
     "_fetch_generation_cached",
     "_build_drivers_panel",

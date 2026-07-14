@@ -17,6 +17,9 @@ class Persona:
     id: str
     name: str
     title: str
+    # Short 2-letter initials mark shown in the persona switcher. Replaced the
+    # emoji avatars (top-design pass): emoji undercut the premium, professional
+    # read, and a native <select> <option> can't host an inline SVG icon.
     avatar: str
     default_tab: str
     priority_tabs: list[str]
@@ -32,7 +35,7 @@ PERSONAS: dict[str, Persona] = {
         id="grid_ops",
         name="Sarah",
         title="Grid Operations Manager",
-        avatar="👩‍💼",
+        avatar="GO",
         default_tab="tab-overview",
         priority_tabs=[
             "tab-overview",
@@ -61,7 +64,7 @@ PERSONAS: dict[str, Persona] = {
         id="renewables",
         name="James",
         title="Renewables Portfolio Analyst",
-        avatar="🌱",
+        avatar="RP",
         default_tab="tab-overview",
         priority_tabs=[
             "tab-overview",
@@ -90,7 +93,7 @@ PERSONAS: dict[str, Persona] = {
         id="trader",
         name="Maria",
         title="Energy Trader",
-        avatar="📊",
+        avatar="ET",
         default_tab="tab-overview",
         priority_tabs=[
             "tab-overview",
@@ -119,7 +122,7 @@ PERSONAS: dict[str, Persona] = {
         id="data_scientist",
         name="Dev",
         title="Data Scientist",
-        avatar="🔬",
+        avatar="DS",
         default_tab="tab-overview",
         priority_tabs=[
             "tab-overview",

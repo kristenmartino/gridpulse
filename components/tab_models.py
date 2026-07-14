@@ -17,8 +17,6 @@ to work without signature changes.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from components.cards import build_page_footer
-
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
@@ -186,10 +184,13 @@ def layout() -> html.Div:
                     _error_shap_grid(),
                     # 7. InsightCard (existing tab3-insight-card)
                     html.Div(id="tab3-insight-card", className="gp-insight-card-slot"),
-                    # 8. Footer
-                    build_page_footer(
-                        sources=["EIA", "Open-Meteo"],
-                        note="Backtests run on the most recent week of holdout data.",
+                    # Attribution moved to the single app-level footer
+                    # (components/layout.py). The holdout-window caption is
+                    # Models-specific, so it stays here as an inline note.
+                    html.P(
+                        "Backtests run on the most recent week of holdout data.",
+                        className="gp-model-card__caption",
+                        style={"fontSize": "11px", "opacity": 0.6},
                     ),
                 ],
                 className="gp-section-stack",

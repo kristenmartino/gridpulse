@@ -111,7 +111,16 @@
     --shadow-xs: none;
     --shadow-sm: none;
     --shadow-md: none;
-    --shadow-focus: 0 0 0 3px var(--accent-ring);
+    /* Focus ring — the single source of truth for every :focus-visible
+     * indicator (dual-layer Radix/Vercel pattern): an inner 2px gap in
+     * --bg-base that follows the element's own radius, then a solid 4px
+     * --accent-base ring. Solid (not --accent-ring's 32% tint) so the
+     * indicator clears WCAG 2.1 SC 1.4.11 (3:1) on every surface tier and
+     * stays clearly visible — the audit's preserve-guardrail. */
+    --focus-ring: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent-base);
+    /* Back-compat alias — legacy rules that referenced --shadow-focus now
+     * resolve to the same dual-layer ring so focus treatment is uniform. */
+    --shadow-focus: var(--focus-ring);
     --edge-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
 
     /* Layout — content column. Widened from max-w-5xl (1024px) so charts and
@@ -380,10 +389,10 @@ body::after {
 button,
 [role="button"],
 .nav-link,
-.preset-btn,
 .gp-panel-toggle,
 .gp-preset-chip,
 .gp-header__link,
+.gp-btn,
 .gp-segmented .form-check-label,
 .cross-tab-link,
 .overview-quick-nav-card {
@@ -502,16 +511,9 @@ body.briefing .dashboard-header::after {
     pointer-events: none;
 }
 
-/* Exit-briefing button — emphasize so users can find it again */
-body.briefing #meeting-mode-btn.gp-header__link {
-    color: var(--accent-base);
-    background: var(--accent-dim);
-}
-
-body.briefing #meeting-mode-btn.gp-header__link:hover {
-    color: var(--text-primary);
-    background: var(--accent-base);
-}
+/* Exit-briefing button — the #meeting-mode-btn now carries .gp-btn--primary
+ * (the primary CTA), whose accent-tinted rest + accent-fill hover already
+ * emphasize it in briefing mode, so no briefing-specific override is needed. */
 
 /* ── v2 Linear Stack Components (R2 of shell-redesign-v2.md) ───────────
  *
@@ -595,6 +597,62 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     text-transform: uppercase;
     letter-spacing: 0.08em;
     line-height: 1.2;
+}
+
+/* Metric-help ⓘ glyph — the affordance for a branded dbc.Tooltip (replaces
+ * the native title=). Quiet by default; brightens to accent on hover/focus.
+ * The span is keyboard-focusable (tabIndex) so the tooltip is reachable
+ * without a mouse. letter-spacing/transform reset out of the parent label. */
+.gp-metric-help {
+    display: inline-block;
+    margin-left: var(--space-1);
+    font-size: 0.85em;
+    line-height: 1;
+    color: var(--text-tertiary);
+    opacity: 0.55;
+    cursor: help;
+    text-transform: none;
+    letter-spacing: normal;
+    transition: opacity var(--duration-fast) var(--ease),
+                color var(--duration-fast) var(--ease);
+}
+
+.gp-metric-help:hover,
+.gp-metric-help:focus-visible {
+    opacity: 1;
+    color: var(--accent-base);
+}
+
+/* Branded tooltip (dark tokens) — applied via className="gp-tooltip" on
+ * dbc.Tooltip. Overrides Bootstrap's default light tooltip with the BS 5.3
+ * CSS variables plus an inner border + shadow for a premium, calm read. */
+.gp-tooltip {
+    --bs-tooltip-bg: var(--bg-elevated);
+    --bs-tooltip-color: var(--text-secondary);
+    --bs-tooltip-max-width: 264px;
+    --bs-tooltip-opacity: 1;
+    --bs-tooltip-font-size: var(--text-xs);
+    --bs-tooltip-border-radius: var(--radius-md);
+    --bs-tooltip-padding-x: var(--space-3);
+    --bs-tooltip-padding-y: var(--space-2);
+}
+
+.gp-tooltip .tooltip-inner {
+    border: 1px solid var(--border-default);
+    box-shadow: var(--edge-highlight), 0 6px 20px rgba(0, 0, 0, 0.45);
+    text-align: left;
+    line-height: var(--leading-base);
+    font-weight: 400;
+    letter-spacing: normal;
+    text-transform: none;
+}
+
+/* Arrow tracks the surface color across every popper placement. */
+.gp-tooltip .tooltip-arrow::before {
+    border-top-color: var(--bg-elevated);
+    border-bottom-color: var(--bg-elevated);
+    border-left-color: var(--bg-elevated);
+    border-right-color: var(--bg-elevated);
 }
 
 .gp-metric-value-row {
@@ -1554,6 +1612,48 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     box-shadow: var(--shadow-focus);
 }
 
+/* ── Primary CTA ──────────────────────────────────────────
+ * The single highest-intent header action (Briefing Mode). A restrained
+ * accent-tinted fill — calm at rest, confident on hover — rather than a
+ * loud solid fill, so it reads as primary without overpowering the dark
+ * header. Distinct from the quiet text-only .gp-header__link actions. */
+.gp-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    height: 28px;
+    padding: 0 var(--space-3);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-radius: var(--radius-md);
+    background: transparent;
+    transition: background-color var(--duration-fast) var(--ease),
+                border-color var(--duration-fast) var(--ease),
+                color var(--duration-fast) var(--ease);
+}
+
+.gp-btn--primary {
+    color: var(--accent-base);
+    background: var(--accent-dim);
+    border-color: var(--accent-ring);
+}
+
+.gp-btn--primary:hover {
+    color: var(--bg-base);
+    background: var(--accent-base);
+    border-color: var(--accent-base);
+}
+
+.gp-btn--primary:focus-visible {
+    outline: none;
+    box-shadow: var(--shadow-focus);
+}
+
 /* Tab strip below the header — also bounded to max-w-5xl for visual balance */
 .dashboard-tabs,
 .gp-tabs-shell {
@@ -1568,7 +1668,8 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     }
 
     .gp-header__chip,
-    .gp-header__link {
+    .gp-header__link,
+    .gp-btn--primary {
         display: none;  /* keep only brand + region selector on phones */
     }
 }
@@ -1614,33 +1715,6 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     outline: none;
     border-color: var(--accent-base);
     box-shadow: var(--shadow-focus);
-}
-
-/* ── Welcome Card ──────────────────────────────────────── */
-.welcome-card {
-    background: var(--bg-raised);
-    border: 1px solid var(--border-subtle);
-    border-left: 3px solid var(--accent-base);
-    border-radius: var(--radius-lg);
-    padding: var(--space-4) var(--space-5);
-    margin: var(--space-3) 0;
-    box-shadow: var(--shadow-xs);
-    animation: fadeIn var(--duration-slow) var(--ease);
-}
-
-.welcome-card .welcome-title {
-    color: var(--text-primary);
-    font-size: var(--text-md);
-    font-weight: 600;
-    margin-bottom: var(--space-1);
-    letter-spacing: -0.005em;
-}
-
-.welcome-card .welcome-message {
-    color: var(--text-tertiary);
-    font-size: var(--text-base);
-    line-height: var(--leading-base);
-    margin: 0;
 }
 
 /* ── KPI Cards ─────────────────────────────────────────── */
@@ -1744,33 +1818,6 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     padding: var(--space-4);
 }
 
-/* ── Charts ────────────────────────────────────────────── */
-.chart-container {
-    background: var(--bg-raised);
-    border-radius: var(--radius-lg);
-    padding: var(--space-3);
-    margin-bottom: var(--space-3);
-    box-shadow:
-        0 0 0 1px var(--border-subtle),
-        0 1px 2px rgba(0, 0, 0, 0.24);
-    transition: box-shadow 80ms var(--ease-in-quint);
-}
-
-.chart-container:hover {
-    box-shadow:
-        0 0 0 1px var(--border-default),
-        0 1px 2px rgba(0, 0, 0, 0.24);
-    transition: box-shadow 120ms var(--ease-out-quint);
-}
-
-.chart-title {
-    color: var(--text-primary);
-    font-size: var(--text-md);
-    font-weight: 500;
-    margin-bottom: var(--space-2);
-    letter-spacing: -0.005em;
-}
-
 /* ── Section Header (new, shared across tabs) ─────────── */
 .section-header {
     display: flex;
@@ -1838,56 +1885,6 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     box-shadow: var(--shadow-sm);
 }
 
-/* ── What Changed Card ────────────────────────────────── */
-.changes-card {
-    background: var(--bg-raised);
-    border: 1px solid var(--border-subtle);
-    border-left: 3px solid var(--warning);
-    border-radius: var(--radius-lg);
-    padding: var(--space-3) var(--space-4);
-    margin: var(--space-2) 0;
-    box-shadow: var(--shadow-xs);
-    animation: fadeIn var(--duration-slow) var(--ease);
-}
-
-.changes-card:empty {
-    display: none;
-}
-
-.changes-card .changes-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-2);
-}
-
-.changes-card .changes-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: var(--text-base);
-}
-
-.changes-card .changes-timestamp {
-    color: var(--text-tertiary);
-    font-size: var(--text-xs);
-}
-
-.changes-card .change-item {
-    padding: var(--space-1) 0;
-    border-bottom: 1px solid var(--border-subtle);
-    font-size: var(--text-base);
-    color: var(--text-secondary);
-    line-height: var(--leading-base);
-}
-
-.changes-card .change-item:last-child {
-    border-bottom: none;
-}
-
-.changes-card .change-icon {
-    margin-right: var(--space-2);
-}
-
 /* ── Scenario Simulator Sliders ───────────────────────── */
 .slider-container {
     background: var(--bg-raised);
@@ -1907,42 +1904,6 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     color: var(--text-primary);
     font-weight: 600;
     font-size: var(--text-base);
-}
-
-/* ── Preset Scenario Buttons ──────────────────────────── */
-.preset-btn {
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-default);
-    color: var(--text-secondary);
-    font-size: var(--text-sm);
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-md);
-    transition: background 80ms var(--ease-in-quint),
-                border-color 80ms var(--ease-in-quint),
-                color 80ms var(--ease-in-quint);
-    width: 100%;
-    text-align: left;
-    margin-bottom: var(--space-2);
-}
-
-.preset-btn:hover {
-    background: var(--bg-hover);
-    border-color: var(--border-strong);
-    color: var(--text-primary);
-    transition: background 120ms var(--ease-out-quint),
-                border-color 120ms var(--ease-out-quint),
-                color 120ms var(--ease-out-quint);
-}
-
-.preset-btn .preset-name {
-    font-weight: 600;
-    display: block;
-    color: var(--text-primary);
-}
-
-.preset-btn .preset-meta {
-    color: var(--text-tertiary);
-    font-size: var(--text-xs);
 }
 
 /* ── Alerts ────────────────────────────────────────────── */
@@ -2221,14 +2182,7 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     .dashboard-header { padding: var(--space-2) var(--space-3); }
     .nav-tabs .nav-link { padding: var(--space-2) var(--space-3); font-size: var(--text-xs); }
     .slider-container { padding: var(--space-3); }
-    .chart-container { padding: var(--space-2); }
     .news-ribbon-card { flex: 0 0 220px; }
-}
-
-@media (min-width: 1440px) {
-    /* .kpi-value font-size now scales fluidly via --text-display; the
-     * stepwise override at this breakpoint is no longer needed. */
-    .chart-container { padding: var(--space-4); }
 }
 
 @media (min-width: 1920px) {
@@ -2237,26 +2191,16 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 }
 
 /* ── Focus Indicators (Accessibility) ─────────────────── */
-/* Dual-layer ring (Radix/Vercel pattern):
- *   inner 2px in --bg-base creates a clean gap that follows the element's
- *   own border-radius; outer 2px in --accent-base is the visible ring.
- *   Avoids the awkward outline-offset on rounded corners. */
+/* Every :focus-visible indicator resolves to the single --focus-ring token
+ * (defined in :root) — a dual-layer Radix/Vercel ring: an inner 2px gap in
+ * --bg-base that follows the element's own border-radius, then a solid 4px
+ * --accent-base ring. Consolidating onto one token keeps focus uniform and
+ * avoids the awkward outline-offset regressions on rounded corners.
+ * nav-links intentionally have NO override here — they inherit --focus-ring
+ * from this universal rule like everything else. */
 *:focus-visible {
     outline: none;
-    box-shadow:
-        0 0 0 2px var(--bg-base),
-        0 0 0 4px var(--accent-base);
-}
-
-.nav-tabs .nav-link:focus-visible {
-    outline: 2px solid var(--accent-base);
-    outline-offset: -2px;
-}
-
-.preset-btn:focus-visible {
-    outline: none;
-    border-color: var(--accent-base);
-    box-shadow: var(--shadow-focus);
+    box-shadow: var(--focus-ring);
 }
 
 /* ── Screen Reader Only ───────────────────────────────── */
@@ -2326,9 +2270,7 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 
 /* ── Reduced Motion ───────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-    .welcome-card,
     .insight-card,
-    .changes-card,
     .briefing-card { animation: none; }
     .overview-quick-nav-card { transition: none !important; }
     .news-ticker-track { animation: none; }
@@ -2391,8 +2333,8 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 }
 
 .gp-region-card:focus-visible {
-    outline: 2px solid var(--accent-ring);
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 .gp-region-card--empty {
@@ -2553,8 +2495,8 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 }
 
 .gp-metric-cell--clickable:focus-visible {
-    outline: 1px solid #3b82f6;
-    outline-offset: 2px;
+    outline: none;
+    box-shadow: var(--focus-ring);
 }
 
 @keyframes gp-card-flash {

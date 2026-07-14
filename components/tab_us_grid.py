@@ -20,8 +20,6 @@ Dynamic content (1, 2, 4) is filled by ``update_us_grid_snapshot`` in
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
-from components.cards import build_page_footer
-
 
 def _view_toggle() -> html.Div:
     """v2-style segmented control for the Cards | Map | Polygons switch.
@@ -100,7 +98,8 @@ def layout() -> html.Div:
                     ),
                     html.Div(id="us-grid-region-grid"),
                     dcc.Store(id="us-grid-jump-store"),
-                    build_page_footer(),
+                    # Footer promoted to a single app-level footer
+                    # (components/layout.py build_layout()).
                 ],
                 className="gp-section-stack",
             ),

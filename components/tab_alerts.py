@@ -16,8 +16,6 @@ new slots (risk-title, risk-insight-card) for callback population.
 
 from dash import dcc, html
 
-from components.cards import build_page_footer
-
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
@@ -177,8 +175,8 @@ def layout() -> html.Div:
                     _secondary_chart_grid(),
                     # 7. InsightCard (callback-filled)
                     html.Div(id="risk-insight-card", className="gp-insight-card-slot"),
-                    # 8. Footer
-                    build_page_footer(),
+                    # Footer promoted to a single app-level footer
+                    # (components/layout.py build_layout()).
                 ],
                 className="gp-section-stack",
             ),

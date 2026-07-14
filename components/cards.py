@@ -4,8 +4,61 @@ Reusable card components: KPI cards, welcome cards, alert cards.
 All card builders return Dash HTML/Bootstrap components.
 """
 
+import re
+
 import dash_bootstrap_components as dbc
 from dash import html
+
+
+def _metric_help_id(label: str, used: set[str]) -> str:
+    """Stable, unique DOM id for a metric-help glyph + its ``dbc.Tooltip`` target.
+
+    Derived from the label slug so the id is deterministic across re-renders
+    (a callback that rebuilds the same bar yields the same ids). A numeric
+    suffix disambiguates the rare case of two help-bearing cells sharing a
+    label within one bar.
+    """
+    base = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-") or "metric"
+    help_id = f"gp-mhelp-{base}"
+    n = 2
+    while help_id in used:
+        help_id = f"gp-mhelp-{base}-{n}"
+        n += 1
+    used.add(help_id)
+    return help_id
+
+
+def metric_label_with_help(
+    label_text: str, help_text: str, help_id: str
+) -> tuple[html.Div, dbc.Tooltip]:
+    """A metric label plus an ``ⓘ`` glyph wired to a branded ``dbc.Tooltip``.
+
+    Replaces the native ``title=`` tooltip (the audit's weakest craft area)
+    with a dark-token tooltip. The glyph is keyboard-focusable and carries
+    the help text as its ``aria-label`` so the tooltip is reachable on hover
+    AND focus and is announced to screen readers.
+
+    Returns ``(label_node, tooltip)``. The caller renders both — the label
+    inline and the tooltip anywhere in the same layout (the target is
+    resolved by ``help_id``, so DOM position is flexible).
+    """
+    label_node = html.Div(
+        [
+            label_text,
+            html.Span(
+                "ⓘ",
+                id=help_id,
+                className="gp-metric-help",
+                tabIndex="0",
+                **{"aria-label": help_text},
+            ),
+        ],
+        className="gp-metric-label",
+    )
+    tooltip = dbc.Tooltip(
+        help_text, target=help_id, placement="top", className="gp-tooltip"
+    )
+    return label_node, tooltip
 
 
 def build_kpi_card(
@@ -339,6 +392,8 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
     Uses ``.tabular`` on values for aligned numerics.
     """
     cells = []
+    tooltips: list = []
+    used_ids: set[str] = set()
     for item in items:
         tone = item.get("tone", "primary")
         hero = item.get("hero", False)
@@ -355,23 +410,11 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
         _help = item.get("help")
         _label_text = item.get("label", "")
         if _help:
-            _label_node = html.Div(
-                [
-                    _label_text,
-                    html.Span(
-                        "ⓘ",
-                        title=_help,
-                        className="gp-metric-help",
-                        style={
-                            "marginLeft": "4px",
-                            "opacity": 0.45,
-                            "cursor": "help",
-                            "fontSize": "0.85em",
-                        },
-                    ),
-                ],
-                className="gp-metric-label",
+            # Branded tooltip (dark tokens) replaces the native ``title=``.
+            _label_node, _tt = metric_label_with_help(
+                _label_text, _help, _metric_help_id(_label_text, used_ids)
             )
+            tooltips.append(_tt)
         else:
             _label_node = html.Div(_label_text, className="gp-metric-label")
 
@@ -399,7 +442,10 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
             }
             cell_classes.append("gp-metric-cell--clickable")
         cells.append(html.Div(cell_children, className=" ".join(cell_classes), **cell_kwargs))
-    return html.Div(cells, className="gp-metrics-bar")
+    # ``dbc.Tooltip`` components are portal-mounted (invisible until their
+    # target is hovered/focused), so appending them to the bar doesn't
+    # disturb the flex layout of the cells.
+    return html.Div(cells + tooltips, className="gp-metrics-bar")
 
 
 def build_model_metrics_card(
@@ -495,6 +541,7 @@ _FOOTER_SOURCE_LINKS = {"Open-Meteo": "https://open-meteo.com/"}
 def build_page_footer(
     sources: list[str] | None = None,
     note: str | None = None,
+    last_updated_id: str | None = None,
 ) -> html.Div:
     """Small attribution footer at the bottom of the linear stack.
 
@@ -504,6 +551,15 @@ def build_page_footer(
     NOAA earned its credit back in 2026-07: the scoring job now fetches live
     NWS alerts via ``data.noaa_client`` (it was unwired — and uncredited —
     before that).
+
+    Args:
+        sources: Attribution sources (default EIA / Open-Meteo / NOAA).
+        note: Optional trailing note rendered muted after the sources.
+        last_updated_id: When set, appends a freshness anchor
+            ``<span data-last-updated>`` with this id. A callback populates
+            its text + ``data-last-updated`` attribute from the same
+            ``data-freshness-store`` signal the header freshness badge uses.
+            Used by the single app-level footer in ``layout.build_layout``.
     """
     sources = sources or ["EIA", "Open-Meteo", "NOAA"]
     rendered: list = []
@@ -525,4 +581,17 @@ def build_page_footer(
     parts: list = [html.Span(rendered, className="gp-footer__sources")]
     if note:
         parts.append(html.Span(note, className="gp-footer__note"))
+    if last_updated_id:
+        # Machine-readable freshness anchor. The ``data-last-updated``
+        # attribute starts empty and is filled (alongside the visible
+        # "Updated …" text) by ``update_footer_last_updated`` — kept honest
+        # by rendering an em dash until a real timestamp exists.
+        parts.append(
+            html.Span(
+                "Updated —",
+                id=last_updated_id,
+                className="gp-footer__updated",
+                **{"data-last-updated": ""},
+            )
+        )
     return html.Div(parts, className="gp-footer")

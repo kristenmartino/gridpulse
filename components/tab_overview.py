@@ -11,15 +11,13 @@ Structure (top → bottom):
 3. Hero demand chart — full-width forecast with confidence band
 4. ModelMetricsCard — horizontal model-performance bar (MAPE / RMSE / MAE / R²)
 5. InsightCard — single narrative paragraph (eyebrow + body)
-6. Footer — static attribution
 
 Dynamic content (1–5) is filled by ``update_overview_tab`` in
-``components/callbacks.py``; the footer is rendered statically.
+``components/callbacks.py``. Attribution now lives in the single app-level
+footer built by ``components/layout.py`` (no per-tab footer).
 """
 
 from dash import dcc, html
-
-from components.cards import build_page_footer
 
 
 def layout() -> html.Div:
@@ -52,8 +50,8 @@ def layout() -> html.Div:
                     html.Div(id="overview-model-card"),
                     # 5. InsightCard (narrative summary)
                     html.Div(id="overview-insight-card"),
-                    # 6. Footer (static)
-                    build_page_footer(),
+                    # Footer promoted to a single app-level footer in
+                    # components/layout.py build_layout().
                 ],
                 className="gp-section-stack",
             ),

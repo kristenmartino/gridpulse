@@ -17,6 +17,7 @@ from components import (
     tab_overview,
     tab_us_grid,
 )
+from components.cards import build_page_footer
 from config import REGION_GROUPS, REGION_NAMES, TAB_LABELS
 from personas.config import list_personas
 
@@ -53,8 +54,10 @@ def _monogram() -> html.Span:
 
 def _build_header() -> html.Header:
     """v2-aligned header: monogram + wordmark + region/persona/mode controls."""
+    # ``avatar`` is now a 2-letter initials mark (emoji retired in the
+    # top-design pass); a middot separates it from the role title.
     persona_options = [
-        {"label": f"{p['avatar']} {p['title']}", "value": p["id"]} for p in list_personas()
+        {"label": f"{p['avatar']} · {p['title']}", "value": p["id"]} for p in list_personas()
     ]
     # Region options are grouped geographically (Central / Northeast /
     # Southeast / West). dbc.Select doesn't support native <optgroup>,
@@ -120,11 +123,14 @@ def _build_header() -> html.Header:
                 value="grid_ops",
                 className="gp-header__chip persona-switcher",
             ),
+            # Primary CTA — the single highest-intent header action. Restrained
+            # accent-tinted fill (.gp-btn--primary); Save View stays a quiet
+            # text link so the hierarchy reads clearly.
             html.Button(
                 "Briefing Mode",
                 id="meeting-mode-btn",
                 n_clicks=0,
-                className="gp-header__link",
+                className="gp-btn gp-btn--primary",
             ),
             html.Button(
                 "Save View",
@@ -194,6 +200,26 @@ def build_layout() -> dbc.Container:
                 ),
                 id="main-content",
                 role="main",
+            ),
+            # Screen-reader forecast summary. A persistent visually-hidden
+            # aria-live region: ``update_overview_tab`` writes a plain-text
+            # summary here (peak MW / time / accuracy) whenever the Overview
+            # forecast refreshes, so SR users hear the headline without
+            # walking the chart. Honest by construction — the callback only
+            # announces real values and falls back to a warming message.
+            html.Div(
+                id="overview-sr-summary",
+                className="sr-only",
+                role="status",
+                **{"aria-live": "polite", "aria-atomic": "true"},
+            ),
+            # App-level footer (one, not per-tab). Wrapped in .gp-page so it
+            # aligns with the content column above; carries the shared
+            # data-last-updated freshness anchor.
+            html.Footer(
+                build_page_footer(last_updated_id="footer-last-updated"),
+                className="gp-page",
+                id="app-footer",
             ),
             # Data Stores
             dcc.Store(id="news-store"),
