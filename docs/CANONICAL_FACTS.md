@@ -114,7 +114,7 @@ Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 | ADR-001 | Dash + Plotly (not Streamlit) | Callback architecture scales to many interaction groups |
 | ADR-002 | SQLite cache on Cloud Run ephemeral disk | Survives across requests, acceptable to lose on recycle |
 | ADR-003 | Open-Meteo (not NOAA NWS) for weather | No API key, 17 vars in one call, historical + forecast |
-| ADR-004 | 1/MAPE weighted ensemble | Simpler than stacking, self-correcting, bounded |
+| ADR-004 | Sharpened (1/MAPE)³ weighted ensemble | Simpler than stacking; value is error decorrelation (beats XGBoost-alone on 17/51 — see "Forecast accuracy" above), not a guarantee of dominance |
 | ADR-005 | Scenario engine copies features, never mutates | Pure function, safe for concurrent callbacks |
 | ADR-006 | Full multi-tab architecture | Mission control + drill-downs |
 

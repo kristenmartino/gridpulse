@@ -160,7 +160,7 @@ flowchart LR
     Combined --> UI[UI: 4 selectable forecasts<br/>XGBoost · Prophet · ARIMA · Ensemble]
 ```
 
-The ensemble is **1/MAPE weighted** — the model with the lowest recent holdout MAPE gets the highest weight, normalized to sum to 1. This was chosen over stacking (ADR-004) because it's self-correcting (a degrading model down-weights automatically), bounded (the ensemble can never be worse than the worst individual model), and trivial to debug ("which model is dominating right now and why").
+The ensemble is **sharpened inverse-MAPE weighted** — weight ∝ (1/MAPE)³ (`config.ENSEMBLE_WEIGHT_EXPONENT`, ADR-004 refined via #181), so it follows the best recent model and blends meaningfully only when peers are genuinely close. This was chosen over stacking (ADR-004) because the weights are transparent and trivial to debug ("which model is dominating right now and why"). Its measured value is **error decorrelation, not dominance**: on the recursive 51-BA holdout the ensemble beats XGBoost-alone on 17 of 51 BAs (see `docs/BACKTEST_RESULTS.md`) — a useful hedge where model errors decorrelate, not a guarantee of winning, and the k=3 sharpening exists precisely because plain 1/MAPE blending kept 15–30% weight on models running 3–5× worse than the leader.
 
 A real example from the 2026-05-01 training run for FPL: `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`. XGBoost wins because it captures the weather→cooling-load relationship FPL is dominated by; ARIMA gets a small allocation because Florida demand has a strong stationary daily cycle worth capturing.
 

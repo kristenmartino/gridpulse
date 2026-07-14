@@ -857,7 +857,12 @@ class TestOutlookTabFromRedis:
         assert result is not None
         fig = result[0]
         assert len(fig.data) == 0
-        assert "withheld" in fig.layout.annotations[0].text
+        annotation = fig.layout.annotations[0].text
+        assert "withheld" in annotation
+        # P2-26 (#273): the withheld copy must attribute the degeneracy to
+        # the SERVED series (the prophet primary), not the requested model.
+        assert "PROPHET" in annotation
+        assert "XGBOOST" not in annotation
 
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")
@@ -918,6 +923,60 @@ class TestOutlookTabFromRedis:
         mock_rg.return_value = payload
         result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
         assert "Ensemble" not in result[0].layout.annotations[0].text
+
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
+    def test_xgboost_miss_serves_primary_with_honest_labels(self, mock_rg, mock_bands, mock_trail):
+        """P2-26 (#273): when the payload lacks an xgboost column and falls
+        back to ``predicted_demand_mw`` (the prophet primary here), every
+        label must name PROPHET — trace, title, band calibration — plus a
+        substitution disclosure. The old behavior titled prophet's numbers
+        \"XGBOOST Demand Forecast\" with XGBoost-calibrated bands."""
+        mock_bands.return_value = {}
+        payload = {
+            "scored_at": "2024-06-01T12:00:00Z",
+            "primary_model": "prophet",
+            "forecasts": [
+                {"timestamp": t, "predicted_demand_mw": 30_000 + i * 10}
+                for i, t in enumerate(_ts(72))
+            ],
+        }
+        mock_rg.return_value = payload
+
+        from components.callbacks import _outlook_tab_from_redis
+
+        result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
+        assert result is not None
+        fig = result[0]
+        assert fig.data[0].name == "PROPHET Forecast"
+        title = fig.layout.title.text
+        assert "PROPHET Demand Forecast" in title
+        assert "XGBOOST Demand Forecast" not in title
+        # Substitution disclosed on the chart itself.
+        assert "Requested XGBOOST unavailable" in title
+        assert "showing PROPHET" in title
+        # Bands calibrate against the model actually plotted.
+        assert mock_bands.call_args.kwargs["model_name"] == "prophet"
+
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
+    def test_requested_model_present_keeps_own_labels(self, mock_rg, mock_bands, mock_trail):
+        """Control for P2-26: with xgboost actually in the rows there is no
+        substitution — labels name XGBOOST and no disclosure appears."""
+        mock_bands.return_value = {}
+        mock_rg.return_value = _forecast_payload(72, "xgboost")
+
+        from components.callbacks import _outlook_tab_from_redis
+
+        result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
+        assert result is not None
+        fig = result[0]
+        assert fig.data[0].name == "XGBOOST Forecast"
+        assert "XGBOOST Demand Forecast" in fig.layout.title.text
+        assert "unavailable" not in fig.layout.title.text
+        assert mock_bands.call_args.kwargs["model_name"] == "xgboost"
 
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")
