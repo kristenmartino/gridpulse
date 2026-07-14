@@ -421,23 +421,48 @@ def register_alerts_callbacks(app):
         # ── warming gate (REQUIRE_REDIS deployments) ────────
         # The scoring job owns alert-payload generation in staging/prod;
         # a Redis miss there means the pipeline is warming, and the demo
-        # fallback below must never render as real data.
+        # fallback below must never render as real data. P2-35 (#273):
+        # when the pipeline is demonstrably alive (fresh actuals for this
+        # region) yet the alert payload never lands, "will populate after
+        # the next scoring run" is a forever-lie — escalate to an honest
+        # persistent-unavailable state instead.
         if REQUIRE_REDIS:
+            from components._callbacks_shared import (
+                _pipeline_alive,
+                _scoring_pass_completed_since_actuals,
+            )
             from components.error_handling import warming_state
 
-            log.info("alerts_warming_gate", region=region)
-            warming = warming_state(
-                title="Risk data is warming up",
-                message=(
-                    "The scheduled pipeline has not published alert/anomaly "
-                    "data for this region yet. This page will populate after "
-                    "the next scoring run."
-                ),
-            )
+            # Escalate only on completed-pass evidence: within one scoring
+            # pass a region's actuals land BEFORE its alert payload, so
+            # fresh actuals alone would render the permanence claim during
+            # the first pass after a flush (verification catch).
+            if region and _pipeline_alive(region) and _scoring_pass_completed_since_actuals(region):
+                log.info("alerts_unavailable_gate", region=region)
+                state_card = warming_state(
+                    title="Risk data unavailable",
+                    message=(
+                        "The scoring pipeline is live, but no alert/anomaly "
+                        "payload exists for this region — its alert phase is "
+                        "not producing data. This won't resolve on its own."
+                    ),
+                )
+                chip_text = "Unavailable"
+            else:
+                log.info("alerts_warming_gate", region=region)
+                state_card = warming_state(
+                    title="Risk data is warming up",
+                    message=(
+                        "The scheduled pipeline has not published alert/anomaly "
+                        "data for this region yet. This page will populate after "
+                        "the next scoring run."
+                    ),
+                )
+                chip_text = "Warming"
             return (
-                [warming],
+                [state_card],
                 "—",
-                html.Span("Warming"),
+                html.Span(chip_text),
                 html.Div(),
                 empty,
                 empty,

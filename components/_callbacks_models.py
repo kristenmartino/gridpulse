@@ -359,7 +359,12 @@ def _day_ahead_grade(horizon_payload: dict | None, model_key: str) -> str | None
     block = model_block.get("24h")
     if not isinstance(block, dict):
         return None
-    if block.get("rolling_mape_7d") is None or int(block.get("n_records", 0) or 0) < 6:
+    # P2-21 (#273): gate the 7d figure on its own in-window sample count
+    # (n_7d) — n_records is total history. Pre-#273 payloads lack n_7d;
+    # fall back to the old total-count gate until they rewrite.
+    n_window = block.get("n_7d")
+    n_eff = int(n_window) if n_window is not None else int(block.get("n_records", 0) or 0)
+    if block.get("rolling_mape_7d") is None or n_eff < 6:
         return None
     grade = block.get("grade")
     return grade if grade in _KNOWN_GRADES else None
@@ -467,6 +472,11 @@ def _build_drift_panel(region: str | None) -> html.Div:
             continue
         drift = drift_models[key]
         n_records = int(drift.get("n_records", 0) or 0)
+        # P2-21 (#273): the displayed stat is the 7d rolling figure — gate it
+        # on the 7d in-window post-filter count, not total history. Pre-#273
+        # payloads lack n_7d; fall back to the old total-count gate.
+        n_window = drift.get("n_7d")
+        n_eff = int(n_window) if n_window is not None else n_records
         live_7d = drift.get("rolling_mape_7d")
         live_30d = drift.get("rolling_mape_30d")
         holdout = metrics.get(key, {}).get("mape")
@@ -476,10 +486,15 @@ def _build_drift_panel(region: str | None) -> html.Div:
         # Warming for this specific model when its window hasn't filled
         # enough to be statistically meaningful. Other models in the
         # same panel may have full records — surface mixed state.
-        if n_records < 24 or live_7d is None:
+        if n_eff < 24 or live_7d is None:
             status_label = "Warming"
             status_tone = "secondary"
             ratio_text = "—"
+            # Don't print rolling means the chip just declared statistically
+            # meaningless — a thin-window 180% next to "Warming" still reads
+            # as a measurement (P2-21 verification catch).
+            live_7d = None
+            live_30d = None
         elif holdout is None or holdout <= 0:
             # Drift exists but the model's holdout MAPE is missing
             # (e.g. training-time meta lost). Show live MAPE without
@@ -580,7 +595,11 @@ def _build_drift_panel(region: str | None) -> html.Div:
                         ),
                         className="gp-drift-cell--status",
                     ),
-                    html.Td(str(n_records), className="gp-drift-cell--n"),
+                    # The gate's own denominator (7d in-window post-filter
+                    # count when the payload carries it; legacy total
+                    # otherwise) — showing total history next to a 7d stat
+                    # overstated the sample (P2-21).
+                    html.Td(str(n_eff), className="gp-drift-cell--n"),
                 ]
             )
         )
@@ -740,7 +759,11 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
             mape = block.get("rolling_mape_7d")
             grade = block.get("grade")
             n_records = int(block.get("n_records", 0) or 0)
-            if mape is None or n_records < min_records:
+            # P2-21 (#273): gate the displayed 7d figure on its in-window
+            # count when available (fallback: legacy total-count gate).
+            n_window = block.get("n_7d")
+            n_eff = int(n_window) if n_window is not None else n_records
+            if mape is None or n_eff < min_records:
                 cells.append(
                     html.Td(
                         html.Span(

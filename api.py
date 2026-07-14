@@ -60,8 +60,12 @@ _DEFAULT_HORIZON_HOURS = 24
 #: (debug annotations, uncalibrated intervals) must NOT auto-publish to a
 #: public trust boundary. Export only what is explicitly listed.
 _EXPORTED_MODELS = ("prophet", "arima", "xgboost", "ensemble")
-_EXPORTED_LIVE_DRIFT_FIELDS = ("rolling_mape_7d", "rolling_mape_30d", "n_records")
-_EXPORTED_HORIZON_DRIFT_FIELDS = ("rolling_mape_7d", "grade", "n_records")
+# P2-21 (#273): n_7d/n_30d are the per-window post-filter sample counts —
+# the honest denominators behind the rolling means (n_records is total
+# retained history, which can be dominated by records older than either
+# window). Exported so API consumers can gate exactly like the UI does.
+_EXPORTED_LIVE_DRIFT_FIELDS = ("rolling_mape_7d", "rolling_mape_30d", "n_records", "n_7d", "n_30d")
+_EXPORTED_HORIZON_DRIFT_FIELDS = ("rolling_mape_7d", "grade", "n_records", "n_7d")
 
 #: Data-source attribution that must travel with redistributed values so
 #: downstream API consumers can meet the upstream license terms. Open-Meteo

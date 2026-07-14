@@ -679,6 +679,74 @@ _MAP_COLORSCALE = [
 ]
 
 
+def _pipeline_alive(region: str, max_age_hours: float = 3.0) -> bool:
+    """True when the scoring pipeline is demonstrably writing this region —
+    a fresh ``actuals:{region}`` ``scored_at`` within ``max_age_hours``
+    (the job runs hourly; 3h = several consecutive missed ticks).
+
+    P2-35 (#273): used to distinguish a genuine cold/warming state (nothing
+    written yet — "will appear shortly" is honest) from a persistently
+    unavailable surface (the pipeline IS running but this region's
+    forecast/alert payload never lands — "shortly" was a forever-lie).
+    Fails closed: any read/parse problem returns False, keeping the softer
+    warming copy.
+    """
+    import pandas as pd
+
+    from data.redis_client import redis_get, redis_key
+
+    try:
+        payload = redis_get(redis_key(f"actuals:{region}"))
+        if not isinstance(payload, dict):
+            return False
+        scored_at = pd.Timestamp(payload.get("scored_at"))
+        if scored_at.tzinfo is None:
+            scored_at = scored_at.tz_localize("UTC")
+        age_hours = (pd.Timestamp.now(tz="UTC") - scored_at) / pd.Timedelta(hours=1)
+        return 0 <= age_hours <= max_age_hours
+    except Exception:
+        return False
+
+
+def _scoring_pass_completed_since_actuals(region: str) -> bool:
+    """True when a COMPLETE scoring pass finished at-or-after this region's
+    current ``actuals:{region}`` write (P2-35/#273 escalation evidence).
+
+    The scoring job writes a region's actuals minutes BEFORE its forecast/
+    alert payloads within the same pass, and ``meta:last_scored`` only after
+    ALL regions finish. Escalating to "persistently unavailable" on fresh
+    actuals alone therefore lies during the first pass after a Redis flush
+    (the keys land minutes later). Requiring a full pass to have completed
+    at-or-after the actuals write proves the pipeline had its chance to
+    produce the missing key and didn't.
+
+    Trade-off (documented, accepted): on a persistently-failing region the
+    hourly refresh briefly flips this False mid-pass (~minutes, between the
+    region's actuals write and pass end), softening the copy back to
+    "warming" before it re-escalates — a transiently softer message, never
+    a false permanence claim. Fails closed (False → warming) on any read
+    or parse problem.
+    """
+    import pandas as pd
+
+    from data.redis_client import redis_get, redis_key
+
+    try:
+        meta = redis_get(redis_key("meta:last_scored"))
+        actuals = redis_get(redis_key(f"actuals:{region}"))
+        if not isinstance(meta, dict) or not isinstance(actuals, dict):
+            return False
+        completed = pd.Timestamp(meta.get("updated_at"))
+        written = pd.Timestamp(actuals.get("scored_at"))
+        if completed.tzinfo is None:
+            completed = completed.tz_localize("UTC")
+        if written.tzinfo is None:
+            written = written.tz_localize("UTC")
+        return bool(completed >= written)
+    except Exception:
+        return False
+
+
 def _guard_max_ok(entry) -> int | None:
     """Parse a ``horizon_guard`` entry's ``max_ok_horizon``; None if malformed.
 
@@ -725,6 +793,9 @@ __all__ = [
     "_empty_figure",
     # #296 horizon guard
     "_guard_max_ok",
+    # P2-35 warming-vs-unavailable discriminators
+    "_pipeline_alive",
+    "_scoring_pass_completed_since_actuals",
     # Color palette
     "COLORS",
     "_MODEL_BAND_COLORS",
