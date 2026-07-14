@@ -62,7 +62,7 @@ class TestStickyChrome:
 class TestKbdChipsAreNotShipped:
     """Regression — visible ``<kbd>`` chips and the ``.gp-header__kbd-hint``
     class were considered and rejected as theater for a 5-tab portfolio
-    dashboard. The Alt+R / Alt+P / Alt+1..4 handlers in
+    dashboard. The Alt+R / Alt+P / Alt+1..5 handlers in
     ``assets/accessibility.js`` are fine to keep, but advertising them
     with chrome-density chips doesn't fit the product. This guard
     catches a future re-introduction so the call gets reconsidered."""

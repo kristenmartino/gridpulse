@@ -1,27 +1,25 @@
 /* Keyboard shortcuts and accessibility enhancements */
 
-// Alt+1..4: Switch between the four visible tabs.
-// R3 reduced 9 → 4 (Overview / Forecast / Risk / Models). Hidden tabs
-// stay rendered for callback safety but aren't surfaced via shortcuts.
+// Alt+1..5: Switch between the five visible tabs, in shipped order:
+//   1 Overview · 2 US Grid · 3 Forecast · 4 Risk · 5 Models
+// (P2-42/#273: the old 4-entry map predated the US Grid tab — its keys
+// gated a positional click, so Alt+2..4 landed one tab LEFT of the map's
+// own intent and Models was unreachable. The key is used positionally
+// against the visible pills, so this stays correct as long as the count
+// below matches components/layout.py's visible tab order.)
 document.addEventListener('keydown', function(e) {
     if (!e.altKey) return;
 
-    const tabMap = {
-        '1': 'tab-overview',
-        '2': 'tab-outlook',
-        '3': 'tab-alerts',
-        '4': 'tab-models',
-    };
-
-    if (tabMap[e.key]) {
+    const VISIBLE_TAB_COUNT = 5;
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= VISIBLE_TAB_COUNT) {
         e.preventDefault();
         // Click only visible tab pills — skip any hidden via .d-none.
         const visibleLinks = Array.from(
             document.querySelectorAll('.nav-tabs .nav-item:not(.d-none) .nav-link')
         );
-        const tabIndex = parseInt(e.key) - 1;
-        if (visibleLinks[tabIndex]) {
-            visibleLinks[tabIndex].click();
+        if (visibleLinks[n - 1]) {
+            visibleLinks[n - 1].click();
         }
     }
 

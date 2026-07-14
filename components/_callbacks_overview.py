@@ -1081,7 +1081,13 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
         renewable_pct = 0.0
 
     # Net load (Demand - Wind - Solar) if demand available
-    net_load_avg = avg_total
+    # P2-23 (#273): net load is Demand − Wind − Solar. The old code silently
+    # fell back to average TOTAL generation — a differently-defined quantity —
+    # under the "Net Load (avg)" label whenever demand was missing, unparsable,
+    # or misaligned (which is EVERY cold/warming page load). Render an honest
+    # degraded cell instead; never substitute a different metric under this
+    # label.
+    net_load_avg: float | None = None
     if demand_json:
         try:
             ddf = pd.read_json(io.StringIO(demand_json))
@@ -1093,18 +1099,34 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
                 wind_aligned = pivot.loc[common].get("wind", pd.Series(0.0, index=common))
                 solar_aligned = pivot.loc[common].get("solar", pd.Series(0.0, index=common))
                 net_load_series = d_aligned - wind_aligned - solar_aligned
-                net_load_avg = float(net_load_series.mean())
+                candidate = float(net_load_series.mean())
+                # All-NaN demand over the aligned window yields NaN — that
+                # must degrade honestly, not render "nan MW".
+                if np.isfinite(candidate):
+                    net_load_avg = candidate
         except Exception as exc:  # pragma: no cover
             log.warning("forecast_generation_netload_failed", region=region, error=str(exc))
+    if net_load_avg is None:
+        log.info("forecast_generation_netload_unavailable", region=region)
+        net_load_item = {
+            "label": "Net Load (avg)",
+            "value": "—",
+            "unit": "MW",
+            "hero": True,
+            "tone": "secondary",
+            "subtext": "demand data unavailable",
+        }
+    else:
+        net_load_item = {
+            "label": "Net Load (avg)",
+            "value": f"{net_load_avg:,.0f}",
+            "unit": "MW",
+            "hero": True,
+        }
 
     sub_metrics = build_metrics_bar(
         [
-            {
-                "label": "Net Load (avg)",
-                "value": f"{net_load_avg:,.0f}",
-                "unit": "MW",
-                "hero": True,
-            },
+            net_load_item,
             {
                 "label": "Renewable Share",
                 "value": f"{renewable_pct:.1f}%",

@@ -550,8 +550,15 @@ def generate_tab2_insights(
             )
         )
 
-    # Model used
-    model_label = {"xgboost": "XGBoost", "ensemble": "Ensemble"}.get(model_name, model_name)
+    # Model used — cover every servable model (P2-26/#273: the served model
+    # can be any payload primary, and a raw lowercase "prophet" here reads
+    # as a bug, not a brand).
+    model_label = {
+        "xgboost": "XGBoost",
+        "ensemble": "Ensemble",
+        "prophet": "Prophet",
+        "arima": "ARIMA",
+    }.get(model_name, model_name)
     insights.append(
         Insight(
             text=f"Forecast generated using {model_label} model over {horizon_hours}-hour horizon.",

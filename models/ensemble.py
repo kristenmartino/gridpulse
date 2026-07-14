@@ -4,8 +4,12 @@ Weighted ensemble combiner for demand forecasting.
 Per spec §Model 4:
 - Weighted average where weights are proportional to a power of inverse recent
   MAPE — ``(1/MAPE_i)^k``, ``k = config.ENSEMBLE_WEIGHT_EXPONENT`` (ADR-004)
-- Combining models almost always beats individual models
-- Ensemble forecast is bounded between min and max of individual forecasts
+- The value is error DECORRELATION, not dominance: measured on the recursive
+  51-BA holdout the ensemble beats XGBoost-alone on 17 of 51 BAs (see
+  docs/BACKTEST_RESULTS.md "Ensemble weighting") — the k=3 sharpening exists
+  precisely because plain blending often trails the best single model
+- Ensemble forecast is bounded pointwise between the min and max of the
+  individual forecasts (per hour; this does NOT bound aggregate MAPE)
 """
 
 import numpy as np

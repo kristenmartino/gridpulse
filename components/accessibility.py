@@ -147,23 +147,8 @@ def scenario_summary(
     )
 
 
-# ── Keyboard Navigation Helpers ───────────────────────────────
-
-TAB_KEY_MAP = {
-    "tab-forecast": "1",
-    "tab-outlook": "2",
-    "tab-backtest": "3",
-    "tab-generation": "4",
-    "tab-weather": "5",
-    "tab-models": "6",
-    "tab-alerts": "7",
-    "tab-simulator": "8",
-}
-
-KEYBOARD_SHORTCUTS = """
-Keyboard shortcuts:
-  Alt+1 through Alt+8: Switch to tabs 1-8
-  Alt+R: Focus region selector
-  Alt+P: Focus persona selector
-  Escape: Close any open tooltip or dropdown
-"""
+# P2-42 (#273): the old TAB_KEY_MAP / KEYBOARD_SHORTCUTS constants described
+# the pre-R4 8-tab shell, were referenced by nothing, and contradicted the
+# actual bindings in assets/accessibility.js (the single source of truth for
+# keyboard shortcuts). Deleted rather than fixed — a second map invites the
+# same drift again.

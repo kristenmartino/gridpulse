@@ -36,7 +36,7 @@ Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) 
 - **XGBoost** — 49 engineered features, TimeSeriesSplit CV, SHAP explanations. Best base model for 44 of 51 BAs; 2.03% MAPE on ERCOT, 4.3% median across all BAs (168-hour **recursive** holdout, 2026-07-03).
 - **Prophet** — weather regressors with logistic growth + floor=0 (structurally prevents negative forecasts). Daily / weekly / yearly seasonality.
 - **SARIMAX** — auto-order selection via `pmdarima` on cold runs; cached `(p,d,q)(P,D,Q,m)` order on warm runs (skips the auto-select stepwise search, ~10× speedup on daily refresh).
-- **Ensemble** — inverse-MAPE weighted combination (self-correcting; underperforming models lose weight automatically).
+- **Ensemble** — sharpened inverse-MAPE weighted combination ((1/MAPE)³ per ADR-004: follows the best model, blends only when peers are genuinely close). Its measured value is error decorrelation, not dominance — it beats XGBoost-alone on 17 of 51 BAs on the recursive holdout.
 
 **Real holdout metrics, not simulated.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, scored **recursively** (multi-step — the model's own predictions feed forward, so errors compound as in a real forecast), persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble row is computed from the same holdout predictions so all four model metrics share provenance.
 
