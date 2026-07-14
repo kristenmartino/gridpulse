@@ -427,10 +427,17 @@ def register_alerts_callbacks(app):
         # the next scoring run" is a forever-lie — escalate to an honest
         # persistent-unavailable state instead.
         if REQUIRE_REDIS:
-            from components._callbacks_shared import _pipeline_alive
+            from components._callbacks_shared import (
+                _pipeline_alive,
+                _scoring_pass_completed_since_actuals,
+            )
             from components.error_handling import warming_state
 
-            if region and _pipeline_alive(region):
+            # Escalate only on completed-pass evidence: within one scoring
+            # pass a region's actuals land BEFORE its alert payload, so
+            # fresh actuals alone would render the permanence claim during
+            # the first pass after a flush (verification catch).
+            if region and _pipeline_alive(region) and _scoring_pass_completed_since_actuals(region):
                 log.info("alerts_unavailable_gate", region=region)
                 state_card = warming_state(
                     title="Risk data unavailable",

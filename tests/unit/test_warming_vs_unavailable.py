@@ -81,10 +81,55 @@ class TestPipelineAlive:
             assert _pipeline_alive("SEC") is True
 
 
+class TestScoringPassCompletedSinceActuals:
+    """The completion-evidence half of the P2-35 escalation: within one
+    scoring pass a region's actuals land minutes BEFORE its forecast/alert
+    keys, so fresh actuals alone must never justify a permanence claim."""
+
+    def _check(self, meta, actuals):
+        from components._callbacks_shared import _scoring_pass_completed_since_actuals
+
+        def _get(key):
+            if key.endswith("meta:last_scored"):
+                return meta
+            return actuals
+
+        with patch("data.redis_client.redis_get", side_effect=_get):
+            return _scoring_pass_completed_since_actuals("SEC")
+
+    def test_pass_completed_after_actuals_is_true(self):
+        now = datetime.now(UTC)
+        meta = {"updated_at": now.isoformat()}
+        actuals = {"scored_at": (now - timedelta(minutes=10)).isoformat()}
+        assert self._check(meta, actuals) is True
+
+    def test_mid_first_pass_after_flush_is_false(self):
+        """The flush race: actuals just landed, no pass has completed yet
+        (meta:last_scored was flushed too)."""
+        actuals = {"scored_at": datetime.now(UTC).isoformat()}
+        assert self._check(None, actuals) is False
+
+    def test_pass_completed_before_actuals_is_false(self):
+        """meta is from the PREVIOUS pass — the current pass hasn't had its
+        chance to write this region's forecast yet."""
+        now = datetime.now(UTC)
+        meta = {"updated_at": (now - timedelta(minutes=30)).isoformat()}
+        actuals = {"scored_at": now.isoformat()}
+        assert self._check(meta, actuals) is False
+
+    def test_malformed_fails_closed(self):
+        for meta, actuals in (
+            ("corrupt", {"scored_at": datetime.now(UTC).isoformat()}),
+            ({"updated_at": "not-a-time"}, {"scored_at": datetime.now(UTC).isoformat()}),
+            ({"updated_at": datetime.now(UTC).isoformat()}, None),
+        ):
+            assert self._check(meta, actuals) is False
+
+
 class TestForecastGateEscalation:
     """The REQUIRE_REDIS gate in ``_run_forecast_outlook`` (P2-35)."""
 
-    def _run(self, forecast_payload, alive):
+    def _run(self, forecast_payload, alive, pass_completed=True):
         import components._callbacks_forecast as fc
 
         fc._PREDICTION_CACHE.clear()
@@ -95,6 +140,7 @@ class TestForecastGateEscalation:
             patch.object(fc, "REQUIRE_REDIS", True),
             patch.object(fc, "redis_get", return_value=forecast_payload),
             patch.object(fc, "_pipeline_alive", return_value=alive),
+            patch.object(fc, "_scoring_pass_completed_since_actuals", return_value=pass_completed),
             patch("data.cache.get_cache") as mock_get_cache,
         ):
             mock_cache = MagicMock()
@@ -102,17 +148,25 @@ class TestForecastGateEscalation:
             mock_get_cache.return_value = mock_cache
             return fc._run_forecast_outlook(demand_df, demand_df, 24, "xgboost", "SEC")
 
-    def test_existing_payload_that_cannot_serve_is_unavailable(self):
-        """The forecast payload exists (scoring runs land) but this selection
-        fell through the fast path — that's persistent, not warming."""
+    def test_existing_payload_that_cannot_serve_is_selection_unavailable(self):
+        """The forecast payload exists but this selection fell through the
+        fast path — a per-RUN state (one-tick model failures heal next hour),
+        so it gets its own hedged status, never the permanence claim."""
         result = self._run({"forecasts": [{"timestamp": "t"}]}, alive=False)
+        assert result["error"] == "unavailable_selection"
+
+    def test_missing_payload_with_completed_pass_is_unavailable(self):
+        """Fresh actuals + a full pass completed since they landed + still no
+        forecast key: the pipeline provably had its chance — persistent."""
+        result = self._run(None, alive=True, pass_completed=True)
         assert result["error"] == "unavailable"
 
-    def test_missing_payload_with_live_pipeline_is_unavailable(self):
-        """Fresh actuals prove the pipeline writes this region, yet no
-        forecast key exists — 'will appear shortly' would be a forever-lie."""
-        result = self._run(None, alive=True)
-        assert result["error"] == "unavailable"
+    def test_missing_payload_mid_first_pass_stays_warming(self):
+        """Verification catch (flush race): actuals land minutes before the
+        forecast within one pass — without completed-pass evidence the
+        permanence claim would be false during genuine warming."""
+        result = self._run(None, alive=True, pass_completed=False)
+        assert result["error"] == "warming"
 
     def test_missing_payload_with_cold_pipeline_stays_warming(self):
         """Nothing written at all: genuine warming (deploy/flush) — keep the
@@ -121,43 +175,50 @@ class TestForecastGateEscalation:
         assert result["error"] == "warming"
 
 
+@pytest.fixture(scope="module")
+def callbacks():
+    """Registered-callback map, shared by the alerts-gate and outlook-render
+    classes (one Dash app registration for the module)."""
+    import dash
+    import dash_bootstrap_components as dbc
+
+    app = dash.Dash(
+        __name__,
+        external_stylesheets=[dbc.themes.DARKLY],
+        suppress_callback_exceptions=True,
+    )
+    from components.callbacks import register_callbacks
+    from components.layout import build_layout
+
+    app.layout = build_layout()
+    register_callbacks(app)
+    fns = {}
+    for val in app.callback_map.values():
+        fn = val.get("callback")
+        if fn and hasattr(fn, "__name__"):
+            fns[fn.__name__] = getattr(fn, "__wrapped__", fn)
+    return fns
+
+
 class TestAlertsGateEscalation:
     """The alerts warming gate escalates the same way (P2-35)."""
 
-    @pytest.fixture(scope="class")
-    def callbacks(self):
-        import dash
-        import dash_bootstrap_components as dbc
-
-        app = dash.Dash(
-            __name__,
-            external_stylesheets=[dbc.themes.DARKLY],
-            suppress_callback_exceptions=True,
-        )
-        from components.callbacks import register_callbacks
-        from components.layout import build_layout
-
-        app.layout = build_layout()
-        register_callbacks(app)
-        fns = {}
-        for val in app.callback_map.values():
-            fn = val.get("callback")
-            if fn and hasattr(fn, "__name__"):
-                fns[fn.__name__] = getattr(fn, "__wrapped__", fn)
-        return fns
-
-    def _render(self, callbacks, alive):
+    def _render(self, callbacks, alive, pass_completed=True):
         import components._callbacks_alerts as al
 
         with (
             patch.object(al, "_alerts_tab_from_redis", return_value=None),
             patch.object(al, "REQUIRE_REDIS", True),
             patch("components._callbacks_shared._pipeline_alive", return_value=alive),
+            patch(
+                "components._callbacks_shared._scoring_pass_completed_since_actuals",
+                return_value=pass_completed,
+            ),
         ):
             return callbacks["update_alerts_tab"]("SEC", None, None, "tab-alerts")
 
     def test_live_pipeline_escalates_to_unavailable(self, callbacks):
-        result = self._render(callbacks, alive=True)
+        result = self._render(callbacks, alive=True, pass_completed=True)
         rendered = str(result[0])
         assert "Risk data unavailable" in rendered
         assert "won't resolve on its own" in rendered
@@ -167,11 +228,62 @@ class TestAlertsGateEscalation:
         assert "next scoring run" not in rendered
         assert str(result[2].children) == "Unavailable"
 
+    def test_mid_first_pass_after_flush_keeps_warming(self, callbacks):
+        """Verification catch: alerts land LAST in a scoring pass — fresh
+        actuals without completed-pass evidence must stay warming."""
+        result = self._render(callbacks, alive=True, pass_completed=False)
+        rendered = str(result[0])
+        assert "Risk data is warming up" in rendered
+        assert str(result[2].children) == "Warming"
+
     def test_cold_pipeline_keeps_warming(self, callbacks):
         result = self._render(callbacks, alive=False)
         rendered = str(result[0])
         assert "Risk data is warming up" in rendered
         assert str(result[2].children) == "Warming"
+
+
+class TestOutlookUnavailableRenderCopy:
+    """Verification HIGH: the render half of P2-35 was unpinned — reverting
+    the annotation copy passed every test. Exercise the registered callback
+    end-to-end for each degraded status."""
+
+    def _render(self, callbacks, status):
+        import components._callbacks_forecast as fc
+
+        demand_json = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-07-01", periods=8, freq="h"),
+                "demand_mw": [1000.0] * 8,
+            }
+        ).to_json(date_format="iso")
+        with (
+            patch.object(fc, "redis_get", return_value=None),
+            patch.object(fc, "_run_forecast_outlook", return_value={"error": status}),
+        ):
+            return callbacks["update_demand_outlook"](
+                24, "xgboost", "tab-outlook", demand_json, "grid_ops", demand_json, "SEC"
+            )
+
+    def test_unavailable_copy_claims_permanence(self, callbacks):
+        result = self._render(callbacks, "unavailable")
+        text = result[0].layout.annotations[0].text
+        assert "Forecast unavailable for SEC" in text
+        assert "won't resolve on its own" in text
+        assert "will appear shortly" not in text
+
+    def test_selection_copy_does_not_claim_permanence(self, callbacks):
+        """A per-run selection miss heals next hour — the copy must hedge."""
+        result = self._render(callbacks, "unavailable_selection")
+        text = result[0].layout.annotations[0].text
+        assert "No XGBOOST data in the current scoring payload" in text
+        assert "If this persists across runs" in text
+        assert "won't resolve on its own" not in text
+
+    def test_warming_copy_unchanged(self, callbacks):
+        result = self._render(callbacks, "warming")
+        text = result[0].layout.annotations[0].text
+        assert "will appear shortly" in text
 
 
 class TestDriftWindowCounts:
@@ -225,6 +337,84 @@ class TestDriftWindowCounts:
         assert block["n_records"] == 27
         assert block["n_7d"] == 24  # 3 near-zero artifacts excluded
         assert block["n_low_actual_excluded_7d"] == 3
+
+
+class TestHorizonRollupWindowCounts:
+    """P2-21: the horizon-drift rollup blocks carry the same per-window
+    post-filter counts as the live-drift blocks (verification catch — the
+    emission was unpinned)."""
+
+    def test_rollup_block_emits_post_filter_counts(self):
+        from models.drift import _horizon_rollup_block
+
+        recs = [_rec(h) for h in range(24)] + [_rec(30, actual=1.0)] + [_rec(24 * 10)]
+        block = _horizon_rollup_block(recs, NOW.isoformat(), "24h")
+        assert block["n_records"] == 26
+        assert block["n_7d"] == 24  # near-zero artifact excluded
+        assert block["n_30d"] == 25  # mid-age record in, artifact out
+
+    def test_n_30d_is_post_filter(self):
+        """Verification catch: near-zero artifacts in the 8-30d range must
+        not count toward n_30d — it is the 30d mean's denominator."""
+        from models.drift import _horizon_rollup_block
+
+        recs = [_rec(h) for h in range(24)] + [_rec(24 * 12 + i, actual=1.0) for i in range(3)]
+        block = _horizon_rollup_block(recs, NOW.isoformat(), "24h")
+        assert block["n_30d"] == 24
+
+
+class TestDayAheadGradeWindowGating:
+    """P2-21: the 24h-grade confirmation helper gates on n_7d when present."""
+
+    def _payload(self, n_7d=None, n_records=100):
+        block = {"rolling_mape_7d": 3.0, "grade": "target", "n_records": n_records}
+        if n_7d is not None:
+            block["n_7d"] = n_7d
+        return {"models": {"xgboost": {"24h": block}}}
+
+    def test_thin_window_returns_none_despite_total_history(self):
+        from components._callbacks_models import _day_ahead_grade
+
+        assert _day_ahead_grade(self._payload(n_7d=3), "xgboost") is None
+
+    def test_healthy_window_returns_grade(self):
+        from components._callbacks_models import _day_ahead_grade
+
+        assert _day_ahead_grade(self._payload(n_7d=50), "xgboost") == "target"
+
+    def test_legacy_block_uses_total_count(self):
+        from components._callbacks_models import _day_ahead_grade
+
+        assert _day_ahead_grade(self._payload(), "xgboost") == "target"
+
+
+class TestHorizonPanelWindowGating:
+    """P2-21: the drift-by-horizon cells warm on the in-window count."""
+
+    def _payload(self, n_7d):
+        block = {
+            "rolling_mape_7d": 3.33,
+            "grade": "target",
+            "n_records": 100,
+            "n_7d": n_7d,
+            "records": [],
+        }
+        return {"models": {"xgboost": {"24h": dict(block), "48h": dict(block), "72h": dict(block)}}}
+
+    def test_thin_window_cell_warms_despite_total_history(self):
+        import components._callbacks_models as cm
+
+        with patch.object(cm, "redis_get", return_value=self._payload(n_7d=2)):
+            panel = str(cm._build_horizon_drift_panel("SEC"))
+        assert "Warming" in panel
+        assert "3.33%" not in panel
+
+    def test_healthy_window_cell_shows_value(self):
+        import components._callbacks_models as cm
+
+        with patch.object(cm, "redis_get", return_value=self._payload(n_7d=50)):
+            panel = str(cm._build_horizon_drift_panel("SEC"))
+        assert "3.33%" in panel
 
 
 class TestOverviewWindowGating:

@@ -490,6 +490,11 @@ def _build_drift_panel(region: str | None) -> html.Div:
             status_label = "Warming"
             status_tone = "secondary"
             ratio_text = "—"
+            # Don't print rolling means the chip just declared statistically
+            # meaningless — a thin-window 180% next to "Warming" still reads
+            # as a measurement (P2-21 verification catch).
+            live_7d = None
+            live_30d = None
         elif holdout is None or holdout <= 0:
             # Drift exists but the model's holdout MAPE is missing
             # (e.g. training-time meta lost). Show live MAPE without
@@ -590,7 +595,11 @@ def _build_drift_panel(region: str | None) -> html.Div:
                         ),
                         className="gp-drift-cell--status",
                     ),
-                    html.Td(str(n_records), className="gp-drift-cell--n"),
+                    # The gate's own denominator (7d in-window post-filter
+                    # count when the payload carries it; legacy total
+                    # otherwise) — showing total history next to a 7d stat
+                    # overstated the sample (P2-21).
+                    html.Td(str(n_eff), className="gp-drift-cell--n"),
                 ]
             )
         )

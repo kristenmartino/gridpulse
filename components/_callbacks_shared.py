@@ -708,6 +708,45 @@ def _pipeline_alive(region: str, max_age_hours: float = 3.0) -> bool:
         return False
 
 
+def _scoring_pass_completed_since_actuals(region: str) -> bool:
+    """True when a COMPLETE scoring pass finished at-or-after this region's
+    current ``actuals:{region}`` write (P2-35/#273 escalation evidence).
+
+    The scoring job writes a region's actuals minutes BEFORE its forecast/
+    alert payloads within the same pass, and ``meta:last_scored`` only after
+    ALL regions finish. Escalating to "persistently unavailable" on fresh
+    actuals alone therefore lies during the first pass after a Redis flush
+    (the keys land minutes later). Requiring a full pass to have completed
+    at-or-after the actuals write proves the pipeline had its chance to
+    produce the missing key and didn't.
+
+    Trade-off (documented, accepted): on a persistently-failing region the
+    hourly refresh briefly flips this False mid-pass (~minutes, between the
+    region's actuals write and pass end), softening the copy back to
+    "warming" before it re-escalates — a transiently softer message, never
+    a false permanence claim. Fails closed (False → warming) on any read
+    or parse problem.
+    """
+    import pandas as pd
+
+    from data.redis_client import redis_get, redis_key
+
+    try:
+        meta = redis_get(redis_key("meta:last_scored"))
+        actuals = redis_get(redis_key(f"actuals:{region}"))
+        if not isinstance(meta, dict) or not isinstance(actuals, dict):
+            return False
+        completed = pd.Timestamp(meta.get("updated_at"))
+        written = pd.Timestamp(actuals.get("scored_at"))
+        if completed.tzinfo is None:
+            completed = completed.tz_localize("UTC")
+        if written.tzinfo is None:
+            written = written.tz_localize("UTC")
+        return bool(completed >= written)
+    except Exception:
+        return False
+
+
 def _guard_max_ok(entry) -> int | None:
     """Parse a ``horizon_guard`` entry's ``max_ok_horizon``; None if malformed.
 
@@ -754,8 +793,9 @@ __all__ = [
     "_empty_figure",
     # #296 horizon guard
     "_guard_max_ok",
-    # P2-35 warming-vs-unavailable discriminator
+    # P2-35 warming-vs-unavailable discriminators
     "_pipeline_alive",
+    "_scoring_pass_completed_since_actuals",
     # Color palette
     "COLORS",
     "_MODEL_BAND_COLORS",
