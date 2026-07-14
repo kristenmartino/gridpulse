@@ -19,13 +19,79 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-14 (later) — Design re-audit: 6.6/10, and the honest correction.**
+An independent adversarial re-score of the top-design pass (5 fresh graders,
+same rubric as the 5.2 baseline, told to credit only what the code computes)
+puts the shell at **6.6/10 — not the ~8 the implementing agent self-estimated.**
+Per-category: Typography 5.0→6.8, Composition 5.5→6.5, Motion 4.5→**7.0**
+(largest gain), Color 5.0→**5.5** (weakest, barely moved), Details 6.0→7.0.
+Verdict: "top of professional dashboard, clearly short of designed object" —
+it clears 7 in two dimensions and 9 in none. NOTE the graded tree includes the
+follow-up commits `a962bd8` (dynamic-SVG render fix), `4797765` (a11y), and
+`1ac7757` (legacy-CSS retirement), so tooltip/focus/legacy credit belongs to
+those, not the original pass.
+
+**Fixed this session (`90df1d0`).** (1) A real **photosensitivity hazard**:
+`.skeleton-line` ran an `infinite` shimmer that was absent from the
+reduced-motion `animation: none` list while the `*` nuke squashed duration to
+0.01ms *without* capping iterations — a max-rate strobe aimed at exactly the
+users the media query protects, during `warming`. Killed the shimmer and added
+`animation-iteration-count: 1`. (2) Briefing mode **shrank** the hero it
+promised to enlarge (generic 0-2-1 rule beat the Overview 0-2-0 override,
+71.6→56px) — re-scoped at 0-3-1; verified 42→72px. (3) Deleted a byte-identical
+briefing-wordmark no-op. (4) `gp-card-flash` still pulsed in the retired
+blue-500 → now `--accent-base`; **no blue-500 remains in CSS**. (5) The ambient
+glow's peak sat behind 108px of chrome (invisible) → anchored below it. (6) A
+self-inflicted regression: the wordmark **halved to 14px on mobile** because the
+base went 16→28px while `.dashboard-title`'s mobile override stayed at 14px.
+(7) Corrected comments that narrated craft the code lacked (a 64rem/1024px
+layout claim against a 75rem token; an `h-14` header claim; a dead `title=`
+tooltip doc; "seven sections" listing five). Suite green (2249 passed).
+
+**Next-3 — all three in flight in separate sessions (2026-07-14):**
+1. **Animate the data** (Motion 7→8.5, highest leverage in the repo): there is
+   zero Plotly `layout.transition` anywhere — every chart hard-cuts on region/
+   tab/refresh, so in a forecast-confidence product the data itself never moves.
+   Morph the curves; make the confidence band breathe as uncertainty grows.
+   Must honor `prefers-reduced-motion` and the interval-honesty rules.
+2. **Color: one source of truth + CI hex gate, then earn the accent** (5.5→8.5):
+   eight blues, three severity triads and two fuel palettes ship simultaneously;
+   "actual demand" is two different hexes across tabs; ~85 orphaned literals
+   survive (incl. `#A8B3C7` painting the shared `_empty_figure()` every tab
+   falls back to); the CVD-safe `FUEL_COLORS` has zero callsites while the
+   shipped fuel stack is a green/orange/amber deutan trap. Nothing in CI fails
+   on a raw hex, which is why it rotted — the gate is the point.
+3. **Composition & responsive** (6.5→7.5): asymmetry is Overview-ONLY; the other
+   four tabs are the same centered 75rem column, which caps the 25%-weight
+   dimension. Plus 15 magic-number chart heights, a missing ~1024px grid rung,
+   and the legacy `.dashboard-title` class hijacking the wordmark.
+
+**Scope calls on the previously-deferred list:** other-tab redesign and mobile
+were **promoted** into (3) — the re-audit showed they are what caps Composition,
+not optional polish. Dropping the DARKLY base **stays out** (a specificity/
+dead-weight tax; the re-audit never flagged it as capping a score). A CSP
+**stays out of the design queue** — it is security work, and it collides with
+the inline GA4 `gtag` script (would need a nonce/hash). Suite/marketing
+scaffolding **stays out** (P2, zero rubric impact).
+
+**Open question — is 8/10 the right ceiling for this product?** The rubric's
+9-10 band wants viewport-filling type and "scroll that feels invented," which
+would actively harm a dense operational tool. The three items above are worth
+doing on their own merits (a11y, drift-proofing, real composition); chasing 10
+beyond them may be optimizing for the wrong reader.
+
 **2026-07-14 — Top-design UI pass (branch `feat/gridpulse-top-design`, not yet
 merged).** A craft-level redesign of the shell + Overview against the
 EXECUTION_BRIEF "Modern Utility Control Room" direction (GP-P0-03/04/05,
-GP-P1-05), lifting the design-audit score from ~5.2 to ~8/10. Shipped: Sora
-display typography (page titles 20→34px, wordmark 16→28px, hero count-up); a
-distinctive electric-blue accent `#35c6ff` replacing stock Tailwind blue-500
-across tokens + brand marks; ONE registered `gridpulse` Plotly template +
+GP-P1-05), lifting the design-audit score from 5.2 to **6.6/10** — NOT the
+"~8/10" this entry originally claimed, which was a self-estimate by the agent
+that did the work and was too generous; see the re-audit entry above. Shipped:
+Sora display typography (page titles 20→34px, wordmark 16→28px, hero count-up);
+an electric-blue accent `#35c6ff` across tokens + brand marks — **correction:**
+this was recorded as a "distinctive" hue replacing stock Tailwind blue-500, but
+the re-audit measured it at ΔE≈3 from Tailwind **sky-400**, i.e. it swapped one
+stock Tailwind blue for another and is not yet an owned color; ONE registered
+`gridpulse` Plotly template +
 Okabe-Ito colorway (fixes the four drifted chart palettes, single source now
 in `_callbacks_shared.ACCENT` / `PLOT_LAYOUT` colorway); asymmetric amplified
 Overview hero + wider content column (1024→1200px, 1280 ultrawide); a
