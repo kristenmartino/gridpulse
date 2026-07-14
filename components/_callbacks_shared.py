@@ -32,6 +32,7 @@ import threading
 
 import numpy as np
 import plotly.graph_objects as go
+import plotly.io as pio
 
 from components.accessibility import CB_PALETTE
 from data.redis_client import redis_get, redis_key
@@ -93,7 +94,43 @@ _EIA_FUEL_MAP: dict[str, str] = {
 # through ``_layout()`` picks them up; per-chart overrides still win
 # because ``_layout()`` does a shallow merge over ``PLOT_LAYOUT``.
 
-PLOT_TEMPLATE = "plotly_dark"
+# ── Design-token mirrors (source of truth is assets/custom.css :root) ──
+# Kept in sync with --accent-base so a chart's "primary series" matches the
+# UI brand accent without importing CSS. Top-design pass: electric grid-blue.
+ACCENT = "#35c6ff"       # --accent-base
+ACCENT_SOFT = "#63d6ff"  # --accent-hover
+
+# One accessible categorical colorway for EVERY figure that does not set
+# explicit trace colors — the fix for the four palettes that had drifted
+# apart (each callsite previously fell back to a different default sequence).
+# Okabe-Ito / Wong order, reused from accessibility.CB_PALETTE, verified
+# distinguishable under protanopia / deuteranopia / tritanopia. Charts that
+# encode *model identity* keep their own CB_PALETTE color + dash pattern
+# (accessibility.LINE_STYLES), which sets explicit colors and so overrides
+# this colorway — the color+dash double-encoding stays intact.
+_COLORWAY = [
+    CB_PALETTE["sky_blue"],    # #56B4E9
+    CB_PALETTE["orange"],      # #E69F00
+    CB_PALETTE["green"],       # #009E73
+    CB_PALETTE["vermillion"],  # #D55E00
+    CB_PALETTE["yellow"],      # #F0E442
+    CB_PALETTE["purple"],      # #CC79A7
+    CB_PALETTE["blue"],        # #0072B2
+]
+
+# Register ONE named template so the colorway + shared dark tone apply to
+# every figure — including any that don't flow through _layout(). Extends
+# the stock plotly_dark base; _layout()/PLOT_LAYOUT still layer the exact
+# axis/hover tone on top. Set as the process default too, so a bare
+# go.Figure() inherits the accessible colorway. Idempotent at import time.
+_gridpulse_template = go.layout.Template(pio.templates["plotly_dark"])
+_gridpulse_template.layout.colorway = tuple(_COLORWAY)
+_gridpulse_template.layout.paper_bgcolor = "rgba(0,0,0,0)"
+_gridpulse_template.layout.plot_bgcolor = "rgba(0,0,0,0)"
+pio.templates["gridpulse"] = _gridpulse_template
+pio.templates.default = "gridpulse"
+
+PLOT_TEMPLATE = "gridpulse"
 
 # Modebar config for any chart that *wants* a visible modebar. The
 # current GridPulse design hides the modebar entirely on every tab
@@ -123,6 +160,9 @@ PLOT_CONFIG: dict[str, object] = {
 
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,
+    # Explicit belt over the template's colorway — guarantees the accessible
+    # sequence on every figure that flows through _layout().
+    colorway=list(_COLORWAY),
     paper_bgcolor="rgba(0,0,0,0)",
     plot_bgcolor="rgba(0,0,0,0)",
     font=dict(
@@ -163,13 +203,13 @@ PLOT_LAYOUT = dict(
         gridcolor="rgba(255,255,255,0.04)",
         zerolinecolor="rgba(255,255,255,0.08)",
         linecolor="rgba(255,255,255,0.10)",
-        tickfont=dict(color="#8892A5", size=11),
+        tickfont=dict(color="#71717a", size=11),
     ),
     yaxis=dict(
         gridcolor="rgba(255,255,255,0.04)",
         zerolinecolor="rgba(255,255,255,0.08)",
         linecolor="rgba(255,255,255,0.10)",
-        tickfont=dict(color="#8892A5", size=11),
+        tickfont=dict(color="#71717a", size=11),
     ),
 )
 
@@ -651,31 +691,38 @@ _STRESS_RELIABLE_CEILING = 2.0
 #
 # Single source of truth for the US-Grid map visual style. The polygon
 # border color is intentionally translucent so it reads against any
-# colorscale fill — green, yellow, or red — without becoming the visual
-# focus. See PR #79 for the regression that motivated the contrast bump.
+# colorscale fill — from the dim slate low end to the bright amber high
+# end — without becoming the visual focus. See PR #79 for the regression
+# that motivated the contrast bump.
 
 _MAP_LAND_COLOR = "#111113"  # --bg-raised
 _MAP_COASTLINE_COLOR = "#27272a"
 _MAP_SUBUNIT_COLOR = "#1f1f23"
 _MAP_AXIS_FONT_COLOR = "#71717a"  # --text-tertiary
 
-# Polygon borders need to read against ANY colorscale fill — green, yellow,
-# or red. A near-black border (#1f1f23) was nearly identical to the
+# Polygon borders need to read against ANY colorscale fill (dim slate →
+# bright amber). A near-black border (#1f1f23) was nearly identical to the
 # darkest polygon fill, so adjacent BAs visually fused into one blob on
 # the Polygons view. A translucent zinc reads against everything.
 _MAP_BORDER_COLOR = "rgba(228, 228, 231, 0.5)"
 
-# Five-stop colorscale: the previous three-stop scale (0.0 → 0.7 → 1.0,
-# green → yellow → red) put 30% and 60% utilization at nearly identical
-# greens because both fall on the long [0.0, 0.7] interpolation segment.
-# Most BAs operate in the 30–70% band, so spreading colors there is what
-# the eye actually needs.
+# Utilization / grid-stress colorscale (0 = idle headroom → 1 = peak).
+#
+# The prior emerald→lime→yellow→orange→red ramp was a WCAG 1.4.1
+# use-of-color failure: protanopia/deuteranopia collapse the green↔red
+# axis, so "comfortable" and "stressed" BAs were indistinguishable for
+# ~8% of men. Replaced with a CVD-safe, LUMINANCE-MONOTONIC blue→amber
+# scale: it rides the blue–yellow axis (preserved under protan/deutan)
+# and increases steadily in brightness, so stress reads even in grayscale
+# and for tritanopia. Low utilization recedes (dim slate-blue); high
+# utilization pops (bright amber) — the "hotter = more stressed" read,
+# without the red-green trap. Re-verify any edit with a CVD simulator.
 _MAP_COLORSCALE = [
-    [0.00, "#10b981"],  # emerald-500 — idle / comfortable headroom
-    [0.40, "#84cc16"],  # lime-500 — running easy
-    [0.60, "#eab308"],  # yellow-500 — getting tight
-    [0.80, "#f97316"],  # orange-500 — warning
-    [1.00, "#dc2626"],  # red-600 — peak / stressed
+    [0.00, "#26324a"],  # dim slate-blue — idle / comfortable headroom
+    [0.40, "#3f6690"],  # muted blue — running easy
+    [0.60, "#6f83a1"],  # blue-gray — getting tight
+    [0.80, "#c99a44"],  # amber — warning
+    [1.00, "#f4c531"],  # bright amber — peak / stressed
 ]
 
 
@@ -789,6 +836,9 @@ __all__ = [
     "PLOT_TEMPLATE",
     "PLOT_LAYOUT",
     "PLOT_CONFIG",
+    "ACCENT",
+    "ACCENT_SOFT",
+    "_COLORWAY",
     "_layout",
     "_empty_figure",
     # #296 horizon guard

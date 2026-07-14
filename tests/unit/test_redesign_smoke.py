@@ -216,8 +216,8 @@ class TestBrandIdentity:
         assert '<link rel="icon" type="image/svg+xml"' in idx
         assert '<link rel="apple-touch-icon"' in idx
         assert '<link rel="mask-icon"' in idx
-        # Mask-icon color should be the v2 accent blue
-        assert "#3b82f6" in idx
+        # Mask-icon color should be the electric grid-blue accent (top-design pass)
+        assert "#35c6ff" in idx
 
     def test_og_meta_present(self):
         import app as app_module
@@ -275,7 +275,7 @@ class TestCSSTokens:
             "--bg-base: #0a0a0b",
             "--bg-raised: #111113",
             "--bg-hover: #18181b",
-            "--accent-base: #3b82f6",
+            "--accent-base: #35c6ff",
             "--forecast: #f97316",
             "--text-primary: #e4e4e7",
         ]:

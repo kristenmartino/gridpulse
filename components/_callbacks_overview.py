@@ -65,6 +65,7 @@ import structlog
 from dash import Input, Output, State, dcc, html, no_update
 
 from components._callbacks_shared import (
+    ACCENT,
     _BACKTEST_CACHE,
     _EIA_FUEL_MAP,
     _GENERATION_CACHE,
@@ -458,7 +459,7 @@ def _build_overview_hero_chart(
             y=actual["demand_mw"].where(actual["demand_mw"] > 0),
             mode="lines",
             name="Actual",
-            line=dict(color="#3b82f6", width=1.75),
+            line=dict(color=ACCENT, width=1.75),
             fill="tozeroy",
             fillcolor="rgba(59, 130, 246, 0.08)",
             hovertemplate="<b>%{x|%b %d, %H:%M}</b><br>%{y:,.0f} MW<extra></extra>",
@@ -1527,7 +1528,7 @@ def _build_scenarios_panel(
             y=base_y,
             mode="lines",
             name="Baseline",
-            line=dict(color="#3b82f6", width=1.75),
+            line=dict(color=ACCENT, width=1.75),
             hovertemplate="<b>Baseline</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
         )
     )
@@ -2612,8 +2613,11 @@ def register_overview_callbacks(app):
             # 1. Title block (region name + subtitle)
             title = _build_overview_title(region)
 
-            # 2. MetricsBar (5-up KPI row)
+            # 2. MetricsBar — asymmetric hero variant: the "Now" demand value
+            #    renders at display scale, the four supporting metrics compress
+            #    to the right (top-design composition pass).
             metrics_bar = build_metrics_bar(_build_overview_metrics_items(demand_df))
+            metrics_bar.className = "gp-metrics-bar gp-metrics-bar--overview"
 
             # 3. Hero forecast chart (actual + dashed forecast + confidence band)
             chart = _build_overview_hero_chart(region, demand_df)

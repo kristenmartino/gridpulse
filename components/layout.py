@@ -36,18 +36,17 @@ _VISIBLE_LABEL_OVERRIDES = {
 
 
 def _monogram() -> html.Span:
-    """Inline 24×24 SVG monogram. Same path data as ``assets/favicon.svg``."""
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" '
-        'class="gp-header__monogram" aria-hidden="true">'
-        '<rect width="32" height="32" rx="6" fill="#0a0a0b"/>'
-        '<path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16" '
-        'stroke="#3b82f6" stroke-width="2.25" '
-        'stroke-linecap="round" stroke-linejoin="round" fill="none"/>'
-        "</svg>"
-    )
+    """Brand monogram — the favicon's pulse waveform, sized via
+    ``.gp-header__monogram``.
+
+    Rendered as an ``<img>`` referencing ``assets/favicon.svg`` rather than
+    an inline SVG string: ``dcc.Markdown`` sanitizes away the outer ``<svg>``
+    wrapper (keeping only its orphaned ``<rect>``/``<path>`` children), so the
+    prior inline-markup approach never actually displayed the mark.
+    ``alt=""`` marks it decorative — the wordmark carries the accessible name.
+    """
     return html.Span(
-        dcc.Markdown(svg, dangerously_allow_html=True),
+        html.Img(src="/assets/favicon.svg", className="gp-header__monogram", alt=""),
         className="gp-header__monogram-wrap",
     )
 

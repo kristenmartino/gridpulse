@@ -497,7 +497,7 @@ def layout() -> html.Div:
                                 config=_GRAPH_CONFIG,
                             ),
                             type="circle",
-                            color="#3b82f6",
+                            color="#35c6ff",
                         ),
                         className="gp-chart-card",
                     ),

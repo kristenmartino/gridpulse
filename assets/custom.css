@@ -6,8 +6,10 @@
  * shadows) define separation. See ~/.claude/plans/shell-redesign-v2.md.
  */
 
-/* ── Typography ───────────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap');
+/* ── Typography ───────────────────────────────────────────
+ * Inter + Sora are preloaded via <link> in app.py index_string (discovered
+ * at first HTML parse), NOT an @import here — an @import at the top of this
+ * ~70KB file blocks rendering until the whole stylesheet downloads. */
 
 /* ── Design Tokens ────────────────────────────────────── */
 :root {
@@ -15,6 +17,7 @@
     --bg-base: #0a0a0b;       /* page background, deepest */
     --bg-raised: #111113;     /* cards, dropdowns, badges */
     --bg-hover: #18181b;      /* interactive hover state */
+    --surface-sunken: #060607; /* recessed track/inset, deeper than --bg-base */
     /* Back-compat aliases for rules still referencing the old 5-tier system. */
     --bg-elevated: var(--bg-raised);
     --bg-overlay: rgba(10, 10, 11, 0.72);
@@ -23,7 +26,7 @@
     --border-subtle: rgba(255, 255, 255, 0.06);
     --border-default: rgba(255, 255, 255, 0.12);
     --border-strong: rgba(255, 255, 255, 0.18);
-    --border-accent: #3b82f6;
+    --border-accent: #35c6ff;
 
     /* Text — neutral 4-tier ramp (warmer than the prior cool slate) */
     --text-primary: #e4e4e7;
@@ -33,11 +36,14 @@
     /* Back-compat alias */
     --text-muted: var(--text-disabled);
 
-    /* Accent — v2 blue (replaces brand cyan #38D0FF) */
-    --accent-base: #3b82f6;
-    --accent-hover: #5b9aff;
-    --accent-dim: rgba(59, 130, 246, 0.15);
-    --accent-ring: rgba(59, 130, 246, 0.30);
+    /* Accent — electric grid-blue (top-design pass). Reinstates a distinctive
+     * #38D0FF-family hue over the prior stock Tailwind blue-500 (#3b82f6),
+     * pulled slightly toward blue for a premium, restrained "energized grid"
+     * read. Mirrored in Python as _callbacks_shared.ACCENT for chart series. */
+    --accent-base: #35c6ff;
+    --accent-hover: #63d6ff;
+    --accent-dim: rgba(53, 198, 255, 0.15);
+    --accent-ring: rgba(53, 198, 255, 0.32);
 
     /* Forecast — v2 orange (new; was implicit in --warning previously) */
     --forecast: #f97316;
@@ -65,7 +71,13 @@
     --text-lg: 16px;
     --text-xl: 20px;
     --text-2xl: 28px;
-    --text-3xl: 36px;
+    --text-4xl: 44px;
+
+    /* Architecture tier (top-design pass) — Sora display, dramatic scale
+     * contrast against the 13px body (--text-base). --text-heading anchors
+     * every tab's page title; --text-hero is the Overview demand value. */
+    --text-heading: clamp(24px, 1.3vw + 16px, 34px);
+    --text-hero:    clamp(42px, 4vw + 14px, 72px);
 
     /* Fluid display size — clamps between --text-xl (20px) and --text-2xl
      * (28px), interpolated by viewport. Replaces the abrupt stepwise jump
@@ -102,8 +114,10 @@
     --shadow-focus: 0 0 0 3px var(--accent-ring);
     --edge-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
 
-    /* Layout — v2 dashboard uses max-w-5xl (1024px) with 24-32px gutters */
-    --content-max-width: 64rem;
+    /* Layout — content column. Widened from max-w-5xl (1024px) so charts and
+     * the Overview hero use analyst-monitor real estate instead of
+     * letterboxing; steps up again past 1600px (top-design composition pass). */
+    --content-max-width: 75rem;
     --content-gutter: 1.5rem;
     --section-gap: 2rem;            /* space-y-8 between major sections */
     --card-padding: 1.25rem;        /* p-5 inside cards */
@@ -111,7 +125,7 @@
      * .nav-tabs total height (link padding × 2 + line-height + border).
      * .nav-tabs sticks DIRECTLY under the header so the tab-content
      * region scrolls under both. */
-    --header-height: 56px;
+    --header-height: 60px;
     --tabs-height: 48px;
 
     /* Motion — durations */
@@ -179,6 +193,26 @@ body::before {
     z-index: 9999;
 }
 
+/* Charged-grid ambient glow (top-design pass) — the single signature color
+ * moment in the calm dark system. One very soft cyan wash bleeds down from
+ * the top, reading as a live/energized grid behind the hero. Fixed +
+ * pointer-events:none; sits behind content (.gp-page is z-index 1) and under
+ * the opaque header, so only the hero region catches it. Deliberately low
+ * alpha to stay OLED-neutral and never tip into a "gradient hero". */
+body::after {
+    content: "";
+    position: fixed;
+    top: 0;
+    left: 50%;
+    width: min(1200px, 92vw);
+    height: 520px;
+    transform: translateX(-50%);
+    background: radial-gradient(60% 90% at 50% 0%,
+                rgba(53, 198, 255, 0.08), rgba(53, 198, 255, 0) 70%);
+    pointer-events: none;
+    z-index: 0;
+}
+
 /* Tabular numerics — apply to KPI values, table cells, time labels.
  *   <span class="tabular">28,450</span>
  * Aligns decimal places and digit widths across rows. */
@@ -196,34 +230,35 @@ body::before {
     --icon-xl: 24px;
 }
 
+/* Icon glyphs render as a CSS mask over a ``currentColor`` background
+   (see ``components/icons.py`` ``icon()``). Per-icon size, mask-image, and
+   background-color are set inline; the shared mask geometry lives here.
+   A mask (not inline ``<svg>`` via dcc.Markdown, which the Dash sanitizer
+   strips, nor an ``<img>``, which can't inherit ``currentColor``) is what
+   lets a single glyph theme to danger / warning / muted / accent. */
 .icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+    display: inline-block;
     vertical-align: -0.125em;
     flex-shrink: 0;
-    line-height: 0;
-    color: currentColor;
+    background-color: currentColor;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
 }
 
-.icon svg {
-    display: block;
-    stroke: currentColor;
-    fill: none;
-    flex-shrink: 0;
-}
+.icon--xs { width: var(--icon-xs); height: var(--icon-xs); }
+.icon--sm { width: var(--icon-sm); height: var(--icon-sm); }
+.icon--md { width: var(--icon-md); height: var(--icon-md); }
+.icon--lg { width: var(--icon-lg); height: var(--icon-lg); }
+.icon--xl { width: var(--icon-xl); height: var(--icon-xl); }
 
-.icon--xs svg { width: var(--icon-xs); height: var(--icon-xs); }
-.icon--sm svg { width: var(--icon-sm); height: var(--icon-sm); }
-.icon--md svg { width: var(--icon-md); height: var(--icon-md); }
-.icon--lg svg { width: var(--icon-lg); height: var(--icon-lg); }
-.icon--xl svg { width: var(--icon-xl); height: var(--icon-xl); }
-
-/* dcc.Markdown wraps the SVG in a <p> — collapse that wrapping. */
-.icon p {
-    margin: 0;
-    padding: 0;
-    line-height: 0;
+/* An unknown icon key renders as a bare ``.icon--missing`` span with no
+   mask — keep it from painting a solid currentColor block. */
+.icon--missing {
+    background-color: transparent;
 }
 
 /* Severity tinting for alert-card icons */
@@ -395,10 +430,10 @@ body.briefing .gp-section-stack {
     gap: var(--space-12);
 }
 
-/* Page title scales up */
+/* Page title scales up for projection (above the normal --text-heading) */
 body.briefing .gp-page-title__heading {
-    font-size: 36px;
-    letter-spacing: -0.025em;
+    font-size: var(--text-4xl);
+    letter-spacing: -0.03em;
 }
 
 body.briefing .gp-page-title__subtitle {
@@ -445,7 +480,7 @@ body.briefing .gp-header {
 }
 
 body.briefing .gp-header__wordmark {
-    font-size: var(--text-xl);
+    font-size: var(--text-2xl);
 }
 
 /* Watermark — soft "GridPulse" stamp in the lower-right of the header,
@@ -513,10 +548,11 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 
 .gp-page-title__heading {
     color: var(--text-primary);
-    font-family: var(--font-sans);
-    font-size: var(--text-xl);
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-family: var(--font-display);
+    font-size: var(--text-heading);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
     margin: 0;
 }
 
@@ -579,8 +615,11 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 }
 
 .gp-metric-value--hero {
+    font-family: var(--font-display);
     font-size: var(--text-2xl);
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
 }
 
 .gp-metric-value--secondary {
@@ -593,6 +632,29 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 
 .gp-metric-value--negative {
     color: var(--danger);
+}
+
+/* Overview asymmetric hero (top-design composition pass) — the "Now" demand
+ * value dominates the row at display scale; the four supporting metrics
+ * compress to the right. A deliberate break from the uniform 5-up rhythm,
+ * turning the MetricsBar into a mission-control hero. Desktop only; the base
+ * 2-up mobile grid (below) still applies under 768px. The huge value pairs
+ * with the live demand waveform directly beneath it — GridPulse's "pulse". */
+.gp-metrics-bar--overview {
+    grid-template-columns: minmax(0, 2.3fr) repeat(4, minmax(0, 1fr));
+    align-items: start;
+}
+
+.gp-metrics-bar--overview .gp-metric-value--hero {
+    font-size: var(--text-hero);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    overflow: visible;
+}
+
+/* The hero unit ("MW") rides a touch larger next to the display value. */
+.gp-metrics-bar--overview .gp-metric-cell:first-child .gp-metric-unit {
+    font-size: var(--text-sm);
 }
 
 .gp-metric-unit {
@@ -1307,7 +1369,8 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .gp-metrics-bar--4up {
+    .gp-metrics-bar--4up,
+    .gp-metrics-bar--overview {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -1323,6 +1386,14 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 
     .gp-metric-cell:nth-last-child(-n+2) {
         border-bottom: 0;
+    }
+}
+
+/* Ultrawide analyst monitors — let the content column breathe a step further
+ * so 1600px+ displays aren't left with cavernous side gutters. */
+@media (min-width: 1600px) {
+    :root {
+        --content-max-width: 80rem;
     }
 }
 
@@ -1366,8 +1437,8 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 }
 
 .gp-header__monogram {
-    width: 24px;
-    height: 24px;
+    width: 30px;
+    height: 30px;
     display: block;
     flex-shrink: 0;
 }
@@ -1375,9 +1446,9 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 .gp-header__wordmark {
     color: var(--text-primary);
     font-family: var(--font-display);
-    font-size: var(--text-lg);
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-size: var(--text-2xl);
+    font-weight: 700;
+    letter-spacing: -0.03em;
     line-height: 1;
     margin: 0;
 }
@@ -1515,10 +1586,10 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 .dashboard-title {
     color: var(--text-primary);
     font-family: var(--font-display);
-    font-size: var(--text-lg);
-    font-weight: 600;
+    font-size: var(--text-2xl);
+    font-weight: 700;
     margin: 0;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
 }
 
 .dashboard-subtitle {
@@ -2212,6 +2283,47 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     white-space: normal;
 }
 
+/* ── Motion: choreographed reveals + sliding tab ink-bar ──────────────
+ * Driven by assets/motion.js. The hidden reveal state is scoped to
+ * .gp-motion (added to <html> ONLY when motion is allowed), so under
+ * prefers-reduced-motion — or if the script never runs — sections stay
+ * visible. Pure progressive enhancement. */
+.gp-motion .gp-reveal {
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity var(--duration-slow) var(--ease-out-quint),
+                transform var(--duration-slow) var(--ease-out-quint);
+    will-change: opacity, transform;
+}
+
+.gp-motion .gp-reveal.in-view {
+    opacity: 1;
+    transform: none;
+}
+
+/* Sliding "signal-trace" underline. motion.js writes --ink-x / --ink-w and
+ * adds .gp-ink-ready once it has measured the active pill; until then the
+ * per-link static border below is the indicator (no-JS fallback). */
+.nav-tabs.gp-ink-ready::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -1px;                 /* sit on the .nav-tabs border-bottom */
+    height: 2px;
+    width: var(--ink-w, 0);
+    transform: translateX(var(--ink-x, 0));
+    background: var(--accent-base);
+    transition: transform var(--duration-slow) var(--ease-out-quint),
+                width var(--duration-slow) var(--ease-out-quint);
+    pointer-events: none;
+}
+
+/* With the sliding bar live, drop the per-link static underline so there is
+ * only one indicator. */
+.nav-tabs.gp-ink-ready .nav-link.active {
+    border-bottom-color: transparent;
+}
+
 /* ── Reduced Motion ───────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
     .welcome-card,
@@ -2222,6 +2334,11 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     .news-ticker-track { animation: none; }
     .kpi-card { transition: none; }
     .gp-region-card { transition: none !important; }
+    /* Belt: never leave a reveal target stranded invisible, and don't slide
+     * the ink-bar. (.gp-motion isn't applied under reduced motion, so this is
+     * defensive — e.g. if the preference flips mid-session.) */
+    .gp-reveal { opacity: 1 !important; transform: none !important; }
+    .nav-tabs.gp-ink-ready::after { transition: none !important; }
     * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
 

@@ -65,7 +65,7 @@ def build_welcome_card(
     title: str,
     message: str,
     avatar: str = "👋",
-    color: str = "#3b82f6",
+    color: str = "#35c6ff",
 ) -> html.Div:
     """
     Build a persona-specific welcome card.
@@ -176,7 +176,7 @@ def build_chart_container(
                     config={"displayModeBar": True, "responsive": True},
                 ),
                 type="circle",
-                color="#3b82f6",
+                color="#35c6ff",
             ),
         ],
         className="chart-container",

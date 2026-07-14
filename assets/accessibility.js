@@ -88,7 +88,7 @@ if (document.readyState === 'loading') {
     skip.href = '#main-content';
     skip.textContent = 'Skip to main content';
     skip.className = 'sr-only sr-only-focusable';
-    skip.style.cssText = 'position:absolute;top:-40px;left:0;background:#3b82f6;color:#0a0a0b;' +
+    skip.style.cssText = 'position:absolute;top:-40px;left:0;background:#35c6ff;color:#0a0a0b;' +
         'padding:8px 16px;z-index:10000;transition:top 0.2s;';
     skip.addEventListener('focus', function() { skip.style.top = '0'; });
     skip.addEventListener('blur', function() { skip.style.top = '-40px'; });

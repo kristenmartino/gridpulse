@@ -105,6 +105,7 @@ from components._callbacks_shared import (
     _STRESS_RELIABLE_CEILING,  # noqa: F401 — re-export (tests/unit/test_us_grid_stress_cap)
     BACKTEST_EXOG_MODES,  # noqa: F401 — re-export
     COLORS,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py::TestModuleConstants)
+    ACCENT,  # noqa: F401 — re-export (brand accent hex mirror; top-design pass)
     DEFAULT_BACKTEST_EXOG_MODE,  # noqa: F401 — re-export (tests + Backtest module imports it elsewhere)
     PLOT_CONFIG,  # noqa: F401 — re-export
     PLOT_LAYOUT,  # noqa: F401 — re-export

@@ -19,6 +19,38 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-14 — Top-design UI pass (branch `feat/gridpulse-top-design`, not yet
+merged).** A craft-level redesign of the shell + Overview against the
+EXECUTION_BRIEF "Modern Utility Control Room" direction (GP-P0-03/04/05,
+GP-P1-05), lifting the design-audit score from ~5.2 to ~8/10. Shipped: Sora
+display typography (page titles 20→34px, wordmark 16→28px, hero count-up); a
+distinctive electric-blue accent `#35c6ff` replacing stock Tailwind blue-500
+across tokens + brand marks; ONE registered `gridpulse` Plotly template +
+Okabe-Ito colorway (fixes the four drifted chart palettes, single source now
+in `_callbacks_shared.ACCENT` / `PLOT_LAYOUT` colorway); asymmetric amplified
+Overview hero + wider content column (1024→1200px, 1280 ultrawide); a
+reduced-motion-guarded motion layer (`assets/motion.js`: count-up, section
+reveals, sliding tab ink-bar); `lang="en"` + fonts moved off the
+render-blocking custom.css `@import` to preloaded `<link>`s. **Two
+accessibility defects closed:** the US-Grid choropleth's colorblind-unsafe
+red→green ramp replaced with a luminance-monotonic blue→amber scale (WCAG
+1.4.1; Wong color+dash double-encoding preserved), and the missing
+`<html lang>` (WCAG 3.1.1). Fixed three latent bugs found en route: the header
+monogram never rendered (`dcc.Markdown` strips the outer `<svg>` — switched to
+`html.Img`), a count-up re-entrancy ratchet (dragged the hero to "1 MW"), and a
+reveal-strand that could leave content invisible if an IntersectionObserver
+never fired (rebuilt observer-free with a timer + belt fallback). Unit suite
+green (2249 passed, 3 skipped); 3 design-contract tests updated to the new
+accent/header-height. **Deferred polish is in flight in follow-up sessions:**
+premium details (branded `dbc.Tooltip`, one primary CTA, persona-emoji→icons,
+retire dead legacy card CSS) and a11y/structure (wire the existing
+`accessibility.forecast_summary`/`scenario_summary` into an `aria-live` region,
+unify focus styles, one app-level footer); a separate session is fixing the
+US-Grid inline-SVG sparklines (same `dcc.Markdown` `<svg>`-stripping class of
+bug as the monogram). Remaining before merge: scoped commit, before/after
+screenshots, and a CVD-simulator pass on the new choropleth with populated map
+data.
+
 **2026-07-11 — Forecast honesty: #283 shipped end-to-end, audit critical tier
 closed, #296 SARIMAX degeneracy found + fixed.** The #283 seasonal-forecasting
 arc completed all phases and the `weather_normal_tail` flag is **ON in prod**

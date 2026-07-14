@@ -23,7 +23,7 @@ class TestStickyChrome:
         """``--header-height`` drives the sticky-tab-strip offset.
         Must be defined on :root so the .nav-tabs rule can reference it."""
         css = _read_css()
-        assert "--header-height: 56px" in css
+        assert "--header-height: 60px" in css
 
     def test_gp_header_is_sticky(self):
         """Header pins to top of viewport on scroll. Without this the

@@ -92,11 +92,19 @@ app = dash.Dash(
 # cold loads. fonts.gstatic.com requires crossorigin since the @font-face
 # request itself is anonymous CORS.
 app.index_string = """<!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="preconnect" href="https://www.googletagmanager.com">
+    <!-- Fonts load here (not via an @import inside custom.css) so the browser
+         discovers them at first HTML parse instead of after the ~70KB
+         stylesheet downloads — removes the render-blocking @import + FOUT.
+         Preconnects above already warmed the TLS handshake. -->
+    <link rel="preload" as="style"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
@@ -109,7 +117,7 @@ app.index_string = """<!DOCTYPE html>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
-    <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
+    <link rel="mask-icon" href="/assets/favicon.svg" color="#35c6ff">
     <meta name="description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
     <meta property="og:type" content="website">
     <meta property="og:title" content="GridPulse — Energy Intelligence Platform">
