@@ -71,7 +71,6 @@ from components._callbacks_models import (
     register_models_callbacks,
 )
 from components._callbacks_overview import (
-    _build_changes_card,  # noqa: F401 — re-export (tests + helper-callable surface)
     _build_models_leaderboard,  # noqa: F401 — re-export (tests/unit/test_models_tab_consistency.py)
     _build_overview_briefing,  # noqa: F401 — re-export (tests + helper-callable surface)
     _build_overview_data_health,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)

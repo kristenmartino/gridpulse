@@ -191,7 +191,8 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             html.Thead(html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])),
             html.Tbody(rows),
         ],
-        className="metrics-table",
+        # Styled by its slot wrapper (.gp-metrics-table-slot table); no
+        # table class of its own after the legacy .metrics-table retirement.
     )
 
     # Honest empty state when no backtest results exist yet for this region
@@ -665,7 +666,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
             ),
             html.Tbody(rows),
         ],
-        className="metrics-table gp-drift-table",
+        className="gp-drift-table",
     )
 
     return html.Div(
@@ -807,7 +808,7 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
             html.Thead(html.Tr([html.Th("Model")] + [html.Th(f"{h} ahead") for h in horizons])),
             html.Tbody(rows),
         ],
-        className="metrics-table gp-drift-table gp-horizon-drift-table",
+        className="gp-drift-table gp-horizon-drift-table",
     )
 
     return html.Div(
@@ -1027,7 +1028,8 @@ def register_models_callbacks(app):
                 html.Thead(html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])),
                 html.Tbody(rows),
             ],
-            className="metrics-table",
+            # Styled by its slot wrapper (.gp-metrics-table-slot table); no
+            # table class of its own after the legacy .metrics-table retirement.
         )
 
         timestamps = demand_df["timestamp"]

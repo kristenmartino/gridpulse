@@ -53,7 +53,7 @@ log = structlog.get_logger()
 
 
 def _stress_tone(stress: int | None) -> str:
-    """kpi-delta tone for the utilization-based grid-stress score (#265).
+    """gp-kpi-delta tone for the utilization-based grid-stress score (#265).
 
     Normal < 70 (positive) ≤ Elevated < 85 (neutral) ≤ High ≥ 85 (negative);
     a missing score is neutral. Bands mirror ``models.pricing.grid_stress``.
@@ -295,14 +295,14 @@ def _alerts_tab_from_redis(region):
                 dbc.Col(
                     html.Div(
                         [
-                            html.P("TEMPERATURE", className="kpi-label"),
+                            html.P("TEMPERATURE", className="gp-kpi-label"),
                             html.H4(
                                 temp_display,
-                                className="kpi-value",
+                                className="gp-kpi-value",
                                 style={"fontSize": "1.3rem"},
                             ),
                         ],
-                        className="kpi-card",
+                        className="gp-kpi-card",
                         style={"borderTop": f"3px solid {color}"},
                     ),
                     md=3,
@@ -314,7 +314,7 @@ def _alerts_tab_from_redis(region):
     return (
         alert_cards,
         "—" if stress is None else str(stress),
-        html.Span(stress_label, className=f"kpi-delta {stress_color}"),
+        html.Span(stress_label, className=f"gp-kpi-delta {stress_color}"),
         breakdown,
         fig_anomaly,
         fig_temp,
@@ -688,7 +688,7 @@ def register_alerts_callbacks(app):
         return (
             alert_cards,
             str(stress),
-            html.Span(stress_label, className=f"kpi-delta {stress_color}"),
+            html.Span(stress_label, className=f"gp-kpi-delta {stress_color}"),
             breakdown,
             fig_anomaly,
             fig_temp,

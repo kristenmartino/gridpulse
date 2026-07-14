@@ -894,7 +894,7 @@ def build_insight_card(
             ),
             html.Div(insight_items),
         ],
-        className="insight-card",
+        className="gp-insight-panel",
         style={
             "borderLeft": f"4px solid {persona_color}",
         },

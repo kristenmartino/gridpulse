@@ -77,12 +77,6 @@ class TestCardComponents:
         row = build_kpi_row(kpis)
         assert row is not None
 
-    def test_welcome_card(self):
-        from components.cards import build_welcome_card
-
-        card = build_welcome_card("Test Title", "Test message", avatar="🔬", color="#9467bd")
-        assert card is not None
-
     def test_alert_card_critical(self):
         from components.cards import build_alert_card
 
@@ -98,14 +92,6 @@ class TestCardComponents:
             "Wind Advisory", "Gusts to 40mph", severity="info", expires="2024-07-15T20:00"
         )
         assert card is not None
-
-    def test_chart_container(self):
-        from components.cards import build_chart_container
-
-        container = build_chart_container(
-            "test-chart", "Test Chart", height="400px", freshness="fresh"
-        )
-        assert container is not None
 
 
 class TestDemoData:

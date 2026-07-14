@@ -20,11 +20,11 @@ import pandas as pd
 
 
 def _card_labels(div) -> list[str]:
-    """The kpi-label text of every rendered card (in order)."""
+    """The gp-kpi-label text of every rendered card (in order)."""
     labels: list[str] = []
 
     def walk(node):
-        if getattr(node, "className", None) == "kpi-label" and isinstance(node.children, str):
+        if getattr(node, "className", None) == "gp-kpi-label" and isinstance(node.children, str):
             labels.append(node.children)
         ch = getattr(node, "children", None)
         if isinstance(ch, (list, tuple)):

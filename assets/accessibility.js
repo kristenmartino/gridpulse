@@ -52,11 +52,11 @@ const observer = new MutationObserver(function(mutations) {
     });
 
     // Label KPI cards
-    document.querySelectorAll('.kpi-card').forEach(function(card) {
+    document.querySelectorAll('.gp-kpi-card').forEach(function(card) {
         if (!card.getAttribute('role')) {
             card.setAttribute('role', 'status');
-            const label = card.querySelector('.kpi-label');
-            const value = card.querySelector('.kpi-value');
+            const label = card.querySelector('.gp-kpi-label');
+            const value = card.querySelector('.gp-kpi-value');
             if (label && value) {
                 card.setAttribute('aria-label', label.textContent + ': ' + value.textContent);
             }

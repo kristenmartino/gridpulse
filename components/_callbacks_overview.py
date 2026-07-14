@@ -1786,14 +1786,14 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
             dbc.Col(
                 html.Div(
                     [
-                        html.P("TEMPERATURE", className="kpi-label"),
+                        html.P("TEMPERATURE", className="gp-kpi-label"),
                         html.H4(
                             f"{t:.0f}°F",
-                            className="kpi-value",
+                            className="gp-kpi-value",
                             style={"fontSize": "1.3rem"},
                         ),
                     ],
-                    className="kpi-card",
+                    className="gp-kpi-card",
                     style={"borderTop": f"3px solid {color}"},
                 ),
                 md=3,
@@ -1807,14 +1807,14 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
             dbc.Col(
                 html.Div(
                     [
-                        html.P("WIND SPEED", className="kpi-label"),
+                        html.P("WIND SPEED", className="gp-kpi-label"),
                         html.H4(
                             f"{w:.0f} mph",
-                            className="kpi-value",
+                            className="gp-kpi-value",
                             style={"fontSize": "1.3rem"},
                         ),
                     ],
-                    className="kpi-card",
+                    className="gp-kpi-card",
                     style={"borderTop": f"3px solid {color}"},
                 ),
                 md=3,
@@ -1828,14 +1828,14 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
             dbc.Col(
                 html.Div(
                     [
-                        html.P("HUMIDITY", className="kpi-label"),
+                        html.P("HUMIDITY", className="gp-kpi-label"),
                         html.H4(
                             f"{h:.0f}%",
-                            className="kpi-value",
+                            className="gp-kpi-value",
                             style={"fontSize": "1.3rem"},
                         ),
                     ],
-                    className="kpi-card",
+                    className="gp-kpi-card",
                     style={"borderTop": f"3px solid {color}"},
                 ),
                 md=3,
@@ -1849,14 +1849,14 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
             dbc.Col(
                 html.Div(
                     [
-                        html.P("CLOUD COVER", className="kpi-label"),
+                        html.P("CLOUD COVER", className="gp-kpi-label"),
                         html.H4(
                             f"{c:.0f}%",
-                            className="kpi-value",
+                            className="gp-kpi-value",
                             style={"fontSize": "1.3rem"},
                         ),
                     ],
-                    className="kpi-card",
+                    className="gp-kpi-card",
                     style={"borderTop": f"3px solid {color}"},
                 ),
                 md=3,
@@ -1867,67 +1867,6 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
         return html.Div()
 
     return dbc.Row(cards, className="g-2")
-
-
-def _build_changes_card(
-    changes_json: str | None,
-    persona: str,
-    region: str,
-    snapshots: dict | None,
-) -> html.Div:
-    """Build the 'Since your last visit' card for the Overview tab (NEXD-8)."""
-    import json as _json
-
-    from data.session_diff import format_relative_time
-
-    if not changes_json:
-        return html.Div()
-
-    try:
-        changes = _json.loads(changes_json) if isinstance(changes_json, str) else changes_json
-    except Exception:
-        return html.Div()
-
-    if not changes:
-        return html.Div()
-
-    # Get previous visit timestamp for this region
-    prev_timestamp = None
-    if snapshots and isinstance(snapshots, dict):
-        entry = snapshots.get(region)
-        if entry and isinstance(entry, dict):
-            prev_timestamp = entry.get("timestamp")
-
-    rel_time = format_relative_time(prev_timestamp) if prev_timestamp else ""
-
-    # Build bullet items
-    items = []
-    for change in changes[:5]:
-        icon = change.get("icon", "")
-        text = change.get("text", "")
-        items.append(
-            html.Div(
-                [
-                    html.Span(icon, className="change-icon"),
-                    html.Span(text),
-                ],
-                className="change-item",
-            )
-        )
-
-    header_parts = [
-        html.Span("Since your last visit", className="changes-title"),
-    ]
-    if rel_time:
-        header_parts.append(html.Span(rel_time, className="changes-timestamp"))
-
-    return html.Div(
-        [
-            html.Div(header_parts, className="changes-header"),
-            *items,
-        ],
-        className="changes-card",
-    )
 
 
 def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
@@ -2716,7 +2655,6 @@ __all__ = [
     "_build_overview_sparkline",
     "_build_overview_briefing",
     "_build_weather_context",
-    "_build_changes_card",
     "_build_overview_data_health",
     "_build_overview_spotlight",
     "_spotlight_renewables",

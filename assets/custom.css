@@ -1718,38 +1718,36 @@ body.briefing .dashboard-header::after {
 }
 
 /* ── KPI Cards ─────────────────────────────────────────── */
-.kpi-row {
+/* Unified modern card vocabulary (top-design pass): a real 1px border +
+ * the shared --edge-highlight inset sheen, matching the gp- prefixed cards
+ * (.gp-chart-card / .gp-panel). Replaces the legacy triple-layer box-shadow
+ * border so the top-edge highlight and focus rings compose cleanly, and
+ * drops the v1 drop-shadow (v2 separates with borders, not shadows). */
+.gp-kpi-row {
     margin: var(--space-2) 0 var(--space-3) 0;
 }
 
-/* Sub-pixel border via box-shadow (layer 1) so focus rings can stack
- * without layout shift; layer 2 is the inset highlight; layer 3 is depth.
- * Asymmetric transition: 80ms ease-in-quint on exit (snappy back),
- * 120ms ease-out-quint on enter (deliberate). */
-.kpi-card {
+.gp-kpi-card {
     background: var(--bg-raised);
+    border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     padding: var(--space-3) var(--space-4);
     text-align: center;
-    box-shadow:
-        0 0 0 1px var(--border-subtle),
-        0 0 0 1px rgba(255, 255, 255, 0.03) inset,
-        0 1px 2px rgba(0, 0, 0, 0.24);
+    box-shadow: var(--edge-highlight);
+    /* Asymmetric transition: 80ms ease-in-quint on exit (snappy back),
+     * 120ms ease-out-quint on enter (deliberate). */
     transition: transform 80ms var(--ease-in-quint),
-                box-shadow 80ms var(--ease-in-quint);
+                border-color 80ms var(--ease-in-quint);
 }
 
-.kpi-card:hover {
+.gp-kpi-card:hover {
     transform: translateY(-1px);
-    box-shadow:
-        0 0 0 1px var(--border-default),
-        0 0 0 1px rgba(255, 255, 255, 0.06) inset,
-        0 4px 12px rgba(0, 0, 0, 0.40);
+    border-color: var(--border-default);
     transition: transform 120ms var(--ease-out-quint),
-                box-shadow 120ms var(--ease-out-quint);
+                border-color 120ms var(--ease-out-quint);
 }
 
-.kpi-label {
+.gp-kpi-label {
     color: var(--text-tertiary);
     font-size: var(--text-xs);
     text-transform: uppercase;
@@ -1758,7 +1756,7 @@ body.briefing .dashboard-header::after {
     font-weight: 500;
 }
 
-.kpi-value {
+.gp-kpi-value {
     color: var(--text-primary);
     font-size: var(--text-display);
     font-weight: 600;
@@ -1766,15 +1764,15 @@ body.briefing .dashboard-header::after {
     letter-spacing: -0.01em;
 }
 
-.kpi-delta {
+.gp-kpi-delta {
     font-size: var(--text-sm);
     margin-top: 2px;
     font-weight: 500;
 }
 
-.kpi-delta.positive { color: var(--success); }
-.kpi-delta.negative { color: var(--danger); }
-.kpi-delta.neutral  { color: var(--text-tertiary); }
+.gp-kpi-delta.positive { color: var(--success); }
+.gp-kpi-delta.negative { color: var(--danger); }
+.gp-kpi-delta.neutral  { color: var(--text-tertiary); }
 
 /* ── Tabs ──────────────────────────────────────────────── */
 .nav-tabs {
@@ -1843,18 +1841,23 @@ body.briefing .dashboard-header::after {
     font-weight: 400;
 }
 
-/* ── Insight Cards ────────────────────────────────────── */
-.insight-card {
+/* ── Persona Insight Panel ────────────────────────────── */
+/* The persona-aware insights container (components/insights.py). Unified to
+ * the modern card vocabulary: border + --edge-highlight sheen (was the inert
+ * --shadow-xs). Distinct from the chrome-less .gp-insight-card (eyebrow+body
+ * slot in components/cards.py) — this one is a bordered panel with a
+ * persona-colored left accent applied inline. */
+.gp-insight-panel {
     background: var(--bg-raised);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     padding: var(--space-3) var(--space-4);
     margin: var(--space-2) 0;
-    box-shadow: var(--shadow-xs);
+    box-shadow: var(--edge-highlight);
     animation: fadeIn var(--duration-slow) var(--ease);
 }
 
-.insight-card:empty {
+.gp-insight-panel:empty {
     display: none;
 }
 
@@ -1921,37 +1924,51 @@ body.briefing .dashboard-header::after {
 .alert-card.warning  { border-left-color: var(--warning); }
 .alert-card.info     { border-left-color: var(--info); }
 
-/* ── Metrics Table ────────────────────────────────────── */
-.metrics-table {
+/* ── Drift Tables ─────────────────────────────────────── */
+/* Modern data-table treatment for the Models-tab drift panels, which are NOT
+ * wrapped in .gp-metrics-table-slot. Self-contained mirror of that slot's
+ * th/td rhythm (left-aligned 10px eyebrow headers, 12px tabular cells) so the
+ * live-drift + horizon-drift tables read as one system with the main metrics
+ * table. The main metrics table itself is styled by .gp-metrics-table-slot
+ * (its slot div), so it carries no table class of its own. Per-horizon
+ * centering + the horizon header override layer on later (.gp-drift-cell--horizon,
+ * .gp-horizon-drift-table th). */
+.gp-drift-table {
     width: 100%;
     border-collapse: collapse;
+    font-size: 12px;
 }
 
-.metrics-table th {
-    background: var(--bg-elevated);
-    color: var(--text-secondary);
-    padding: var(--space-2) var(--space-3);
-    font-size: var(--text-sm);
+.gp-drift-table th {
+    color: var(--text-disabled);
+    font-size: 10px;
     font-weight: 500;
-    text-align: center;
-    letter-spacing: 0.02em;
     text-transform: uppercase;
-}
-
-.metrics-table td {
+    letter-spacing: 0.08em;
+    text-align: left;
     padding: var(--space-2) var(--space-3);
-    text-align: center;
     border-bottom: 1px solid var(--border-subtle);
-    font-size: var(--text-base);
-    color: var(--text-secondary);
 }
 
-.metrics-table tbody tr {
+.gp-drift-table td {
+    color: var(--text-secondary);
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+    font-variant-numeric: tabular-nums;
+}
+
+.gp-drift-table tbody tr {
     transition: background var(--duration-fast) var(--ease);
 }
 
-.metrics-table tbody tr:hover {
+.gp-drift-table tr:hover td {
     background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.gp-drift-table td:first-child {
+    color: var(--text-primary);
+    font-weight: 500;
 }
 
 /* ── News / Grid Signals ──────────────────────────────── */
@@ -2177,7 +2194,7 @@ body.briefing .dashboard-header::after {
 
 /* ── Responsive ───────────────────────────────────────── */
 @media (max-width: 768px) {
-    .kpi-card { margin-bottom: var(--space-2); }
+    .gp-kpi-card { margin-bottom: var(--space-2); }
     .dashboard-title { font-size: var(--text-md); }
     .dashboard-header { padding: var(--space-2) var(--space-3); }
     .nav-tabs .nav-link { padding: var(--space-2) var(--space-3); font-size: var(--text-xs); }
@@ -2270,11 +2287,11 @@ body.briefing .dashboard-header::after {
 
 /* ── Reduced Motion ───────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
-    .insight-card,
+    .gp-insight-panel,
     .briefing-card { animation: none; }
     .overview-quick-nav-card { transition: none !important; }
     .news-ticker-track { animation: none; }
-    .kpi-card { transition: none; }
+    .gp-kpi-card { transition: none; }
     .gp-region-card { transition: none !important; }
     /* Belt: never leave a reveal target stranded invisible, and don't slide
      * the ink-bar. (.gp-motion isn't applied under reduced motion, so this is

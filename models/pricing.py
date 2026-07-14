@@ -128,7 +128,7 @@ def utilization_pct(
 
 #: Grid-stress bands over utilization %: (label, tone). Normal < 70 ≤ Elevated
 #: < 85 ≤ High. Grid-ops-meaningful — a system above ~85% of plate is genuinely
-#: tight. Tones map to the Risk-tab kpi-delta classes.
+#: tight. Tones map to the Risk-tab gp-kpi-delta classes.
 def grid_stress(region: str, current_demand_mw: float | None) -> tuple[int | None, str]:
     """Grid stress = current demand as a % of nameplate capacity (supply tightness).
 

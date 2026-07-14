@@ -76,16 +76,16 @@ def build_kpi_card(
         delta: Optional delta string (e.g., "↑6% vs yesterday").
         delta_direction: "positive", "negative", or "neutral".
     """
-    delta_el = html.P(delta, className=f"kpi-delta {delta_direction}") if delta else None
+    delta_el = html.P(delta, className=f"gp-kpi-delta {delta_direction}") if delta else None
 
     return dbc.Col(
         html.Div(
             [
-                html.P(label, className="kpi-label"),
-                html.H3(value, className="kpi-value"),
+                html.P(label, className="gp-kpi-label"),
+                html.H3(value, className="gp-kpi-value"),
                 delta_el,
             ],
-            className="kpi-card",
+            className="gp-kpi-card",
         ),
         xs=6,
         sm=6,
@@ -111,38 +111,7 @@ def build_kpi_row(kpis: list[dict]) -> dbc.Row:
                 delta_direction=kpi.get("direction", "neutral"),
             )
         )
-    return dbc.Row(cards, className="kpi-row g-2")
-
-
-def build_welcome_card(
-    title: str,
-    message: str,
-    avatar: str = "👋",
-    color: str = "#35c6ff",
-) -> html.Div:
-    """
-    Build a persona-specific welcome card.
-
-    Args:
-        title: Card title (e.g., "Grid Operations Dashboard").
-        message: Contextual greeting with data highlights.
-        avatar: Emoji avatar.
-        color: Left border color.
-    """
-    return html.Div(
-        [
-            html.Div(
-                [
-                    html.Span(avatar, style={"fontSize": "1.3rem", "marginRight": "8px"}),
-                    html.Span(title, className="welcome-title"),
-                ],
-                style={"display": "flex", "alignItems": "center"},
-            ),
-            html.P(message, className="welcome-message"),
-        ],
-        className="welcome-card",
-        style={"borderLeftColor": color},
-    )
+    return dbc.Row(cards, className="gp-kpi-row g-2")
 
 
 def build_alert_card(
@@ -185,54 +154,6 @@ def build_alert_card(
             html.Small(f"Expires: {expires}", className="alert-card__expires") if expires else None,
         ],
         className=f"alert-card {severity}",
-    )
-
-
-def build_chart_container(
-    chart_id: str,
-    title: str,
-    height: str = "400px",
-    freshness: str | None = None,
-) -> html.Div:
-    """
-    Wrap a Plotly Graph in a styled container with title and optional freshness badge.
-    """
-    from dash import dcc
-
-    header_items = [html.Span(title, className="chart-title")]
-    if freshness:
-        # Map freshness token → badge CSS class. "warming" is a distinct
-        # degraded-but-expected state surfaced in Redis-only deployments.
-        badge_class = {
-            "fresh": "fresh",
-            "stale": "stale",
-            "warming": "warming",
-            "demo": "stale",
-            "unavailable": "stale",
-        }.get(freshness, "expired")
-        header_items.append(
-            html.Span(
-                freshness, className=f"freshness-badge {badge_class}", style={"marginLeft": "8px"}
-            )
-        )
-
-    return html.Div(
-        [
-            html.Div(
-                header_items,
-                style={"display": "flex", "alignItems": "center", "marginBottom": "8px"},
-            ),
-            dcc.Loading(
-                dcc.Graph(
-                    id=chart_id,
-                    style={"height": height},
-                    config={"displayModeBar": True, "responsive": True},
-                ),
-                type="circle",
-                color="#35c6ff",
-            ),
-        ],
-        className="chart-container",
     )
 
 
