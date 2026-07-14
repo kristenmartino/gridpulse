@@ -18,6 +18,12 @@ env/
 *.swp
 *.swo
 
+# Claude Code local state — worktrees are full repo checkouts, settings.local
+# is per-machine. .claude/launch.json is deliberately NOT ignored: commit it
+# to share the dev-server config.
+.claude/worktrees/
+.claude/settings.local.json
+
 # Environment & secrets
 .env
 .env.local
@@ -37,15 +43,23 @@ coverage.xml
 models/*.pkl
 models/*.joblib
 
-# SQLite cache (regenerated from APIs)
+# SQLite cache (regenerated from APIs). The -wal/-shm/-journal sidecars are
+# separate rules: they end in "-wal"/"-shm", so *.db never matches them.
 *.db
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
+*.db-journal
 
 # Holdout-metrics export (regenerated from GCS every training run — numbers
 # live in docs/BACKTEST_RESULTS.md, not in git). See scripts/export_holdout_metrics.py
 holdout_metrics.csv
 docs/_holdout_table.md
+
+# Stray generated plots / screenshots dropped at the repo root. Root-anchored
+# on purpose — real image assets live under assets/ and stay tracked.
+/*.png
 
 # OS
 .DS_Store
