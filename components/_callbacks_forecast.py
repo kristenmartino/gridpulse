@@ -830,7 +830,29 @@ _GUARD_REASON_COPY = {
 }
 
 
-def _guarded_outlook_state(region, model_name, horizon_hours, guard, data_through_str, ensemble_ok):
+def _served_model_for_payload(cached: dict, model_name: str) -> str:
+    """Resolve which model's series the outlook chart plots for a payload
+    and a dropdown selection (P2-26/#273).
+
+    A requested model present in the rows serves itself. Only the
+    "xgboost" selection can be substituted: when its column is absent the
+    chart plots ``predicted_demand_mw``, which mirrors the payload's
+    PRIMARY model (the first model that succeeded that scoring run).
+    Legacy payloads without ``primary_model`` keep the xgboost attribution
+    — nothing better is knowable for them.
+
+    Shared by the chart render path and the model-metrics card so the two
+    can't disagree about which model the tab is describing.
+    """
+    forecasts = cached.get("forecasts") or []
+    if not forecasts or model_name in forecasts[0]:
+        return model_name
+    return str(cached.get("primary_model") or "xgboost")
+
+
+def _guarded_outlook_state(
+    region, model_name, horizon_hours, guard, data_through_str, ensemble_ok, requested_model=None
+):
     """Honest unavailable state for a guard-withheld model+horizon (#296).
 
     The scoring job flagged this model's forecast as degenerate at this
@@ -841,6 +863,11 @@ def _guarded_outlook_state(region, model_name, horizon_hours, guard, data_throug
     ``ensemble_ok`` gates the guidance copy: recommending "the Ensemble
     model" would be wrong when the ensemble itself is the flagged series,
     is flagged at this horizon too, or is absent from the payload.
+
+    ``requested_model`` (P2-26/#273): when the withheld series is the
+    payload primary substituting for a missing requested model, the copy
+    must bridge the gap — otherwise the user selected XGBoost and gets a
+    screen about PROPHET with no explanation.
     """
     max_ok = _guard_max_ok(guard) or 0
     reason_copy = _GUARD_REASON_COPY.get(
@@ -860,13 +887,19 @@ def _guarded_outlook_state(region, model_name, horizon_hours, guard, data_throug
             if ensemble_ok
             else "Try a different model, or check back after the next scoring run."
         )
+    substitution_note = ""
+    if requested_model and requested_model != model_name:
+        substitution_note = (
+            f"<br>Requested {requested_model.upper()} is unavailable this scoring run — "
+            f"{model_name.upper()} (payload primary) is the served series."
+        )
     fig = go.Figure()
     fig.update_layout(**_layout(uirevision=f"{region}:{horizon_hours}"))
     fig.add_annotation(
         text=(
             f"{model_name.upper()} is withheld at the {label} horizon for {region}"
             f"<br><sup>The scoring job's long-horizon sanity guard flagged this "
-            f"forecast — {reason_copy}.<br>{verified}</sup>"
+            f"forecast — {reason_copy}.{substitution_note}<br>{verified}</sup>"
         ),
         xref="paper",
         yref="paper",
@@ -923,21 +956,8 @@ def _outlook_tab_from_redis(
     # this chart (trace name, title, band calibration, insights, withheld
     # state) must name the served model, never the requested one — the old
     # behavior titled another model's series "XGBOOST Demand Forecast" and
-    # wrapped XGBoost-calibrated bands around it. Legacy payloads without
-    # ``primary_model`` keep the xgboost attribution (nothing better is
-    # knowable for them).
-    served_model = (
-        pred_key
-        if pred_key != "predicted_demand_mw"
-        else str(cached.get("primary_model") or "xgboost")
-    )
-    if served_model != model_name:
-        log.info(
-            "outlook_serving_primary_substitute",
-            region=region,
-            requested=model_name,
-            served=served_model,
-        )
+    # wrapped XGBoost-calibrated bands around it.
+    served_model = _served_model_for_payload(cached, model_name)
 
     # #296: honor the scoring job's serve-time horizon guard. When the
     # series about to be drawn is flagged as degenerate at this horizon,
@@ -984,7 +1004,13 @@ def _outlook_tab_from_redis(
         # substitutes for a missing xgboost column, the withheld copy must
         # attribute the degeneracy to the primary, not to XGBoost.
         return _guarded_outlook_state(
-            region, served_model, horizon_hours, guard, data_through_str, ensemble_ok
+            region,
+            served_model,
+            horizon_hours,
+            guard,
+            data_through_str,
+            ensemble_ok,
+            requested_model=model_name,
         )
 
     predictions = np.array([f.get(pred_key, f.get("predicted_demand_mw", 0)) for f in forecasts])
@@ -998,6 +1024,17 @@ def _outlook_tab_from_redis(
             requested=horizon_hours,
         )
         return None
+
+    # Log the substitution only once it will actually render (an
+    # insufficient payload above falls through to warming/inline, so an
+    # earlier log would record a serve that never happened).
+    if served_model != model_name:
+        log.info(
+            "outlook_serving_primary_substitute",
+            region=region,
+            requested=model_name,
+            served=served_model,
+        )
 
     # Limit to requested horizon
     if len(predictions) > horizon_hours:
@@ -1323,7 +1360,14 @@ def register_forecast_callbacks(app):
         ],
     )
     def update_outlook_model_card(region, model_name, active_tab):
-        """Render the horizontal MAPE/RMSE/MAE/R² bar for the active model."""
+        """Render the horizontal MAPE/RMSE/MAE/R² bar for the active model.
+
+        P2-26 (#273): the card must describe the model the chart below it
+        actually plots. When the xgboost selection is substituted by the
+        payload primary (see ``_served_model_for_payload``), showing
+        XGBoost's MAPE above a PROPHET-served chart invites the reader to
+        attribute one model's accuracy to another's line.
+        """
         if active_tab != "tab-outlook":
             return no_update
 
@@ -1333,6 +1377,12 @@ def register_forecast_callbacks(app):
             return html.Div()
 
         region = region or "FPL"
+        try:
+            cached = redis_get(redis_key(f"forecast:{region}:1h"))
+            if isinstance(cached, dict):
+                model_name = _served_model_for_payload(cached, model_name)
+        except Exception:  # pragma: no cover — defensive; card keeps dropdown model
+            pass
         metrics_dict = get_model_metrics(region) or {}
         if model_name not in metrics_dict:
             # Fall back to any available model

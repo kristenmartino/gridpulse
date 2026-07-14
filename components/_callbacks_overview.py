@@ -1099,7 +1099,11 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
                 wind_aligned = pivot.loc[common].get("wind", pd.Series(0.0, index=common))
                 solar_aligned = pivot.loc[common].get("solar", pd.Series(0.0, index=common))
                 net_load_series = d_aligned - wind_aligned - solar_aligned
-                net_load_avg = float(net_load_series.mean())
+                candidate = float(net_load_series.mean())
+                # All-NaN demand over the aligned window yields NaN — that
+                # must degrade honestly, not render "nan MW".
+                if np.isfinite(candidate):
+                    net_load_avg = candidate
         except Exception as exc:  # pragma: no cover
             log.warning("forecast_generation_netload_failed", region=region, error=str(exc))
     if net_load_avg is None:

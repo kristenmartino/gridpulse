@@ -858,11 +858,13 @@ class TestOutlookTabFromRedis:
         fig = result[0]
         assert len(fig.data) == 0
         annotation = fig.layout.annotations[0].text
-        assert "withheld" in annotation
         # P2-26 (#273): the withheld copy must attribute the degeneracy to
-        # the SERVED series (the prophet primary), not the requested model.
-        assert "PROPHET" in annotation
-        assert "XGBOOST" not in annotation
+        # the SERVED series (the prophet primary), not the requested model —
+        # and bridge the gap with a substitution disclosure so the user
+        # isn't shown copy about a model they never selected.
+        assert "PROPHET is withheld" in annotation
+        assert "XGBOOST is withheld" not in annotation
+        assert "Requested XGBOOST" in annotation
 
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")
@@ -930,13 +932,65 @@ class TestOutlookTabFromRedis:
     def test_xgboost_miss_serves_primary_with_honest_labels(self, mock_rg, mock_bands, mock_trail):
         """P2-26 (#273): when the payload lacks an xgboost column and falls
         back to ``predicted_demand_mw`` (the prophet primary here), every
-        label must name PROPHET — trace, title, band calibration — plus a
-        substitution disclosure. The old behavior titled prophet's numbers
-        \"XGBOOST Demand Forecast\" with XGBoost-calibrated bands."""
-        mock_bands.return_value = {}
+        label must name PROPHET — trace, color, title, band calibration,
+        interval caption, insights — plus a substitution disclosure. The old
+        behavior titled prophet's numbers \"XGBOOST Demand Forecast\" with
+        XGBoost-calibrated bands."""
+        # A substitute-calibrated empirical band: the caption helper only
+        # discloses the calibration model when it differs from the model
+        # argument, so this pins that _interval_caption receives the SERVED
+        # model (with the requested model it would read xgboost==xgboost
+        # and stay silent).
+        mock_bands.return_value = {
+            "method": "empirical",
+            "calibration_window_hours": 336,
+            "calibration_model": "xgboost",
+        }
         payload = {
             "scored_at": "2024-06-01T12:00:00Z",
             "primary_model": "prophet",
+            "forecasts": [
+                {"timestamp": t, "predicted_demand_mw": 30_000 + i * 10}
+                for i, t in enumerate(_ts(72))
+            ],
+        }
+        mock_rg.return_value = payload
+
+        from components._callbacks_shared import COLORS
+        from components.callbacks import _outlook_tab_from_redis
+
+        # data_scientist persona: the model-attribution insight is persona-
+        # gated, and this test pins its served-model naming.
+        result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "data_scientist")
+        assert result is not None
+        fig = result[0]
+        assert fig.data[0].name == "PROPHET Forecast"
+        assert fig.data[0].line.color == COLORS["prophet"]
+        title = fig.layout.title.text
+        assert "PROPHET Demand Forecast" in title
+        assert "XGBOOST Demand Forecast" not in title
+        # Substitution disclosed on the chart itself.
+        assert "Requested XGBOOST unavailable" in title
+        assert "showing PROPHET" in title
+        # Bands calibrate against the model actually plotted, and the
+        # caption discloses the cross-model calibration.
+        assert mock_bands.call_args.kwargs["model_name"] == "prophet"
+        assert "xgboost-calibrated" in title
+        # Insights attribute the served model (and render its display name).
+        assert "Prophet model" in str(result[8])
+
+    @patch("components._callbacks_forecast._add_trailing_actuals")
+    @patch("components._callbacks_forecast._add_confidence_bands")
+    @patch("components._callbacks_forecast.redis_get")
+    def test_legacy_payload_without_primary_keeps_xgboost_attribution(
+        self, mock_rg, mock_bands, mock_trail
+    ):
+        """Legacy payloads (no ``primary_model``) can't identify the series'
+        source; the fallback keeps the historical xgboost attribution and
+        must NOT claim a substitution happened."""
+        mock_bands.return_value = {}
+        payload = {
+            "scored_at": "2024-06-01T12:00:00Z",
             "forecasts": [
                 {"timestamp": t, "predicted_demand_mw": 30_000 + i * 10}
                 for i, t in enumerate(_ts(72))
@@ -949,15 +1003,42 @@ class TestOutlookTabFromRedis:
         result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
         assert result is not None
         fig = result[0]
-        assert fig.data[0].name == "PROPHET Forecast"
-        title = fig.layout.title.text
-        assert "PROPHET Demand Forecast" in title
-        assert "XGBOOST Demand Forecast" not in title
-        # Substitution disclosed on the chart itself.
-        assert "Requested XGBOOST unavailable" in title
-        assert "showing PROPHET" in title
-        # Bands calibrate against the model actually plotted.
-        assert mock_bands.call_args.kwargs["model_name"] == "prophet"
+        assert fig.data[0].name == "XGBOOST Forecast"
+        assert "unavailable" not in fig.layout.title.text
+
+
+class TestServedModelForPayload:
+    """Pure-helper contract shared by the chart and the model-metrics card
+    (P2-26/#273) — the two surfaces must resolve the same served model."""
+
+    def test_requested_model_in_rows_serves_itself(self):
+        from components._callbacks_forecast import _served_model_for_payload
+
+        cached = {"primary_model": "prophet", "forecasts": [{"xgboost": 1.0}]}
+        assert _served_model_for_payload(cached, "xgboost") == "xgboost"
+
+    def test_missing_column_resolves_to_primary(self):
+        from components._callbacks_forecast import _served_model_for_payload
+
+        cached = {"primary_model": "prophet", "forecasts": [{"predicted_demand_mw": 1.0}]}
+        assert _served_model_for_payload(cached, "xgboost") == "prophet"
+
+    def test_legacy_payload_falls_back_to_xgboost(self):
+        from components._callbacks_forecast import _served_model_for_payload
+
+        cached = {"forecasts": [{"predicted_demand_mw": 1.0}]}
+        assert _served_model_for_payload(cached, "xgboost") == "xgboost"
+
+    def test_empty_primary_falls_back_to_xgboost(self):
+        from components._callbacks_forecast import _served_model_for_payload
+
+        cached = {"primary_model": "", "forecasts": [{"predicted_demand_mw": 1.0}]}
+        assert _served_model_for_payload(cached, "xgboost") == "xgboost"
+
+    def test_empty_forecasts_returns_requested(self):
+        from components._callbacks_forecast import _served_model_for_payload
+
+        assert _served_model_for_payload({"forecasts": []}, "prophet") == "prophet"
 
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")

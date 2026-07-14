@@ -65,6 +65,23 @@ class TestNetLoadKpiHonesty:
         assert "37,000" not in panel
 
     @patch("components._callbacks_overview._fetch_generation_cached")
+    def test_all_nan_demand_renders_degraded_cell_not_nan_mw(self, mock_fetch):
+        """Aligned timestamps but all-NaN demand values: mean() is NaN, and
+        the cell must degrade honestly — never render \"nan MW\" (verification
+        finding on the first cut of this fix)."""
+        from components._callbacks_overview import _build_generation_panel
+
+        mock_fetch.return_value = _gen_df()
+        ts = pd.date_range("2026-07-01 00:00:00", periods=24, freq="h")
+        nan_demand = pd.DataFrame({"timestamp": ts, "demand_mw": np.full(24, np.nan)}).to_json(
+            date_format="iso"
+        )
+        panel = str(_build_generation_panel("FPL", demand_json=nan_demand))
+
+        assert "demand data unavailable" in panel
+        assert "nan" not in panel.lower().replace("unavailable", "")
+
+    @patch("components._callbacks_overview._fetch_generation_cached")
     def test_aligned_demand_renders_real_net_load(self, mock_fetch):
         """Happy path: net load = demand − wind − solar = 34k − 5k − 2k = 27k."""
         from components._callbacks_overview import _build_generation_panel
