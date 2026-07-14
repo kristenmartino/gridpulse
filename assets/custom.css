@@ -203,15 +203,25 @@ body::before {
 }
 
 /* Charged-grid ambient glow (top-design pass) — the single signature color
- * moment in the calm dark system. One very soft cyan wash bleeds down from
- * the top, reading as a live/energized grid behind the hero. Fixed +
- * pointer-events:none; sits behind content (.gp-page is z-index 1) and under
- * the opaque header, so only the hero region catches it. Deliberately low
- * alpha to stay OLED-neutral and never tip into a "gradient hero". */
+ * moment in the calm dark system: one very soft cyan wash reading as a live,
+ * energized grid behind the content.
+ *
+ * Anchored BELOW the sticky chrome. It previously sat at `top: 0`, which put
+ * the gradient's 0.08 peak behind the opaque 60px header + 48px tab strip —
+ * the strongest part of the only atmospheric gesture in the system was
+ * painted where nothing can see it (first visible alpha ~0.054). Offsetting
+ * by the chrome height puts the peak at the top of the content column, where
+ * the hero actually is.
+ *
+ * Honest scope note: this is viewport-anchored (position: fixed), so on
+ * scroll it washes whatever sits at the top of the content area — it is
+ * ambient, NOT locked to the hero. Behind content (.gp-page is z-index 1),
+ * pointer-events:none, low alpha to stay OLED-neutral and never tip into a
+ * "gradient hero". */
 body::after {
     content: "";
     position: fixed;
-    top: 0;
+    top: calc(var(--header-height) + var(--tabs-height));
     left: 50%;
     width: min(1200px, 92vw);
     height: 520px;
@@ -449,10 +459,22 @@ body.briefing .gp-page-title__subtitle {
     font-size: var(--text-md);
 }
 
-/* Hero KPI scales dramatically so it reads from across a room */
+/* Hero KPI scales dramatically so it reads from across a room. 56px is the
+ * projection size for the ORDINARY hero cells (US Grid / Risk / Forecast),
+ * whose base is --text-2xl (28px) — so this doubles them. */
 body.briefing .gp-metric-value--hero {
     font-size: 56px;
     line-height: 1.05;
+}
+
+/* ...but the Overview hero is already clamp(42px, 4vw + 14px, 72px) at rest
+ * (~71.6px at 1440). The rule above has specificity 0-2-1 and would beat the
+ * 0-2-0 base override, SHRINKING the hero to 56px the moment you project it —
+ * the exact opposite of what the comment promises. Re-scope at 0-3-1 so
+ * projection actually enlarges it. */
+body.briefing .gp-metrics-bar--overview .gp-metric-value--hero {
+    font-size: clamp(72px, 7vw, 128px);
+    line-height: 1.0;
 }
 
 body.briefing .gp-metric-value {
@@ -488,9 +510,11 @@ body.briefing .gp-header {
     height: 64px;
 }
 
-body.briefing .gp-header__wordmark {
-    font-size: var(--text-2xl);
-}
+/* (No wordmark override here on purpose: the base .gp-header__wordmark is
+ * already --text-2xl, so a briefing rule restating it was a byte-identical
+ * no-op sitting under a comment that promised the brand scaled. Projection
+ * branding is carried by the ::after watermark below; briefing's job is to
+ * strip chrome and let the DATA scale, not the logo.) */
 
 /* Watermark — soft "GridPulse" stamp in the lower-right of the header,
  * visually anchoring the projection screen even when nav is gone. */
@@ -517,15 +541,18 @@ body.briefing .dashboard-header::after {
 
 /* ── v2 Linear Stack Components (R2 of shell-redesign-v2.md) ───────────
  *
- * Mirrors gridpulse-v2's dashboard rhythm:
- *   max-w-5xl content (--content-max-width: 64rem)
+ * Mirrors gridpulse-v2's dashboard rhythm, with one deliberate divergence:
+ *   content column --content-max-width: 75rem (1200px), 80rem past 1600px.
+ *     (v2 used max-w-5xl / 64rem; widened in the top-design pass so charts
+ *      and the Overview hero use analyst-monitor width instead of
+ *      letterboxing. The 64rem figure is NO LONGER what ships.)
  *   space-y-8 between sections (--section-gap: 32px)
  *   p-5 inside cards (--card-padding: 20px)
  *   Borders, not shadows, define separation
- *   10px UPPERCASE eyebrow / 13px body / text-2xl hero
+ *   10px UPPERCASE eyebrow / 13px body / hero at --text-hero
  */
 
-/* Page wrapper — centered, max-width 1024px, gutter 24px */
+/* Page wrapper — centered on --content-max-width (1200px), gutter 24px */
 .gp-page {
     max-width: var(--content-max-width);
     margin: 0 auto;
@@ -1457,9 +1484,12 @@ body.briefing .dashboard-header::after {
 
 /* ── Header (R3 — v2 alignment) ────────────────────────────────
  *
- * Mirrors gridpulse-v2/dashboard/page.tsx:84-125 — fixed h-14, full-width
- * border-bottom, max-w-5xl inner content. Hosts the brand monogram +
- * wordmark on the left and region/persona/mode controls on the right.
+ * Follows gridpulse-v2/dashboard/page.tsx:84-125 — full-width border-bottom,
+ * inner content bounded to --content-max-width. Diverges from v2 on two
+ * counts: the bar is --header-height (60px, not h-14/56px) to seat the 28px
+ * Sora wordmark, and the column is 75rem rather than max-w-5xl. Hosts the
+ * brand monogram + wordmark on the left and region/persona/mode controls
+ * on the right.
  */
 
 .gp-header {
@@ -1654,7 +1684,8 @@ body.briefing .dashboard-header::after {
     box-shadow: var(--shadow-focus);
 }
 
-/* Tab strip below the header — also bounded to max-w-5xl for visual balance */
+/* Tab strip below the header — also bounded to --content-max-width so the
+ * nav aligns with the page column it labels */
 .dashboard-tabs,
 .gp-tabs-shell {
     max-width: var(--content-max-width);
@@ -2195,7 +2226,13 @@ body.briefing .dashboard-header::after {
 /* ── Responsive ───────────────────────────────────────── */
 @media (max-width: 768px) {
     .gp-kpi-card { margin-bottom: var(--space-2); }
-    .dashboard-title { font-size: var(--text-md); }
+    /* .dashboard-title co-owns the H1 wordmark (layout.py sets both classes)
+     * and, being later in source order at equal specificity, it WINS. When the
+     * wordmark went 16px -> --text-2xl (28px), this override was left at 14px
+     * and silently halved the brand mark on every phone. Scale it
+     * proportionately instead. (The real fix is to stop a legacy class owning
+     * the wordmark at all — queued.) */
+    .dashboard-title { font-size: var(--text-xl); }
     .dashboard-header { padding: var(--space-2) var(--space-3); }
     .nav-tabs .nav-link { padding: var(--space-2) var(--space-3); font-size: var(--text-xs); }
     .slider-container { padding: var(--space-3); }
@@ -2298,7 +2335,19 @@ body.briefing .dashboard-header::after {
      * defensive — e.g. if the preference flips mid-session.) */
     .gp-reveal { opacity: 1 !important; transform: none !important; }
     .nav-tabs.gp-ink-ready::after { transition: none !important; }
-    * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
+    /* The skeleton shimmer is an INFINITE animation. Squashing its duration
+     * to 0.01ms without also capping iterations turns it into a max-rate
+     * strobe — a photosensitivity hazard aimed at exactly the users this
+     * media query protects, and it runs during the `warming` state while
+     * they sit and stare. Stop it outright, and cap iterations globally so
+     * any future `infinite` animation degrades to a single no-op cycle
+     * instead of a flicker. */
+    .skeleton-line { animation: none !important; }
+    * {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+    }
 }
 
 /* ── V1.β: US Grid small-multiples ─────────────────────── */
@@ -2516,13 +2565,17 @@ body.briefing .dashboard-header::after {
     box-shadow: var(--focus-ring);
 }
 
+/* Jump-to-card confirmation flash. Was hardcoded rgba(59,130,246) — the exact
+ * blue-500 the accent token retired — so the app's signature confirmation
+ * gesture pulsed off-brand. Now rides the accent; the 2.2s dwell is
+ * deliberate (long enough to find the card you were sent to). */
 @keyframes gp-card-flash {
-    0% { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.9); }
-    100% { box-shadow: 0 0 0 2px rgba(59, 130, 246, 0); }
+    0% { box-shadow: 0 0 0 2px var(--accent-base); }
+    100% { box-shadow: 0 0 0 2px rgba(53, 198, 255, 0); }
 }
 
 .gp-region-card--flash {
-    animation: gp-card-flash 2.2s ease-out 1;
+    animation: gp-card-flash 2.2s var(--ease-out-quint) 1;
 }
 
 @media (max-width: 1024px) {

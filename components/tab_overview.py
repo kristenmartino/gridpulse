@@ -3,7 +3,7 @@
 R2 of shell-redesign-v2.md. Replaces the prior 8-card sprawl (greeting /
 briefing / what-changed / data-health / quick-nav / spotlight / insight-digest /
 news-feed) with the gridpulse-v2 dashboard rhythm: a single-column space-y-8
-stack of seven sections.
+stack of the five sections listed below.
 
 Structure (top → bottom):
 1. Page title block (region name + 1-line subtitle)

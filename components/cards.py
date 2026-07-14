@@ -303,7 +303,8 @@ def build_metrics_bar(items: list[dict]) -> html.Div:
     hijacking the label slot.
 
     ``help`` (optional) renders a small info glyph (ⓘ) next to the label,
-    with the provided text as a ``title`` tooltip for accessibility.
+    wired to a branded ``dbc.Tooltip`` (see ``_metric_label_with_help``). The
+    native ``title=`` attribute is no longer used here.
 
     ``cell_id`` (optional) optional Dash id for the cell; when set, the cell
     renders clickable (n_clicks=0, role=button) — used by the US Grid tab's
