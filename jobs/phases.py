@@ -291,6 +291,16 @@ def write_generation(region: str) -> PhaseResult:
         )
         gen_df["timestamp"] = pd.to_datetime(gen_df["timestamp"])
 
+        # P2-08 (#273): the parser now preserves EIA nulls as NaN instead of
+        # fabricating 0 MW readings. Drop them before the pivot so a missing
+        # observation never deflates a fuel's series or the renewable share;
+        # the pivot's fillna(0) below then only fills fuel-column ALIGNMENT
+        # gaps (hours where a fuel has no row at all), not parsed nulls.
+        gen_df = gen_df.dropna(subset=["generation_mw"])
+        if gen_df.empty:
+            log.info("job_generation_all_null", region=region)
+            return PhaseResult(region=region, ok=False, error="empty")
+
         pivot = gen_df.pivot_table(
             index="timestamp",
             columns="fuel_type",
@@ -806,6 +816,17 @@ def _build_future_feature_frame(
     future_df["dow_sin"] = np.sin(2 * np.pi * future_df["day_of_week"] / 7)
     future_df["dow_cos"] = np.cos(2 * np.pi * future_df["day_of_week"] / 7)
     future_df["is_weekend"] = (future_df["day_of_week"] >= 5).astype(int)
+    # P2-14 (#273): is_holiday is calendar-derivable — compute it directly
+    # from the future timestamps. It previously fell through to the
+    # (hour, dow) group-mean imputer below, which (a) never set 1 for real
+    # holidays inside the horizon and (b) smeared any holiday in the recent
+    # 28d window onto every future week at that (hour, dow) as a fractional
+    # value (~0.25 with 4 samples per key). Because the column now exists
+    # before the imputer builds its column set, it is skipped there
+    # automatically.
+    from data.feature_engineering import compute_holiday_flag
+
+    future_df["is_holiday"] = compute_holiday_flag(future_df["timestamp"]).to_numpy()
 
     feature_cols = [c for c in featured.columns if c not in ("timestamp", "demand_mw", "region")]
 

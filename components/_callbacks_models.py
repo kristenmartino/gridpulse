@@ -406,12 +406,15 @@ def _build_drift_panel(region: str | None) -> html.Div:
     or when Redis has no drift entry yet (typical for first 7 days
     post-deploy until the rolling window fills).
 
-    The live ÷ holdout ratio is shown for reference only (comparing
-    cross-horizon metrics is not actionable for status); the governance
-    grade is keyed to the live MAPE against the **1-hour-ahead** band —
-    the drift metric IS a 1h-ahead rolling error (models/drift.py), so
-    grading it against a longer-horizon band would launder a poor 1h
-    number as "acceptable".
+    The holdout column is CONTEXT, not a comparison: it is the training
+    job's 168h recursive score while the live columns are 1h-ahead
+    nowcast error — different forecast leads. The former ``live ÷
+    holdout`` ratio column was removed for exactly that reason (#273 —
+    it invited a cross-horizon comparison the panel's own rules declared
+    non-actionable). The governance grade is keyed to the live MAPE
+    against the **1-hour-ahead** band — the drift metric IS a 1h-ahead
+    rolling error (models/drift.py), so grading it against a
+    longer-horizon band would launder a poor 1h number as "acceptable".
 
     Ensemble-weight integration (using live MAPE in the inverse-MAPE
     weights, or surfacing a stale-weights warning when holdout vs live
@@ -489,7 +492,6 @@ def _build_drift_panel(region: str | None) -> html.Div:
         if n_eff < 24 or live_7d is None:
             status_label = "Warming"
             status_tone = "secondary"
-            ratio_text = "—"
             # Don't print rolling means the chip just declared statistically
             # meaningless — a thin-window 180% next to "Warming" still reads
             # as a measurement (P2-21 verification catch).
@@ -498,14 +500,13 @@ def _build_drift_panel(region: str | None) -> html.Div:
         elif holdout is None or holdout <= 0:
             # Drift exists but the model's holdout MAPE is missing
             # (e.g. training-time meta lost). Show live MAPE without
-            # a comparison — better than dropping the row.
+            # the holdout context — better than dropping the row.
             status_label = "Live only"
             status_tone = "secondary"
-            ratio_text = "—"
         else:
             # Grade derived from the live MAPE's own governance grade at the
-            # 1-hour-ahead horizon (the drift metric IS 1h-ahead), not from the
-            # cross-horizon live÷holdout ratio (shown for reference only).
+            # 1-hour-ahead horizon (the drift metric IS 1h-ahead) — never
+            # from any cross-horizon holdout comparison (#273).
             grade = mape_grade(float(live_7d), horizon="1h")
             if grade == "excellent":
                 status_label = "Excellent"
@@ -566,8 +567,6 @@ def _build_drift_panel(region: str | None) -> html.Div:
                         f"See Drift by Horizon below."
                     )
                     off_band_healthy.append(display)
-            ratio = float(live_7d) / float(holdout) if holdout > 0 else 0
-            ratio_text = f"×{ratio:.2f}"
 
         chip_kwargs = {"title": chip_title} if chip_title else {}
         rows.append(
@@ -586,7 +585,6 @@ def _build_drift_panel(region: str | None) -> html.Div:
                         f"{float(live_30d):.2f}%" if live_30d is not None else "—",
                         className="gp-drift-cell--live30d",
                     ),
-                    html.Td(ratio_text, className="gp-drift-cell--ratio"),
                     html.Td(
                         html.Span(
                             status_label,
@@ -656,10 +654,9 @@ def _build_drift_panel(region: str | None) -> html.Div:
                         html.Th(h)
                         for h in [
                             "Model",
-                            "Holdout MAPE",
-                            "Live 7d",
-                            "Live 30d",
-                            "Live ÷ Holdout",
+                            "Holdout (168h recursive)",
+                            "Live 1h-ahead (7d avg)",
+                            "Live 1h-ahead (30d avg)",
                             "Status",
                             "n",
                         ]
@@ -680,9 +677,13 @@ def _build_drift_panel(region: str | None) -> html.Div:
             table,
             html.Div(
                 (
-                    "Source: ``gridpulse:drift:{region}`` written hourly by the "
-                    "scoring job (#121 part 1). Holdout MAPE per model from each "
-                    "trained pickle's ``meta.json``."
+                    "Live columns are 1-hour-ahead nowcast error averaged over the "
+                    "trailing window; Holdout is the training job's 168-hour "
+                    "recursive multi-step score — different forecast leads, shown "
+                    "together for context, not directly comparable. Source: "
+                    "``gridpulse:drift:{region}`` written hourly by the scoring "
+                    "job (#121 part 1); holdout from each trained pickle's "
+                    "``meta.json``."
                 ),
                 className="gp-panel__caption",
             ),

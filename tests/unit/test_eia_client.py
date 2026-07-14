@@ -212,9 +212,26 @@ class TestParseGenerationRecords:
         df = _parse_generation_records(records, "ERCOT")
         assert df["fuel_type"].iloc[0] == "unknown"
 
-    def test_missing_value_defaults_to_zero(self):
+    def test_missing_value_preserved_as_nan(self):
+        """P2-08 (#273): EIA nulls must never fabricate a 0 MW reading —
+        the old null→0.0 coercion deflated renewable share and filled the
+        fuel-mix pivot with fake zeros."""
+        import numpy as np
+
         records = [
             {"period": "2024-01-01T00", "fueltype": "NG"},
+            {"period": "2024-01-01T01", "fueltype": "NG", "value": None},
+            {"period": "2024-01-01T02", "fueltype": "NG", "value": ""},
+            {"period": "2024-01-01T03", "fueltype": "NG", "value": "not-a-number"},
+        ]
+        df = _parse_generation_records(records, "PJM")
+        assert np.isnan(df["generation_mw"]).all()
+
+    def test_true_zero_reading_is_preserved(self):
+        """Unlike the demand parser, a literal 0 is legitimate here — a fuel
+        type can genuinely produce nothing for an hour. No 0→NaN coercion."""
+        records = [
+            {"period": "2024-01-01T00", "fueltype": "SUN", "value": 0},
         ]
         df = _parse_generation_records(records, "PJM")
         assert df["generation_mw"].iloc[0] == 0.0
@@ -255,9 +272,22 @@ class TestParseInterchangeRecords:
         assert df["from_ba"].iloc[0] == ""
         assert df["to_ba"].iloc[0] == ""
 
-    def test_missing_value_defaults_to_zero(self):
+    def test_missing_value_preserved_as_nan(self):
+        """P2-08 (#273): a null interchange reading is missing data, not a
+        0 MW flow — preserving NaN makes the sparse-data dropna contract in
+        jobs/phases.py work as documented (net_mw=None → UI renders "—")."""
+        import numpy as np
+
         records = [
             {"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP"},
+        ]
+        df = _parse_interchange_records(records)
+        assert np.isnan(df["interchange_mw"].iloc[0])
+
+    def test_true_zero_flow_is_preserved(self):
+        """A tie can genuinely sit at zero flow — no 0→NaN coercion here."""
+        records = [
+            {"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP", "value": 0},
         ]
         df = _parse_interchange_records(records)
         assert df["interchange_mw"].iloc[0] == 0.0
