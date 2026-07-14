@@ -1114,3 +1114,99 @@ class TestForecastWriteFailureIsFailed:
         )
         assert result.ok is False
         assert "redis write failed" in (result.error or "")
+
+
+class TestFutureFrameHolidayFlag:
+    """P2-14 (#273): is_holiday is computed directly from the future
+    timestamps, never smeared by the (hour, dow) group-mean imputer."""
+
+    def _featured(self, n=400, holiday_poison=0.7):
+        ts = pd.date_range("2026-11-01", periods=n, freq="h", tz="UTC")
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": np.full(n, 40_000.0),
+                "hour": ts.hour,
+                # Poison sentinel: if the imputer ever touches is_holiday
+                # again, future values inherit this fractional mean.
+                "is_holiday": np.full(n, holiday_poison),
+                "temperature_2m": np.full(n, 60.0),
+            }
+        )
+
+    def test_real_holiday_inside_horizon_flagged_one(self):
+        """Christmas 2026 (Fri Dec 25 — fixed-date, non-observed-shifted)
+        must read 1.0 for all 24 hours; surrounding days 0.0."""
+        from jobs.phases import _build_future_feature_frame
+
+        start = pd.Timestamp("2026-12-24 00:00", tz="UTC")
+        future = _build_future_feature_frame(self._featured(), 72, weather_df=None, start_ts=start)
+        flags = future.set_index("timestamp")["is_holiday"]
+        dec25 = flags[flags.index.date == pd.Timestamp("2026-12-25").date()]
+        assert len(dec25) == 24
+        assert (dec25 == 1.0).all()
+        dec26 = flags[flags.index.date == pd.Timestamp("2026-12-26").date()]
+        assert (dec26 == 0.0).all()
+
+    def test_never_fractional_despite_poisoned_history(self):
+        """The pre-fix imputer produced fractional smears (a holiday in the
+        28d window imprinted ~0.25 on every future week at that (hour, dow)).
+        With the poison sentinel at 0.7, any imputer leak is caught."""
+        from jobs.phases import _build_future_feature_frame
+
+        start = pd.Timestamp("2026-12-24 00:00", tz="UTC")
+        future = _build_future_feature_frame(self._featured(), 168, weather_df=None, start_ts=start)
+        assert set(future["is_holiday"].unique()) <= {0.0, 1.0}
+
+
+class TestWriteGenerationNullHonesty:
+    """P2-08 (#273): an ALL-null generation window must never serve/cache an
+    all-zero payload (the poison class #279 closed for demand).
+
+    Scope note (verification catch): a PARTIAL null — one fuel null at an
+    hour where others report — still reads 0 in the served series, because
+    the post-pivot fillna(0) cannot distinguish a dropped null row from a
+    fuel-column alignment gap. That residual matches pre-fix behavior and
+    is tracked as a #273 follow-up (nullable payload lists + NaN-aware
+    consumers); these tests deliberately do NOT claim it fixed."""
+
+    def _run(self, gen_df, fake_redis, monkeypatch):
+        import jobs.phases as phases
+
+        monkeypatch.setattr(phases, "_has_eia_key", lambda: True)
+        monkeypatch.setattr("data.eia_client.fetch_generation_by_fuel", lambda region: gen_df)
+        return phases.write_generation("ERCOT")
+
+    def test_all_null_window_writes_nothing(self, fake_redis, monkeypatch):
+        """An all-null response (EIA outage artifact) previously parsed to an
+        all-zero frame that was served and cached — now it is an honest
+        empty result, and no payload lands in Redis."""
+        ts = pd.date_range("2024-01-01", periods=6, freq="h", tz="UTC")
+        gen_df = pd.DataFrame(
+            {
+                "timestamp": ts,
+                "fuel_type": ["NG"] * 6,
+                "generation_mw": [np.nan] * 6,
+                "region": ["ERCOT"] * 6,
+            }
+        )
+        result = self._run(gen_df, fake_redis, monkeypatch)
+        assert result.ok is False
+        assert result.error == "empty"
+        assert not any("generation" in k for k in fake_redis)
+
+    def test_partial_nulls_dropped_not_zero_filled(self, fake_redis, monkeypatch):
+        """Null hours drop out; present readings serve normally."""
+        ts = pd.date_range("2024-01-01", periods=3, freq="h", tz="UTC")
+        gen_df = pd.DataFrame(
+            {
+                "timestamp": list(ts) * 2,
+                "fuel_type": ["NG"] * 3 + ["WND"] * 3,
+                "generation_mw": [1000.0, 1000.0, 1000.0, 500.0, np.nan, 500.0],
+                "region": ["ERCOT"] * 6,
+            }
+        )
+        result = self._run(gen_df, fake_redis, monkeypatch)
+        assert result.ok
+        payload = fake_redis["gridpulse:generation:ERCOT"]
+        assert len(payload["timestamps"]) == 3

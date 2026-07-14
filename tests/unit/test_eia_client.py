@@ -212,9 +212,26 @@ class TestParseGenerationRecords:
         df = _parse_generation_records(records, "ERCOT")
         assert df["fuel_type"].iloc[0] == "unknown"
 
-    def test_missing_value_defaults_to_zero(self):
+    def test_missing_value_preserved_as_nan(self):
+        """P2-08 (#273): EIA nulls must never fabricate a 0 MW reading —
+        the old null→0.0 coercion deflated renewable share and filled the
+        fuel-mix pivot with fake zeros."""
+        import numpy as np
+
         records = [
             {"period": "2024-01-01T00", "fueltype": "NG"},
+            {"period": "2024-01-01T01", "fueltype": "NG", "value": None},
+            {"period": "2024-01-01T02", "fueltype": "NG", "value": ""},
+            {"period": "2024-01-01T03", "fueltype": "NG", "value": "not-a-number"},
+        ]
+        df = _parse_generation_records(records, "PJM")
+        assert np.isnan(df["generation_mw"]).all()
+
+    def test_true_zero_reading_is_preserved(self):
+        """Unlike the demand parser, a literal 0 is legitimate here — a fuel
+        type can genuinely produce nothing for an hour. No 0→NaN coercion."""
+        records = [
+            {"period": "2024-01-01T00", "fueltype": "SUN", "value": 0},
         ]
         df = _parse_generation_records(records, "PJM")
         assert df["generation_mw"].iloc[0] == 0.0
@@ -255,9 +272,22 @@ class TestParseInterchangeRecords:
         assert df["from_ba"].iloc[0] == ""
         assert df["to_ba"].iloc[0] == ""
 
-    def test_missing_value_defaults_to_zero(self):
+    def test_missing_value_preserved_as_nan(self):
+        """P2-08 (#273): a null interchange reading is missing data, not a
+        0 MW flow — preserving NaN makes the sparse-data dropna contract in
+        jobs/phases.py work as documented (net_mw=None → UI renders "—")."""
+        import numpy as np
+
         records = [
             {"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP"},
+        ]
+        df = _parse_interchange_records(records)
+        assert np.isnan(df["interchange_mw"].iloc[0])
+
+    def test_true_zero_flow_is_preserved(self):
+        """A tie can genuinely sit at zero flow — no 0→NaN coercion here."""
+        records = [
+            {"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP", "value": 0},
         ]
         df = _parse_interchange_records(records)
         assert df["interchange_mw"].iloc[0] == 0.0
@@ -914,6 +944,61 @@ class TestFetchGenerationByFuel:
     @patch("data.gcs_store.read_parquet")
     @patch("data.eia_client.get_cache")
     @patch("data.eia_client._paginated_fetch")
+    def test_all_null_generation_window_falls_back_and_does_not_cache(
+        self, mock_pf, mock_cache_fn, mock_rp, mock_wp
+    ):
+        """P2-08 (#273) verification HIGH: with nulls preserved as NaN, an
+        all-null window must route to last-known-good like demand does —
+        never cache a rows-present all-NaN frame for 24h or write it over
+        the GCS last-known-good."""
+        gcs_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "fuel_type": ["NG"],
+                "generation_mw": [15000.0],
+                "region": ["ERCOT"],
+            }
+        )
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None  # no fresh, no stale
+        mock_cache_fn.return_value = mock_cache
+        mock_rp.return_value = gcs_df
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "fueltype": "NG", "value": None},
+            {"period": "2024-01-01T01", "fueltype": "NG"},
+        ]
+
+        df = fetch_generation_by_fuel("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        pd.testing.assert_frame_equal(df, gcs_df)
+        mock_cache.set.assert_not_called()
+        mock_wp.assert_not_called()
+        mock_rp.assert_called_once_with("generation", "ERCOT")
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_all_zero_generation_window_is_still_usable(self, mock_pf, mock_cache_fn, mock_wp):
+        """The all-NaN gate must never misfire on legitimate zeros: unlike
+        demand there is no 0→NaN coercion, so a true all-zero window (e.g.
+        solar overnight) parses to 0.0 and is cached/persisted normally."""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "fueltype": "SUN", "value": 0},
+            {"period": "2024-01-01T01", "fueltype": "SUN", "value": 0},
+        ]
+
+        df = fetch_generation_by_fuel("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        assert (df["generation_mw"] == 0.0).all()
+        mock_cache.set.assert_called_once()
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
     def test_truncated_fetch_falls_back_and_does_not_cache(
         self, mock_pf, mock_cache_fn, mock_rp, mock_wp
     ):
@@ -1001,6 +1086,55 @@ class TestFetchInterchange:
         assert len(df) == 1
         assert df["from_ba"].iloc[0] == "ERCO"
         assert df["interchange_mw"].iloc[0] == 500.0
+        mock_cache.set.assert_called_once()
+
+    @patch("data.gcs_store.write_parquet")
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_all_null_interchange_window_falls_back_and_does_not_cache(
+        self, mock_pf, mock_cache_fn, mock_rp, mock_wp
+    ):
+        """P2-08 (#273) verification HIGH sibling: an all-null interchange
+        window routes to last-known-good — it must not poison the cache,
+        overwrite GCS, or blank the US Grid chip past a transient artifact."""
+        gcs_df = pd.DataFrame(
+            {
+                "timestamp": [pd.Timestamp("2024-01-01", tz="UTC")],
+                "from_ba": ["ERCO"],
+                "to_ba": ["SWPP"],
+                "interchange_mw": [500.0],
+            }
+        )
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache_fn.return_value = mock_cache
+        mock_rp.return_value = gcs_df
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP", "value": None},
+        ]
+
+        df = fetch_interchange("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        pd.testing.assert_frame_equal(df, gcs_df)
+        mock_cache.set.assert_not_called()
+        mock_wp.assert_not_called()
+        mock_rp.assert_called_once_with("interchange", "ERCOT")
+
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_all_zero_interchange_window_is_still_usable(self, mock_pf, mock_cache_fn):
+        """True zero flow is legitimate — the all-NaN gate must not misfire."""
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = [
+            {"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP", "value": 0},
+        ]
+
+        df = fetch_interchange("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        assert df["interchange_mw"].iloc[0] == 0.0
         mock_cache.set.assert_called_once()
 
     @patch("data.eia_client.get_cache")

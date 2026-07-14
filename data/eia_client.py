@@ -14,6 +14,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pandas as pd
 import requests
@@ -340,6 +341,13 @@ def fetch_generation_by_fuel(
         parser=lambda records: _parse_generation_records(records, region),
         empty_cols=["timestamp", "fuel_type", "generation_mw", "region"],
         use_cache=use_cache,
+        # P2-08 (#273): with nulls now preserved as NaN, an all-null window
+        # must route to the last-known-good chain like demand does — NOT
+        # parse to a rows-present all-NaN frame that gets cached 24h and
+        # written over the GCS last-known-good (verification HIGH). Safe
+        # only because _parse_mw_value has no 0→NaN coercion: a legitimate
+        # all-zero window parses to 0.0 and can never trip this gate.
+        value_col="generation_mw",
     )
 
 
@@ -383,6 +391,10 @@ def fetch_interchange(
         parser=lambda records: _parse_interchange_records(records),
         empty_cols=["timestamp", "from_ba", "to_ba", "interchange_mw"],
         use_cache=use_cache,
+        # P2-08 (#273): same all-NaN gate as generation — see the comment
+        # there. Keeps a transient all-null window on the last-known-good
+        # snapshot instead of poisoning cache/GCS and blanking the chip.
+        value_col="interchange_mw",
     )
 
 
@@ -633,15 +645,32 @@ def _parse_demand_records(records: list[dict], region: str) -> pd.DataFrame:
     return result
 
 
+def _parse_mw_value(raw: Any) -> float:
+    """Guarded EIA ``value`` conversion: null / ``""`` / unparseable → NaN.
+
+    P2-08 (#273): the generation/interchange parsers coerced EIA nulls to
+    ``0.0 MW`` — fabricating readings that deflated renewable share, filled
+    the fuel-mix pivot with fake zeros, and made the interchange sparse-data
+    ``dropna`` contract dead code. This mirrors the demand parser's
+    null→NaN policy but WITHOUT demand's 0→NaN coercion: a true ~0 MW
+    reading is legitimate here (a fuel type can genuinely produce nothing
+    for an hour; a tie can genuinely sit at zero flow).
+    """
+    try:
+        return float(raw) if raw not in (None, "") else float("nan")
+    except (TypeError, ValueError):
+        return float("nan")
+
+
 def _parse_generation_records(records: list[dict], region: str) -> pd.DataFrame:
-    """Parse EIA generation-by-fuel records."""
+    """Parse EIA generation-by-fuel records (null values preserved as NaN)."""
     rows = []
     for r in records:
         rows.append(
             {
                 "timestamp": pd.Timestamp(r["period"], tz="UTC"),
                 "fuel_type": r.get("fueltype", r.get("type-name", "unknown")),
-                "generation_mw": float(r.get("value", 0) or 0),
+                "generation_mw": _parse_mw_value(r.get("value")),
                 "region": region,
             }
         )
@@ -650,7 +679,7 @@ def _parse_generation_records(records: list[dict], region: str) -> pd.DataFrame:
 
 
 def _parse_interchange_records(records: list[dict]) -> pd.DataFrame:
-    """Parse EIA interchange records."""
+    """Parse EIA interchange records (null values preserved as NaN)."""
     rows = []
     for r in records:
         rows.append(
@@ -658,7 +687,7 @@ def _parse_interchange_records(records: list[dict]) -> pd.DataFrame:
                 "timestamp": pd.Timestamp(r["period"], tz="UTC"),
                 "from_ba": r.get("fromba", ""),
                 "to_ba": r.get("toba", ""),
-                "interchange_mw": float(r.get("value", 0) or 0),
+                "interchange_mw": _parse_mw_value(r.get("value")),
             }
         )
     df = pd.DataFrame(rows)

@@ -811,6 +811,13 @@ def _create_future_features(
     future_df["dow_sin"] = np.sin(2 * np.pi * future_df["day_of_week"] / 7)
     future_df["dow_cos"] = np.cos(2 * np.pi * future_df["day_of_week"] / 7)
     future_df["is_weekend"] = (future_df["day_of_week"] >= 5).astype(int)
+    # P2-14 (#273): calendar-derivable, computed directly — mirrors the
+    # prod builder in jobs/phases.py so the dev inline path doesn't smear
+    # is_holiday through the (hour, dow) imputer (same keep-in-sync
+    # convention as the #291 recent-window mirror above).
+    from data.feature_engineering import compute_holiday_flag
+
+    future_df["is_holiday"] = compute_holiday_flag(future_df["timestamp"]).to_numpy()
 
     horizon = len(future_timestamps)
     last_row = train_df.iloc[-1]

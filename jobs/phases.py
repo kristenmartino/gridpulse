@@ -291,6 +291,22 @@ def write_generation(region: str) -> PhaseResult:
         )
         gen_df["timestamp"] = pd.to_datetime(gen_df["timestamp"])
 
+        # P2-08 (#273): the parser now preserves EIA nulls as NaN instead of
+        # fabricating readings, and an ALL-null window returns an honest
+        # empty result below instead of serving zeros (the upstream
+        # value_col gate in eia_client additionally routes that case to
+        # last-known-good before it ever reaches here). KNOWN RESIDUAL,
+        # deliberately unchanged in this pass: a null for ONE fuel at an
+        # hour where other fuels report still reads 0 in the served series,
+        # because after dropna the pivot's fillna(0) can't distinguish a
+        # parsed null from a fuel-column alignment gap. Fixing that needs
+        # nullable payload lists plus NaN-aware aggregation in all three
+        # consumer surfaces — tracked as a #273 follow-up, not claimed here.
+        gen_df = gen_df.dropna(subset=["generation_mw"])
+        if gen_df.empty:
+            log.info("job_generation_all_null", region=region)
+            return PhaseResult(region=region, ok=False, error="empty")
+
         pivot = gen_df.pivot_table(
             index="timestamp",
             columns="fuel_type",
@@ -806,6 +822,17 @@ def _build_future_feature_frame(
     future_df["dow_sin"] = np.sin(2 * np.pi * future_df["day_of_week"] / 7)
     future_df["dow_cos"] = np.cos(2 * np.pi * future_df["day_of_week"] / 7)
     future_df["is_weekend"] = (future_df["day_of_week"] >= 5).astype(int)
+    # P2-14 (#273): is_holiday is calendar-derivable — compute it directly
+    # from the future timestamps. It previously fell through to the
+    # (hour, dow) group-mean imputer below, which (a) never set 1 for real
+    # holidays inside the horizon and (b) smeared any holiday in the recent
+    # 28d window onto every future week at that (hour, dow) as a fractional
+    # value (~0.25 with 4 samples per key). Because the column now exists
+    # before the imputer builds its column set, it is skipped there
+    # automatically.
+    from data.feature_engineering import compute_holiday_flag
+
+    future_df["is_holiday"] = compute_holiday_flag(future_df["timestamp"]).to_numpy()
 
     feature_cols = [c for c in featured.columns if c not in ("timestamp", "demand_mw", "region")]
 
