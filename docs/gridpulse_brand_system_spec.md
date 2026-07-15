@@ -5,14 +5,15 @@ _Last updated: 2026-04-09_
 > Do not read any hex out of this document. Every color value lives in
 > [`components/tokens.py`](../components/tokens.py), mirrored by the `:root` block in
 > `assets/custom.css`; `scripts/check_color_tokens.py` fails CI on a color literal anywhere else,
-> and `tests/unit/test_color_tokens.py` asserts the two mirrors agree. This addendum has already
-> been wrong twice — it was written to record a swap to `#3b82f6`, which was later replaced by
-> `#35c6ff` without the doc changing, so it spent months naming a color the product had stopped
-> painting. A hex in prose has no gate; that is the whole reason the token module exists.
+> and `tests/unit/test_color_tokens.py` asserts the two mirrors agree. This addendum has named the
+> wrong accent three times — twice as a hex, once as an OKLCh triple — because each time the code
+> moved and prose does not. A color in prose has no gate; that is the whole reason the token module
+> exists, and the reason this paragraph now names none.
 >
-> As of the 2026-07-14 color pass the accent is a spectral teal-cyan at OKLCh(0.79, 0.125, 196°),
-> and the neutral ramp is *derived* from that hue at low chroma rather than being stock Tailwind
-> zinc. Run `python scripts/verify_palette.py` to see the current values with their measured
+> The accent is a teal-cyan; the neutral and semantic ramps are *generated* from its hue rather
+> than taken from a stock palette. This addendum deliberately does not say which teal-cyan — it
+> specified one once, as an OKLCh triple, and that triple went on naming a retired accent after the
+> code moved. Run `python scripts/verify_palette.py` for the current values with their measured
 > contrast and CVD separation.
 >
 > Treat the cyan/teal references in §§11–14 below as historical strategy notes. The

@@ -23,12 +23,12 @@ exhaustive and cannot be — the point is not to prove a color is unprecedented
 teeth rather than a claim measured against one shelf.
 
 On the asymmetry, because it is the whole design of the check: distance from
-stock is a BAD optimisation target — these corpora tile color space, so chasing
-pure distance drives you to neon ``#00fdfd``, the least owned color there is —
-but a GOOD floor. We do not ask the accent to be far from everything. We ask it
-not to be a copy. Every other token is defended differently: by reproducing
-from the accent through a stated rule, which is what "derived" means and what a
-distance check cannot express.
+stock is a FLOOR, not an optimisation target. We do not ask the accent to be far
+from everything — these corpora tile color space densely enough that "far from
+all of it" selects for leftovers rather than for good colors. We ask only that
+it not be a copy. Every other generated token is defended differently: by
+reproducing from the accent through a stated rule, which is what "derived" means
+and what a distance check cannot express.
 """
 
 from __future__ import annotations

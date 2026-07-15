@@ -59,34 +59,31 @@ SHARED_FIGURE_FLOOR = 12.0
 # which contradicts that constant's own stated meaning ("two colors that share
 # a figure"); they never share one.
 #
-# Disclosure, since it matters when reading a threshold: the mis-specification
-# was noticed because deriving the semantic ramp made the drivers fail 12.0.
-# The reason for a lower floor is independent of that (it is a fact about the
-# figures, checkable above), but it was not what prompted the look. 10.0 is
-# "clearly a different color at a glance"; the pair this governs measures 10.8.
+# Disclosure, since it matters when reading a threshold: this mis-specification
+# was noticed only because a palette change made the drivers fail the shared
+# figure floor. The reason for a lower floor is independent of that — it is a
+# fact about the figures, checkable above — but it was not what prompted the
+# look. 10.0 is "clearly a different color at a glance"; the run prints what
+# the governed pairs actually measure.
 ADJACENT_CHART_FLOOR = 10.0
 
-# WCAG 2.1: 4.5 normal text, 3.0 large text / graphics / UI components.
+# WCAG 2.1 normal-text contrast.
 AA_TEXT = 4.5
-AA_GRAPHIC = 3.0
 
 # How far the accent must sit from the nearest OFF-THE-SHELF swatch.
 #
-# A FLOOR, not a target. With a real corpus the metric nearly saturates: the
-# greatest distance from all stock, anywhere in usable accent space (contrast
-# >= 4.5 on the ground, chroma >= 0.10), measures 10.8. So a high floor stops
-# being a floor and becomes an optimisation target — and optimising distance
-# drives you to neon #00fdfd, the least owned color there is.
+# A floor, not a target. Asks one question: is this a COPY? CIEDE2000 ~2.3 is the
+# just-noticeable difference under careful viewing, so 4.0 is comfortably past
+# "the same color as something published" without selecting for leftover corners
+# of the space.
 #
-# 4.0 asks only the question worth asking: is this a COPY? CIEDE2000 ~2.3 is
-# the just-noticeable difference under careful viewing, so 4.0 is 1.7x JND —
-# "clearly not the same color as anything published", with margin.
-#
-# This number went DOWN from 6.0 and the gate got STRICTER, which is worth
-# spelling out because it looks like the opposite. 6.0 was set against a
-# Tailwind-only corpus where it was cheap; the accent it passed at 7.8 sat 1.64
-# from CSS darkturquoise, below JND. Under the corpus below that same accent
-# scores 1.64 and FAILS. The corpus was the thing that was wrong, not the number.
+# This number went DOWN from 6.0 and the gate got STRICTER, which reads as the
+# opposite until you check it: 6.0 was set against a Tailwind-only corpus, and
+# the accent it passed was a near-copy of a CSS named color the corpus did not
+# contain. Under the corpus in stock_palettes.py that same accent now fails. The
+# corpus was the thing that was wrong, not the number. Both retired accents fail
+# this check — that is the regression test, and it is in
+# tests/unit/test_color_tokens.py rather than in this comment.
 STOCK_FLOOR = 4.0
 
 # Tolerance when re-deriving a token from its rule. Non-zero only because the
@@ -97,10 +94,6 @@ RAMP_TOL = 1.0
 # ACCENT_SOFT is the accent lifted for hover. One number, stated, so it can be
 # re-derived rather than trusted.
 ACCENT_SOFT_DL = 0.07
-
-# The semantics must share the anchor's OKLab lightness. Tolerance covers 8-bit
-# sRGB quantisation only.
-SEMANTIC_L_TOL = 0.005
 
 # The ramp's stated curve and lightness architecture. These are the RULE; the
 # literals in components/tokens.py are its OUTPUT, and this file exists to prove
@@ -132,7 +125,6 @@ SEMANTIC_SPEC = {
     "INFO": (0.70, 250),
     "FORECAST": (0.80, 60),
 }
-SEMANTIC_HUES = {k: v[1] for k, v in SEMANTIC_SPEC.items()}
 
 # Pairs that a reader actually compares, read off the callsites. The severity
 # triad is ONE badge that takes one of three colors by threshold, and three such
@@ -185,7 +177,8 @@ def check_ownership(failures: list[str]) -> None:
       2. The NEUTRALS must reproduce from the stated chroma curve at the
          accent's hue. That is what "derived" means; if they stop reproducing,
          they are just literals again.
-      3. The SEMANTICS must sit on the accent's lightness at their stated hues.
+      3. The SEMANTICS must reproduce from their solved lightness + the
+         anchor's chroma at their stated hues.
 
     Before this existed, reverting ACCENT to the stock near-duplicate the
     redesign was built to escape passed every gate and all 38 tests. The
@@ -203,7 +196,7 @@ def check_ownership(failures: list[str]) -> None:
     )
     if not ok:
         failures.append(
-            f"ACCENT {tokens.ACCENT} is dE {d:.1f} from Tailwind {near} — a near-duplicate. "
+            f"ACCENT {tokens.ACCENT} is dE {d:.1f} from {near} — a near-duplicate. "
             f"The accent is the one color a human chooses; it may not be a stock swatch."
         )
 
@@ -226,9 +219,8 @@ def check_ownership(failures: list[str]) -> None:
     )
 
     # 2b. ACCENT_SOFT reproduces from the accent. It had no stated rule at all —
-    # a second brand color, ungated, sitting dE 5.35 from stock cyan-300, i.e.
-    # under the floor the accent itself must clear. Swapping it to stock passed
-    # every check.
+    # a second brand color that no check touched, so swapping it to a stock
+    # swatch passed everything.
     soft = _fit(L_a + ACCENT_SOFT_DL, C_a, H_a)
     d = ciede2000(tokens.ACCENT_SOFT, soft)
     ok = d <= RAMP_TOL
@@ -243,7 +235,7 @@ def check_ownership(failures: list[str]) -> None:
             f"loose from the brand."
         )
 
-    # 3. The semantics sit on the accent's lightness at their stated hues.
+    # 3. The semantics reproduce from the semantic rule.
     worst_s = 0.0
     for name, (sem_l, hue) in SEMANTIC_SPEC.items():
         regen = _fit(sem_l, C_a, hue)
@@ -255,7 +247,7 @@ def check_ownership(failures: list[str]) -> None:
                 f"(solved lightness {sem_l:.2f}, hue {hue} → {regen}, dE {d:.1f})."
             )
     print(
-        f"  semantic ramp reproduces at the anchor's lightness (L={L_a:.3f})  "
+        f"  semantic ramp reproduces from its solved lightness + anchor chroma  "
         f"worst dE={worst_s:4.1f}  (tol {RAMP_TOL}) {'ok' if worst_s <= RAMP_TOL else 'FAIL'}"
     )
 
@@ -302,11 +294,6 @@ def check_contrast(failures: list[str]) -> None:
         ok = ratio >= floor
         note = ""
         if name == "TEXT_TERTIARY":
-            # Its lightness is SOLVED for this number rather than sampled — so
-            # the floor is the real one. It was previously pinned at
-            # AA_GRAPHIC (3.0), which let stock zinc-500's 4.08 sail through:
-            # the one token advertised as "solved for AA" was the one token the
-            # gate did not hold to AA.
             note = "  <- lightness is solved for this, not sampled"
         print(f"  {name:16s} {value}  {ratio:5.2f}  (floor {floor}) {'ok' if ok else 'FAIL'}{note}")
         if not ok:

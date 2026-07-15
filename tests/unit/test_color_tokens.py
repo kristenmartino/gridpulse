@@ -98,6 +98,11 @@ class TestSingleSourceOfTruth:
             ("--warning", "WARNING"),
             ("--danger", "DANGER"),
             ("--info", "INFO"),
+            # Mirrored in both files and, until an audit noticed, checked in
+            # neither — so the module's "the two are asserted equal" was false
+            # for exactly the tokens nobody thought about.
+            ("--border-subtle", "BORDER_SUBTLE"),
+            ("--border-default", "BORDER_DEFAULT"),
         ],
     )
     def test_css_root_matches_python_token(self, css: str, css_var: str, token_name: str):
@@ -499,7 +504,6 @@ class TestEveryTokenIsLive:
         "INFO": "--info",
         "BORDER_SUBTLE": "--border-subtle",
         "BORDER_DEFAULT": "--border-default",
-        "BORDER_STRONG": "--border-strong",
     }
 
     def test_every_token_has_a_callsite(self):
