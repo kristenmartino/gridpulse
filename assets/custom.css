@@ -678,18 +678,33 @@ body.briefing .dashboard-header::after {
  * The single surface allowed to leave the column. Used by the 51-BA grid on
  * US Grid: that screen's argument is "here is the whole country at once", and
  * making it plead its case through a 1200px slot while the title above it sits
- * in the same slot is the layout refusing to take its own side. The narrative
- * around it — title, metrics bar, sort/view controls — stays bounded, so the
- * break reads as a decision about THAT grid rather than a wider page.
+ * in the same slot is the layout refusing to take its own side.
  *
- * Capped at --content-wide and re-gutter'd, so "edge-to-edge" means the band
- * commits to the width it can actually use, not to whatever monitor it lands
- * on. */
+ * It breaks RIGHT ONLY — `content-start / full-end`, not `full`. The band keeps
+ * the page's left margin and runs off the right edge.
+ *
+ * This started as a symmetric `grid-column: full` and that was wrong, for a
+ * reason worth keeping written down. The 51-BA grid carries its own narrative:
+ * `.gp-region-grid__section-header` ("Central", "Northeast") spans each row via
+ * `grid-column: 1 / -1`, so a symmetric bleed dragged those LABELS out to x=24
+ * while every other label on the page — title, metric labels, VIEW/SORT
+ * eyebrows — sat at x=144. A card grid leaving the column reads as intent; a
+ * text label doing it reads as a bug, because the left margin is where the eye
+ * anchors and a ragged left edge is the one thing a reader cannot forgive.
+ *
+ * Anchoring left fixes that and is the better composition anyway: a symmetric
+ * bleed is just "make it wide", while a grid that holds the column's margin and
+ * runs past the frame is an actual decision — and the asymmetry is the point.
+ * A ragged RIGHT edge is what editorial layouts have always spent.
+ *
+ * Capped at --content-wide with `margin-inline-end: auto` so the cap trims the
+ * right (never the left, which would re-break the alignment this rule exists to
+ * protect). */
 .gp-bleed {
-    grid-column: full;
+    grid-column: content-start / full-end;
     max-width: var(--content-wide);
-    margin-inline: auto;
-    padding-inline: var(--content-gutter);
+    margin-inline-end: auto;
+    padding-inline-end: var(--content-gutter);
     width: 100%;
 }
 

@@ -40,15 +40,32 @@ tree, one branch — don't.** Use a worktree per session.
 *The one real break.* `.gp-page` and `.gp-section-stack` now share a named-line
 grid (`--page-columns`: `full | content | full`) held in a single custom
 property, so the two grids cannot drift. Everything defaults to the bounded
-`content` track; leaving it is one deliberate line (`grid-column: full`), which
-is what keeps "one confident break" from becoming five timid ones. **US Grid's
-51-BA grid takes it**: at 1440px the band measures **1440px against a 1152px
-column — a 288px break** — while title, metrics bar and controls stay pinned at
-x=144. That screen's argument is "here is the whole country at once"; making it
-plead that case through a 1200px slot while its own title sat in the same slot
-was the layout refusing to take its own side. Capped at `--content-wide` (105rem)
-— 51 cards stretched across a 2560px monitor is not composition, it's
-abdication.
+`content` track; leaving it is one deliberate line, which is what keeps "one
+confident break" from becoming five timid ones. **US Grid's 51-BA grid takes
+it**, breaking **right only** (`grid-column: content-start / full-end`): the band
+holds the page's left margin and runs off the right edge — 120px past the metrics
+bar at 1440px, 320px at 1920px, where a 5th card column also fires. That screen's
+argument is "here is the whole country at once"; making it plead that case
+through a 1200px slot while its own title sat in the same slot was the layout
+refusing to take its own side. Capped at `--content-wide` (105rem), trimmed from
+the right — 51 cards stretched across a 2560px monitor is not composition, it's
+abdication. Below ~1024px the break collapses to **0** on its own: the band
+equals the column when there is nothing to gain.
+
+**The symmetric bleed was wrong, and review caught it.** It first shipped as
+`grid-column: full` — a true edge-to-edge band, a 288px break at 1440px. That
+dragged the grid's OWN narrative out with it: `.gp-region-grid__section-header`
+("Central", "Northeast") spans each row via `grid-column: 1 / -1`, so those
+**text labels** landed at x=24 while every other label on the page — title,
+metric labels, VIEW/SORT eyebrows — sat at x=144. It broke the exact rule the
+break was justified by ("the narrative around it stays bounded"), because the
+section headers *are* narrative and I had only thought about the cards. A card
+grid leaving the column reads as intent; a text label doing it reads as a bug —
+the left margin is where the eye anchors, and a ragged left edge is the one thing
+a reader cannot forgive. Anchoring left is also the better composition: a
+symmetric bleed is just "make it wide", whereas a grid that keeps the column's
+margin and runs past the frame is an actual decision, and the asymmetry is the
+point. All six left edges now measure 144 at 1440px.
 
 *Container queries, scoped to where they're earned.* The band's width no longer
 tracks the viewport **by design**, so a media query genuinely cannot tell those
@@ -93,10 +110,11 @@ neighbour); the desktop rule's comment claimed "desktop only" while scoping only
 the tracks, not the size. And `.dashboard-title` is off the H1 with its rules
 deleted; the wordmark's 20px mobile step now belongs to `.gp-header__wordmark`.
 
-Verified at 1440/1024/900/768/375 (no horizontal overflow on fresh load at any;
-the transient overflow while resizing is Plotly's stale relayout, not layout).
-Suite green — **2306 passed**. Sticky z-ladder (50/40), `--header-height: 60px`,
-the reduced-motion architecture and data-honesty labels all preserved.
+Verified at 2560/1920/1440/1024/900/768/375 (no horizontal overflow on fresh load
+at any; the transient overflow while resizing is Plotly's stale relayout, not
+layout). Suite green — **2306 passed**. Sticky z-ladder (50/40),
+`--header-height: 60px`, the reduced-motion architecture and data-honesty labels
+all preserved.
 
 **Open question:** Composition was capped at 6.5 by "asymmetry is Overview-only."
 Three tabs now have deliberate composition (Overview, US Grid, Forecast); **Risk

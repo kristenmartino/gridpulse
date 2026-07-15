@@ -539,9 +539,16 @@ And my instinct to `git reset --hard` was refused by a guardrail — correctly, 
 a shared tree. I unwound my own bad apply by *saving* it to a stash instead of
 destroying it.
 
-Result: Nothing was lost. The break-out measures a real 288px against a 1152px
-column at 1440px; 15 magic-number chart heights became five role-keyed steps;
-the missing ~1024px grid rung exists; suite green at 2306. But the code has **no
+Result: Nothing was lost. The grid breaks 120px past the metrics bar at 1440px
+and 320px at 1920px, where a 5th column fires; 15 magic-number chart heights
+became five role-keyed steps; the missing ~1024px grid rung exists; suite green
+at 2306. **And the first version of the break was wrong** — a symmetric bleed
+that dragged the grid's own section labels ("Central", "Northeast") out to x=24
+while every other label on the page sat at x=144, violating the exact rule I'd
+justified the break with. A reviewer said "alignment looks off" and was right in
+about two seconds; I'd measured the band's width and never measured its left
+edge against anything else. Anchoring it right-only fixed it and is the better
+composition anyway. But the code has **no
 commit of its own** — it sits inside `270a50f`, whose message describes only the
 color half of what it contains. I chose to record that discrepancy in `STATUS.md`
 rather than perform hunk-level surgery on an unpushed, still-live branch: the
