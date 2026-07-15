@@ -247,14 +247,21 @@ class TestAddTrailingActuals:
         assert len(fig.data) == 1
         assert fig.data[0].name == "Actual"
 
-    def test_trace_uses_dotted_line(self):
+    def test_trace_reads_its_dash_from_the_table(self):
+        """The dash is whatever LINE_STYLES declares, not a literal repeated here.
+
+        Named test_trace_uses_dotted_line until the table was checked: it
+        asserted the callsite's hardcoded "dot" against the table's "solid",
+        which made the defect the specification.
+        """
+        from components.accessibility import LINE_STYLES
         from components.callbacks import _add_trailing_actuals
 
         fig = go.Figure()
         demand_df = _make_demand_df(100)
         demand_json = demand_df.to_json()
         _add_trailing_actuals(fig, demand_json)
-        assert fig.data[0].line.dash == "dot"
+        assert fig.data[0].line.dash == LINE_STYLES["actual"]["dash"]
 
     def test_noop_on_none_json(self):
         from components.callbacks import _add_trailing_actuals

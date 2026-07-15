@@ -350,6 +350,48 @@ def _interval_caption(interval_meta: dict, model_name: str) -> str:
     return ""
 
 
+def _add_extremum_markers(
+    fig: go.Figure,
+    timestamps,
+    peak_idx: int,
+    peak_val: float,
+    min_idx: int,
+    min_val: float,
+    color: str,
+) -> None:
+    """Mark the peak and min OF a forecast curve, in that curve's own color.
+
+    Args:
+        fig: Figure the curve was already added to.
+        timestamps: The curve's x values.
+        peak_idx: Index of the maximum within ``timestamps``.
+        peak_val: The maximum, in MW.
+        min_idx: Index of the minimum within ``timestamps``.
+        min_val: The minimum, in MW.
+        color: The curve's line color — markers derive from it rather than
+            picking their own, because they are part of that curve.
+
+    Both call sites drew these two traces inline and identically, which is why
+    both carried the same mismatched colors. One definition, two callers.
+    """
+    for idx, val, label, symbol, size, pos in (
+        (peak_idx, peak_val, "Peak", "triangle-up", 12, "top center"),
+        (min_idx, min_val, "Min", "triangle-down", 10, "bottom center"),
+    ):
+        fig.add_trace(
+            go.Scatter(
+                x=[timestamps[idx]],
+                y=[val],
+                mode="markers+text",
+                name=label,
+                marker=dict(color=color, size=size, symbol=symbol),
+                text=[f"{label}: {val:,.0f} MW"],
+                textposition=pos,
+                showlegend=False,
+            )
+        )
+
+
 def _add_trailing_actuals(
     fig: go.Figure,
     demand_json: str | None,
@@ -365,13 +407,21 @@ def _add_trailing_actuals(
         tail = demand_df.tail(tail_hours)
         if tail.empty:
             return
+        style = LINE_STYLES["actual"]
         fig.add_trace(
             go.Scatter(
                 x=tail["timestamp"],
                 y=tail["demand_mw"],
                 mode="lines",
                 name="Actual",
-                line=dict(color=COLORS["actual"], width=2, dash="dot"),
+                # Read from LINE_STYLES rather than hand-written here. This
+                # took its color from the table and then wrote dash="dot" of
+                # its own, against the table's "solid" — so the measured past
+                # rendered more provisional than the prediction beside it, and
+                # on the ARIMA view (also dot) the pair's second channel
+                # silently collapsed, leaving colour alone to separate the two
+                # lines the double-encoding comment promises never to.
+                line=dict(color=style["color"], width=style["width"], dash=style["dash"]),
             )
         )
     except Exception:
@@ -1109,6 +1159,11 @@ def _outlook_tab_from_redis(
     model_style = LINE_STYLES.get(
         served_model, {"color": COLORS["ensemble"], "width": 2, "dash": "solid"}
     )
+    # Resolved ONCE. The line, its fill, and the peak/min markers are one
+    # object — the curve — so they read one expression. Each re-resolution is
+    # a place the four can drift apart, which is how the fill ended up teal
+    # under an orange line.
+    curve_color = COLORS.get(served_model, COLORS["ensemble"])
     fig.add_trace(
         go.Scatter(
             x=timestamps,
@@ -1116,38 +1171,27 @@ def _outlook_tab_from_redis(
             mode="lines",
             name=f"{served_model.upper()} Forecast",
             line=dict(
-                color=COLORS.get(served_model, COLORS["ensemble"]),
+                color=curve_color,
                 width=model_style.get("width", 2),
                 dash=model_style.get("dash", "solid"),
             ),
             fill="tozeroy",
-            fillcolor=tokens.alpha(tokens.ACCENT, 0.10),
+            # Derived from THIS trace's own line. It used to be the accent at
+            # 10% under a line of whatever model the user selected — a teal wash
+            # under an orange/green/blue/vermillion curve. The literal was
+            # retired to a token without asking what it sat beneath, which fixed
+            # the value and kept the mismatch.
+            fillcolor=tokens.alpha(curve_color, 0.10),
         )
     )
-    fig.add_trace(
-        go.Scatter(
-            x=[timestamps[peak_idx]],
-            y=[peak_val],
-            mode="markers+text",
-            name="Peak",
-            marker=dict(color=tokens.DANGER, size=12, symbol="triangle-up"),
-            text=[f"Peak: {peak_val:,.0f} MW"],
-            textposition="top center",
-            showlegend=False,
-        )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=[timestamps[min_idx]],
-            y=[min_val],
-            mode="markers+text",
-            name="Min",
-            marker=dict(color=tokens.ACCENT, size=10, symbol="triangle-down"),
-            text=[f"Min: {min_val:,.0f} MW"],
-            textposition="bottom center",
-            showlegend=False,
-        )
-    )
+    # Peak/min annotate the forecast curve, so they are drawn IN it. They used
+    # to be DANGER and ACCENT: two independent picks that made a routine daily
+    # maximum wear the alert color (every forecast has a peak; the Risk tab is
+    # where red means something) and put the min marker on the demand series'
+    # exact hue — CIEDE2000 0.0 from the "Actual" line, on every model.
+    # Symbol, size and the printed label carry the emphasis; color carries
+    # membership.
+    _add_extremum_markers(fig, timestamps, peak_idx, peak_val, min_idx, min_val, color=curve_color)
     interval_meta = _add_confidence_bands(
         fig, timestamps, predictions, horizon_hours, region=region, model_name=served_model
     )
@@ -1668,6 +1712,11 @@ def register_forecast_callbacks(app):
         model_style = LINE_STYLES.get(
             model_name, {"color": COLORS["ensemble"], "width": 2, "dash": "solid"}
         )
+        # Resolved once and shared by the line, its fill and its markers — see
+        # the sibling builder above. Note this function's variable is
+        # ``model_name`` where that one's is ``served_model``; the two nearly
+        # identical builders are why every defect here needed fixing twice.
+        curve_color = COLORS.get(model_name, COLORS["ensemble"])
         # Forecast trace with optional SHAP tooltips (NEXD-13)
         forecast_kwargs: dict = dict(
             x=timestamps,
@@ -1675,12 +1724,12 @@ def register_forecast_callbacks(app):
             mode="lines",
             name=f"{model_name.upper()} Forecast",
             line=dict(
-                color=COLORS.get(model_name, COLORS["ensemble"]),
+                color=curve_color,
                 width=model_style.get("width", 2),
                 dash=model_style.get("dash", "solid"),
             ),
             fill="tozeroy",
-            fillcolor=tokens.alpha(tokens.ACCENT, 0.10),
+            fillcolor=tokens.alpha(curve_color, 0.10),
         )
         if tooltips and any(tooltips):
             forecast_kwargs["customdata"] = tooltips
@@ -1689,31 +1738,8 @@ def register_forecast_callbacks(app):
             )
         fig.add_trace(go.Scatter(**forecast_kwargs))
 
-        # Add peak marker
-        fig.add_trace(
-            go.Scatter(
-                x=[timestamps[peak_idx]],
-                y=[peak_val],
-                mode="markers+text",
-                name="Peak",
-                marker=dict(color=tokens.DANGER, size=12, symbol="triangle-up"),
-                text=[f"Peak: {peak_val:,.0f} MW"],
-                textposition="top center",
-                showlegend=False,
-            )
-        )
-        # Add min marker
-        fig.add_trace(
-            go.Scatter(
-                x=[timestamps[min_idx]],
-                y=[min_val],
-                mode="markers+text",
-                name="Min",
-                marker=dict(color=tokens.ACCENT, size=10, symbol="triangle-down"),
-                text=[f"Min: {min_val:,.0f} MW"],
-                textposition="bottom center",
-                showlegend=False,
-            )
+        _add_extremum_markers(
+            fig, timestamps, peak_idx, peak_val, min_idx, min_val, color=curve_color
         )
         interval_meta = _add_confidence_bands(
             fig, timestamps, predictions, horizon_hours, region=region, model_name=model_name

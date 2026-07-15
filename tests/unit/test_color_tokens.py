@@ -338,34 +338,20 @@ class TestRenderedTraceColors:
 class TestMeasuredSeparation:
     """CIEDE2000 under simulated dichromacy — the claim the comments made."""
 
-    def test_adjacent_fuel_bands_separate_under_every_cvd_type(self):
-        order = tokens.FUEL_STACK_ORDER
-        for a, b in zip(order, order[1:], strict=False):  # pairwise: lengths differ by 1
-            m = min_cvd(tokens.FUEL_COLORS[a], tokens.FUEL_COLORS[b])
-            assert m >= SHARED_FIGURE_FLOOR, (
-                f"fuel bands {a}|{b} touch in the stack but measure {m:.1f} "
-                f"(floor {SHARED_FIGURE_FLOOR}). This is the nuclear/hydro "
-                f"deutan collapse (1.0) regressing."
-            )
-
-    def test_every_fuel_band_clears_the_net_load_line(self):
-        """The accent net-load line is drawn OVER the stack."""
-        for fuel, color in tokens.FUEL_COLORS.items():
-            m = min_cvd(color, tokens.ACCENT)
-            assert m >= SHARED_FIGURE_FLOOR, f"fuel {fuel} vs accent = {m:.1f}"
-
-    def test_accent_clears_every_series_it_shares_a_figure_with(self):
-        rivals = [
-            tokens.CB_PALETTE["orange"],
-            tokens.CB_PALETTE["green"],
-            tokens.CB_PALETTE["vermillion"],
-            tokens.CB_PALETTE["yellow"],
-            tokens.CB_PALETTE["blue"],
-            tokens.NEUTRAL_SERIES,
-            tokens.FORECAST,
-        ]
-        for r in rivals:
-            assert min_cvd(tokens.ACCENT, r) >= SHARED_FIGURE_FLOOR
+    # test_adjacent_fuel_bands_separate_under_every_cvd_type,
+    # test_every_fuel_band_clears_the_net_load_line, and
+    # test_accent_clears_every_series_it_shares_a_figure_with lived here.
+    # All three are DELETED — subsumed by tests/unit/test_rendered_figures.py,
+    # which builds the real figures and measures every pair WITHIN each one.
+    #
+    # They were not merely redundant, they were WRONG, each in the same way:
+    # each measured a list I maintained rather than the figure the app draws.
+    # The adjacency check only compared bands next to each other in
+    # FUEL_STACK_ORDER (a reader matches a legend swatch to a band anywhere) and
+    # was colour-only (the palette now carries a fill pattern it cannot see).
+    # The accent check consulted a hand-written list of rivals that omitted the
+    # one colour it actually collides with. Keeping them beside the real check
+    # would be keeping the second list that let the first go stale.
 
     def test_map_colorscale_is_luminance_monotonic(self):
         """The preserve-guardrail: the best-reasoned artifact in the repo."""

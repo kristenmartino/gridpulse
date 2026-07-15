@@ -312,55 +312,41 @@ def check_map_scale(failures: list[str]) -> None:
         prev = lum
 
 
-def check_fuel(failures: list[str]) -> None:
-    _hdr("Fuel stack — adjacent bands must separate under every CVD type")
-    order = tokens.FUEL_STACK_ORDER
-    for a, b in zip(order, order[1:], strict=False):  # pairwise: lengths differ by 1
-        ha, hb = tokens.FUEL_COLORS[a], tokens.FUEL_COLORS[b]
-        m = min_cvd(ha, hb)
-        ok = m >= SHARED_FIGURE_FLOOR
-        print(
-            f"  {a:8s} | {b:8s}  minCVD={m:5.1f}  dL*={abs(lstar(ha) - lstar(hb)):5.1f}  "
-            f"{'ok' if ok else 'FAIL'}"
-        )
-        if not ok:
-            failures.append(f"fuel {a}|{b} minCVD {m:.1f} < {SHARED_FIGURE_FLOOR}")
-
-    _hdr("Fuel bands vs the ACCENT (net-load line is drawn OVER the stack)")
-    for f in order:
-        m = min_cvd(tokens.FUEL_COLORS[f], tokens.ACCENT)
-        ok = m >= SHARED_FIGURE_FLOOR
-        print(f"  {f:8s} vs accent  minCVD={m:5.1f}  {'ok' if ok else 'FAIL'}")
-        if not ok:
-            failures.append(f"fuel {f} vs accent minCVD {m:.1f} < {SHARED_FIGURE_FLOOR}")
-
-
-def check_accent_series(failures: list[str]) -> None:
-    _hdr("ACCENT (demand/primary) vs every series it shares a figure with")
-    # Wong's sky_blue is absent on purpose: it is the XGBoost identity color and
-    # is only ever drawn in its own single-trace residual figure, so it never
-    # shares a chart with the demand line. If you add a figure that draws both,
-    # this list is what you must update — and the numbers will tell you the
-    # accent and sky_blue are ~4 apart, which is why they are kept separate.
-    rivals = {
-        "prophet(orange)": tokens.CB_PALETTE["orange"],
-        "arima(green)": tokens.CB_PALETTE["green"],
-        "ensemble(vermillion)": tokens.CB_PALETTE["vermillion"],
-        "temperature(yellow)": tokens.CB_PALETTE["yellow"],
-        "wong_blue(colorway)": tokens.CB_PALETTE["blue"],
-        "eia(gray)": tokens.NEUTRAL_SERIES,
-        "forecast(orange)": tokens.FORECAST,
-    }
-    for name, color in rivals.items():
-        m = min_cvd(tokens.ACCENT, color)
-        ok = m >= SHARED_FIGURE_FLOOR
-        print(f"  accent vs {name:22s} minCVD={m:5.1f}  {'ok' if ok else 'FAIL'}")
-        if not ok:
-            failures.append(f"accent vs {name} minCVD {m:.1f} < {SHARED_FIGURE_FLOOR}")
+# check_fuel() and check_accent_series() used to live here. Both are DELETED,
+# not moved, because both were wrong in the same way and a second list is how the
+# first one went stale:
+#
+#   * check_fuel measured only pairs ADJACENT in FUEL_STACK_ORDER, colour-only.
+#     A reader matches a legend swatch to a band anywhere in the stack, so
+#     adjacency was the wrong bar; and the palette now carries a fill PATTERN
+#     that a colour-only check cannot see, so it reported failures on pairs that
+#     are separated by design.
+#   * check_accent_series measured the accent against a HAND-WRITTEN list of
+#     "series it shares a figure with". The list omitted Wong's sky_blue on the
+#     strength of an analysis that was false — they co-occur on the Forecast tab
+#     in the default state. It excluded the one rival that collides.
+#
+# tests/unit/test_rendered_figures.py replaces both by building the real figures
+# and measuring every pair WITHIN each one, against the fuels the DATA yields.
+# It does not consult any list, which is the point.
 
 
 def check_weather_drivers(failures: list[str]) -> None:
-    _hdr("Weather driver sparklines — separate labeled figures, merely adjacent")
+    """The drivers at the ADJACENCY floor, because that is how they are drawn.
+
+    10.0 rather than the 12.0 shared-figure floor: _build_drivers_panel gives
+    each driver its own labeled sparkline cell, so they are compared but never
+    overplotted. The premise is load-bearing — a figure that DID overplot wind
+    and solar would need 12.0, and the pair only measures 11.5 under protanopia.
+
+    Note what this check cannot tell you: whether that premise still holds. It
+    reads the token dict, not the figures, so it would go on passing if someone
+    drew the drivers as two lines tomorrow. That question belongs to
+    tests/unit/test_rendered_figures.py, which measures every pair inside each
+    figure the app actually builds. Keep the two jobs separate rather than
+    teaching this one to guess at callsites.
+    """
+    _hdr("Weather driver sparklines — the driver strip: adjacent, never overplotted")
     items = list(tokens.WEATHER_DRIVERS.items())
     for (na, ca), (nb, cb) in combinations(items, 2):
         m = min_cvd(ca, cb)
@@ -417,8 +403,6 @@ def main() -> int:
     check_contrast(failures)
     check_wong_intact(failures)
     check_map_scale(failures)
-    check_fuel(failures)
-    check_accent_series(failures)
     check_weather_drivers(failures)
 
     print()

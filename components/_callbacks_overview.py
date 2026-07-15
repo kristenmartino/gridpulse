@@ -26,8 +26,15 @@ populated in three sub-steps:
    persona KPIs) — adds ~900 lines here.
 
 After all three land, the file is the single home for every
-``_build_overview_*`` / ``_spotlight_*`` / ``_build_persona_kpis``
-helper. ``register_callbacks`` re-imports them by name from here.
+``_build_overview_*`` / ``_build_persona_kpis`` helper.
+``register_callbacks`` re-imports them by name from here.
+
+The ``_spotlight_*`` family is gone. It drew a different Overview chart per
+persona until the linear mission-control stack (d6fd161, "cut 8 cards")
+replaced all four with one hero chart for everyone. The builders outlived that
+by a redesign and a refactor because their tests kept importing them, so they
+still had callers — just none that could put a pixel on screen. Three real
+color defects were found in them afterwards, in charts no reader could see.
 
 ## What lives here today
 
@@ -78,7 +85,7 @@ from components._callbacks_shared import (
     _latest_real_demand,
     _layout,
 )
-from components.accessibility import CB_PALETTE, forecast_summary
+from components.accessibility import forecast_summary
 from components.cards import (
     build_insight_card,
     build_kpi_row,
@@ -943,8 +950,13 @@ def _build_drivers_panel(weather_json: str | None) -> list:
 
     The Forecast tab's Drivers inline panel calls this when its collapse
     opens. Each cell is a .gp-driver-cell with eyebrow / value / unit /
-    sparkline. Sparkline reuses the same v2 minimal-axis style as
-    _build_overview_sparkline.
+    sparkline, in the v2 minimal-axis style.
+
+    This is the ONLY surface that draws the weather drivers, and it draws each
+    one in its own labeled cell — compared side by side, never overplotted.
+    That is the premise tokens.WEATHER_DRIVERS is designed against, and why the
+    10.0 adjacency floor rather than the 12.0 shared-figure floor applies to
+    the trio.
     """
     if not weather_json:
         return _drivers_empty()
@@ -1028,7 +1040,13 @@ def _build_drivers_panel(weather_json: str | None) -> list:
                         ],
                     ),
                     dcc.Graph(
-                        figure=_driver_sparkline(horizon, col, d["color"], d["fillcolor"]),
+                        figure=_driver_sparkline(
+                            horizon,
+                            col,
+                            d["color"],
+                            d["fillcolor"],
+                            name=f"{d['label']} ({d['unit']})",
+                        ),
                         config={"displayModeBar": False, "responsive": True},
                         style={"height": "var(--sparkline-h)"},
                     ),
@@ -1068,11 +1086,38 @@ _FUEL_STACK_ORDER: tuple[str, ...] = tokens.FUEL_STACK_ORDER
 # Every color here used to be an independent literal, which is how nuclear and
 # hydro — bands that physically touch — ended up at deutan CIEDE2000 1.0, and
 # how wind landed 6.5 from the accent net-load line drawn over the stack.
+# Label + colour + 85% fill + fill PATTERN, all derived from the one fuel
+# palette. The pattern is the second channel: sixteen fuels exceed what colour
+# alone keeps distinguishable under CVD, and SNB/WNB/PS carry their base fuel's
+# colour on purpose (they ARE solar/wind/hydro, storage-paired) so the hatch is
+# what separates them.
+# EIA's codes are not user-facing copy. "solar_storage".title() reads
+# "Solar_Storage"; these say what the fuel is.
+_FUEL_LABELS: dict[str, str] = {
+    "coal": "Coal",
+    "oil": "Oil",
+    "gas": "Gas",
+    "nuclear": "Nuclear",
+    "geothermal": "Geothermal",
+    "hydro": "Hydro",
+    "wind": "Wind",
+    "solar": "Solar",
+    "other": "Other",
+    "wind_storage": "Wind + storage",
+    "solar_storage": "Solar + storage",
+    "pumped_storage": "Pumped storage",
+    "battery": "Battery",
+    "other_storage": "Other storage",
+    "unknown_storage": "Unknown storage",
+    "unknown": "Unknown",
+}
+
 _FUEL_DISPLAY: dict[str, dict[str, str]] = {
     fuel: {
-        "label": fuel.title(),
+        "label": _FUEL_LABELS.get(fuel, fuel.replace("_", " ").title()),
         "color": color,
         "fill": tokens.alpha(color, 0.85),
+        "pattern": tokens.FUEL_PATTERNS.get(fuel, ""),
     }
     for fuel, color in tokens.FUEL_COLORS.items()
 }
@@ -1221,6 +1266,7 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
                 name=cfg["label"],
                 line=dict(width=0, color=cfg["color"]),
                 fillcolor=cfg["fill"],
+                fillpattern=dict(shape=cfg.get("pattern", ""), fgcolor=cfg["color"], size=6),
                 hovertemplate=(
                     f"<b>{cfg['label']}</b><br>%{{x|%H:%M}}<br>%{{y:,.0f}} MW<extra></extra>"
                 ),
@@ -1613,14 +1659,30 @@ def _build_scenarios_panel(
     return kpis, fig
 
 
-def _driver_sparkline(df: pd.DataFrame, column: str, color: str, fillcolor: str) -> go.Figure:
-    """60px sparkline matching the v2 minimal-axes treatment."""
+def _driver_sparkline(
+    df: pd.DataFrame, column: str, color: str, fillcolor: str, name: str = ""
+) -> go.Figure:
+    """60px sparkline matching the v2 minimal-axes treatment.
+
+    Args:
+        df: Frame holding ``timestamp`` and ``column``.
+        column: Column to plot.
+        color: Line color — the driver's token.
+        fillcolor: Fill under the line, derived from ``color``.
+        name: Which driver this is. The legend is off, so this paints nothing;
+            it is what lets a check tell whether the trace is wearing the right
+            token. Unnamed, a trace can only be measured against its neighbours,
+            and a lone sparkline has none — so an unnamed one is unverifiable by
+            construction, which is how the Overview came to draw demand in a
+            retired blue with a full palette suite passing.
+    """
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
             x=df["timestamp"],
             y=df[column],
             mode="lines",
+            name=name,
             line=dict(color=color, width=1.5),
             fill="tozeroy",
             fillcolor=fillcolor,
@@ -1640,50 +1702,6 @@ def _driver_sparkline(df: pd.DataFrame, column: str, color: str, fillcolor: str)
 
 
 # ── Overview briefing block (Step 7c — sparklines / briefing / digest / spotlights / persona) ──
-
-
-def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
-    """Build a compact 24h demand sparkline for the overview tab."""
-    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
-        return _empty_figure("No demand data")
-
-    df = demand_df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    last_24h = df.tail(24)
-
-    if last_24h.empty:
-        return _empty_figure("No recent demand data")
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=last_24h["timestamp"],
-            y=last_24h["demand_mw"],
-            mode="lines",
-            line=dict(color=CB_PALETTE["blue"], width=2),
-            fill="tozeroy",
-            fillcolor=tokens.alpha(tokens.CB_PALETTE["blue"], 0.15),
-            name="Demand",
-            hovertemplate="%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
-        )
-    )
-    sparkline_layout = _layout(
-        uirevision=region,
-        showlegend=False,
-        margin=dict(l=40, r=10, t=10, b=30),
-        xaxis=dict(
-            showgrid=False,
-            tickformat="%H:%M",
-        ),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor=tokens.GRID_LINE,
-            tickformat=",.0f",
-            title="MW",
-        ),
-    )
-    fig.update_layout(**sparkline_layout)
-    return fig
 
 
 def _build_overview_briefing(
@@ -1935,214 +1953,6 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
             "borderRadius": "6px",
         },
     )
-
-
-def _build_overview_spotlight(
-    persona_id: str,
-    region: str,
-    demand_df: pd.DataFrame | None,
-    weather_df: pd.DataFrame | None,
-) -> go.Figure:
-    """Build persona-specific spotlight chart for overview."""
-    if persona_id == "renewables":
-        return _spotlight_renewables(weather_df, region)
-    if persona_id == "trader":
-        return _spotlight_trader(demand_df, region)
-    if persona_id == "data_scientist":
-        return _spotlight_model_accuracy(region)
-    # Default: grid_ops → demand sparkline
-    return _build_overview_sparkline(demand_df, region)
-
-
-def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Figure:
-    """Renewable generation potential chart."""
-    if weather_df is None or weather_df.empty:
-        return _empty_figure("No weather data for renewable outlook")
-
-    df = weather_df.copy()
-    if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-    last_48h = df.tail(48)
-
-    fig = go.Figure()
-    if "wind_speed_80m" in last_48h.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=last_48h.get("timestamp", list(range(len(last_48h)))),
-                y=last_48h["wind_speed_80m"],
-                mode="lines",
-                line=dict(color=CB_PALETTE.get("sky", tokens.CB_PALETTE["sky_blue"]), width=2),
-                name="Wind (mph)",
-                hovertemplate="%{y:.0f} mph<extra>Wind</extra>",
-            )
-        )
-    if "shortwave_radiation" in last_48h.columns:
-        fig.add_trace(
-            go.Scatter(
-                x=last_48h.get("timestamp", list(range(len(last_48h)))),
-                y=last_48h["shortwave_radiation"],
-                mode="lines",
-                line=dict(color=CB_PALETTE.get("orange", tokens.CB_PALETTE["orange"]), width=2),
-                name="Solar (W/m²)",
-                yaxis="y2",
-                hovertemplate="%{y:.0f} W/m²<extra>Solar</extra>",
-            )
-        )
-
-    renew_layout = _layout(
-        uirevision=region,
-        margin=dict(l=45, r=45, t=35, b=40),
-        legend=dict(orientation="h", y=-0.15, font=dict(size=10)),
-        # Axis overrides flow through ``_layout()`` so the shared
-        # gridcolor / linecolor defaults in ``PLOT_LAYOUT`` deep-merge
-        # with per-chart options. Passing these as kwargs to
-        # ``update_layout()`` separately would conflict with the
-        # ``xaxis`` / ``yaxis`` keys already in ``PLOT_LAYOUT``.
-        yaxis=dict(
-            title="Wind (mph)",
-            showgrid=True,
-            gridcolor=tokens.GRID_LINE,
-        ),
-        yaxis2=dict(
-            title="Solar (W/m²)",
-            overlaying="y",
-            side="right",
-            showgrid=False,
-        ),
-        xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
-    )
-    fig.update_layout(
-        **renew_layout,
-        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color=tokens.TEXT_PRIMARY)),
-        showlegend=True,
-    )
-    return fig
-
-
-def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
-    """Demand vs capacity utilization chart for traders."""
-    capacity = REGION_CAPACITY_MW.get(region, 50000)
-
-    if demand_df is None or demand_df.empty:
-        return _empty_figure("No demand data for market view")
-
-    df = demand_df.copy()
-    if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-    last_48h = df.tail(48)
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=last_48h.get("timestamp", list(range(len(last_48h)))),
-            y=last_48h["demand_mw"],
-            mode="lines",
-            line=dict(color=CB_PALETTE["blue"], width=2),
-            fill="tozeroy",
-            fillcolor=tokens.alpha(tokens.CB_PALETTE["blue"], 0.15),
-            name="Demand",
-            hovertemplate="%{y:,.0f} MW<extra>Demand</extra>",
-        )
-    )
-
-    # Capacity line
-    fig.add_hline(
-        y=capacity,
-        line_dash="dot",
-        line_color=tokens.DANGER,
-        annotation_text=f"Capacity: {capacity:,.0f} MW",
-        annotation_position="top left",
-        annotation_font_size=10,
-        annotation_font_color=tokens.DANGER,
-    )
-
-    # Pricing tier thresholds
-    for pct, label, color in [
-        (0.85, "High tier (85%)", tokens.WARNING),
-        (0.70, "Moderate (70%)", tokens.TEXT_SECONDARY),
-    ]:
-        fig.add_hline(
-            y=capacity * pct,
-            line_dash="dot",
-            line_color=color,
-            line_width=1,
-            annotation_text=label,
-            annotation_position="bottom left",
-            annotation_font_size=9,
-            annotation_font_color=color,
-        )
-
-    trader_layout = _layout(
-        uirevision=region,
-        margin=dict(l=50, r=10, t=35, b=30),
-        xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
-        yaxis=dict(
-            showgrid=True,
-            gridcolor=tokens.GRID_LINE,
-            tickformat=",.0f",
-            title="MW",
-        ),
-    )
-    fig.update_layout(
-        **trader_layout,
-        title=dict(text="Demand vs Capacity", font=dict(size=13, color=tokens.TEXT_PRIMARY)),
-        showlegend=False,
-    )
-    return fig
-
-
-def _spotlight_model_accuracy(region: str) -> go.Figure:
-    """Model accuracy bar chart for data scientists."""
-    # Pull from backtest cache if available
-    models = ["prophet", "arima", "xgboost"]
-    mape_values = []
-
-    for model_name in models:
-        mape = None
-        for horizon in [168, 24, 720]:
-            bt_key = (region, horizon, model_name, DEFAULT_BACKTEST_EXOG_MODE)
-            if bt_key in _BACKTEST_CACHE:
-                result_dict, _, _ = _BACKTEST_CACHE[bt_key]
-                if isinstance(result_dict, dict) and "mape" in result_dict:
-                    mape = result_dict["mape"]
-                    break
-        mape_values.append(mape if mape is not None else 4.5 + len(model_name) * 0.3)
-
-    colors = [
-        CB_PALETTE.get("vermillion", tokens.CB_PALETTE["vermillion"]),
-        CB_PALETTE.get("blue", tokens.CB_PALETTE["blue"]),
-        CB_PALETTE.get("green", tokens.CB_PALETTE["green"]),
-    ]
-
-    fig = go.Figure()
-    fig.add_trace(
-        go.Bar(
-            x=[m.title() for m in models],
-            y=mape_values,
-            marker_color=colors,
-            text=[f"{v:.1f}%" for v in mape_values],
-            textposition="outside",
-            textfont=dict(color=tokens.TEXT_PRIMARY, size=11),
-            hovertemplate="%{x}: %{y:.2f}% MAPE<extra></extra>",
-        )
-    )
-
-    model_layout = _layout(
-        uirevision=region,
-        margin=dict(l=40, r=10, t=35, b=30),
-        yaxis=dict(
-            title="MAPE (%)",
-            showgrid=True,
-            gridcolor=tokens.GRID_LINE,
-        ),
-        xaxis=dict(showgrid=False),
-    )
-    fig.update_layout(
-        **model_layout,
-        title=dict(text="Model MAPE Comparison", font=dict(size=13, color=tokens.TEXT_PRIMARY)),
-        showlegend=False,
-    )
-    return fig
 
 
 def _build_overview_digest(
@@ -2636,14 +2446,9 @@ __all__ = [
     "_build_scenarios_panel",
     "_driver_sparkline",
     # 7c — Overview briefing surface
-    "_build_overview_sparkline",
     "_build_overview_briefing",
     "_build_weather_context",
     "_build_overview_data_health",
-    "_build_overview_spotlight",
-    "_spotlight_renewables",
-    "_spotlight_trader",
-    "_spotlight_model_accuracy",
     "_build_overview_digest",
     "_build_overview_news",
     "_build_persona_kpis",

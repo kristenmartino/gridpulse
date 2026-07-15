@@ -70,21 +70,60 @@ DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 # "Solar" from elsewhere). The map normalizes to the canonical lowercase
 # names used by the UI's color palette + the generation-tab grouping.
 
+# EIA-930 fueltype code -> canonical fuel name.
+#
+# The FULL vocabulary, verified against the live facet endpoint
+# (api.eia.gov/v2/electricity/rto/fuel-type-data/facet/fueltype) on 2026-07-15.
+# It used to cover seven codes; everything else fell through to .str.lower() and
+# then to a single shared fallback color, so BAT and SNB — which FPL returns
+# every hour — painted two adjacent bands in the SAME grey. Any two unmapped
+# fuels collided by construction.
+#
+# Note SNB/WNB are not new fuels: they are solar/wind WITH integrated battery
+# storage. They carry their base fuel's color and are separated by fill pattern
+# (components/tokens.py FUEL_PATTERNS), because that is what they are.
 _EIA_FUEL_MAP: dict[str, str] = {
-    "SUN": "solar",
-    "WND": "wind",
-    "NG": "gas",
-    "NUC": "nuclear",
+    # generation
     "COL": "coal",
+    "NG": "gas",
+    "OIL": "oil",
+    "NUC": "nuclear",
+    "GEO": "geothermal",
     "WAT": "hydro",
+    "WND": "wind",
+    "SUN": "solar",
+    # generation, with integrated storage
+    "WNB": "wind_storage",
+    "SNB": "solar_storage",
+    # storage (NOT generation — these go NEGATIVE while charging)
+    "BAT": "battery",
+    "PS": "pumped_storage",
+    "OES": "other_storage",
+    "UES": "unknown_storage",
+    # unclassified
     "OTH": "other",
-    "Solar": "solar",
-    "Wind": "wind",
-    "Natural Gas": "gas",
-    "Nuclear": "nuclear",
+    "UNK": "unknown",
+    # display-name forms, seen on some endpoints
     "Coal": "coal",
+    "Natural Gas": "gas",
+    "Petroleum": "oil",
+    "Nuclear": "nuclear",
+    "Geothermal": "geothermal",
     "Hydro": "hydro",
+    "Wind": "wind",
+    "Solar": "solar",
+    "Battery": "battery",
+    "Battery storage": "battery",
+    "Pumped Storage": "pumped_storage",
+    "Pumped storage": "pumped_storage",
+    "Solar with integrated battery storage": "solar_storage",
+    "Solar Battery": "solar_storage",
+    "Wind with integrated battery storage": "wind_storage",
+    "Other energy storage": "other_storage",
+    "Unknown Energy": "unknown_storage",
+    "Unknown energy storage": "unknown_storage",
     "Other": "other",
+    "Unknown": "unknown",
 }
 
 
@@ -112,9 +151,19 @@ ACCENT_SOFT = tokens.ACCENT_SOFT
 #
 # Slot 0 is the ACCENT: the first/primary series of any chart is the demand
 # series, so the brand color and the data color are one system rather than
-# two. It takes the slot Wong's sky_blue used to hold — sky_blue stays the
-# XGBoost identity color, which is only ever drawn in its own single-trace
-# figure, so the accent and sky_blue never share a chart.
+# two. It takes the slot Wong's sky_blue used to hold, and sky_blue is not in
+# this list at all — it stays the XGBoost identity color, set explicitly by
+# LINE_STYLES. This comment used to conclude from that "so the accent and
+# sky_blue never share a chart". They do: the Forecast tab draws the actual
+# line beneath the selected model's curve, and at CIEDE2000 9.2 it is the dash,
+# not the color, that separates them there. See accessibility.LINE_STYLES.
+#
+# Within this list the worst pair is slot 1 (orange) vs slot 5 (purple) at
+# 11.1, just under the 12.0 floor — they are four apart, so a figure has to
+# reach six traces before both are drawn. Anything that dense should be setting
+# explicit colors and a second channel rather than leaning on a default
+# sequence. Keep that in mind before appending an eighth slot: Wong's palette
+# is eight colors because eight is where mutual separation runs out.
 _COLORWAY = [
     tokens.ACCENT,  # demand / primary
     CB_PALETTE["orange"],
@@ -698,15 +747,10 @@ COLORS = {
     "eia_forecast": tokens.NEUTRAL_SERIES,
     "temperature": CB_PALETTE["yellow"],
     "confidence": tokens.alpha(CB_PALETTE["vermillion"], 0.15),
-    "gas": tokens.FUEL_COLORS["gas"],
-    "nuclear": tokens.FUEL_COLORS["nuclear"],
-    "coal": tokens.FUEL_COLORS["coal"],
-    "oil": tokens.FUEL_COLORS["oil"],
-    "biomass": tokens.FUEL_COLORS["biomass"],
-    "wind": tokens.FUEL_COLORS["wind"],
-    "solar": tokens.FUEL_COLORS["solar"],
-    "hydro": tokens.FUEL_COLORS["hydro"],
-    "other": tokens.FUEL_COLORS["other"],
+    # Splatted, not re-listed. Hand-listing them is how "biomass" survived here
+    # after EIA-930 turned out not to have such a fuel type, and how any fuel the
+    # palette gains would silently fail to arrive.
+    **tokens.FUEL_COLORS,
 }
 
 # Model-aware confidence-band fill colors — base model color at 12% opacity.

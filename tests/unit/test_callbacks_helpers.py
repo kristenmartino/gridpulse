@@ -449,8 +449,19 @@ class TestAddTrailingActuals:
         # The trace should have at most 24 points
         assert len(fig.data[0].y) == 24
 
-    def test_trace_style(self):
-        from components.callbacks import COLORS, _add_trailing_actuals
+    def test_trace_style_comes_from_the_table(self):
+        """The trace must render the style LINE_STYLES declares — all of it.
+
+        This test used to read COLORS["actual"] for the color and then
+        hand-write "dot" for the dash, one line apart: consulting the source of
+        truth for one property and asserting a rival literal for the next. The
+        dash it pinned was the one the table did NOT declare (solid), so the
+        test held the callsite's override in place — the measured past rendered
+        more provisional than the forecast beside it, and on the ARIMA view
+        (also dot) the two lines' second channel silently collapsed.
+        """
+        from components.accessibility import LINE_STYLES
+        from components.callbacks import _add_trailing_actuals
 
         fig = go.Figure()
         df = pd.DataFrame(
@@ -462,8 +473,10 @@ class TestAddTrailingActuals:
         json_str = df.to_json(date_format="iso")
         _add_trailing_actuals(fig, json_str)
         trace = fig.data[0]
-        assert trace.line.color == COLORS["actual"]
-        assert trace.line.dash == "dot"
+        style = LINE_STYLES["actual"]
+        assert trace.line.color == style["color"]
+        assert trace.line.dash == style["dash"]
+        assert trace.line.width == style["width"]
 
 
 # ===========================================================================
@@ -2249,13 +2262,6 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
         # PLOT_LAYOUT axis tone landed — that confirms the merge worked.
         assert fig.layout.xaxis.gridcolor == tokens.GRID_LINE
 
-    def test_overview_sparkline_builds(self):
-        """``_build_overview_sparkline`` — 24h demand sparkline."""
-        from components.callbacks import _build_overview_sparkline
-
-        fig = _build_overview_sparkline(self._demand_df(periods=48), "FPL")
-        assert fig.layout.xaxis is not None
-
     def test_driver_sparkline_builds(self):
         """``_driver_sparkline`` — the Forecast tab's per-driver mini chart.
 
@@ -2277,24 +2283,6 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
         # on the sparkline); proves the override reached the figure.
         assert fig.layout.xaxis.visible is False
         assert fig.layout.yaxis.visible is False
-
-    def test_spotlight_renewables_builds(self):
-        from components.callbacks import _spotlight_renewables
-
-        fig = _spotlight_renewables(self._weather_df(), "FPL")
-        assert fig.layout.title.text == "Renewable Potential (48h)"
-
-    def test_spotlight_trader_builds(self):
-        from components.callbacks import _spotlight_trader
-
-        fig = _spotlight_trader(self._demand_df(periods=48), "FPL")
-        assert fig.layout.title.text == "Demand vs Capacity"
-
-    def test_spotlight_model_accuracy_builds(self):
-        from components.callbacks import _spotlight_model_accuracy
-
-        fig = _spotlight_model_accuracy("FPL")
-        assert fig.layout.title.text == "Model MAPE Comparison"
 
 
 # ────────────────────────────────────────────────────────────────────────

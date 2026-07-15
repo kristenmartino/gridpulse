@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gridpulse-dashboard",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["app.py"],
+      "port": 8080
+    },
+    {
+      "name": "gridpulse-8051",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["app.py"],
+      "port": 8051,
+      "env": { "PORT": "8051" }
+    }
+  ]
+}

@@ -11,7 +11,6 @@ Covers:
 """
 
 import pandas as pd
-import plotly.graph_objects as go
 from dash import html
 
 
@@ -166,91 +165,6 @@ class TestOverviewBriefing:
         assert "summary" in result.summary.lower() or len(result.summary) > 0
         assert len(result.observations) == 3
         assert result.source == "claude"
-
-
-class TestOverviewSpotlight:
-    """Test persona-specific spotlight chart selection."""
-
-    def test_sparkline_with_none(self):
-        from components.callbacks import _build_overview_sparkline
-
-        fig = _build_overview_sparkline(None, "FPL")
-        assert isinstance(fig, go.Figure)
-
-    def test_sparkline_with_valid_data(self):
-        from components.callbacks import _build_overview_sparkline
-
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
-                "demand_mw": range(20000, 20048),
-            }
-        )
-        fig = _build_overview_sparkline(df, "FPL")
-        assert isinstance(fig, go.Figure)
-        assert len(fig.data) > 0
-        assert len(fig.data[0].y) == 24
-
-    def test_spotlight_renewables(self):
-        from components.callbacks import _spotlight_renewables
-
-        wdf = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
-                "wind_speed_80m": [12.0] * 48,
-                "shortwave_radiation": [300.0] * 48,
-            }
-        )
-        fig = _spotlight_renewables(wdf, "FPL")
-        assert isinstance(fig, go.Figure)
-        assert len(fig.data) >= 1
-
-    def test_spotlight_trader(self):
-        from components.callbacks import _spotlight_trader
-
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
-                "demand_mw": range(20000, 20048),
-            }
-        )
-        fig = _spotlight_trader(df, "FPL")
-        assert isinstance(fig, go.Figure)
-        assert len(fig.data) > 0
-
-    def test_spotlight_model_accuracy(self):
-        from components.callbacks import _spotlight_model_accuracy
-
-        fig = _spotlight_model_accuracy("FPL")
-        assert isinstance(fig, go.Figure)
-        assert len(fig.data) > 0
-        # Should have 3 bars (prophet, arima, xgboost)
-        assert len(fig.data[0].x) == 3
-
-    def test_spotlight_dispatch_grid_ops(self):
-        from components.callbacks import _build_overview_spotlight
-
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
-                "demand_mw": range(20000, 20048),
-            }
-        )
-        fig = _build_overview_spotlight("grid_ops", "FPL", df, None)
-        assert isinstance(fig, go.Figure)
-
-    def test_spotlight_dispatch_renewables(self):
-        from components.callbacks import _build_overview_spotlight
-
-        wdf = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
-                "wind_speed_80m": [12.0] * 48,
-                "shortwave_radiation": [300.0] * 48,
-            }
-        )
-        fig = _build_overview_spotlight("renewables", "FPL", None, wdf)
-        assert isinstance(fig, go.Figure)
 
 
 class TestOverviewDataHealth:

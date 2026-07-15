@@ -564,6 +564,45 @@ isolation: one worktree per session. And when the tree is shared, the destructiv
 command you're sure is safe is exactly the one to route around — `git stash` is
 almost always available where `reset --hard` is what you reached for.*
 
+### 18. "Tell me about a time your tests were the problem."
+
+**The charts only the test suite could see.**
+
+Situation: A design audit scored our color the weakest dimension — "the palette
+is downloaded, not designed" — so I unified it behind one token module and added
+a CI gate that fails on any raw hex outside it. Then I built a check that stops
+asking "does the code match my spec?" and instead builds the app's real figures
+and measures every pair of traces inside each one. It immediately found defects
+the spec-based checks had passed for months: a bar chart painting Prophet in the
+Ensemble's color, the demand series drawn in a retired blue on one tab and the
+brand teal on another — the exact "resolves to two hexes" defect the audit named
+and I thought I'd already fixed.
+
+Action: I fixed them, added those figures to my check, and went to confirm in the
+browser. Switched the persona — the chart didn't change. It turned out a redesign
+months earlier ("cut 8 cards") had replaced four per-persona charts with one hero
+chart for everyone, and left the four builders behind. Nothing in the app called
+them. The only code that still called them was their own tests, reached through a
+re-export whose comment said, out loud, `# noqa: F401 — re-export (tests/...)`.
+The tests weren't validating the code; they were the reason it still had callers.
+So the defects I'd just fixed were real, in charts no user could reach — and I'd
+wired them into my check, which then reported coverage it didn't have.
+
+Result: Deleted the four builders, their tests, and the re-exports (−270 lines,
+app pixel-identical). Replaced them in the check with the driver strip, which
+does render. That surfaced one more: its traces were unnamed, so the check
+skipped them silently — a lone unnamed trace has no pair to be measured against
+and no name to be checked, i.e. unverifiable by construction. Naming them (the
+legend was already off, so it paints nothing) made the one live weather surface
+checkable for the first time.
+
+**Lesson to convey**: *"The tests pass" and "the code works" are independent
+claims, and a test can hold the wrong one up. Coverage counts what you ran, not
+what a user can reach — so the question to ask a green suite is not "what does
+this prove?" but "what would still be green if I deleted the feature?" Here the
+answer was: all of it. The fastest way to find that out was to stop reading code
+and go click the thing.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

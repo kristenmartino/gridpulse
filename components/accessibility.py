@@ -28,12 +28,22 @@ from components.tokens import FUEL_COLORS as FUEL_COLORS
 # independent second channel. Both are load-bearing — do not drop either.
 #
 # "actual" is the demand series and carries the brand ACCENT rather than a
-# Wong slot: demand is the product's subject, not one model among peers. It is
-# verified to clear every series it actually shares a figure with (Wong's
-# sky_blue is only ever drawn in single-trace residual figures, so the two
-# never meet). ``scripts/verify_palette.py`` re-proves this; if you add a
-# figure that draws "actual" alongside "xgboost", that check will fail —
-# which is the point.
+# Wong slot: demand is the product's subject, not one model among peers.
+#
+# The cost of that choice, stated plainly: the accent is a teal, and Wong's
+# nearest slot is sky_blue, which is XGBoost. The two measure CIEDE2000 9.2
+# under the worst CVD type, and they DO share a figure — the Forecast tab draws
+# the actual line under the selected model's curve, XGBoost included. This
+# comment used to claim they never meet, and the check that "re-proved" it
+# consulted a hand-written rival list with sky_blue left off, so the one pair
+# that collides was the one pair excluded. Both are gone;
+# tests/unit/test_rendered_figures.py builds the real figures and measures
+# every pair in them, which is where the 9.2 came from.
+#
+# 9.2 is below the 12.0 floor, so color is NOT doing this job alone — the dash
+# is. solid vs dashdot is what separates demand from XGBoost, which is exactly
+# the WCAG 1.4.1 case the double-encoding exists for. Drop either channel and
+# the pair fails. That is the whole reason both are load-bearing here.
 LINE_STYLES = {
     "actual": {"color": ACCENT, "dash": "solid", "width": 2},
     "prophet": {"color": CB_PALETTE["orange"], "dash": "dash", "width": 1.5},

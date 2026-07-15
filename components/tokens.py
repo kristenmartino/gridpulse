@@ -168,44 +168,112 @@ CB_PALETTE = {
 
 NEUTRAL_SERIES = "#7f7f7f"  # EIA reference forecast — deliberately gray
 
-# ── Fuel mix — hand-tuned for the 9-band stacked area ────────────────
+# ── Fuel mix — colour says the SOURCE, pattern says STORAGE ──────────
 #
-# NOT generated from the anchor, and not a categorical scheme: nine categories
-# exceed what any categorical palette keeps distinguishable under CVD. Built on
-# LUMINANCE separation between bands that physically touch in FUEL_STACK_ORDER,
-# with hue carrying semantics as a secondary channel.
+# Keyed to the full EIA-930 vocabulary (_callbacks_shared._EIA_FUEL_MAP), not to
+# a list of fuels I enumerated. The previous nine covered eight real codes and
+# invented "biomass", which EIA-930 does not have; BAT and SNB — which FPL
+# returns every hour — fell through to ONE shared fallback and painted two
+# adjacent bands in the same grey.
+#
+# COLOUR CANNOT CARRY THIS, and that is measured, not assumed: nine generation
+# fuels need 36 mutually-separable pairs, and a search for a dark brown "oil"
+# that clears the other eight returns ZERO candidates. Wong — the reference
+# CVD-safe categorical set — tops out at EIGHT colours. Nine is over the limit.
+#
+# So there are two channels, and the pattern carries the FAMILY:
+#
+#   COLOUR  = the energy source, and it only has to work WITHIN a family.
+#   PATTERN = which family. Fossil is hatched (the panel is titled "sorted by
+#             emissions intensity", so the hatch says the thing the sort says).
+#             SNB/WNB/PS are not new sources — they are solar/wind/hydro WITH
+#             storage, so they carry their BASE fuel's colour and a different
+#             hatch. Pure storage shares one colour and separates by pattern
+#             alone: no third storage colour clears the generation set.
+#
+# tests/unit/test_rendered_figures.py measures every pair in the figure the app
+# actually builds, against the fuels the DATA actually yields — not against a
+# list of fuels or adjacencies enumerated here. The nine that preceded this
+# guaranteed only ADJACENT pairs, which is the wrong bar: a reader matches a
+# legend swatch to a band anywhere in the stack.
 #
 # Nuclear is wine rather than the conventional purple: violet collapses onto the
-# blue axis that hydro and the accent occupy under deuteranopia. Violet is
-# available against the current accent but with less margin — a choice for
-# headroom, not a necessity.
+# blue axis hydro and the accent occupy under deuteranopia. Violet is available
+# against the current accent but with less margin — a choice for headroom.
 #
 # Separation is verified. Ownership is NOT — known gap, listed in verify_palette.
 
 FUEL_COLORS = {
+    # generation — solid
     "coal": "#5e646a",
     "oil": "#4f3f31",
     "gas": "#eb883b",
-    "biomass": "#8a713c",
-    "other": "#898d91",
     "nuclear": "#b13554",
+    "geothermal": "#af7c5a",
     "hydro": "#2672b7",
     "wind": "#b7cca4",
     "solar": "#f9e03f",
+    "other": "#898d91",
+    # generation WITH integrated storage — base fuel's colour, hatched
+    "wind_storage": "#b7cca4",
+    "solar_storage": "#f9e03f",
+    "pumped_storage": "#2672b7",
+    # storage — one family, separated by pattern (they rarely co-occur, and no
+    # third colour exists that clears the generation set)
+    "battery": "#7a94b7",
+    "other_storage": "#7a94b7",
+    "unknown_storage": "#7a94b7",
+    # unclassified
+    "unknown": "#898d91",
 }
 
-# Bottom -> top (fossil -> firm -> renewable). The luminance separation is
-# guaranteed for ADJACENT pairs in THIS order; reordering invalidates it.
+# Plotly fillpattern shape per fuel — the FAMILY channel. "" is solid.
+FUEL_PATTERNS = {
+    # fossil — hatched: the panel sorts by emissions intensity, and this says so
+    "coal": "\\",
+    "oil": "\\",
+    "gas": "\\",
+    # clean generation — solid
+    "nuclear": "",
+    "geothermal": "",
+    "hydro": "",
+    "wind": "",
+    "solar": "",
+    "other": "",
+    # generation WITH integrated storage — base fuel's colour, cross-hatched
+    "wind_storage": "/",
+    "solar_storage": "/",
+    "pumped_storage": "/",
+    # pure storage — one colour, separated by pattern alone
+    "battery": "x",
+    "other_storage": "+",
+    "unknown_storage": "|",
+    # unclassified
+    "unknown": ".",
+}
+
+# Bottom -> top: fossil -> firm -> renewable -> storage -> unclassified.
+# The luminance separation is guaranteed for ADJACENT pairs in THIS order;
+# reordering invalidates it. Storage sits above generation because it is not
+# generation — and BAT/PS go NEGATIVE while charging, which a stacked area
+# cannot represent honestly. See the known gap in verify_palette.
 FUEL_STACK_ORDER: tuple[str, ...] = (
     "coal",
     "oil",
     "gas",
-    "biomass",
+    "geothermal",
     "other",
     "nuclear",
     "hydro",
+    "pumped_storage",
     "wind",
+    "wind_storage",
     "solar",
+    "solar_storage",
+    "battery",
+    "other_storage",
+    "unknown_storage",
+    "unknown",
 )
 
 # ── Persona identity ─────────────────────────────────────────────────
@@ -229,6 +297,17 @@ PERSONA_COLORS = {
 # solar deliberately does NOT reuse FUEL_COLORS["solar"], which is
 # indistinguishable from the temperature yellow it would sit beside. It is
 # generated on the semantic rule at a hue solved to clear both neighbours.
+#
+# "Clear" there means the 10.0 adjacency floor, and that is the right floor for
+# the one surface that draws these: _build_drivers_panel, three separately
+# labeled sparkline cells, compared but never overplotted.
+#
+# It would NOT be enough for a figure that overplots two of them, and the
+# margin to do that is not available: wind (sage green) and solar (orange) are
+# 33.1 apart to normal vision but 11.5 under protanopia. Green-vs-orange IS the
+# red-green axis, so no choice of hues rescues that pair for a dichromat — only
+# lightness or form. If you ever draw two drivers as lines in one plot, they
+# need a second channel (dash), the way LINE_STYLES carries the models.
 
 WEATHER_DRIVERS = {
     "temperature": CB_PALETTE["yellow"],

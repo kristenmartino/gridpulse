@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-14
+# Status — updated 2026-07-15
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -19,7 +19,38 @@ follow-up commit.
 
 ## Active focus + open question
 
-**2026-07-14 (latest) — Composition pass shipped: the 51-BA grid LEAVES the
+**2026-07-15 (latest) — Color pass: the palette is unified and gated, and the
+checks now measure the app instead of my notes about it.** Answers the re-audit's
+weakest dimension (Color 5.5, "the palette is downloaded, not designed"). One
+token module mirrors `:root`; a CI gate fails on any raw hex outside it; the
+severity triads and the two "actual demand" hexes are collapsed to one each.
+
+*The part worth remembering is why the first pass wasn't enough.* Every check I
+wrote asked "does the code match my spec?", and every surviving defect lived
+where the SPEC was wrong — so all of them passed. `tests/unit/test_rendered_figures.py`
+asks nothing of my spec: it builds the real figures, reads the traces back, and
+measures every pair within each one. On first run it found seven defects where I
+knew of four, including two I had introduced that week.
+
+**Deleted: the four per-persona Overview charts** (`_spotlight_*`,
+`_build_overview_sparkline`, `_build_overview_spotlight`). The linear
+mission-control stack (`d6fd161`, "cut 8 cards") replaced them with the hero
+chart and left the builders behind; nothing in the app called them, and their
+only remaining callers were their own tests, via re-exports whose comments said
+so (`# noqa: F401 — re-export (tests/...)`). Three real color defects were found
+inside them first — in charts no reader could reach. −270 lines, app
+pixel-identical. The brief's own instruction for the identical shape one layer
+down ("wire or delete `accessibility.FUEL_COLORS`") decided it.
+
+**Open question:** the accent (teal) sits in Wong's sky_blue neighborhood, so
+demand vs XGBoost measures CIEDE2000 9.2 — under the 12.0 floor, carried by the
+dash rather than the color. That is a legitimate WCAG 1.4.1 answer and it is
+documented at `accessibility.LINE_STYLES`, but it is the one place the palette
+leans on the second channel by necessity rather than by belt-and-braces. Wong's
+`blue` would clear it at 28.6; it is currently the `grid_ops` persona color.
+Deferred with the rest of "personas off Wong".
+
+**2026-07-14 — Composition pass shipped: the 51-BA grid LEAVES the
 column, and the layout finally takes a side.** Answers the re-audit's third
 next-3 item (Composition 6.5, 25% rubric weight): asymmetry was Overview-only,
 so every other tab was the same centered 75rem stack — "the rhythm is correct
