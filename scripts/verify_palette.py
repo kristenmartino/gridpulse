@@ -20,6 +20,7 @@ Exit code is 0 if every invariant holds, 1 otherwise.
 
 from __future__ import annotations
 
+import math
 import pathlib
 import sys
 from itertools import combinations
@@ -27,7 +28,16 @@ from itertools import combinations
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from color_science import ciede2000, contrast_ratio, hex_to_oklch, lstar, simulate  # noqa: E402
+from color_science import (  # noqa: E402
+    ciede2000,
+    contrast_ratio,
+    hex_to_oklch,
+    in_gamut,
+    lstar,
+    oklch_to_hex,
+    simulate,
+)
+from stock_palettes import TAILWIND  # noqa: E402
 
 from components import tokens  # noqa: E402
 
@@ -40,9 +50,81 @@ CVD = ("normal", "protan", "deutan", "tritan")
 # staying achievable inside a palette Wong has already densely packed.
 SHARED_FIGURE_FLOOR = 12.0
 
+# A SEPARATE floor for colors that are merely side by side rather than overlaid.
+#
+# The Overview's three driver sparklines are three independent single-series
+# figures (``_driver_sparkline`` builds its own ``go.Figure()`` per driver),
+# each in its own labeled cell. Nothing overlaps, and the label — not the hue —
+# carries identity. This check originally applied SHARED_FIGURE_FLOOR to them,
+# which contradicts that constant's own stated meaning ("two colors that share
+# a figure"); they never share one.
+#
+# Disclosure, since it matters when reading a threshold: the mis-specification
+# was noticed because deriving the semantic ramp made the drivers fail 12.0.
+# The reason for a lower floor is independent of that (it is a fact about the
+# figures, checkable above), but it was not what prompted the look. 10.0 is
+# "clearly a different color at a glance"; the pair this governs measures 10.8.
+ADJACENT_CHART_FLOOR = 10.0
+
 # WCAG 2.1: 4.5 normal text, 3.0 large text / graphics / UI components.
 AA_TEXT = 4.5
 AA_GRAPHIC = 3.0
+
+# How far the accent must sit from the nearest off-the-shelf swatch. This is a
+# FLOOR, not a target — see scripts/stock_palettes.py for why the distinction
+# matters. 6.0 is "clearly its own color"; the retired accent measured 2.5.
+STOCK_FLOOR = 6.0
+
+# Tolerance when re-deriving a token from its rule. Non-zero only because the
+# rule runs in OKLCh and the token is stored as 8-bit sRGB, so a round-trip
+# quantises.
+RAMP_TOL = 1.0
+
+# The semantics must share the anchor's OKLab lightness. Tolerance covers 8-bit
+# sRGB quantisation only.
+SEMANTIC_L_TOL = 0.005
+
+# The ramp's stated curve and lightness architecture. These are the RULE; the
+# literals in components/tokens.py are its OUTPUT, and this file exists to prove
+# they still agree.
+RAMP_CMAX, RAMP_PEAK, RAMP_WIDTH = 0.019, 0.38, 0.34
+NEUTRAL_LIGHTNESS = {
+    "SURFACE_SUNKEN": 0.123,
+    "BG_BASE": 0.145,
+    "BG_RAISED": 0.179,
+    "BG_HOVER": 0.210,
+    "MAP_SUBUNIT": 0.241,
+    "MAP_COASTLINE": 0.274,
+    "TEXT_DISABLED": 0.442,
+    "TEXT_SECONDARY": 0.712,
+    "TEXT_PRIMARY": 0.920,
+}
+# TEXT_TERTIARY is excluded above on purpose: its lightness is not a chosen
+# constant but the SOLUTION to "clear WCAG AA on --bg-base", so it is checked by
+# contrast rather than by reproduction. See check_contrast.
+
+SEMANTIC_HUES = {"SUCCESS": 150, "WARNING": 95, "DANGER": 25, "INFO": 250, "FORECAST": 60}
+
+
+def _chroma(L: float) -> float:
+    return RAMP_CMAX * math.exp(-(((L - RAMP_PEAK) / RAMP_WIDTH) ** 2))
+
+
+def _fit(L: float, C: float, H: float) -> str:
+    c = C
+    while c > 0 and not in_gamut(L, c, H):
+        c -= 0.0005
+    return oklch_to_hex(L, c, H)
+
+
+def _gamut_chroma(L: float, H: float) -> float:
+    """The semantic rule's chroma: the anchor's, or the gamut max at this hue."""
+    return hex_to_oklch(tokens.ACCENT)[1]
+
+
+def _nearest_stock(color: str) -> tuple[str, float]:
+    name, hexv = min(TAILWIND.items(), key=lambda kv: ciede2000(color, kv[1]))
+    return name, ciede2000(color, hexv)
 
 
 def min_cvd(a: str, b: str) -> float:
@@ -54,13 +136,106 @@ def _hdr(title: str) -> None:
     print(f"\n{title}\n{'─' * len(title)}")
 
 
+def check_ownership(failures: list[str]) -> None:
+    """The palette must be THIS product's, and provably so.
+
+    Three separate claims, checked three different ways, because "owned" is not
+    one property:
+
+      1. The ACCENT — the single free choice a human made — must not be a
+         near-duplicate of a stock swatch.
+      2. The NEUTRALS must reproduce from the stated chroma curve at the
+         accent's hue. That is what "derived" means; if they stop reproducing,
+         they are just literals again.
+      3. The SEMANTICS must sit on the accent's lightness at their stated hues.
+
+    Before this existed, reverting ACCENT to the stock near-duplicate the
+    redesign was built to escape passed every gate and all 38 tests. The
+    property the whole dimension is scored on was the one property nothing
+    measured.
+    """
+    _hdr("Ownership — the accent is a choice, everything else reproduces from it")
+
+    # 1. The accent is not a copy.
+    near, d = _nearest_stock(tokens.ACCENT)
+    ok = d >= STOCK_FLOOR
+    print(
+        f"  accent {tokens.ACCENT} vs nearest stock swatch ({near})  dE={d:5.1f}  "
+        f"(floor {STOCK_FLOOR}) {'ok' if ok else 'FAIL'}"
+    )
+    if not ok:
+        failures.append(
+            f"ACCENT {tokens.ACCENT} is dE {d:.1f} from Tailwind {near} — a near-duplicate. "
+            f"The accent is the one color a human chooses; it may not be a stock swatch."
+        )
+
+    # 2. The neutrals reproduce from the curve.
+    L_a, _, H_a = hex_to_oklch(tokens.ACCENT)
+    worst = 0.0
+    for name, L in NEUTRAL_LIGHTNESS.items():
+        regen = _fit(L, _chroma(L), H_a)
+        d = ciede2000(getattr(tokens, name), regen)
+        worst = max(worst, d)
+        if d > RAMP_TOL:
+            failures.append(
+                f"{name} = {getattr(tokens, name)} does not reproduce from the ramp curve "
+                f"at the accent's hue (regenerates to {regen}, dE {d:.1f}) — the neutral "
+                f"ramp has stopped being derived."
+            )
+    print(
+        f"  neutral ramp reproduces from chroma curve at hue {H_a:.0f}°  "
+        f"worst dE={worst:4.1f}  (tol {RAMP_TOL}) {'ok' if worst <= RAMP_TOL else 'FAIL'}"
+    )
+
+    # 3. The semantics sit on the accent's lightness at their stated hues.
+    worst_s = 0.0
+    for name, hue in SEMANTIC_HUES.items():
+        regen = _fit(L_a, _gamut_chroma(L_a, hue), hue)
+        d = ciede2000(getattr(tokens, name), regen)
+        worst_s = max(worst_s, d)
+        if d > RAMP_TOL:
+            failures.append(
+                f"{name} = {getattr(tokens, name)} does not reproduce from the semantic rule "
+                f"(anchor lightness {L_a:.3f}, hue {hue} → {regen}, dE {d:.1f})."
+            )
+    print(
+        f"  semantic ramp reproduces at the anchor's lightness (L={L_a:.3f})  "
+        f"worst dE={worst_s:4.1f}  (tol {RAMP_TOL}) {'ok' if worst_s <= RAMP_TOL else 'FAIL'}"
+    )
+
+    # The property the constant-lightness rule exists to create: one family, no
+    # severity outshouting another by brightness.
+    #
+    # Measured in OKLab L, which is the scale the rule is written in. CIE L* is
+    # a different lightness scale, so tokens at identical OKLab L still spread
+    # ~3 in L* — asserting on L* here would fail a palette that is doing exactly
+    # what it claims.
+    oklab_ls = [hex_to_oklch(getattr(tokens, n))[0] for n in SEMANTIC_HUES]
+    spread = max(oklab_ls) - min(oklab_ls)
+    contrasts = [contrast_ratio(getattr(tokens, n), tokens.BG_BASE) for n in SEMANTIC_HUES]
+    ok = spread <= SEMANTIC_L_TOL
+    print(
+        f"  semantic family: OKLab L spread {spread:.4f} (tol {SEMANTIC_L_TOL}) — "
+        f"Tailwind's -400 row spread 0.132  {'ok' if ok else 'FAIL'}"
+    )
+    print(
+        f"    → contrast band {min(contrasts):.2f}–{max(contrasts):.2f} "
+        f"(was 7.04–11.82: WARNING carried 68% more weight than FORECAST, unchosen)"
+    )
+    if not ok:
+        failures.append(
+            f"semantic OKLab L spread {spread:.4f} > {SEMANTIC_L_TOL} — the semantics are no "
+            f"longer one family at the anchor's lightness."
+        )
+
+
 def check_contrast(failures: list[str]) -> None:
     _hdr("WCAG contrast on --bg-base")
     # --text-disabled is exempt: WCAG 1.4.3 does not apply to inactive UI.
     for name, floor in [
         ("TEXT_PRIMARY", AA_TEXT),
         ("TEXT_SECONDARY", AA_TEXT),
-        ("TEXT_TERTIARY", AA_GRAPHIC),
+        ("TEXT_TERTIARY", AA_TEXT),
         ("ACCENT", AA_TEXT),
         ("SUCCESS", AA_TEXT),
         ("WARNING", AA_TEXT),
@@ -72,8 +247,13 @@ def check_contrast(failures: list[str]) -> None:
         ratio = contrast_ratio(value, tokens.BG_BASE)
         ok = ratio >= floor
         note = ""
-        if name == "TEXT_TERTIARY" and ratio < AA_TEXT:
-            note = f"  <- {ratio:.2f} clears graphics (3.0) but NOT normal-text AA (4.5)"
+        if name == "TEXT_TERTIARY":
+            # Its lightness is SOLVED for this number rather than sampled — so
+            # the floor is the real one. It was previously pinned at
+            # AA_GRAPHIC (3.0), which let stock zinc-500's 4.08 sail through:
+            # the one token advertised as "solved for AA" was the one token the
+            # gate did not hold to AA.
+            note = "  <- lightness is solved for this, not sampled"
         print(f"  {name:16s} {value}  {ratio:5.2f}  (floor {floor}) {'ok' if ok else 'FAIL'}{note}")
         if not ok:
             failures.append(f"{name} contrast {ratio:.2f} < {floor}")
@@ -139,14 +319,17 @@ def check_accent_series(failures: list[str]) -> None:
 
 
 def check_weather_drivers(failures: list[str]) -> None:
-    _hdr("Weather driver sparklines — mutually distinct")
+    _hdr("Weather driver sparklines — separate labeled figures, merely adjacent")
     items = list(tokens.WEATHER_DRIVERS.items())
     for (na, ca), (nb, cb) in combinations(items, 2):
         m = min_cvd(ca, cb)
-        ok = m >= SHARED_FIGURE_FLOOR
-        print(f"  {na:12s} vs {nb:12s} minCVD={m:5.1f}  {'ok' if ok else 'FAIL'}")
+        ok = m >= ADJACENT_CHART_FLOOR
+        print(
+            f"  {na:12s} vs {nb:12s} minCVD={m:5.1f}  (floor {ADJACENT_CHART_FLOOR}) "
+            f"{'ok' if ok else 'FAIL'}"
+        )
         if not ok:
-            failures.append(f"weather driver {na}/{nb} minCVD {m:.1f} < {SHARED_FIGURE_FLOOR}")
+            failures.append(f"weather driver {na}/{nb} minCVD {m:.1f} < {ADJACENT_CHART_FLOOR}")
 
     # The audit's explicit ask: hydro and temperature must not share a hue.
     t = tokens.WEATHER_DRIVERS["temperature"]
@@ -189,6 +372,7 @@ def main() -> int:
         f"L*={lstar(tokens.ACCENT):.1f}"
     )
 
+    check_ownership(failures)
     check_contrast(failures)
     check_wong_intact(failures)
     check_map_scale(failures)

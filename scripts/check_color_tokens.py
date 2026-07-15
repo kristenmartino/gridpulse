@@ -74,11 +74,15 @@ PY_ROOTS = [
     "observability.py",
 ]
 
-# scripts/color_science.py is the verifier itself; its literals are test
-# vectors and matrix coefficients, not design colors.
+# The verifier's own machinery. These hold colors the product never paints:
+# color_science.py has matrix coefficients and test vectors; stock_palettes.py
+# holds Tailwind precisely so the gate can measure the accent's distance FROM
+# it. Excluding the ruler from the rule it enforces is not an escape hatch —
+# nothing here reaches a browser, and each file says so in its docstring.
 PY_EXCLUDE = {
     TOKEN_MODULE,
     REPO / "scripts" / "color_science.py",
+    REPO / "scripts" / "stock_palettes.py",
     REPO / "scripts" / "check_color_tokens.py",
     REPO / "scripts" / "verify_palette.py",
 }
@@ -169,6 +173,48 @@ def check_python(path: pathlib.Path) -> list[tuple[int, str]]:
     return hits
 
 
+def check_js(path: pathlib.Path) -> list[tuple[int, str]]:
+    """Color literals in a JS asset.
+
+    Dash serves everything in assets/ automatically, so a color written here
+    paints exactly like one written in CSS. This gate did not walk JS at first,
+    and an independent audit found the cost: assets/accessibility.js built the
+    skip-to-main-content link with `background:#35c6ff;color:#0a0a0b` — both
+    values RETIRED — so a retired brand color went on painting a live keyboard
+    control while every check reported the palette clean. The module docstring
+    claiming "hex appears in exactly one file" was true only of the trees it
+    walked, which is the same rot in a different file type.
+
+    JS has no custom properties of its own; the fix is to reference the CSS
+    ones (`background:var(--accent-base)`), which an inline style resolves.
+    """
+    hits: list[tuple[int, str]] = []
+    in_block = False
+    for i, raw in enumerate(path.read_text().splitlines(), 1):
+        line = raw
+        if in_block:
+            if "*/" in line:
+                line = line.split("*/", 1)[1]
+                in_block = False
+            else:
+                continue
+        while "/*" in line:
+            head, rest = line.split("/*", 1)
+            if "*/" in rest:
+                line = head + rest.split("*/", 1)[1]
+            else:
+                line, in_block = head, True
+                break
+        # Strip a trailing line comment, but not a "//" inside a string/URL.
+        if "//" in line and "://" not in line:
+            line = line.split("//", 1)[0]
+        for m in HEX_RE.finditer(line):
+            hits.append((i, m.group(0)))
+        for m in RGBA_RE.finditer(line):
+            hits.append((i, m.group(0) + "...)"))
+    return hits
+
+
 def check_css(path: pathlib.Path) -> list[tuple[int, str]]:
     """Color literals outside a custom-property declaration."""
     hits: list[tuple[int, str]] = []
@@ -212,6 +258,13 @@ def main() -> int:
     if css.exists():
         for lineno, lit in check_css(css):
             failures.append(f"{css.relative_to(REPO)}:{lineno}: {lit}")
+
+    # Every JS asset Dash serves. Not a fixed list: a new assets/*.js would
+    # otherwise arrive outside the gate, which is how the last blind spot
+    # happened.
+    for js in sorted((REPO / "assets").glob("*.js")):
+        for lineno, lit in check_js(js):
+            failures.append(f"{js.relative_to(REPO)}:{lineno}: {lit}")
 
     if failures:
         print("Color literals found outside the token module:\n", file=sys.stderr)

@@ -61,19 +61,24 @@
     --accent-dim: rgba(51, 211, 213, 0.15);
     --accent-ring: rgba(51, 211, 213, 0.32);
 
-    /* Forecast — v2 orange (new; was implicit in --warning previously) */
-    --forecast: #f97316;
-    --forecast-dim: rgba(249, 115, 22, 0.12);
+    /* Forecast + semantic — DERIVED from the accent, not taken from a
+     * palette. Every one sits at the ACCENT'S lightness, at the accent's
+     * chroma or the gamut max at its hue; hue is the only free variable.
+     * So no severity outshouts another by brightness and nothing
+     * out-saturates the brand. These replace emerald-400 / amber-400 /
+     * red-400 / blue-400 / orange-500, which were byte-identical stock
+     * Tailwind. See components/tokens.py for the rule and the rationale. */
+    --forecast: #f5a763;
+    --forecast-dim: rgba(245, 167, 99, 0.12);
 
-    /* Semantic — tonal updates to match v2 palette */
-    --success: #34d399;
-    --success-dim: rgba(52, 211, 153, 0.12);
-    --warning: #fbbf24;
-    --warning-dim: rgba(251, 191, 36, 0.12);
-    --danger: #f87171;
-    --danger-dim: rgba(248, 113, 113, 0.12);
-    --info: #60a5fa;
-    --info-dim: rgba(96, 165, 250, 0.12);
+    --success: #7cd18f;
+    --success-dim: rgba(124, 209, 143, 0.12);
+    --warning: #d4ba53;
+    --warning-dim: rgba(212, 186, 83, 0.12);
+    --danger: #ff9b93;
+    --danger-dim: rgba(255, 155, 147, 0.12);
+    --info: #83c0ff;
+    --info-dim: rgba(131, 192, 255, 0.12);
 
     /* Typography */
     --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -1139,11 +1144,34 @@ body.briefing .dashboard-header::after {
     padding-top: var(--space-1);
 }
 
-/* Weather strip — compact horizontal row populated by callback */
+/* Weather strip — the Risk tab's "Current Conditions" readout.
+ *
+ * These flex + gap declarations were inert until the top-design pass: the
+ * callback handed this slot a single dbc.Row of col-md-3 cards, so the strip
+ * had exactly one child to lay out and the row — a flex item — shrink-to-fit,
+ * making col-md-3 resolve to 25% of ~469px instead of the 1152px column. Two
+ * grids, each cancelling the other, 117px cards. The builder now returns the
+ * cards themselves (see _build_weather_context), so this rule finally does the
+ * job it always claimed to.
+ *
+ * Compact is the intent: Risk's subject is the stress score and the alert list,
+ * and a full-column band of four small numbers would give context the weight of
+ * the hero. */
 .gp-weather-strip {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-3);
+}
+
+/* A floor, so the four cards read as a set rather than four different widths,
+ * and — the reason for this exact value — so the longest label ("CLOUD COVER",
+ * ~82px at --text-xs uppercase) clears the 2×--space-4 padding without
+ * wrapping. At the old 109px card it wrapped to two lines and left that one
+ * card 17px taller than its siblings. Fixing the cause beats equalizing the
+ * symptom. */
+.gp-weather-strip .gp-kpi-card {
+    flex: 0 0 auto;
+    min-width: 8rem;
 }
 
 /* ── Models tab (R4c) ──────────────────────────────────────────────── */
@@ -1431,10 +1459,23 @@ body.briefing .dashboard-header::after {
     align-items: flex-end;
 }
 
+/* Eyebrow stacked over its control.
+ *
+ * align-items: flex-start is load-bearing, not cosmetic. This is a COLUMN flex,
+ * so align-items governs the horizontal axis, and the default `stretch` pulled
+ * every child to the container's full width. `.gp-segmented` declares
+ * `display: inline-flex` to hug its options — but a flex item's display is
+ * blockified to `flex`, and then stretched — so on any .gp-control that sits
+ * directly in the page column (Models' "Compare Models", US Grid's View/Sort)
+ * the pill's border and background spanned all 1152px around ~300px of options.
+ * The Forecast tab hid the bug: its .gp-controls-row parent shrink-to-fits each
+ * .gp-control first, so there was nothing left to stretch to. Same CSS, and it
+ * only looked right depending on the grandparent. */
 .gp-control {
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+    align-items: flex-start;
 }
 
 .gp-control-eyebrow {
@@ -2889,16 +2930,11 @@ body.briefing .dashboard-header::after {
 
 /* V1.γ: Cards | Map view toggle row + map container.
  *
- * The View control is a .gp-control, which is a COLUMN (eyebrow over control).
- * This rule used to add `align-items: center` + `justify-content: flex-end`,
- * written as if it were a row — on a column those mean "centre the children
- * horizontally" and "push them to the bottom", so the VIEW eyebrow sat
- * centred over its pill while every other eyebrow on the page was left-aligned
- * with the control beneath it. The class stays as a hook; the row geometry now
- * comes from .gp-controls-row on the parent, like the Forecast tab's. */
-.gp-us-grid-view-control {
-    align-items: flex-start;
-}
+ * (No .gp-us-grid-view-control rule any more. It briefly carried
+ * `align-items: flex-start` to un-centre the VIEW eyebrow, but that is now the
+ * .gp-control default for every control on every tab — the mis-centring and
+ * Models' full-width segmented pill were the same bug seen from two angles.
+ * The class survives in the markup as a hook with nothing to say.) */
 
 .gp-region-map {
     background: var(--bg-raised);

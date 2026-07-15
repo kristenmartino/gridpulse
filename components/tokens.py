@@ -140,14 +140,42 @@ TEXT_DISABLED = "#485656"  # --text-disabled (WCAG 1.4.3 exempts inactive UI)
 ACCENT = "#33d3d5"  # --accent-base
 ACCENT_SOFT = "#7ce5e6"  # --accent-hover
 
-# ── Forecast + semantic (mirrors --forecast / --success / ...) ────────
+# ── Semantic ramp — DERIVED from the anchor ──────────────────────────
+#
+# THE RULE: every semantic sits at the ANCHOR'S LIGHTNESS, at the anchor's
+# chroma or the sRGB gamut maximum at that hue — whichever is lower. Hue is the
+# only free variable, chosen by convention and then spread so the three warm
+# semantics do not muddy together.
+#
+# What that buys, and why it is a design position rather than a formula:
+#
+#   * Constant lightness means no severity outshouts another by brightness.
+#     The Tailwind row these replace spanned L 0.705-0.837 and contrast
+#     7.04-11.82 — WARNING carried 68% more perceived weight than FORECAST for
+#     no reason anyone chose. Urgency is carried by hue and by the icon/label
+#     pairing every callsite already has, never by shouting. That is the right
+#     posture for a control room: an operator should not be strobed at.
+#   * Capping chroma at the ANCHOR'S means no semantic can out-saturate the
+#     brand. These read muted next to Tailwind's punchy -400 row. That is the
+#     point — "calmer, more premium", per the product brief.
+#
+# These replace SUCCESS=emerald-400, WARNING=amber-400, DANGER=red-400,
+# INFO=blue-400, FORECAST=orange-500 — five tokens that were byte-identical
+# stock Tailwind (CIEDE2000 0.00), which an independent re-audit named as the
+# specific reason this palette read as "downloaded, not designed". Their hue
+# offsets from the accent were -33.0, -111.8, -174.0, +58.4, -148.6: not
+# harmonic, not spaced, no rule — because they were never chosen, only taken.
+#
+# They are DERIVED, not picked: change ACCENT's lightness and every one of them
+# moves. scripts/verify_palette.py recomputes them from this rule and fails if
+# a literal below has drifted off it.
 
-FORECAST = "#f97316"  # --forecast: forward-looking series
+FORECAST = "#f5a763"  # --forecast: forward-looking series (hue 60)
 
-SUCCESS = "#34d399"  # --success
-WARNING = "#fbbf24"  # --warning
-DANGER = "#f87171"  # --danger
-INFO = "#60a5fa"  # --info
+SUCCESS = "#7cd18f"  # --success (hue 150)
+WARNING = "#d4ba53"  # --warning (hue 95)
+DANGER = "#ff9b93"  # --danger (hue 25)
+INFO = "#83c0ff"  # --info (hue 250)
 
 # THE severity triad. Two rival triads used to exist alongside this one —
 # (#FF5C7A/#FFB84D/#2BD67B) and an Okabe-Ito ``SEVERITY_COLORS`` — for the
@@ -229,14 +257,26 @@ NEUTRAL_SERIES = "#7f7f7f"  # EIA reference forecast / coal — deliberately gra
 # proves it; ``tests/unit/test_color_tokens.py`` enforces it.
 # Re-verify with a CVD simulator after ANY edit.
 #
-# WHY NUCLEAR IS NOT PURPLE. Purple is the convention (and was the shipped
-# choice) but it is not available here, and that is a measurement, not taste.
-# Under deuteranopia violet collapses onto the same blue axis that hydro and
-# the accent already occupy. Sweeping the whole violet->crimson space — hue
-# 260-375 x L* 40-94 x five chroma steps — yields ZERO violet candidates that
-# clear hydro (adjacent band) AND the accent net-load line drawn across the
-# stack; the first shipped attempt at a violet measured 3.7 against the accent.
-# Only crimson survives, at ~20. Wine it is.
+# WHY NUCLEAR IS WINE AND NOT PURPLE. Purple is the convention. Wine is a
+# CHOICE, made for margin — and this comment previously claimed it was a
+# necessity, which was false.
+#
+# The correction, recorded because it is the exact failure this module exists to
+# prevent: the original sweep found zero violet, and that was true AGAINST THE
+# PHASE-1 ACCENT (#35c6ff), a blue that violet collapses onto under deuteranopia.
+# Phase 2 moved the accent to a teal-cyan and the sweep was never re-run, so the
+# comment went on asserting a dead constraint. Re-run against the accent that
+# actually ships, 61 violet candidates clear every constraint — including
+# Tailwind purple-400, at other 19.5 / hydro 14.6 / accent 14.6.
+#
+# Wine stays because it holds 19.7 at its worst against a floor of 12.0, where
+# the best violet holds 15.1 and the best-separated ones are near-duplicates of
+# stock indigo-400. More headroom on the pair that was the original defect.
+#
+# The lesson is the one this repo keeps re-learning: a measurement is only true
+# against the inputs it was run on. This comment was prose, so nothing re-ran
+# it when the inputs changed. Anything load-bearing belongs in
+# scripts/verify_palette.py, where it re-runs on every commit.
 
 FUEL_COLORS = {
     "coal": "#5e646a",  # L* 42.1 — dark neutral, sooty

@@ -39,7 +39,23 @@ import pytest
 # extend the path rather than duplicating the math in the test tree.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "scripts"))
 
-from color_science import ciede2000, contrast_ratio, lstar, simulate  # noqa: E402
+from color_science import (  # noqa: E402
+    ciede2000,
+    contrast_ratio,
+    hex_to_oklch,
+    lstar,
+    simulate,
+)
+from stock_palettes import TAILWIND  # noqa: E402
+
+# The derivation rules live with the CLI verifier so the script and these
+# tests check ONE definition rather than two that can drift apart.
+from verify_palette import (  # noqa: E402
+    NEUTRAL_LIGHTNESS,
+    SEMANTIC_HUES,
+    _chroma,
+    _fit,
+)
 
 from components import tokens  # noqa: E402
 
@@ -115,6 +131,71 @@ class TestSingleSourceOfTruth:
                     f"custom.css:{i} writes the accent's channels outside a "
                     f"custom-property declaration — use var(--accent-*)"
                 )
+
+
+class TestOwnership:
+    """The palette must be THIS product's, and provably so.
+
+    This class exists because an independent audit reverted ACCENT to the stock
+    Tailwind near-duplicate the whole redesign was built to leave — and every
+    gate and all 38 tests passed green. The dimension is scored on ownership;
+    ownership was the one property nothing measured. Same shape as the defect
+    this file was written to prevent ("nothing in CI failed on a raw hex, which
+    is why it rotted"), one level up.
+
+    The three claims are checked three different ways because "owned" is not one
+    property. The accent is a CHOICE and is defended by not being a copy;
+    everything else is DERIVED and is defended by reproducing from it.
+    """
+
+    def test_accent_is_not_a_stock_swatch(self):
+        """The one color a human picked may not be one someone could download."""
+        near, hexv = min(TAILWIND.items(), key=lambda kv: ciede2000(tokens.ACCENT, kv[1]))
+        d = ciede2000(tokens.ACCENT, hexv)
+        assert d >= 6.0, (
+            f"ACCENT {tokens.ACCENT} is CIEDE2000 {d:.1f} from Tailwind {near} — a "
+            f"near-duplicate. The retired accent measured 2.5 from sky-400 and that is "
+            f"the defect this palette exists to fix."
+        )
+
+    def test_neutrals_reproduce_from_the_stated_curve(self):
+        """ "Derived" has to mean regenerable, or it is just a nice comment."""
+        anchor_l, _, anchor_h = hex_to_oklch(tokens.ACCENT)
+        for name, lightness in NEUTRAL_LIGHTNESS.items():
+            regen = _fit(lightness, _chroma(lightness), anchor_h)
+            d = ciede2000(getattr(tokens, name), regen)
+            assert d <= 1.0, (
+                f"{name} = {getattr(tokens, name)} does not reproduce from the ramp curve "
+                f"at the accent's hue (regenerates to {regen}, dE {d:.1f})"
+            )
+
+    def test_semantics_sit_on_the_anchors_lightness(self):
+        """One family: no severity outshouts another by brightness."""
+        anchor_l, anchor_c, _ = hex_to_oklch(tokens.ACCENT)
+        for name, hue in SEMANTIC_HUES.items():
+            regen = _fit(anchor_l, anchor_c, hue)
+            d = ciede2000(getattr(tokens, name), regen)
+            assert d <= 1.0, (
+                f"{name} = {getattr(tokens, name)} does not reproduce from the semantic "
+                f"rule (anchor lightness {anchor_l:.3f}, hue {hue} -> {regen}, dE {d:.1f})"
+            )
+
+    def test_no_semantic_is_stock_tailwind_verbatim(self):
+        """The specific 5.5-audit finding: all five were dE 0.00 from the download."""
+        for name in SEMANTIC_HUES:
+            value = getattr(tokens, name)
+            near, hexv = min(TAILWIND.items(), key=lambda kv: ciede2000(value, kv[1]))
+            d = ciede2000(value, hexv)
+            assert d > 1.0, f"{name} = {value} is Tailwind {near} verbatim (dE {d:.2f})"
+
+    def test_semantics_are_one_family(self):
+        """Measured in OKLab L — the scale the rule is written in, not CIE L*."""
+        ls = [hex_to_oklch(getattr(tokens, n))[0] for n in SEMANTIC_HUES]
+        spread = max(ls) - min(ls)
+        assert spread <= 0.005, (
+            f"semantic OKLab L spread {spread:.4f} — Tailwind's -400 row spread 0.132, "
+            f"which is what 'no system' looks like"
+        )
 
 
 class TestRenderedTraceColors:
@@ -294,14 +375,21 @@ class TestContrast:
     def test_meets_aa_normal_text_on_base(self, name: str):
         assert contrast_ratio(getattr(tokens, name), tokens.BG_BASE) >= 4.5
 
-    def test_tertiary_meets_at_least_graphics_contrast(self):
-        """--text-tertiary is stock zinc-500 and measures 4.09 on --bg-base.
+    def test_tertiary_meets_normal_text_aa(self):
+        """--text-tertiary renders 11px chart ticks, so it owes normal-text AA.
 
-        That clears WCAG AA for graphics/UI (3.0) but NOT for normal text
-        (4.5) — and it is used for 11px chart tick labels, which are normal
-        text. Pinned at the graphics floor so the known gap cannot silently
-        get worse, and asserted here so the number is visible rather than
-        implied. Closing it properly means rebuilding the neutral ramp.
+        Its lightness is SOLVED for this number, not sampled — see the ramp
+        derivation in components/tokens.py.
+
+        This assertion used to read `>= 3.0` (the graphics floor) with a
+        docstring explaining that stock zinc-500's 4.09 was a known gap. The
+        ramp was rebuilt and the gap closed, but the floor stayed — so the one
+        token advertised as "solved for AA" was the one token nothing held to
+        AA, and reverting it to zinc-500 passed green. An audit found that by
+        doing exactly that.
         """
         ratio = contrast_ratio(tokens.TEXT_TERTIARY, tokens.BG_BASE)
-        assert ratio >= 3.0
+        assert ratio >= 4.5, (
+            f"--text-tertiary is {ratio:.2f}:1 on --bg-base — below WCAG AA for the "
+            f"11px tick labels it renders"
+        )

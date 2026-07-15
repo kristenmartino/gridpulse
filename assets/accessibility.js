@@ -88,7 +88,15 @@ if (document.readyState === 'loading') {
     skip.href = '#main-content';
     skip.textContent = 'Skip to main content';
     skip.className = 'sr-only sr-only-focusable';
-    skip.style.cssText = 'position:absolute;top:-40px;left:0;background:#35c6ff;color:#0a0a0b;' +
+    // Colors go through the :root tokens, never literals. This line used to
+    // read `background:#35c6ff;color:#0a0a0b` — both RETIRED values — and went
+    // on painting the retired accent on a live keyboard control long after the
+    // brand moved, because scripts/check_color_tokens.py walked .py and .css
+    // and no .js at all. It walks JS now. An inline style resolves var()
+    // against the element's inherited custom properties, so this stays on the
+    // token with no extra machinery.
+    skip.style.cssText = 'position:absolute;top:-40px;left:0;' +
+        'background:var(--accent-base);color:var(--bg-base);' +
         'padding:8px 16px;z-index:10000;transition:top 0.2s;';
     skip.addEventListener('focus', function() { skip.style.top = '0'; });
     skip.addEventListener('blur', function() { skip.style.top = '-40px'; });

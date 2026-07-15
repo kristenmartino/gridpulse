@@ -34,6 +34,7 @@ known-first-party = ["data", "models", "simulation", "personas", "components", "
 # would make the implementation harder to check against the paper it comes
 # from, which is the only way anyone can audit it.
 "scripts/color_science.py" = ["N803", "N806", "E741"]
+"scripts/verify_palette.py" = ["N803", "N806"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
