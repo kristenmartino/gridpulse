@@ -71,6 +71,40 @@ Live as of 2026-05-29: policy
 All five alert policies + the uptime check + the budget are live and bound to
 the email channel. The budget also emails the billing-account admins by default.
 
+> ⚠ **`scoring_partial_failure` (#267) is NOT in the table above — it was
+> committed but never applied.** `jobs/scoring_job.py` has been emitting the
+> event into a void. Applying is a manual step outside CI; landing the JSON is
+> not landing the alert. Apply it and add its live id here.
+
+### ⚠ Log-based policies were inert until 2026-07-15 — read this before adding one
+
+Both `conditionMatchedLog` policies filter on **`jsonPayload.event="…"`**. That
+field only exists if the process emits **JSON** to stdout. `configure_logging()`
+(`observability.py`) does that — but it was called **only** by `app.py` (the web
+tier). **`jobs/__main__.py` never called it**, so the jobs fell back to
+structlog's default `ConsoleRenderer` and every job log arrived as
+`textPayload`. `jsonPayload.event` never existed, so
+`scoring_runtime_creep` (#171) and `scoring_partial_failure` (#267) **matched
+nothing and could never fire** — the two alerts built specifically to catch the
+2026-06-01 timeout and the #267 partial failure.
+
+Fixed by calling `configure_logging()` in `jobs/__main__.py::main()`
+(`Dockerfile` already sets `DASH_DEBUG=false`, so the JSON branch engages in
+Cloud Run and local runs stay human-readable). Pinned by
+`tests/unit/test_jobs_json_logging.py`.
+
+**Confirm the pipe is alive before trusting any log-based alert** — this
+returned nothing at all before the fix:
+
+```bash
+gcloud logging read \
+  'resource.type="cloud_run_job" AND jsonPayload.event!=""' \
+  --project=nextera-portfolio --limit=5 --format='value(jsonPayload.event)'
+```
+
+A new log-based policy also **requires** `alertStrategy.notificationRateLimit`
+(both existing ones use `3600s`); without it the policy is rejected.
+
 ## Verification (one manual step)
 
 CLI confirms the policy is enabled, correctly filtered, and channel-bound.
