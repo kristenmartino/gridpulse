@@ -1,7 +1,22 @@
 # GridPulse Brand System Spec
 _Last updated: 2026-04-09_
 
-> **Addendum (2026-05-01) — production palette swap.** The cyan / Grid Blue / Aurora Teal accent palette proposed in §11 of this spec was superseded by R1 of the v2 shell redesign ([PR #36](https://github.com/kristenmartino/gridpulse/pull/36), Apr 2026). The shipping product uses **`#3b82f6` (blue)** as the primary accent and **`#f97316` (orange)** as the forecast/divergence accent. Treat the cyan/teal references in §§11–14 below as historical strategy notes; the v2 token swap is the source of truth in `assets/custom.css` (`--accent-base`, `--accent-hover`, `--accent-dim`, `--forecast`). The "red is reserved for risk states" guidance still holds.
+> **Addendum (2026-07-14) — the palette now has one source of truth, and it is code.**
+> Do not read any hex out of this document. Every color value lives in
+> [`components/tokens.py`](../components/tokens.py), mirrored by the `:root` block in
+> `assets/custom.css`; `scripts/check_color_tokens.py` fails CI on a color literal anywhere else,
+> and `tests/unit/test_color_tokens.py` asserts the two mirrors agree. This addendum has already
+> been wrong twice — it was written to record a swap to `#3b82f6`, which was later replaced by
+> `#35c6ff` without the doc changing, so it spent months naming a color the product had stopped
+> painting. A hex in prose has no gate; that is the whole reason the token module exists.
+>
+> As of the 2026-07-14 color pass the accent is a spectral teal-cyan at OKLCh(0.79, 0.125, 196°),
+> and the neutral ramp is *derived* from that hue at low chroma rather than being stock Tailwind
+> zinc. Run `python scripts/verify_palette.py` to see the current values with their measured
+> contrast and CVD separation.
+>
+> Treat the cyan/teal references in §§11–14 below as historical strategy notes. The
+> "red is reserved for risk states" guidance still holds.
 
 ## 1) Executive recommendation
 

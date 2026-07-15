@@ -206,7 +206,16 @@
         // renders, so a mutation would permanently strip the request).
         var out = {};
         for (var k in layout) if (Object.prototype.hasOwnProperty.call(layout, k)) out[k] = layout[k];
-        out.transition = { duration: 0, easing: layout.transition.easing };
+        // Carry the rest of the transition through and override only the
+        // duration — rebuilding it by hand silently drops sibling keys
+        // (`ordering` is load-bearing; see CHART_TRANSITION).
+        var t = { duration: 0 };
+        for (var tk in layout.transition) {
+            if (Object.prototype.hasOwnProperty.call(layout.transition, tk) && tk !== "duration") {
+                t[tk] = layout.transition[tk];
+            }
+        }
+        out.transition = t;
         return out;
     }
 

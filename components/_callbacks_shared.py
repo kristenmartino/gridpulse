@@ -191,6 +191,25 @@ PLOT_CONFIG: dict[str, object] = {
 # is meant to track wants noticeably more time than chrome that just needs to
 # feel responsive.
 #
+# ``ordering`` is load-bearing, not a nicety. Plotly splits a transition into an
+# AXIS half and a TRACE half, and only animates one of them:
+#
+#   layout first (Plotly's DEFAULT)  axes animate over the full duration; the
+#                                    traces are redrawn with duration 0 *after*
+#                                    it, via setTimeout(doPlot, duration).
+#   traces first                     traces animate over the full duration; the
+#                                    axes are applied at the end, instantly.
+#
+# Every BA has a different load, so a region switch always moves the y range
+# (e.g. 0–30,689 → 0–46,694) and Plotly always takes its axis-edit branch. On
+# the default that means it PANS AND SCALES the plot area with the OLD curve
+# still inside it — the data visibly slides sideways — and then snaps the new
+# curve in at the end. The morph is handed duration 0 and never plays at all.
+# Under "traces first" the axes re-scale at once and the curve travels to its
+# new shape, which is the motion this was built for. The residual cost is the
+# tick labels stepping rather than gliding — far quieter than dragging the whole
+# dataset across the plot.
+#
 # NOTE: this only declares *intent*. Two conditions that would make the motion
 # wrong can only be evaluated on the client, and are enforced there in
 # assets/motion.js (see ``patchPlotlyReact``):
@@ -201,7 +220,11 @@ PLOT_CONFIG: dict[str, object] = {
 #      morphs the vertices that pair and *snaps* the rest, tearing the curve.
 #      Python builds figures statelessly and cannot know the previous point
 #      count; the client can.
-CHART_TRANSITION: dict[str, object] = {"duration": 500, "easing": "cubic-in-out"}
+CHART_TRANSITION: dict[str, object] = {
+    "duration": 500,
+    "easing": "cubic-in-out",
+    "ordering": "traces first",
+}
 
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,

@@ -19,7 +19,51 @@ follow-up commit.
 
 ## Active focus + open question
 
-**2026-07-14 (later) — Design re-audit: 6.6/10, and the honest correction.**
+**2026-07-14 (latest) — Color pass shipped: the palette has ONE source of truth,
+and CI now enforces it.** Answers the re-audit's weakest dimension (Color 5.5,
+"the palette is downloaded, not designed") in two commits on
+`feat/gridpulse-top-design`.
+
+*Phase 1 — unify + gate* (`270a50f`). Every color value now lives in
+[`components/tokens.py`](components/tokens.py); `scripts/check_color_tokens.py`
+fails CI on a literal anywhere else. The gate parses Python with `ast`/`tokenize`,
+so it catches the `rgba()` spellings a hex grep misses and ignores the 49 GitHub
+issue refs (`(#196)`) a naive pattern flags. Three severity triads collapsed to
+one; "actual demand" resolved from two hexes to the accent everywhere (also
+`_COLORWAY[0]`, so brand color and data color are one system);
+`scripts/verify_palette.py` + `tests/unit/test_color_tokens.py` assert RENDERED
+trace colors and MEASURED CVD separation, replacing key-existence tests that
+passed against a dict nothing rendered.
+
+*Phase 2 — earn the accent* (`e71959c`). Accent → OKLCh(0.79, 0.125, 196°), a
+spectral teal-cyan, 18.6 from Tailwind sky-400 (the old accent was **2.5** from
+it — a near-duplicate). The neutral ramp is now GENERATED from that hue at low
+chroma on a stated curve, replacing stock zinc (which was ΔE **0.00** from the
+download). Lightness deliberately unchanged, so a visual regression stays
+attributable.
+
+**What measuring found that reading had not.** The fuel-mix defect was not the
+green/orange the audit described: nuclear and hydro were *adjacent* bands at
+CIEDE2000 **1.0** under deuteranopia (ΔL\* 2.1 — grayscale could not recover it
+either). `scripts/generate_brand_assets.py` painted the brand in stock blue-500
+from a tuple commented `--accent-base`, so regenerating would have silently
+reverted the hand-edited favicon and repainted `og-image.png`. `personas/config.py`
+held matplotlib's tab10 defaults — a *fifth* color system. And `--text-tertiary`
+was stock zinc-500 at **4.09:1**, below WCAG AA for the 11px chart ticks it
+renders; its lightness is now solved for 4.55 rather than sampled.
+
+**Nuclear is wine, not purple** — a measurement, not taste. Sweeping hue 260–375
+× L\* 40–94 yields zero violet that clears both hydro and the accent, because
+violet collapses onto the blue axis under deutan.
+
+**Open question:** the re-audit's other dimensions (Typography 6.8, Composition
+6.5, Details 7.0) are untouched by this pass. Color's own 9–10 gate asked for a
+palette "invented for THIS project"; that is now true by derivation, but a
+re-score is needed to confirm the dimension actually moved.
+
+---
+
+**2026-07-14 (earlier) — Design re-audit: 6.6/10, and the honest correction.**
 An independent adversarial re-score of the top-design pass (5 fresh graders,
 same rubric as the 5.2 baseline, told to credit only what the code computes)
 puts the shell at **6.6/10 — not the ~8 the implementing agent self-estimated.**

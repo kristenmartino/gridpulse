@@ -34,7 +34,25 @@ class TestLayoutTransitionOptIn:
 
     def test_present_when_opted_in(self):
         layout = _layout(uirevision="DUK", transition=True)
-        assert layout["transition"] == {"duration": 500, "easing": "cubic-in-out"}
+        assert layout["transition"] == {
+            "duration": 500,
+            "easing": "cubic-in-out",
+            "ordering": "traces first",
+        }
+
+    def test_ordering_is_traces_first(self):
+        """Plotly animates EITHER the axes or the traces, never both. On its
+        default ("layout first") it animates the axes and redraws the traces
+        with duration 0 afterwards — so on a region switch, which always moves
+        the y range because every BA has a different load, it pans the plot area
+        with the OLD curve inside it and snaps the new one in at the end. The
+        morph gets duration 0 and never plays.
+
+        This is the difference between the feature working and the feature being
+        an elaborate no-op with a slide artifact, and nothing else in the suite
+        would notice: layout.transition is still present and plotly still
+        emits plotly_transitioning either way."""
+        assert _layout(transition=True)["transition"]["ordering"] == "traces first"
 
     def test_easing_starts_from_rest(self):
         """Not an ease-OUT. `exp-out` (the nearest analogue to the stylesheet's

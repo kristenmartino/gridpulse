@@ -390,6 +390,55 @@ it changed the fix, and it turned a stakeholder's domain instinct into the
 actual causal story: the model was converting three weeks of regional weather
 into a permanent climate trend.*
 
+### 15. "Tell me about a time the spec was wrong."
+
+**The palette that was 'downloaded, not designed' (commits `270a50f`, `e71959c`).**
+
+Situation: A design re-audit scored GridPulse's color 5.5/10 and handed me a
+detailed brief — eight blues shipping at once, three severity triads for one
+concept, two fuel palettes where the colorblind-safe one had *zero callsites*.
+Its headline ask: move the accent to a "genuinely owned" hue, measured by
+distance from Tailwind's defaults.
+
+Action: I built the measurement first — OKLCh, CIE L\*, WCAG contrast, and
+CIEDE2000 under simulated protanopia/deuteranopia/tritanopia — before changing
+anything. Three things fell out that the brief had not:
+
+1. **The metric was wrong.** Tailwind ships 242 swatches that tile color space,
+   so nearly any pleasant color sits within ΔE ~6 of one. Optimising for pure
+   distance drove every candidate to neon `#00fdfd` — the least "owned" color
+   there is. The real signal isn't distance; it's *derivation*: one anchor hue
+   generating the neutrals through a stated curve. I said so, and changed the
+   target.
+2. **The named defect was the wrong defect.** The brief described the fuel chart
+   as a green/orange deutan trap. Measured, the actual failure was nuclear vs
+   hydro — *adjacent* bands at CIEDE2000 **1.0** under deuteranopia, ΔL\* 2.1, so
+   grayscale couldn't recover it either. Invisible, and not what I'd been told to
+   look for.
+3. **Nuclear can't be purple.** Sweeping hue 260–375 × L\* 40–94 returned *zero*
+   violet clearing both hydro and the accent: violet collapses onto the blue axis
+   under deutan, where hydro and the accent already live. Convention lost to
+   physics.
+
+The measurement also caught a bug in *my own* work mid-flight (I'd tuned nuclear
+against the Phase 2 accent while Phase 1 still shipped the old one), and my own
+CI gate had a hole — it skipped every triple-quoted string as a "docstring",
+which let an HTML template carrying the old accent through. A generalised test I'd
+written found it; reading the code had not.
+
+Result: Every color now lives in one module, with CI failing the build on a
+literal anywhere else — because the repo *already had* this convention, written
+in comments, and that's exactly why it rotted. Found three defects nobody had
+filed: the brand-asset generator painted the marks in a retired blue (so
+regenerating would have silently reverted the favicon), a fifth color system
+hiding in the personas config, and `--text-tertiary` failing WCAG AA at 4.09:1
+on the 11px chart ticks it renders.
+
+**Lesson to convey**: *A brief written from reading is a hypothesis. Build the
+instrument before you touch the thing — it tells you which parts of the brief are
+right, and it's the only thing that catches you when you're the one who's wrong.
+And a convention that lives in a comment isn't a convention; it's a wish.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
