@@ -9,6 +9,8 @@ import re
 import dash_bootstrap_components as dbc
 from dash import html
 
+from components import tokens
+
 
 def _metric_help_id(label: str, used: set[str]) -> str:
     """Stable, unique DOM id for a metric-help glyph + its ``dbc.Tooltip`` target.
@@ -55,9 +57,7 @@ def metric_label_with_help(
         ],
         className="gp-metric-label",
     )
-    tooltip = dbc.Tooltip(
-        help_text, target=help_id, placement="top", className="gp-tooltip"
-    )
+    tooltip = dbc.Tooltip(help_text, target=help_id, placement="top", className="gp-tooltip")
     return label_node, tooltip
 
 
@@ -210,7 +210,7 @@ def build_news_feed(articles: list[dict]) -> html.Div:
         return html.Div(
             html.P(
                 "No news available",
-                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
+                style={"color": tokens.TEXT_SECONDARY, "textAlign": "center", "padding": "20px"},
             ),
             className="news-ribbon",
         )

@@ -64,12 +64,13 @@ import plotly.graph_objects as go
 import structlog
 from dash import Input, Output, State, dcc, html, no_update
 
+from components import tokens
 from components._callbacks_shared import (
-    ACCENT,
     _BACKTEST_CACHE,
     _EIA_FUEL_MAP,
     _GENERATION_CACHE,
     _PREDICTION_CACHE,
+    ACCENT,
     DEFAULT_BACKTEST_EXOG_MODE,
     _empirical_interval_from_backtests,
     _empty_figure,
@@ -461,7 +462,7 @@ def _build_overview_hero_chart(
             name="Actual",
             line=dict(color=ACCENT, width=1.75),
             fill="tozeroy",
-            fillcolor="rgba(59, 130, 246, 0.08)",
+            fillcolor=tokens.alpha(tokens.ACCENT, 0.08),
             hovertemplate="<b>%{x|%b %d, %H:%M}</b><br>%{y:,.0f} MW<extra></extra>",
         )
     )
@@ -526,7 +527,7 @@ def _build_overview_hero_chart(
                     x=list(forecast_ts) + list(forecast_ts[::-1]),
                     y=upper_y + lower_y[::-1],
                     fill="toself",
-                    fillcolor="rgba(249, 115, 22, 0.12)",
+                    fillcolor=tokens.alpha(tokens.FORECAST, 0.12),
                     line=dict(width=0),
                     hoverinfo="skip",
                     showlegend=False,
@@ -546,7 +547,7 @@ def _build_overview_hero_chart(
                     y=bridge_y,
                     mode="lines",
                     name="Forecast (24h)",
-                    line=dict(color="#f97316", width=1.75, dash="dash"),
+                    line=dict(color=tokens.FORECAST, width=1.75, dash="dash"),
                     hovertemplate=(
                         "<b>%{x|%b %d, %H:%M}</b><br>%{y:,.0f} MW · forecast<extra></extra>"
                     ),
@@ -573,7 +574,7 @@ def _build_overview_hero_chart(
                     xanchor="right",
                     showarrow=False,
                     text=note,
-                    font=dict(size=10, color="#FFB84D" if is_stale else "#71717a"),
+                    font=dict(size=10, color=tokens.WARNING if is_stale else tokens.TEXT_TERTIARY),
                 )
     except Exception as exc:  # pragma: no cover — fall back to actual-only chart
         log.warning("overview_hero_forecast_failed", region=region, error=str(exc))
@@ -581,18 +582,24 @@ def _build_overview_hero_chart(
     fig.update_layout(
         **_layout(
             uirevision=region,
+            # Morph the demand curve between regions instead of teleporting.
+            # Both states are real: the trailing 168h window keeps its shape, so
+            # d3 pairs every vertex and the curve genuinely travels. A region
+            # with a shorter history changes the point count, which the client
+            # gate in assets/motion.js detects and hard-cuts instead.
+            transition=True,
             showlegend=False,
             xaxis=dict(
                 showgrid=False,
-                linecolor="rgba(255,255,255,0.04)",
-                tickfont=dict(color="#71717a", size=10),
+                linecolor=tokens.GRID_LINE,
+                tickfont=dict(color=tokens.TEXT_TERTIARY, size=10),
             ),
             yaxis=dict(
                 showgrid=True,
-                gridcolor="rgba(255,255,255,0.04)",
+                gridcolor=tokens.GRID_LINE,
                 zeroline=False,
                 tickformat=",.0f",
-                tickfont=dict(color="#71717a", size=10),
+                tickfont=dict(color=tokens.TEXT_TERTIARY, size=10),
                 title=None,
             ),
         ),
@@ -962,24 +969,24 @@ def _build_drivers_panel(weather_json: str | None) -> list:
             "label": "Temperature",
             "column": "temperature_2m",
             "unit": "°F",
-            "color": "#3b82f6",
-            "fillcolor": "rgba(59, 130, 246, 0.10)",
+            "color": tokens.WEATHER_DRIVERS["temperature"],
+            "fillcolor": tokens.alpha(tokens.WEATHER_DRIVERS["temperature"], 0.10),
             "fmt": lambda v: f"{v:.0f}",
         },
         {
             "label": "Wind",
             "column": "wind_speed_80m",
             "unit": "mph",
-            "color": "#34d399",
-            "fillcolor": "rgba(52, 211, 153, 0.10)",
+            "color": tokens.SUCCESS,
+            "fillcolor": tokens.alpha(tokens.SUCCESS, 0.10),
             "fmt": lambda v: f"{v:.1f}",
         },
         {
             "label": "Solar",
             "column": "shortwave_radiation",
             "unit": "W/m²",
-            "color": "#f97316",
-            "fillcolor": "rgba(249, 115, 22, 0.10)",
+            "color": tokens.FORECAST,
+            "fillcolor": tokens.alpha(tokens.FORECAST, 0.10),
             "fmt": lambda v: f"{v:.0f}",
         },
     ]
@@ -1023,7 +1030,7 @@ def _build_drivers_panel(weather_json: str | None) -> list:
                     dcc.Graph(
                         figure=_driver_sparkline(horizon, col, d["color"], d["fillcolor"]),
                         config={"displayModeBar": False, "responsive": True},
-                        style={"height": "60px"},
+                        style={"height": "var(--sparkline-h)"},
                     ),
                 ],
                 className="gp-driver-cell",
@@ -1052,28 +1059,22 @@ def _driver_cell_empty(label: str) -> html.Div:
 
 # Fuel ordering: heaviest emissions at the bottom of the stack, zero-carbon
 # on top. Within each bucket: dispatchable before intermittent.
-_FUEL_STACK_ORDER: tuple[str, ...] = (
-    "coal",
-    "oil",
-    "gas",
-    "biomass",
-    "other",
-    "nuclear",
-    "hydro",
-    "wind",
-    "solar",
-)
+# Stack order is owned by components.tokens: the fuel palette's luminance
+# separation is only guaranteed for bands ADJACENT in this order, so the order
+# and the colors have to travel together.
+_FUEL_STACK_ORDER: tuple[str, ...] = tokens.FUEL_STACK_ORDER
 
+# Label + trace color + 85% area fill, derived from the ONE fuel palette.
+# Every color here used to be an independent literal, which is how nuclear and
+# hydro — bands that physically touch — ended up at deutan CIEDE2000 1.0, and
+# how wind landed 6.5 from the accent net-load line drawn over the stack.
 _FUEL_DISPLAY: dict[str, dict[str, str]] = {
-    "coal": {"label": "Coal", "color": "#71717a", "fill": "rgba(113, 113, 122, 0.85)"},
-    "oil": {"label": "Oil", "color": "#52525b", "fill": "rgba(82, 82, 91, 0.85)"},
-    "gas": {"label": "Gas", "color": "#f97316", "fill": "rgba(249, 115, 22, 0.85)"},
-    "biomass": {"label": "Biomass", "color": "#a16207", "fill": "rgba(161, 98, 7, 0.85)"},
-    "other": {"label": "Other", "color": "#a1a1aa", "fill": "rgba(161, 161, 170, 0.85)"},
-    "nuclear": {"label": "Nuclear", "color": "#a855f7", "fill": "rgba(168, 85, 247, 0.85)"},
-    "hydro": {"label": "Hydro", "color": "#3b82f6", "fill": "rgba(59, 130, 246, 0.85)"},
-    "wind": {"label": "Wind", "color": "#34d399", "fill": "rgba(52, 211, 153, 0.85)"},
-    "solar": {"label": "Solar", "color": "#fbbf24", "fill": "rgba(251, 191, 36, 0.85)"},
+    fuel: {
+        "label": fuel.title(),
+        "color": color,
+        "fill": tokens.alpha(color, 0.85),
+    }
+    for fuel, color in tokens.FUEL_COLORS.items()
 }
 
 
@@ -1207,8 +1208,8 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
             str(fuel),
             {
                 "label": str(fuel).title(),
-                "color": "#a1a1aa",
-                "fill": "rgba(161,161,170,0.7)",
+                "color": tokens.TEXT_SECONDARY,
+                "fill": tokens.alpha(tokens.TEXT_SECONDARY, 0.7),
             },
         )
         fig.add_trace(
@@ -1231,15 +1232,15 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
             showlegend=True,
             xaxis=dict(
                 showgrid=False,
-                linecolor="rgba(255,255,255,0.04)",
-                tickfont=dict(color="#71717a", size=10),
+                linecolor=tokens.GRID_LINE,
+                tickfont=dict(color=tokens.TEXT_TERTIARY, size=10),
             ),
             yaxis=dict(
                 showgrid=True,
-                gridcolor="rgba(255,255,255,0.04)",
+                gridcolor=tokens.GRID_LINE,
                 zeroline=False,
                 tickformat=",.0f",
-                tickfont=dict(color="#71717a", size=10),
+                tickfont=dict(color=tokens.TEXT_TERTIARY, size=10),
                 title=None,
             ),
             margin=dict(l=48, r=16, t=16, b=64),
@@ -1252,7 +1253,7 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
             dcc.Graph(
                 figure=fig,
                 config={"displayModeBar": False, "responsive": True},
-                style={"height": "320px"},
+                style={"height": "var(--chart-h-panel)"},
             ),
         ],
         className="gp-generation-stack",
@@ -1585,7 +1586,7 @@ def _build_scenarios_panel(
             y=scenario_y,
             mode="lines",
             name="Scenario",
-            line=dict(color="#f97316", width=1.75, dash="dash"),
+            line=dict(color=tokens.FORECAST, width=1.75, dash="dash"),
             hovertemplate="<b>Scenario</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
         )
     )
@@ -1594,15 +1595,15 @@ def _build_scenarios_panel(
             uirevision=f"scn-{region}",
             xaxis=dict(
                 showgrid=False,
-                linecolor="rgba(255,255,255,0.04)",
-                tickfont=dict(color="#71717a", size=10),
+                linecolor=tokens.GRID_LINE,
+                tickfont=dict(color=tokens.TEXT_TERTIARY, size=10),
             ),
             yaxis=dict(
                 showgrid=True,
-                gridcolor="rgba(255,255,255,0.04)",
+                gridcolor=tokens.GRID_LINE,
                 zeroline=False,
                 tickformat=",.0f",
-                tickfont=dict(color="#71717a", size=10),
+                tickfont=dict(color=tokens.TEXT_TERTIARY, size=10),
                 title=None,
             ),
             margin=dict(l=48, r=16, t=16, b=36),
@@ -1661,7 +1662,7 @@ def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go
             mode="lines",
             line=dict(color=CB_PALETTE["blue"], width=2),
             fill="tozeroy",
-            fillcolor="rgba(0,114,178,0.15)",
+            fillcolor=tokens.alpha(tokens.CB_PALETTE["blue"], 0.15),
             name="Demand",
             hovertemplate="%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
         )
@@ -1676,7 +1677,7 @@ def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go
         ),
         yaxis=dict(
             showgrid=True,
-            gridcolor="rgba(255,255,255,0.05)",
+            gridcolor=tokens.GRID_LINE,
             tickformat=",.0f",
             title="MW",
         ),
@@ -1700,7 +1701,7 @@ def _build_overview_briefing(
         log.error("overview_briefing_failed", error=str(exc))
         return html.Div(
             "Briefing unavailable",
-            style={"color": "#A8B3C7", "fontStyle": "italic"},
+            style={"color": tokens.TEXT_SECONDARY, "fontStyle": "italic"},
         )
 
     persona = get_persona(persona_id)
@@ -1709,7 +1710,7 @@ def _build_overview_briefing(
         html.P(
             result.summary,
             style={
-                "color": "#DDE6F2",
+                "color": tokens.TEXT_PRIMARY,
                 "fontSize": "0.9rem",
                 "lineHeight": "1.6",
                 "marginBottom": "12px",
@@ -1724,7 +1725,7 @@ def _build_overview_briefing(
                 html.Li(
                     obs,
                     style={
-                        "color": "#A8B3C7",
+                        "color": tokens.TEXT_SECONDARY,
                         "fontSize": "0.82rem",
                         "marginBottom": "4px",
                         "lineHeight": "1.5",
@@ -1744,7 +1745,7 @@ def _build_overview_briefing(
             source_label,
             style={
                 "fontSize": "0.65rem",
-                "color": "#A8B3C7",
+                "color": tokens.TEXT_SECONDARY,
                 "textTransform": "uppercase",
                 "letterSpacing": "0.5px",
             },
@@ -1781,7 +1782,7 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
 
     if temp is not None:
         t = float(temp)
-        color = "#FF5C7A" if t >= 95 else ("#FFB84D" if t >= 85 else "#2BD67B")
+        color = tokens.DANGER if t >= 95 else (tokens.WARNING if t >= 85 else tokens.SUCCESS)
         cards.append(
             dbc.Col(
                 html.Div(
@@ -1802,7 +1803,7 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
 
     if wind is not None:
         w = float(wind)
-        color = "#FF5C7A" if w >= 40 else ("#FFB84D" if w >= 25 else "#2BD67B")
+        color = tokens.DANGER if w >= 40 else (tokens.WARNING if w >= 25 else tokens.SUCCESS)
         cards.append(
             dbc.Col(
                 html.Div(
@@ -1823,7 +1824,7 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
 
     if humidity is not None:
         h = float(humidity)
-        color = "#FFB84D" if h >= 80 else "#2BD67B"
+        color = tokens.WARNING if h >= 80 else tokens.SUCCESS
         cards.append(
             dbc.Col(
                 html.Div(
@@ -1844,7 +1845,7 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
 
     if cloud is not None:
         c = float(cloud)
-        color = "#A8B3C7"
+        color = tokens.TEXT_SECONDARY
         cards.append(
             dbc.Col(
                 html.Div(
@@ -1883,12 +1884,12 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
     }
 
     status_colors = {
-        "fresh": "#2BD67B",
-        "stale": "#FFB84D",
-        "demo": "#A8B3C7",
-        "unavailable": "#A8B3C7",
-        "warming": "#7AA8FF",
-        "error": "#FF5C7A",
+        "fresh": tokens.SUCCESS,
+        "stale": tokens.WARNING,
+        "demo": tokens.TEXT_SECONDARY,
+        "unavailable": tokens.TEXT_SECONDARY,
+        "warming": tokens.INFO,
+        "error": tokens.DANGER,
     }
 
     badges = []
@@ -1896,7 +1897,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
         if source == "timestamp":
             continue
         cfg = source_config.get(source, {"label": source.title(), "icon": "●"})
-        color = status_colors.get(status, "#A8B3C7")
+        color = status_colors.get(status, tokens.TEXT_SECONDARY)
         status_text = status.upper() if status != "fresh" else "LIVE"
         badges.append(
             html.Div(
@@ -1922,7 +1923,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
                     "display": "inline-flex",
                     "alignItems": "center",
                     "fontSize": "0.75rem",
-                    "color": "#A8B3C7",
+                    "color": tokens.TEXT_SECONDARY,
                     "padding": "4px 12px",
                     "marginRight": "12px",
                 },
@@ -1938,7 +1939,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
                 "DATA SOURCES",
                 style={
                     "fontSize": "0.65rem",
-                    "color": "#A8B3C7",
+                    "color": tokens.TEXT_SECONDARY,
                     "textTransform": "uppercase",
                     "letterSpacing": "1px",
                     "marginRight": "16px",
@@ -1951,7 +1952,7 @@ def _build_overview_data_health(freshness_data: dict | None) -> html.Div:
             "flexWrap": "wrap",
             "alignItems": "center",
             "padding": "8px 12px",
-            "background": "#11182D",
+            "background": tokens.BG_RAISED,
             "borderRadius": "6px",
         },
     )
@@ -1991,7 +1992,7 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
                 x=last_48h.get("timestamp", list(range(len(last_48h)))),
                 y=last_48h["wind_speed_80m"],
                 mode="lines",
-                line=dict(color=CB_PALETTE.get("sky", "#56B4E9"), width=2),
+                line=dict(color=CB_PALETTE.get("sky", tokens.CB_PALETTE["sky_blue"]), width=2),
                 name="Wind (mph)",
                 hovertemplate="%{y:.0f} mph<extra>Wind</extra>",
             )
@@ -2002,7 +2003,7 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
                 x=last_48h.get("timestamp", list(range(len(last_48h)))),
                 y=last_48h["shortwave_radiation"],
                 mode="lines",
-                line=dict(color=CB_PALETTE.get("orange", "#E69F00"), width=2),
+                line=dict(color=CB_PALETTE.get("orange", tokens.CB_PALETTE["orange"]), width=2),
                 name="Solar (W/m²)",
                 yaxis="y2",
                 hovertemplate="%{y:.0f} W/m²<extra>Solar</extra>",
@@ -2021,7 +2022,7 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
         yaxis=dict(
             title="Wind (mph)",
             showgrid=True,
-            gridcolor="rgba(255,255,255,0.05)",
+            gridcolor=tokens.GRID_LINE,
         ),
         yaxis2=dict(
             title="Solar (W/m²)",
@@ -2033,7 +2034,7 @@ def _spotlight_renewables(weather_df: pd.DataFrame | None, region: str) -> go.Fi
     )
     fig.update_layout(
         **renew_layout,
-        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color="#DDE6F2")),
+        title=dict(text="Renewable Potential (48h)", font=dict(size=13, color=tokens.TEXT_PRIMARY)),
         showlegend=True,
     )
     return fig
@@ -2059,7 +2060,7 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
             mode="lines",
             line=dict(color=CB_PALETTE["blue"], width=2),
             fill="tozeroy",
-            fillcolor="rgba(0,114,178,0.15)",
+            fillcolor=tokens.alpha(tokens.CB_PALETTE["blue"], 0.15),
             name="Demand",
             hovertemplate="%{y:,.0f} MW<extra>Demand</extra>",
         )
@@ -2069,17 +2070,17 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
     fig.add_hline(
         y=capacity,
         line_dash="dot",
-        line_color="#FF5C7A",
+        line_color=tokens.DANGER,
         annotation_text=f"Capacity: {capacity:,.0f} MW",
         annotation_position="top left",
         annotation_font_size=10,
-        annotation_font_color="#FF5C7A",
+        annotation_font_color=tokens.DANGER,
     )
 
     # Pricing tier thresholds
     for pct, label, color in [
-        (0.85, "High tier (85%)", "#FFB84D"),
-        (0.70, "Moderate (70%)", "#A8B3C7"),
+        (0.85, "High tier (85%)", tokens.WARNING),
+        (0.70, "Moderate (70%)", tokens.TEXT_SECONDARY),
     ]:
         fig.add_hline(
             y=capacity * pct,
@@ -2098,14 +2099,14 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
         xaxis=dict(showgrid=False, tickformat="%b %d %H:%M"),
         yaxis=dict(
             showgrid=True,
-            gridcolor="rgba(255,255,255,0.05)",
+            gridcolor=tokens.GRID_LINE,
             tickformat=",.0f",
             title="MW",
         ),
     )
     fig.update_layout(
         **trader_layout,
-        title=dict(text="Demand vs Capacity", font=dict(size=13, color="#DDE6F2")),
+        title=dict(text="Demand vs Capacity", font=dict(size=13, color=tokens.TEXT_PRIMARY)),
         showlegend=False,
     )
     return fig
@@ -2129,9 +2130,9 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
         mape_values.append(mape if mape is not None else 4.5 + len(model_name) * 0.3)
 
     colors = [
-        CB_PALETTE.get("vermillion", "#D55E00"),
-        CB_PALETTE.get("blue", "#0072B2"),
-        CB_PALETTE.get("green", "#009E73"),
+        CB_PALETTE.get("vermillion", tokens.CB_PALETTE["vermillion"]),
+        CB_PALETTE.get("blue", tokens.CB_PALETTE["blue"]),
+        CB_PALETTE.get("green", tokens.CB_PALETTE["green"]),
     ]
 
     fig = go.Figure()
@@ -2142,7 +2143,7 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
             marker_color=colors,
             text=[f"{v:.1f}%" for v in mape_values],
             textposition="outside",
-            textfont=dict(color="#DDE6F2", size=11),
+            textfont=dict(color=tokens.TEXT_PRIMARY, size=11),
             hovertemplate="%{x}: %{y:.2f}% MAPE<extra></extra>",
         )
     )
@@ -2153,13 +2154,13 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
         yaxis=dict(
             title="MAPE (%)",
             showgrid=True,
-            gridcolor="rgba(255,255,255,0.05)",
+            gridcolor=tokens.GRID_LINE,
         ),
         xaxis=dict(showgrid=False),
     )
     fig.update_layout(
         **model_layout,
-        title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#DDE6F2")),
+        title=dict(text="Model MAPE Comparison", font=dict(size=13, color=tokens.TEXT_PRIMARY)),
         showlegend=False,
     )
     return fig
@@ -2267,7 +2268,11 @@ def _build_overview_digest(
         return html.Div(
             html.P(
                 "No insights available yet. Explore tabs to generate data.",
-                style={"color": "#A8B3C7", "fontSize": "0.82rem", "fontStyle": "italic"},
+                style={
+                    "color": tokens.TEXT_SECONDARY,
+                    "fontSize": "0.82rem",
+                    "fontStyle": "italic",
+                },
             )
         )
 

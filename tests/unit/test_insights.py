@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from dash import html
 
+from components import tokens
 from components.insights import (
     Insight,
     _extract_backtest_stats,
@@ -412,8 +413,8 @@ class TestBuildInsightCard:
     def test_has_persona_color_border(self):
         insights = [Insight("Test", "pattern", "info", persona_relevance=["grid_ops"])]
         card = build_insight_card(insights, "grid_ops", "tab-forecast")
-        # Grid ops color is #1f77b4
-        assert "#1f77b4" in card.style.get("borderLeft", "")
+        # Grid ops renders its persona identity color (Wong blue).
+        assert tokens.PERSONA_COLORS["grid_ops"] in card.style.get("borderLeft", "")
 
     def test_invalid_persona_graceful(self):
         insights = [Insight("Test", "pattern", "info", persona_relevance=["grid_ops"])]

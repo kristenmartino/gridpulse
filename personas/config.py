@@ -9,6 +9,8 @@ Per spec §Persona Switcher:
 
 from dataclasses import dataclass
 
+from components import tokens
+
 
 @dataclass
 class Persona:
@@ -58,7 +60,7 @@ PERSONAS: dict[str, Persona] = {
             "Focus areas: demand forecast accuracy, capacity headroom, "
             "and any active severe weather alerts that could impact operations."
         ),
-        color="#1f77b4",
+        color=tokens.PERSONA_COLORS["grid_ops"],
     ),
     "renewables": Persona(
         id="renewables",
@@ -87,7 +89,7 @@ PERSONAS: dict[str, Persona] = {
             "Key focus: wind and solar capacity factors, weather-driven "
             "generation variability, and curtailment risk."
         ),
-        color="#2ca02c",
+        color=tokens.PERSONA_COLORS["renewables"],
     ),
     "trader": Persona(
         id="trader",
@@ -116,7 +118,7 @@ PERSONAS: dict[str, Persona] = {
             "Focus areas: price impact scenarios, demand/supply imbalances, "
             "and weather-driven volatility signals."
         ),
-        color="#ff7f0e",
+        color=tokens.PERSONA_COLORS["trader"],
     ),
     "data_scientist": Persona(
         id="data_scientist",
@@ -146,7 +148,7 @@ PERSONAS: dict[str, Persona] = {
             "Focus areas: ensemble accuracy trends, individual model MAPE, "
             "SHAP feature contributions, and residual analysis."
         ),
-        color="#9467bd",
+        color=tokens.PERSONA_COLORS["data_scientist"],
     ),
 }
 

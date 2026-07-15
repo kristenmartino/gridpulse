@@ -28,6 +28,8 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
+from components import tokens
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -2174,15 +2176,15 @@ class TestModuleConstants:
         # Hover label theming
         assert PLOT_LAYOUT["hovermode"] == "x unified"
         hoverlabel = PLOT_LAYOUT["hoverlabel"]
-        assert hoverlabel["bgcolor"] == "#11141c"
+        assert hoverlabel["bgcolor"] == tokens.HOVER_BG
         assert hoverlabel["align"] == "left"
 
         # Subtle axis tone on both axes (one rgba alpha — same value)
         for axis in ("xaxis", "yaxis"):
             ax = PLOT_LAYOUT[axis]
-            assert ax["gridcolor"] == "rgba(255,255,255,0.04)"
-            assert ax["zerolinecolor"] == "rgba(255,255,255,0.08)"
-            assert ax["linecolor"] == "rgba(255,255,255,0.10)"
+            assert ax["gridcolor"] == tokens.GRID_LINE
+            assert ax["zerolinecolor"] == tokens.ZERO_LINE
+            assert ax["linecolor"] == tokens.AXIS_LINE
 
     def test_plot_config_constant(self):
         """PLOT_CONFIG is exported for charts that opt into a visible modebar.
@@ -2245,7 +2247,7 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
         fig = _build_overview_hero_chart("FPL", self._demand_df())
         # If we got here without TypeError, the fix is intact. Also check the
         # PLOT_LAYOUT axis tone landed — that confirms the merge worked.
-        assert fig.layout.xaxis.gridcolor == "rgba(255,255,255,0.04)"
+        assert fig.layout.xaxis.gridcolor == tokens.GRID_LINE
 
     def test_overview_sparkline_builds(self):
         """``_build_overview_sparkline`` — 24h demand sparkline."""
@@ -2265,7 +2267,12 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
         from components._callbacks_overview import _driver_sparkline
 
         wdf = self._weather_df(periods=24)
-        fig = _driver_sparkline(wdf, "temperature_2m", "#3b82f6", "rgba(0,0,0,0.1)")
+        fig = _driver_sparkline(
+            wdf,
+            "temperature_2m",
+            tokens.WEATHER_DRIVERS["temperature"],
+            tokens.alpha(tokens.WEATHER_DRIVERS["temperature"], 0.1),
+        )
         # ``visible=False`` is from the helper's own override (hiding axes
         # on the sparkline); proves the override reached the figure.
         assert fig.layout.xaxis.visible is False

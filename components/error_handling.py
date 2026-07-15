@@ -16,6 +16,8 @@ import dash_bootstrap_components as dbc
 import structlog
 from dash import html
 
+from components import tokens
+
 log = structlog.get_logger()
 
 
@@ -74,7 +76,7 @@ def loading_spinner(message: str = "Loading data...") -> html.Div:
             html.P(
                 message,
                 style={
-                    "color": "#A8B3C7",
+                    "color": tokens.TEXT_SECONDARY,
                     "marginTop": "12px",
                     "fontSize": "0.9rem",
                 },
@@ -118,8 +120,8 @@ def empty_state(
     return html.Div(
         [
             html.Div(icon, style={"fontSize": "2.5rem", "marginBottom": "12px"}),
-            html.H5(title, style={"color": "#DDE6F2", "marginBottom": "6px"}),
-            html.P(message, style={"color": "#A8B3C7", "fontSize": "0.85rem"}),
+            html.H5(title, style={"color": tokens.TEXT_PRIMARY, "marginBottom": "6px"}),
+            html.P(message, style={"color": tokens.TEXT_SECONDARY, "fontSize": "0.85rem"}),
         ],
         style={
             "display": "flex",
@@ -142,19 +144,19 @@ def error_state(
     """
     children = [
         html.Div("⚠️", style={"fontSize": "2.5rem", "marginBottom": "12px"}),
-        html.H5(title, style={"color": "#FF5C7A", "marginBottom": "6px"}),
-        html.P(message, style={"color": "#A8B3C7", "fontSize": "0.85rem"}),
+        html.H5(title, style={"color": tokens.DANGER, "marginBottom": "6px"}),
+        html.P(message, style={"color": tokens.TEXT_SECONDARY, "fontSize": "0.85rem"}),
     ]
     if error_detail:
         children.append(
             html.Pre(
                 error_detail[:200],
                 style={
-                    "color": "#a1a1aa",
+                    "color": tokens.TEXT_SECONDARY,
                     "fontSize": "0.7rem",
                     "marginTop": "12px",
                     "padding": "8px",
-                    "background": "#0a0a0b",
+                    "background": tokens.BG_BASE,
                     "borderRadius": "4px",
                     "maxWidth": "400px",
                     "overflow": "hidden",
@@ -183,11 +185,11 @@ def api_error_state(api_name: str = "API") -> html.Div:
             html.Div("🔄", style={"fontSize": "1.5rem", "marginBottom": "8px"}),
             html.P(
                 f"{api_name} is currently unavailable. Showing cached data.",
-                style={"color": "#ffb74d", "fontSize": "0.8rem", "margin": 0},
+                style={"color": tokens.WARNING, "fontSize": "0.8rem", "margin": 0},
             ),
         ],
         style={
-            "background": "rgba(255, 183, 77, 0.1)",
+            "background": tokens.alpha(tokens.WARNING, 0.1),
             "borderRadius": "6px",
             "padding": "10px 16px",
             "marginBottom": "8px",
@@ -260,25 +262,25 @@ CONFIDENCE_LEVELS = {
     "high": {
         "icon": "check-circle",
         "label": "High",
-        "color": "#34d399",
+        "color": tokens.SUCCESS,
         "description": "Live data from verified source",
     },
     "medium": {
         "icon": "alert-circle",
         "label": "Medium",
-        "color": "#fbbf24",
+        "color": tokens.WARNING,
         "description": "Data may be stale or partially unavailable",
     },
     "low": {
         "icon": "alert-triangle",
         "label": "Low",
-        "color": "#f87171",
+        "color": tokens.DANGER,
         "description": "Using fallback data — verify before decisions",
     },
     "demo": {
         "icon": "flask",
         "label": "Demo",
-        "color": "#a1a1aa",
+        "color": tokens.TEXT_SECONDARY,
         "description": "Synthetic demo data — not real",
     },
     # "warming" is surfaced in Redis-only deployments when the scheduled
@@ -287,7 +289,7 @@ CONFIDENCE_LEVELS = {
     "warming": {
         "icon": "clock",
         "label": "Warming",
-        "color": "#60a5fa",
+        "color": tokens.INFO,
         "description": "Pipeline is refreshing — data will appear shortly",
     },
 }
@@ -355,7 +357,7 @@ def warming_state(
             "justifyContent": "center",
             "padding": "60px 0",
             "textAlign": "center",
-            "background": "rgba(122, 168, 255, 0.04)",
+            "background": tokens.alpha(tokens.INFO, 0.04),
             "borderRadius": "6px",
         },
     )
@@ -410,7 +412,7 @@ def confidence_badge(
         parts.append(
             html.Span(
                 f"· {age_text}",
-                style={"color": "#A8B3C7", "fontSize": "0.7rem"},
+                style={"color": tokens.TEXT_SECONDARY, "fontSize": "0.7rem"},
             )
         )
 

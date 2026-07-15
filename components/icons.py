@@ -20,6 +20,8 @@ from urllib.parse import quote
 
 from dash import html
 
+from components import tokens
+
 # ── Lucide path data (MIT) ────────────────────────────────────────────
 # Each value is an SVG inner-fragment string. The wrapper sets common
 # attrs (viewBox, stroke, stroke-width, fill, line-cap, line-join) so
@@ -141,7 +143,8 @@ def icon(name: str, size: str = "md", className: str | None = None) -> html.Span
     # is required so the drawn lines have alpha=1.
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{px}" height="{px}" '
-        'viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="1.75" '
+        f'viewBox="0 0 24 24" fill="none" stroke="{tokens.ICON_MASK_STROKE}" '
+        'stroke-width="1.75" '
         f'stroke-linecap="round" stroke-linejoin="round">{path}</svg>'
     )
     mask = f"url('data:image/svg+xml,{quote(svg)}')"

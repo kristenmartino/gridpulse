@@ -36,12 +36,20 @@
     /* Back-compat alias */
     --text-muted: var(--text-disabled);
 
-    /* Accent — electric grid-blue (top-design pass). Reinstates a distinctive
-     * #38D0FF-family hue over the prior stock Tailwind blue-500 (#3b82f6),
-     * pulled slightly toward blue for a premium, restrained "energized grid"
-     * read. Mirrored in Python as _callbacks_shared.ACCENT for chart series. */
+    /* Accent — the brand hue, and also the demand/primary chart series, so
+     * brand color and data color are one system. Mirrored in Python as
+     * components/tokens.py ACCENT (that module is the source of truth for the
+     * Plotly layer, which cannot read custom properties; the two are asserted
+     * equal by tests/unit/test_color_tokens.py).
+     *
+     * The translucent variants below are the ONLY place the accent's channels
+     * may be written out — every rule references these, never a literal. Three
+     * rules used to inline rgba(53, 198, 255, ...) directly, which is how this
+     * hex ended up copied four ways. scripts/check_color_tokens.py now fails
+     * the build on any color literal outside a custom-property declaration. */
     --accent-base: #35c6ff;
     --accent-hover: #63d6ff;
+    --accent-glow: rgba(53, 198, 255, 0.08);
     --accent-dim: rgba(53, 198, 255, 0.15);
     --accent-ring: rgba(53, 198, 255, 0.32);
 
@@ -122,14 +130,74 @@
      * resolve to the same dual-layer ring so focus treatment is uniform. */
     --shadow-focus: var(--focus-ring);
     --edge-highlight: inset 0 1px 0 0 rgba(255, 255, 255, 0.04);
+    /* The two drop-shadow tints that survive (tooltip + dropdown lift), and
+     * the hover wash. Declared here so no rule writes rgba() by hand. */
+    --shadow-color: rgba(0, 0, 0, 0.45);
+    --shadow-color-soft: rgba(0, 0, 0, 0.24);
+    --overlay-hover: rgba(255, 255, 255, 0.03);
 
     /* Layout — content column. Widened from max-w-5xl (1024px) so charts and
      * the Overview hero use analyst-monitor real estate instead of
      * letterboxing; steps up again past 1600px (top-design composition pass). */
     --content-max-width: 75rem;
     --content-gutter: 1.5rem;
+    /* The column's INNER width — what content actually occupies once the
+     * gutter is subtracted. .gp-header__inner is `max-width: 75rem` with
+     * `padding: 0 1.5rem` under border-box, so its content is 72rem. The page
+     * grid below uses --content-inner for its bounded track, which is what
+     * keeps the page column optically aligned with the header above it. */
+    --content-inner: calc(var(--content-max-width) - 2 * var(--content-gutter));
+    /* The break-out band. One surface in the product is allowed to leave the
+     * bounded column: the 51-BA grid on US Grid (see .gp-bleed). It is capped
+     * rather than truly edge-to-edge — 51 cards stretched across a 2560px
+     * monitor is not composition, it's abdication. 105rem is roughly a 5-card
+     * row at a comfortable card width. */
+    --content-wide: 105rem;
     --section-gap: 2rem;            /* space-y-8 between major sections */
     --card-padding: 1.25rem;        /* p-5 inside cards */
+
+    /* The page grid. Three named tracks — a bounded centre with a gutter on
+     * either side — shared by .gp-page and .gp-section-stack so a child can
+     * opt into `grid-column: full` and leave the column. Held in a custom
+     * property because both rules need the identical template; a token stream
+     * is a legal custom-property value, so there is one definition, not two
+     * that can drift.
+     *
+     *   grid-column: content  →  the 72rem column (the default; never set it
+     *                            explicitly, the `> *` rules below do it)
+     *   grid-column: full     →  edge to edge
+     */
+    --page-columns:
+        [full-start] minmax(var(--content-gutter), 1fr)
+        [content-start] minmax(0, var(--content-inner))
+        [content-end] minmax(var(--content-gutter), 1fr)
+        [full-end];
+
+    /* Chart heights — keyed to a chart's ROLE in the composition, not to a
+     * number someone picked once. Before this there were 15 hardcoded px
+     * heights across 8 files (480/380/320/300/260/240/60) with no stated
+     * relationship to each other; a chart's height was a fact about its file,
+     * not about its job. The five --chart-h-* steps are that relationship:
+     *
+     *   hero    the tab's subject — the reason you opened the tab
+     *   panel   a full-column secondary chart
+     *   half    a chart in a 2-up grid cell
+     *   third   a chart in a 3-up grid cell
+     *   inline  a chart inside a collapsible panel — a detail, not a section
+     *
+     * --map-h is deliberately outside the scale: a geographic view is not a
+     * chart with a height, it's a viewport onto a country, and it wants every
+     * pixel it can get. Assigning by role moved exactly one surface (the Risk
+     * tab's 2-up secondary charts, 260px → --chart-h-half); every other site
+     * kept its rendered height and gained a reason for it. */
+    --chart-h-hero: 380px;
+    --chart-h-panel: 320px;
+    --chart-h-half: 300px;
+    --chart-h-third: 260px;
+    --chart-h-inline: 240px;
+    --map-h: 480px;
+    --sparkline-h: 60px;
+
     /* Sticky-chrome offsets — must match .gp-header { height } and the
      * .nav-tabs total height (link padding × 2 + line-height + border).
      * .nav-tabs sticks DIRECTLY under the header so the tab-content
@@ -227,7 +295,7 @@ body::after {
     height: 520px;
     transform: translateX(-50%);
     background: radial-gradient(60% 90% at 50% 0%,
-                rgba(53, 198, 255, 0.08), rgba(53, 198, 255, 0) 70%);
+                var(--accent-glow), transparent 70%);
     pointer-events: none;
     z-index: 0;
 }
@@ -444,9 +512,12 @@ body.briefing .modebar-container {
     display: none !important;
 }
 
-/* Bigger breathing room between sections in projection */
+/* Bigger breathing room between sections in projection. row-gap, not the `gap`
+ * shorthand: .gp-section-stack is a 3-track grid, and a shorthand would set
+ * column-gap too — inflating the gutter tracks and shoving the content column
+ * off the header's centre line the moment you projected. */
 body.briefing .gp-section-stack {
-    gap: var(--space-12);
+    row-gap: var(--space-12);
 }
 
 /* Page title scales up for projection (above the normal --text-heading) */
@@ -552,19 +623,66 @@ body.briefing .dashboard-header::after {
  *   10px UPPERCASE eyebrow / 13px body / hero at --text-hero
  */
 
-/* Page wrapper — centered on --content-max-width (1200px), gutter 24px */
+/* Page wrapper — a full-width canvas ruled by --page-columns, NOT a centered
+ * 1200px box. The centering that used to live here (max-width + margin auto)
+ * is now the `content` track: same result for every child by default, but the
+ * gutters are real tracks, so a child can address `full` and leave the column.
+ * That is the whole point — see .gp-bleed.
+ *
+ * Horizontal padding is 0 on purpose: the grid's gutter tracks own the side
+ * spacing now, and .tab-content's inline padding is zeroed to match, so there
+ * is exactly one thing deciding how far content sits from the viewport edge. */
 .gp-page {
-    max-width: var(--content-max-width);
-    margin: 0 auto;
-    padding: var(--space-6) var(--content-gutter);
+    display: grid;
+    grid-template-columns: var(--page-columns);
+    padding: var(--space-6) 0;
     position: relative;
     z-index: 1;  /* above the body::before noise overlay */
 }
 
+/* Everything sits in the bounded column unless it says otherwise. This is what
+ * keeps the break-out honest: opting OUT of the column is a line of code
+ * someone had to write, so it can't happen by accident. Covers the app-level
+ * footer too, which is a .gp-page with no .gp-section-stack inside it. */
+.gp-page > * {
+    grid-column: content;
+    min-width: 0;
+}
+
+/* The stack spans `full` and re-rules the same tracks, so its children get the
+ * same column/gutter geometry one level down and can break out themselves.
+ * (Same template via --page-columns, so the two grids cannot drift apart.)
+ * row-gap, not gap: a shorthand `gap` here would also set column-gap and push
+ * the content track off the header's centre line. */
 .gp-section-stack {
-    display: flex;
-    flex-direction: column;
-    gap: var(--section-gap);
+    grid-column: full;
+    display: grid;
+    grid-template-columns: var(--page-columns);
+    row-gap: var(--section-gap);
+}
+
+.gp-section-stack > * {
+    grid-column: content;
+    min-width: 0;
+}
+
+/* ── The break-out ────────────────────────────────────────────────────
+ * The single surface allowed to leave the column. Used by the 51-BA grid on
+ * US Grid: that screen's argument is "here is the whole country at once", and
+ * making it plead its case through a 1200px slot while the title above it sits
+ * in the same slot is the layout refusing to take its own side. The narrative
+ * around it — title, metrics bar, sort/view controls — stays bounded, so the
+ * break reads as a decision about THAT grid rather than a wider page.
+ *
+ * Capped at --content-wide and re-gutter'd, so "edge-to-edge" means the band
+ * commits to the width it can actually use, not to whatever monitor it lands
+ * on. */
+.gp-bleed {
+    grid-column: full;
+    max-width: var(--content-wide);
+    margin-inline: auto;
+    padding-inline: var(--content-gutter);
+    width: 100%;
 }
 
 /* Page title block (region name + subtitle + optional freshness chip) */
@@ -666,7 +784,7 @@ body.briefing .dashboard-header::after {
 
 .gp-tooltip .tooltip-inner {
     border: 1px solid var(--border-default);
-    box-shadow: var(--edge-highlight), 0 6px 20px rgba(0, 0, 0, 0.45);
+    box-shadow: var(--edge-highlight), 0 6px 20px var(--shadow-color);
     text-align: left;
     line-height: var(--leading-base);
     font-weight: 400;
@@ -722,9 +840,14 @@ body.briefing .dashboard-header::after {
 /* Overview asymmetric hero (top-design composition pass) — the "Now" demand
  * value dominates the row at display scale; the four supporting metrics
  * compress to the right. A deliberate break from the uniform 5-up rhythm,
- * turning the MetricsBar into a mission-control hero. Desktop only; the base
- * 2-up mobile grid (below) still applies under 768px. The huge value pairs
- * with the live demand waveform directly beneath it — GridPulse's "pulse". */
+ * turning the MetricsBar into a mission-control hero. The huge value pairs
+ * with the live demand waveform directly beneath it — GridPulse's "pulse".
+ *
+ * Desktop only — and now actually so. The @media 768 block below overrides
+ * BOTH halves of this: the track template AND the --text-hero size. Only the
+ * template was being unwound before, which left a 42px-floor clamp inside a
+ * ~140px-wide 2-up cell on a phone, with `overflow: visible` right here to let
+ * it spill. */
 .gp-metrics-bar--overview {
     grid-template-columns: minmax(0, 2.3fr) repeat(4, minmax(0, 1fr));
     align-items: start;
@@ -1044,14 +1167,25 @@ body.briefing .dashboard-header::after {
     font-weight: 500;
 }
 
-/* Residuals 3-up grid */
+/* Residuals 3-up grid. Ladders 3 → 2 → 1, like .gp-region-grid does.
+ * It used to go 3 → 1 at 768px with nothing in between, so every tablet and
+ * small laptop between 769px and 1024px rendered three residual charts at
+ * ~300px each — narrow enough to be unreadable, but not narrow enough to
+ * trigger the stack. The 1024px rung is the missing step. */
 .gp-residual-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-4);
 }
 
-/* Models error+SHAP 2-up grid */
+@media (max-width: 1024px) {
+    .gp-residual-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+/* Models error+SHAP 2-up grid. No intermediate rung needed — 2 → 1 IS the
+ * ladder. */
 .gp-models-secondary {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1205,6 +1339,66 @@ body.briefing .dashboard-header::after {
     line-height: 1.3;
 }
 
+/* ── Forecast lede (top-design composition pass) ──────────────────────
+ *
+ * The Forecast tab's one asymmetric move, and the reason it no longer reads as
+ * the same centred stack as everything else. The chart is the subject; Peak /
+ * Average / Min / Range are readings taken off it. As a full-width strip
+ * underneath, they were a second band of equal weight and the eye had to be
+ * told which one mattered. As a rail they're subordinate by position, and the
+ * chart gets ~72% of the column instead of 100% of a shorter one.
+ *
+ * Mobile-first: the base is a plain stack, and the rail only asserts itself at
+ * 1024px, where the right column is still wide enough to set "28,450 MW"
+ * without wrapping. Below that the bar falls back to --4up (and, under 768px,
+ * to the shared 2-up mobile grid) — scoping the rail INSIDE a min-width query
+ * rather than unwinding it in a max-width one is what keeps the two states
+ * from fighting over specificity. */
+.gp-forecast-lede {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-5);
+}
+
+.gp-forecast-lede__main {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+@media (min-width: 1024px) {
+    .gp-forecast-lede {
+        display: grid;
+        grid-template-columns: minmax(0, 2.6fr) minmax(0, 1fr);
+        gap: var(--space-6);
+        align-items: stretch;
+    }
+
+    /* The rail: one column, cells distributed down the chart's full height so
+     * it reads as a measured scale rather than four things that fell to the
+     * top. The strip's own top/bottom rules stay — they frame the rail. */
+    .gp-metrics-bar--rail {
+        grid-template-columns: minmax(0, 1fr);
+        align-content: space-between;
+        row-gap: var(--space-4);
+    }
+
+    /* Dividers turn 90°: the strip separates cells with border-right, the rail
+     * with border-bottom. The horizontal padding goes too — a rail cell is
+     * already inset by the lede's column gap. */
+    .gp-metrics-bar--rail .gp-metric-cell {
+        padding: 0 0 var(--space-4) 0;
+        border-right: 0;
+        border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .gp-metrics-bar--rail .gp-metric-cell:last-child {
+        padding-bottom: 0;
+        border-bottom: 0;
+    }
+}
+
 /* ── Controls row (segmented horizon + model — Forecast tab) ───── */
 
 .gp-controls-row {
@@ -1286,7 +1480,13 @@ body.briefing .dashboard-header::after {
     box-shadow: var(--shadow-focus);
 }
 
-/* "Forecast as of" chip — small mono timestamp under the chart */
+/* "Forecast as of" chip — small mono timestamp under the chart.
+ *
+ * The -16px margin that used to sit here was clawing back part of
+ * .gp-section-stack's 32px section gap, because the chip was a top-level
+ * section and its only job is to caption the chart above it. It now lives
+ * inside .gp-forecast-lede__main, whose 12px gap says that directly, so the
+ * negative margin is gone rather than double-counted. */
 .gp-as-of-chip {
     display: inline-flex;
     align-items: center;
@@ -1296,7 +1496,6 @@ body.briefing .dashboard-header::after {
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-full);
     align-self: flex-start;
-    margin-top: calc(-1 * var(--space-4));  /* tuck up under the chart card */
 }
 
 .gp-chip-label {
@@ -1424,11 +1623,20 @@ body.briefing .dashboard-header::after {
     margin: 0;
 }
 
-/* 3-up grid for the Drivers panel (Temperature / Wind / Solar) */
+/* 3-up grid for the Drivers panel (Temperature / Wind / Solar).
+ * Ladders 3 → 2 → 1 for the same reason .gp-residual-grid does: it went
+ * straight from 3 to 1 at 768px, so the whole tablet range read three driver
+ * cells crushed side by side. */
 .gp-drivers-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-4);
+}
+
+@media (max-width: 1024px) {
+    .gp-drivers-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 .gp-driver-cell {
@@ -1457,6 +1665,23 @@ body.briefing .dashboard-header::after {
     .gp-metrics-bar--4up,
     .gp-metrics-bar--overview {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    /* The other half of unwinding the Overview hero. Dropping the asymmetric
+     * tracks (above) put the hero value in a 2-up cell — ~140px wide at 375px
+     * — while it kept `font-size: var(--text-hero)`, whose clamp floors at
+     * 42px, and `overflow: visible`, which let the overrun spill across the
+     * neighbouring cell instead of being caught. A hero is a claim about
+     * relative importance, and there is no room to make that claim two cells
+     * wide; on a phone it takes the ordinary hero treatment (--text-2xl) that
+     * every other tab's hero cell already uses, and it clips like its
+     * siblings. Specificity 0-2-0 matches the rule it unwinds and this block
+     * is later in source, so it lands. */
+    .gp-metrics-bar--overview .gp-metric-value--hero {
+        font-size: var(--text-2xl);
+        letter-spacing: -0.02em;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .gp-metric-cell {
@@ -1493,9 +1718,23 @@ body.briefing .dashboard-header::after {
  */
 
 .gp-header {
-    background: var(--bg-base);
+    /* Frosted, matching the .nav-tabs strip that pins directly beneath it —
+     * content stays faintly legible as it scrolls under the chrome instead of
+     * hitting a hard opaque edge. This lived on `.dashboard-header` until the
+     * top-design pass: that class sits later in this file at equal
+     * specificity, so it was beating `background: var(--bg-base)` here and the
+     * frost was arriving by accident. Same pixels, stated by the owner. */
+    background: var(--bg-overlay);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
     border-bottom: 1px solid var(--border-subtle);
     height: var(--header-height);
+    /* padding: 0 is load-bearing — .gp-header__inner supplies the gutter, and
+     * it is what aligns the header's 72rem inner column with the page grid's
+     * `content` track below. `.dashboard-header` was overriding this to
+     * 12px 24px, which double-gutter'd the header (48px vs the page's 24px, so
+     * the two columns never lined up) and, under border-box, left the 60px bar
+     * only 36px of content to seat a ~45px brand lockup. */
     margin: 0;
     padding: 0;
     /* Sticky chrome: header pins to top of the viewport. z-index 50
@@ -1531,6 +1770,9 @@ body.briefing .dashboard-header::after {
     flex-shrink: 0;
 }
 
+/* The wordmark. Sole owner of the brand mark's type — see the mobile step-down
+ * in the @media block just below, which belongs to the wordmark rather than to
+ * a legacy class in another section of this file. */
 .gp-header__wordmark {
     color: var(--text-primary);
     font-family: var(--font-display);
@@ -1698,6 +1940,15 @@ body.briefing .dashboard-header::after {
         gap: var(--space-2);
     }
 
+    /* Step the brand mark down on phones. This is the same 28px → 20px the
+     * legacy `.dashboard-title` override used to impose from 500 lines away —
+     * kept, because 20px is right next to a 30px monogram in a 60px bar and
+     * leaves the region selector room, but now stated by the wordmark itself
+     * where a change to --text-2xl will be read alongside it. */
+    .gp-header__wordmark {
+        font-size: var(--text-xl);
+    }
+
     .gp-header__chip,
     .gp-header__link,
     .gp-btn--primary {
@@ -1706,23 +1957,20 @@ body.briefing .dashboard-header::after {
 }
 
 /* ── Legacy header (kept for callbacks toggling .meeting-mode) ─── */
-.dashboard-header {
-    background: var(--bg-overlay);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-bottom: 1px solid var(--border-subtle);
-    padding: var(--space-3) var(--space-6);
-    margin-bottom: 0;
-}
-
-.dashboard-title {
-    color: var(--text-primary);
-    font-family: var(--font-display);
-    font-size: var(--text-2xl);
-    font-weight: 700;
-    margin: 0;
-    letter-spacing: -0.03em;
-}
+/*
+ * `.dashboard-header` still co-owns the <header> element with `.gp-header`,
+ * because callbacks.py toggles `meeting-mode` on this class and the tests
+ * assert it in the className. It is a hook, not a skin: everything it used to
+ * paint has been removed, because sitting later in this file at equal
+ * specificity it was silently winning against `.gp-header` — the element's
+ * actual owner — for background, padding and margin. `.gp-header` states those
+ * once, and now they are what renders.
+ *
+ * `.dashboard-title` and `.dashboard-subtitle` are gone entirely. The former
+ * co-owned the H1 wordmark and halved it on phones (layout.py no longer sets
+ * it); the latter had no markup left at all. If you need a class here, the
+ * rule is: a legacy hook may keep an identity, never a declaration.
+ */
 
 .dashboard-subtitle {
     color: var(--text-tertiary);
@@ -1843,8 +2091,12 @@ body.briefing .dashboard-header::after {
     border-bottom-color: var(--accent-base);
 }
 
+/* Vertical padding only. The inline padding used to inset every tab body by
+ * 16px, which quietly made .gp-page's gutter 16px wider than the header's and
+ * put a floor under how close a full-bleed band could get to the edge. The
+ * page grid's gutter tracks own horizontal spacing now. */
 .tab-content {
-    padding: var(--space-4);
+    padding: var(--space-4) 0;
 }
 
 /* ── Section Header (new, shared across tabs) ─────────── */
@@ -2089,7 +2341,7 @@ body.briefing .dashboard-header::after {
     margin: var(--space-2) 0;
     box-shadow:
         0 0 0 1px var(--border-subtle),
-        0 1px 2px rgba(0, 0, 0, 0.24);
+        0 1px 2px var(--shadow-color-soft);
     animation: fadeIn var(--duration-slow) var(--ease);
 }
 
@@ -2226,14 +2478,11 @@ body.briefing .dashboard-header::after {
 /* ── Responsive ───────────────────────────────────────── */
 @media (max-width: 768px) {
     .gp-kpi-card { margin-bottom: var(--space-2); }
-    /* .dashboard-title co-owns the H1 wordmark (layout.py sets both classes)
-     * and, being later in source order at equal specificity, it WINS. When the
-     * wordmark went 16px -> --text-2xl (28px), this override was left at 14px
-     * and silently halved the brand mark on every phone. Scale it
-     * proportionately instead. (The real fix is to stop a legacy class owning
-     * the wordmark at all — queued.) */
-    .dashboard-title { font-size: var(--text-xl); }
-    .dashboard-header { padding: var(--space-2) var(--space-3); }
+    /* The `.dashboard-title` / `.dashboard-header` overrides that used to sit
+     * here are gone. Both were legacy classes reaching across the file to
+     * repaint an element `.gp-header*` already owned; the wordmark's mobile
+     * size now lives on .gp-header__wordmark and the header's box on
+     * .gp-header. */
     .nav-tabs .nav-link { padding: var(--space-2) var(--space-3); font-size: var(--text-xs); }
     .slider-container { padding: var(--space-3); }
     .news-ribbon-card { flex: 0 0 220px; }
@@ -2241,7 +2490,7 @@ body.briefing .dashboard-header::after {
 
 @media (min-width: 1920px) {
     .dashboard-header { padding: var(--space-4) var(--space-8); }
-    .tab-content { padding: var(--space-5) var(--space-6); }
+    .tab-content { padding: var(--space-5) 0; }
 }
 
 /* ── Focus Indicators (Accessibility) ─────────────────── */
@@ -2351,10 +2600,43 @@ body.briefing .dashboard-header::after {
 }
 
 /* ── V1.β: US Grid small-multiples ─────────────────────── */
+
+/* The band the BA grid lives in. It is a `.gp-bleed`, so its width no longer
+ * tracks the viewport — it's the viewport minus gutters, capped at
+ * --content-wide. That divergence is exactly why the ladder below is keyed to
+ * this container and not to `@media`: a viewport width can no longer tell a
+ * card how much room it has. */
+.gp-grid-band {
+    container-type: inline-size;
+    container-name: gridband;
+}
+
+/* Mobile-first ladder, keyed to the BAND. Column counts match what the old
+ * viewport ladder produced at every width it covered (the band is the viewport
+ * less ~48px of gutter, so the rungs land in the same places), with one rung
+ * added at the top: past 1400px of band the grid takes a 5th column, which is
+ * the payoff for breaking out in the first place. Without it the band would be
+ * wider and the cards would just be fatter. */
 .gp-region-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: 1fr;
     gap: var(--space-4);
+}
+
+@container gridband (min-width: 480px) {
+    .gp-region-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@container gridband (min-width: 768px) {
+    .gp-region-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@container gridband (min-width: 1024px) {
+    .gp-region-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@container gridband (min-width: 1400px) {
+    .gp-region-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 }
 
 /* Geographic section headers inside the card grid. Span the full row
@@ -2526,7 +2808,7 @@ body.briefing .dashboard-header::after {
 
 .gp-region-card__interchange--import {
     color: var(--forecast);
-    background: rgba(249, 115, 22, 0.12);
+    background: var(--forecast-dim);
 }
 
 .gp-region-card__interchange--neutral {
@@ -2557,7 +2839,7 @@ body.briefing .dashboard-header::after {
 }
 
 .gp-metric-cell--clickable:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--overlay-hover);
 }
 
 .gp-metric-cell--clickable:focus-visible {
@@ -2571,37 +2853,28 @@ body.briefing .dashboard-header::after {
  * deliberate (long enough to find the card you were sent to). */
 @keyframes gp-card-flash {
     0% { box-shadow: 0 0 0 2px var(--accent-base); }
-    100% { box-shadow: 0 0 0 2px rgba(53, 198, 255, 0); }
+    100% { box-shadow: 0 0 0 2px transparent; }
 }
 
 .gp-region-card--flash {
     animation: gp-card-flash 2.2s var(--ease-out-quint) 1;
 }
 
-@media (max-width: 1024px) {
-    .gp-region-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-}
+/* (The 4→3→2→1 @media ladder that used to sit here is now the
+ * `@container gridband` ladder above — same rungs, asked of the band instead
+ * of the window.) */
 
-@media (max-width: 768px) {
-    .gp-region-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-@media (max-width: 480px) {
-    .gp-region-grid {
-        grid-template-columns: 1fr;
-    }
-}
-
-/* V1.γ: Cards | Map view toggle row + map container */
+/* V1.γ: Cards | Map view toggle row + map container.
+ *
+ * The View control is a .gp-control, which is a COLUMN (eyebrow over control).
+ * This rule used to add `align-items: center` + `justify-content: flex-end`,
+ * written as if it were a row — on a column those mean "centre the children
+ * horizontally" and "push them to the bottom", so the VIEW eyebrow sat
+ * centred over its pill while every other eyebrow on the page was left-aligned
+ * with the control beneath it. The class stays as a hook; the row geometry now
+ * comes from .gp-controls-row on the parent, like the Forecast tab's. */
 .gp-us-grid-view-control {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    justify-content: flex-end;
+    align-items: flex-start;
 }
 
 .gp-region-map {

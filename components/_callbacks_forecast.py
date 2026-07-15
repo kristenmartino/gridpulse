@@ -72,6 +72,7 @@ import plotly.graph_objects as go
 import structlog
 from dash import ALL, Input, Output, State, ctx, html, no_update
 
+from components import tokens
 from components._callbacks_shared import (
     _CACHE_VERSION,
     _MODEL_BAND_COLORS,
@@ -173,7 +174,7 @@ def _add_forecast_horizon_divider(
     # a guide rail rather than a primary visual element.
     fig.add_vline(
         x=boundary_iso,
-        line=dict(color="rgba(160,180,200,0.45)", width=1, dash="dot"),
+        line=dict(color=tokens.alpha(tokens.TEXT_SECONDARY, 0.45), width=1, dash="dot"),
     )
 
     # Faint background shade past the boundary — communicates "this is
@@ -181,7 +182,7 @@ def _add_forecast_horizon_divider(
     fig.add_vrect(
         x0=boundary_iso,
         x1=end_iso,
-        fillcolor="rgba(160,180,200,0.05)",
+        fillcolor=tokens.alpha(tokens.TEXT_SECONDARY, 0.05),
         line_width=0,
         layer="below",
     )
@@ -198,7 +199,7 @@ def _add_forecast_horizon_divider(
         showarrow=False,
         xanchor="left",
         yanchor="bottom",
-        font=dict(size=10, color="rgba(160,180,200,0.85)"),
+        font=dict(size=10, color=tokens.alpha(tokens.TEXT_SECONDARY, 0.85)),
         yshift=2,
     )
 
@@ -212,7 +213,7 @@ def _add_forecast_horizon_divider(
         showarrow=False,
         xanchor="left",
         yanchor="bottom",
-        font=dict(size=10, color="rgba(160,180,200,0.85)"),
+        font=dict(size=10, color=tokens.alpha(tokens.TEXT_SECONDARY, 0.85)),
         yshift=2,
     )
 
@@ -951,7 +952,7 @@ def _guarded_outlook_state(
         x=0.5,
         y=0.5,
         showarrow=False,
-        font=dict(color="#71717a", size=14),  # tertiary — disclosure, not alarm
+        font=dict(color=tokens.TEXT_TERTIARY, size=14),  # tertiary — disclosure, not alarm
     )
     return (
         fig,
@@ -1120,7 +1121,7 @@ def _outlook_tab_from_redis(
                 dash=model_style.get("dash", "solid"),
             ),
             fill="tozeroy",
-            fillcolor="rgba(56,208,255,0.10)",
+            fillcolor=tokens.alpha(tokens.ACCENT, 0.10),
         )
     )
     fig.add_trace(
@@ -1129,7 +1130,7 @@ def _outlook_tab_from_redis(
             y=[peak_val],
             mode="markers+text",
             name="Peak",
-            marker=dict(color="#FF5C7A", size=12, symbol="triangle-up"),
+            marker=dict(color=tokens.DANGER, size=12, symbol="triangle-up"),
             text=[f"Peak: {peak_val:,.0f} MW"],
             textposition="top center",
             showlegend=False,
@@ -1141,7 +1142,7 @@ def _outlook_tab_from_redis(
             y=[min_val],
             mode="markers+text",
             name="Min",
-            marker=dict(color="#35c6ff", size=10, symbol="triangle-down"),
+            marker=dict(color=tokens.ACCENT, size=10, symbol="triangle-down"),
             text=[f"Min: {min_val:,.0f} MW"],
             textposition="bottom center",
             showlegend=False,
@@ -1184,6 +1185,12 @@ def _outlook_tab_from_redis(
     fig.update_layout(
         **_layout(
             uirevision=f"{region}:{horizon_hours}",
+            # Morph the forecast line and its P10–P90 band between states. At a
+            # FIXED horizon (region or model switch) the point count holds, so
+            # the band visibly re-fans to the new region's real calibration.
+            # Changing the horizon changes the point count (`periods=
+            # horizon_hours`), which the client gate hard-cuts rather than tear.
+            transition=True,
             title=(
                 f"{horizon_labels.get(horizon_hours, '')} {served_model.upper()} Demand Forecast — {region}"
                 f"{substitution_caption}{interval_caption}{horizon_caption}"
@@ -1209,15 +1216,20 @@ def _outlook_tab_from_redis(
     )
     insight_card = build_insight_card(tab2_insights, persona, "tab-outlook")
 
+    # Values only — no " MW". Each MetricsBar cell already renders the unit as
+    # its own <span class="gp-metric-unit">, so appending it here produced
+    # "27,535 MW MW". Kept invisible while these sat in a dense 4-up strip;
+    # the .gp-forecast-lede rail sets the value at display size and put the
+    # doubled unit right next to it.
     return (
         fig,
         data_through_str,
-        f"{peak_val:,.0f} MW",
+        f"{peak_val:,.0f}",
         peak_time,
-        f"{avg_val:,.0f} MW",
-        f"{min_val:,.0f} MW",
+        f"{avg_val:,.0f}",
+        f"{min_val:,.0f}",
         min_time,
-        f"{range_val:,.0f} MW",
+        f"{range_val:,.0f}",
         insight_card,
     )
 
@@ -1591,7 +1603,7 @@ def register_forecast_callbacks(app):
             else:
                 text = f"Forecast failed: {result['error']}"
             soft = is_warming or is_unavailable or is_selection
-            color = "#71717a" if soft else "#f87171"  # tertiary | danger
+            color = tokens.TEXT_TERTIARY if soft else tokens.DANGER  # tertiary | danger
             fig = go.Figure()
             fig.update_layout(**_layout(uirevision=uirev))
             fig.add_annotation(
@@ -1668,7 +1680,7 @@ def register_forecast_callbacks(app):
                 dash=model_style.get("dash", "solid"),
             ),
             fill="tozeroy",
-            fillcolor="rgba(56,208,255,0.10)",
+            fillcolor=tokens.alpha(tokens.ACCENT, 0.10),
         )
         if tooltips and any(tooltips):
             forecast_kwargs["customdata"] = tooltips
@@ -1684,7 +1696,7 @@ def register_forecast_callbacks(app):
                 y=[peak_val],
                 mode="markers+text",
                 name="Peak",
-                marker=dict(color="#FF5C7A", size=12, symbol="triangle-up"),
+                marker=dict(color=tokens.DANGER, size=12, symbol="triangle-up"),
                 text=[f"Peak: {peak_val:,.0f} MW"],
                 textposition="top center",
                 showlegend=False,
@@ -1697,7 +1709,7 @@ def register_forecast_callbacks(app):
                 y=[min_val],
                 mode="markers+text",
                 name="Min",
-                marker=dict(color="#35c6ff", size=10, symbol="triangle-down"),
+                marker=dict(color=tokens.ACCENT, size=10, symbol="triangle-down"),
                 text=[f"Min: {min_val:,.0f} MW"],
                 textposition="bottom center",
                 showlegend=False,
@@ -1725,10 +1737,12 @@ def register_forecast_callbacks(app):
         )
 
         # Format KPI strings
-        peak_str = f"{peak_val:,.0f} MW"
-        avg_str = f"{avg_val:,.0f} MW"
-        min_str = f"{min_val:,.0f} MW"
-        range_str = f"{range_val:,.0f} MW"
+        # Values only — the MetricsBar cell renders "MW" itself. See the
+        # matching note on the inline-compute path's return above.
+        peak_str = f"{peak_val:,.0f}"
+        avg_str = f"{avg_val:,.0f}"
+        min_str = f"{min_val:,.0f}"
+        range_str = f"{range_val:,.0f}"
 
         # Generate insights
         from components.insights import build_insight_card, generate_tab2_insights
@@ -1863,7 +1877,7 @@ def register_forecast_callbacks(app):
                         y=snap["predictions"],
                         mode="lines",
                         name=f"Forecast from {snap_label}",
-                        line=dict(color="#A8B3C7", width=2, dash="dash"),
+                        line=dict(color=tokens.TEXT_SECONDARY, width=2, dash="dash"),
                         opacity=0.6,
                     )
                 )

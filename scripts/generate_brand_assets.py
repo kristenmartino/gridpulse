@@ -23,13 +23,25 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-# ── Brand constants (must match assets/custom.css :root tokens) ──────
-# Palette aligned to gridpulse-v2 (R1 of shell-redesign-v2.md).
-OBSIDIAN = (10, 10, 11)  # #0a0a0b — --bg-base
-MIDNIGHT = (17, 17, 19)  # #111113 — --bg-raised
-ACCENT_BLUE = (59, 130, 246)  # #3b82f6 — --accent-base (was cyan #38D0FF in G1)
-TEXT_PRIMARY = (228, 228, 231)  # #e4e4e7
-TEXT_SECONDARY = (161, 161, 170)  # #a1a1aa
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from components import tokens  # noqa: E402
+
+# ── Brand constants ──────────────────────────────────────────────────
+# DERIVED from components/tokens.py — never re-typed here.
+#
+# These used to be hand-maintained RGB tuples "matching" the CSS :root, and
+# they silently stopped matching: ACCENT_BLUE was commented "--accent-base"
+# while holding (59, 130, 246) — stock Tailwind blue-500, the very hex the
+# accent had already moved off. assets/favicon.svg had been hand-edited to the
+# real accent, so the SHIPPED mark and its GENERATOR disagreed: re-running this
+# script would have reverted the favicon and repainted og-image.png (the social
+# preview) in the retired blue. An RGB tuple is a color literal no hex grep can
+# see, which is exactly why it drifted unnoticed.
+OBSIDIAN = tokens.rgb(tokens.BG_BASE)
+MIDNIGHT = tokens.rgb(tokens.BG_RAISED)
+ACCENT_BLUE = tokens.rgb(tokens.ACCENT)
+TEXT_PRIMARY = tokens.rgb(tokens.TEXT_PRIMARY)
+TEXT_SECONDARY = tokens.rgb(tokens.TEXT_SECONDARY)
 
 # ── Pulse path in unit coordinates [0..1] × [0..1] ───────────────────
 # Matches the SVG path in assets/favicon.svg exactly.
@@ -79,9 +91,9 @@ def make_favicon_svg(out_path: Path) -> None:
     """Write the SVG monogram. Hardcoded path matches PULSE_PATH_UNIT × 32."""
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">\n'
-        '  <rect width="32" height="32" rx="6" fill="#0a0a0b"/>\n'
+        f'  <rect width="32" height="32" rx="6" fill="{tokens.BG_BASE}"/>\n'
         '  <path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16"\n'
-        '        stroke="#3b82f6" stroke-width="2.25"\n'
+        f'        stroke="{tokens.ACCENT}" stroke-width="2.25"\n'
         '        stroke-linecap="round" stroke-linejoin="round" fill="none"/>\n'
         "</svg>\n"
     )
@@ -185,7 +197,7 @@ def make_og_image(out_path: Path) -> None:
         (width - cap_w - 64, height - 64),
         caption,
         font=cap_font,
-        fill=(168, 179, 199, 200),
+        fill=(*tokens.rgb(tokens.TEXT_SECONDARY), 200),
     )
 
     img.save(out_path, format="PNG", optimize=True)

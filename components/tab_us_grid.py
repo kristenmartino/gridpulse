@@ -86,17 +86,24 @@ def layout() -> html.Div:
                 [
                     html.Div(id="us-grid-title"),
                     html.Div(id="us-grid-metrics-bar"),
+                    # .gp-controls-row is the Forecast tab's control-row
+                    # vocabulary, reused rather than restated: this used to
+                    # carry an inline flex/gap:20px/align-items:flex-end style
+                    # that hand-rolled the same row a token-width away from the
+                    # shared one.
                     html.Div(
                         [_view_toggle(), _sort_control()],
-                        className="gp-us-grid-controls",
-                        style={
-                            "display": "flex",
-                            "gap": "20px",
-                            "alignItems": "flex-end",
-                            "flexWrap": "wrap",
-                        },
+                        className="gp-controls-row gp-us-grid-controls",
                     ),
-                    html.Div(id="us-grid-region-grid"),
+                    # The one surface in the product that leaves the 75rem
+                    # column. ``.gp-bleed`` widens the band to --content-wide;
+                    # everything above it (title / metrics / controls) stays
+                    # bounded, so the break reads as a claim about this grid
+                    # rather than about the page. ``.gp-grid-band`` makes it a
+                    # container so the cards inside size against the band's
+                    # real width instead of the viewport's — see the
+                    # ``@container gridband`` ladder in assets/custom.css.
+                    html.Div(id="us-grid-region-grid", className="gp-bleed gp-grid-band"),
                     dcc.Store(id="us-grid-jump-store"),
                     # Footer promoted to a single app-level footer
                     # (components/layout.py build_layout()).

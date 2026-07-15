@@ -30,6 +30,7 @@ import plotly.graph_objects as go
 import structlog
 from dash import ALL, Input, Output, ctx, dcc, html, no_update
 
+from components import tokens
 from components._callbacks_shared import (
     _MAP_AXIS_FONT_COLOR,
     _MAP_BORDER_COLOR,
@@ -753,7 +754,7 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
                     "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
                     "thickness": 10,
                     "len": 0.6,
-                    "bgcolor": "rgba(0,0,0,0)",
+                    "bgcolor": tokens.TRANSPARENT,
                     "bordercolor": _MAP_BORDER_COLOR,
                     "borderwidth": 1,
                     "x": 1.0,
@@ -777,12 +778,12 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
         subunitcolor=_MAP_SUBUNIT_COLOR,
         showcountries=False,
         showlakes=False,
-        bgcolor="rgba(0,0,0,0)",
+        bgcolor=tokens.TRANSPARENT,
     )
 
     fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor=tokens.TRANSPARENT,
+        plot_bgcolor=tokens.TRANSPARENT,
         margin={"l": 0, "r": 0, "t": 8, "b": 0},
         font={"family": "Inter, system-ui, sans-serif", "color": _MAP_AXIS_FONT_COLOR, "size": 11},
         height=480,
@@ -790,7 +791,11 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
         hoverlabel={
             "bgcolor": _MAP_LAND_COLOR,
             "bordercolor": _MAP_COASTLINE_COLOR,
-            "font": {"color": "#e4e4e7", "family": "Inter, system-ui, sans-serif", "size": 12},
+            "font": {
+                "color": tokens.TEXT_PRIMARY,
+                "family": "Inter, system-ui, sans-serif",
+                "size": 12,
+            },
         },
     )
 
@@ -799,7 +804,7 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
             id="us-grid-map",
             figure=fig,
             config={"displayModeBar": False, "responsive": True},
-            style={"height": "480px"},
+            style={"height": "var(--map-h)"},
         ),
         className="gp-region-map",
     )
@@ -909,7 +914,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
                 "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
                 "thickness": 10,
                 "len": 0.6,
-                "bgcolor": "rgba(0,0,0,0)",
+                "bgcolor": tokens.TRANSPARENT,
                 "bordercolor": _MAP_BORDER_COLOR,
                 "borderwidth": 1,
                 "x": 1.0,
@@ -936,11 +941,11 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
         subunitcolor=_MAP_SUBUNIT_COLOR,
         showcountries=False,
         showlakes=False,
-        bgcolor="rgba(0,0,0,0)",
+        bgcolor=tokens.TRANSPARENT,
     )
     fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor=tokens.TRANSPARENT,
+        plot_bgcolor=tokens.TRANSPARENT,
         margin={"l": 0, "r": 0, "t": 8, "b": 0},
         font={"family": "Inter, system-ui, sans-serif", "color": _MAP_AXIS_FONT_COLOR, "size": 11},
         height=480,
@@ -948,7 +953,11 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
         hoverlabel={
             "bgcolor": _MAP_LAND_COLOR,
             "bordercolor": _MAP_COASTLINE_COLOR,
-            "font": {"color": "#e4e4e7", "family": "Inter, system-ui, sans-serif", "size": 12},
+            "font": {
+                "color": tokens.TEXT_PRIMARY,
+                "family": "Inter, system-ui, sans-serif",
+                "size": 12,
+            },
         },
     )
 
@@ -973,7 +982,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
                 id="us-grid-map",
                 figure=fig,
                 config={"displayModeBar": False, "responsive": True},
-                style={"height": "480px"},
+                style={"height": "var(--map-h)"},
             ),
             caption,
         ],

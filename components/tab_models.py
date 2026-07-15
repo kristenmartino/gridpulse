@@ -17,6 +17,8 @@ to work without signature changes.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from components import tokens
+
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
@@ -71,11 +73,11 @@ def _residual_grid() -> html.Div:
                     dcc.Loading(
                         dcc.Graph(
                             id="tab3-residuals-time",
-                            style={"height": "260px"},
+                            style={"height": "var(--chart-h-third)"},
                             config=_GRAPH_CONFIG,
                         ),
                         type="circle",
-                        color="#35c6ff",
+                        color=tokens.ACCENT,
                     ),
                 ],
                 className="gp-chart-card",
@@ -86,11 +88,11 @@ def _residual_grid() -> html.Div:
                     dcc.Loading(
                         dcc.Graph(
                             id="tab3-residuals-hist",
-                            style={"height": "260px"},
+                            style={"height": "var(--chart-h-third)"},
                             config=_GRAPH_CONFIG,
                         ),
                         type="circle",
-                        color="#35c6ff",
+                        color=tokens.ACCENT,
                     ),
                 ],
                 className="gp-chart-card",
@@ -101,11 +103,11 @@ def _residual_grid() -> html.Div:
                     dcc.Loading(
                         dcc.Graph(
                             id="tab3-residuals-pred",
-                            style={"height": "260px"},
+                            style={"height": "var(--chart-h-third)"},
                             config=_GRAPH_CONFIG,
                         ),
                         type="circle",
-                        color="#35c6ff",
+                        color=tokens.ACCENT,
                     ),
                 ],
                 className="gp-chart-card",
@@ -128,11 +130,11 @@ def _error_shap_grid() -> html.Div:
                     dcc.Loading(
                         dcc.Graph(
                             id="tab3-error-heatmap",
-                            style={"height": "300px"},
+                            style={"height": "var(--chart-h-half)"},
                             config=_GRAPH_CONFIG,
                         ),
                         type="circle",
-                        color="#35c6ff",
+                        color=tokens.ACCENT,
                     ),
                 ],
                 className="gp-chart-card",
@@ -146,11 +148,11 @@ def _error_shap_grid() -> html.Div:
                     dcc.Loading(
                         dcc.Graph(
                             id="tab3-shap",
-                            style={"height": "300px"},
+                            style={"height": "var(--chart-h-half)"},
                             config=_GRAPH_CONFIG,
                         ),
                         type="circle",
-                        color="#35c6ff",
+                        color=tokens.ACCENT,
                     ),
                 ],
                 className="gp-chart-card",

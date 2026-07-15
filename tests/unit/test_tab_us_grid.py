@@ -17,6 +17,8 @@ from unittest.mock import patch
 import plotly.graph_objects as go
 from dash import dcc, html
 
+from components import tokens
+
 
 def _collect_ids(component, collected=None):
     """Walk a Dash layout tree and return every component id we find."""
@@ -258,8 +260,8 @@ class TestMap:
 
         data = {"FPL": {"current_mw": 30000, "today_mw": [30000]}}
         fig = _build_us_grid_map(data).children.figure
-        assert fig.layout.paper_bgcolor == "rgba(0,0,0,0)"
-        assert fig.layout.plot_bgcolor == "rgba(0,0,0,0)"
+        assert fig.layout.paper_bgcolor == tokens.TRANSPARENT
+        assert fig.layout.plot_bgcolor == tokens.TRANSPARENT
 
     def test_map_disables_modebar(self):
         """V1.γ acceptance: modebar trimmed via PLOT_CONFIG."""
@@ -312,7 +314,7 @@ class TestSparkline:
         assert "<polyline" in decoded
         assert decoded.index("<svg") < decoded.index("<polyline") < decoded.index("</svg>")
         # currentColor can't inherit inside an <img>, so the accent is baked in.
-        assert 'stroke="#35c6ff"' in decoded
+        assert f'stroke="{tokens.ACCENT}"' in decoded
 
     def test_color_arg_is_baked_into_stroke(self):
         """The explicit ``color`` arg overrides the default baked stroke."""
@@ -320,10 +322,10 @@ class TestSparkline:
 
         from components.callbacks import _build_us_grid_sparkline
 
-        spark = _build_us_grid_sparkline([1.0, 2.0, 3.0], color="#ff0000")
+        spark = _build_us_grid_sparkline([1.0, 2.0, 3.0], color=tokens.DANGER)
         decoded = unquote(spark.children.src.split(",", 1)[1])
-        assert 'stroke="#ff0000"' in decoded
-        assert 'stroke="#35c6ff"' not in decoded
+        assert f'stroke="{tokens.DANGER}"' in decoded
+        assert f'stroke="{tokens.ACCENT}"' not in decoded
 
 
 def _find_by_id(component, target_id):

@@ -27,6 +27,14 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["data", "models", "simulation", "personas", "components", "config"]
 
+[tool.ruff.lint.per-file-ignores]
+# Color science is written in the notation of its own field: CIE L*a*b* and
+# OKLCh spell lightness/chroma/hue as L, C, H, and CIEDE2000's published
+# formula uses L1/a1/b1, C1p, dLp, Sl/Sc/Sh. Renaming those to snake_case
+# would make the implementation harder to check against the paper it comes
+# from, which is the only way anyone can audit it.
+"scripts/color_science.py" = ["N803", "N806", "E741"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"

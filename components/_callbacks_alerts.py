@@ -40,6 +40,7 @@ import plotly.graph_objects as go
 import structlog
 from dash import Input, Output, html, no_update
 
+from components import tokens
 from components._callbacks_shared import (
     COLORS,
     _empty_figure,
@@ -92,7 +93,7 @@ def _alerts_tab_from_redis(region):
                 html.P(
                     "Demo data — not a live alert feed",
                     className="gp-demo-disclosure",
-                    style={"color": "#FFB84D", "fontSize": "0.75rem", "textAlign": "center"},
+                    style={"color": tokens.WARNING, "fontSize": "0.75rem", "textAlign": "center"},
                 )
             )
         for a in alerts:
@@ -113,7 +114,11 @@ def _alerts_tab_from_redis(region):
                 html.P(
                     f"Live severe-weather alerts · NOAA/NWS{more_note}",
                     className="gp-alerts-source",
-                    style={"color": "#A8B3C7", "fontSize": "0.72rem", "textAlign": "center"},
+                    style={
+                        "color": tokens.TEXT_SECONDARY,
+                        "fontSize": "0.72rem",
+                        "textAlign": "center",
+                    },
                 )
             )
     elif alerts_source == "unavailable":
@@ -122,21 +127,21 @@ def _alerts_tab_from_redis(region):
                 "Severe-weather alerts (NOAA/NWS) are temporarily unavailable. "
                 "The temperature and demand-anomaly charts below use live "
                 "weather and demand data and are unaffected.",
-                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
+                style={"color": tokens.TEXT_SECONDARY, "textAlign": "center", "padding": "20px"},
             )
         ]
     elif alerts_source == "noaa":
         alert_cards = [
             html.P(
                 "No active severe-weather alerts (NOAA/NWS live feed)",
-                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
+                style={"color": tokens.TEXT_SECONDARY, "textAlign": "center", "padding": "20px"},
             )
         ]
     else:
         alert_cards = [
             html.P(
                 "No active alerts",
-                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
+                style={"color": tokens.TEXT_SECONDARY, "textAlign": "center", "padding": "20px"},
             )
         ]
 
@@ -149,28 +154,28 @@ def _alerts_tab_from_redis(region):
         breakdown_items.append(
             html.Div(
                 f"\U0001f534 Critical: {n_crit}",
-                style={"fontSize": "0.75rem", "color": "#FF5C7A"},
+                style={"fontSize": "0.75rem", "color": tokens.DANGER},
             )
         )
     if n_warn:
         breakdown_items.append(
             html.Div(
                 f"\U0001f7e1 Warning: {n_warn}",
-                style={"fontSize": "0.75rem", "color": "#FFB84D"},
+                style={"fontSize": "0.75rem", "color": tokens.WARNING},
             )
         )
     if n_info:
         breakdown_items.append(
             html.Div(
                 f"\U0001f535 Info: {n_info}",
-                style={"fontSize": "0.75rem", "color": "#56B4E9"},
+                style={"fontSize": "0.75rem", "color": tokens.CB_PALETTE["sky_blue"]},
             )
         )
     if not alerts:
         breakdown_items.append(
             html.Div(
                 "No alert feed" if alerts_source == "unavailable" else "No active alerts",
-                style={"fontSize": "0.75rem", "color": "#A8B3C7"},
+                style={"fontSize": "0.75rem", "color": tokens.TEXT_SECONDARY},
             )
         )
     breakdown = html.Div(breakdown_items)
@@ -193,7 +198,7 @@ def _alerts_tab_from_redis(region):
                 x=a_ts,
                 y=a_upper,
                 name="Upper (2σ)",
-                line=dict(color="#FF5C7A", dash="dash", width=1),
+                line=dict(color=tokens.DANGER, dash="dash", width=1),
             )
         )
         fig_anomaly.add_trace(
@@ -201,7 +206,7 @@ def _alerts_tab_from_redis(region):
                 x=a_ts,
                 y=a_lower,
                 name="Lower (2σ)",
-                line=dict(color="#FF5C7A", dash="dash", width=1),
+                line=dict(color=tokens.DANGER, dash="dash", width=1),
             )
         )
         if len(a_anom_ts) > 0:
@@ -211,7 +216,7 @@ def _alerts_tab_from_redis(region):
                     y=a_anom_vals,
                     mode="markers",
                     name="Anomaly",
-                    marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
+                    marker=dict(color=tokens.DANGER, size=8, symbol="diamond"),
                 )
             )
         fig_anomaly.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
@@ -229,7 +234,7 @@ def _alerts_tab_from_redis(region):
         for t in [95, 100, 105]:
             fig_temp.add_hline(
                 y=t,
-                line=dict(color="#FF5C7A", dash="dot", width=1),
+                line=dict(color=tokens.DANGER, dash="dot", width=1),
                 annotation_text=f"{t}°F",
                 annotation_position="right",
             )
@@ -246,7 +251,7 @@ def _alerts_tab_from_redis(region):
     ]
     fig_timeline = go.Figure()
     for date, name, reg, sev in events:
-        color = COLORS["ensemble"] if reg == region else "#A8B3C7"
+        color = COLORS["ensemble"] if reg == region else tokens.TEXT_SECONDARY
         fig_timeline.add_trace(
             go.Scatter(
                 x=[date],
@@ -286,10 +291,14 @@ def _alerts_tab_from_redis(region):
         last_temp = float(t_vals[-1])
         if pd.isna(last_temp):
             temp_display = "—"
-            color = "#A8B3C7"
+            color = tokens.TEXT_SECONDARY
         else:
             temp_display = f"{last_temp:.0f}°F"
-            color = "#FF5C7A" if last_temp >= 95 else ("#FFB84D" if last_temp >= 85 else "#2BD67B")
+            color = (
+                tokens.DANGER
+                if last_temp >= 95
+                else (tokens.WARNING if last_temp >= 85 else tokens.SUCCESS)
+            )
         weather_context = dbc.Row(
             [
                 dbc.Col(
@@ -481,7 +490,7 @@ def register_alerts_callbacks(app):
                 html.P(
                     "Demo data — not a live alert feed",
                     className="gp-demo-disclosure",
-                    style={"color": "#FFB84D", "fontSize": "0.75rem", "textAlign": "center"},
+                    style={"color": tokens.WARNING, "fontSize": "0.75rem", "textAlign": "center"},
                 )
             )
             for a in alerts:
@@ -497,7 +506,11 @@ def register_alerts_callbacks(app):
             alert_cards = [
                 html.P(
                     "No active alerts",
-                    style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
+                    style={
+                        "color": tokens.TEXT_SECONDARY,
+                        "textAlign": "center",
+                        "padding": "20px",
+                    },
                 )
             ]
 
@@ -597,7 +610,7 @@ def register_alerts_callbacks(app):
                     x=recent["timestamp"],
                     y=upper,
                     name="Upper (2σ)",
-                    line=dict(color="#FF5C7A", dash="dash", width=1),
+                    line=dict(color=tokens.DANGER, dash="dash", width=1),
                 )
             )
             fig_anomaly.add_trace(
@@ -605,7 +618,7 @@ def register_alerts_callbacks(app):
                     x=recent["timestamp"],
                     y=lower,
                     name="Lower (2σ)",
-                    line=dict(color="#FF5C7A", dash="dash", width=1),
+                    line=dict(color=tokens.DANGER, dash="dash", width=1),
                 )
             )
             if not anomalies.empty:
@@ -615,7 +628,7 @@ def register_alerts_callbacks(app):
                         y=anomalies["demand_mw"],
                         mode="markers",
                         name="Anomaly",
-                        marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
+                        marker=dict(color=tokens.DANGER, size=8, symbol="diamond"),
                     )
                 )
             fig_anomaly.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
@@ -638,7 +651,7 @@ def register_alerts_callbacks(app):
             for t in [95, 100, 105]:
                 fig_temp.add_hline(
                     y=t,
-                    line=dict(color="#FF5C7A", dash="dot", width=1),
+                    line=dict(color=tokens.DANGER, dash="dot", width=1),
                     annotation_text=f"{t}°F",
                     annotation_position="right",
                 )
@@ -654,7 +667,7 @@ def register_alerts_callbacks(app):
         ]
         fig_timeline = go.Figure()
         for date, name, reg, sev in events:
-            color = COLORS["ensemble"] if reg == region else "#A8B3C7"
+            color = COLORS["ensemble"] if reg == region else tokens.TEXT_SECONDARY
             fig_timeline.add_trace(
                 go.Scatter(
                     x=[date],

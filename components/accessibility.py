@@ -2,56 +2,51 @@
 Accessibility utilities for WCAG 2.1 AA compliance.
 
 Provides:
-- Colorblind-safe palette (verified with Sim Daltonism)
 - ARIA label generators for charts and interactive elements
 - Keyboard navigation helpers
 - Screen reader text generators for KPI cards and alerts
+- The color+dash double-encoding for model-identity series
+
+Color VALUES live in ``components.tokens`` (the single source of truth); this
+module owns how they are *applied* to accessible chart encodings.
 """
 
-# ── Colorblind-Safe Palette ───────────────────────────────────
-# Verified distinguishable under protanopia, deuteranopia, tritanopia.
-# Based on Wong (2011) "Points of View: Color blindness" Nature Methods.
+from components.tokens import ACCENT, NEUTRAL_SERIES
 
-CB_PALETTE = {
-    "blue": "#0072B2",  # Actual demand
-    "orange": "#E69F00",  # Prophet
-    "green": "#009E73",  # ARIMA / positive
-    "vermillion": "#D55E00",  # Ensemble / alert
-    "sky_blue": "#56B4E9",  # XGBoost / info
-    "yellow": "#F0E442",  # Solar / warning
-    "purple": "#CC79A7",  # Nuclear
-    "black": "#000000",
-}
+# Explicit re-exports (`X as X`) — callers still import the accessible palettes
+# from this module, but the VALUES live in components.tokens. The redundant-
+# alias form is the convention that marks a re-export, and it stops `ruff
+# --fix` from deleting these as "unused imports" (it already did once, which
+# broke every `from components.accessibility import FUEL_COLORS` callsite).
+from components.tokens import CB_PALETTE as CB_PALETTE
+from components.tokens import FUEL_COLORS as FUEL_COLORS
 
-# Chart line styles paired with colors for double-encoding
-# (color + dash pattern = accessible even in grayscale)
+# ── Model-identity double-encoding ────────────────────────────
+#
+# Color + dash pattern, so model identity survives grayscale and all three
+# CVD types (WCAG 1.4.1). Colors come from the Wong palette; the dash is the
+# independent second channel. Both are load-bearing — do not drop either.
+#
+# "actual" is the demand series and carries the brand ACCENT rather than a
+# Wong slot: demand is the product's subject, not one model among peers. It is
+# verified to clear every series it actually shares a figure with (Wong's
+# sky_blue is only ever drawn in single-trace residual figures, so the two
+# never meet). ``scripts/verify_palette.py`` re-proves this; if you add a
+# figure that draws "actual" alongside "xgboost", that check will fail —
+# which is the point.
 LINE_STYLES = {
-    "actual": {"color": CB_PALETTE["blue"], "dash": "solid", "width": 2},
+    "actual": {"color": ACCENT, "dash": "solid", "width": 2},
     "prophet": {"color": CB_PALETTE["orange"], "dash": "dash", "width": 1.5},
     "arima": {"color": CB_PALETTE["green"], "dash": "dot", "width": 1.5},
     "xgboost": {"color": CB_PALETTE["sky_blue"], "dash": "dashdot", "width": 1.5},
     "ensemble": {"color": CB_PALETTE["vermillion"], "dash": "solid", "width": 3},
-    "eia_forecast": {"color": "#7f7f7f", "dash": "dot", "width": 1},
+    "eia_forecast": {"color": NEUTRAL_SERIES, "dash": "dot", "width": 1},
     "temperature": {"color": CB_PALETTE["yellow"], "dash": "solid", "width": 1.5},
 }
 
-# Fuel type colors (accessible)
-FUEL_COLORS = {
-    "nuclear": CB_PALETTE["purple"],
-    "coal": "#7f7f7f",
-    "gas": CB_PALETTE["orange"],
-    "hydro": CB_PALETTE["blue"],
-    "wind": CB_PALETTE["green"],
-    "solar": CB_PALETTE["yellow"],
-    "other": "#b0b0b0",
-}
-
-# Severity colors with sufficient contrast on dark backgrounds
-SEVERITY_COLORS = {
-    "critical": {"bg": "rgba(213, 94, 0, 0.15)", "border": "#D55E00", "text": "#D55E00"},
-    "warning": {"bg": "rgba(240, 228, 66, 0.15)", "border": "#F0E442", "text": "#F0E442"},
-    "info": {"bg": "rgba(86, 180, 233, 0.15)", "border": "#56B4E9", "text": "#56B4E9"},
-}
+# CB_PALETTE / FUEL_COLORS are imported above rather than defined here, and are
+# re-exported so callers can keep importing the accessible palettes from the
+# accessibility module. Their values live in components.tokens.
 
 
 # ── ARIA Label Generators ─────────────────────────────────────
@@ -133,9 +128,7 @@ def forecast_summary(
     """
     parts = [f"Demand forecast for {region}."]
     if peak_mw is not None and peak_time:
-        parts.append(
-            f"Today's peak demand is forecast at {peak_mw:,.0f} megawatts at {peak_time}."
-        )
+        parts.append(f"Today's peak demand is forecast at {peak_mw:,.0f} megawatts at {peak_time}.")
     if mape is not None:
         parts.append(f"Recent forecast accuracy is {mape:.1f}% {mape_label}.")
     if headroom_pct is not None:

@@ -1,9 +1,13 @@
 """Tab: Forecast (formerly Demand Outlook).
 
-R4a-1 of shell-redesign-v2.md. Rebuilt to the v2 linear-stack rhythm:
-title / controls / hero chart / MetricsBar / ModelCard / InsightCard /
-footer. R4a-2 will add the toggle strip + Drivers / Generation /
-Scenario inline panels beneath the InsightCard.
+R4a-1 of shell-redesign-v2.md, then the top-design composition pass.
+Rhythm: title / controls / lede / ModelCard / InsightCard / panels.
+
+The lede is the one place this tab departs from the uniform stack —
+the hero chart and the 4-up MetricsBar are one unit, chart left and
+metrics as a right rail, rather than two full-width bands of equal
+weight. It collapses back to a stack below 1024px. See
+``.gp-forecast-lede`` in assets/custom.css for the reasoning.
 
 All existing component IDs (outlook-chart, outlook-horizon, outlook-model,
 outlook-peak, outlook-avg, outlook-min, outlook-range, outlook-peak-time,
@@ -16,6 +20,7 @@ existing IDs as inner spans of MetricsBar cells / ModelMetricsCard slots.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from components import tokens
 from components.cards import metric_label_with_help
 
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
@@ -245,9 +250,12 @@ def _metrics_bar() -> html.Div:
             className="gp-metric-cell",
         ),
     ]
+    # --rail turns the 4-up strip on its side and stands it beside the chart
+    # (see .gp-forecast-lede). --4up is kept because it's still what the bar
+    # falls back to below 1024px, where the rail has no room to be a rail.
     return html.Div(
         cells + [peak_tt, avg_tt, min_tt, range_tt],
-        className="gp-metrics-bar gp-metrics-bar--4up",
+        className="gp-metrics-bar gp-metrics-bar--4up gp-metrics-bar--rail",
     )
 
 
@@ -472,7 +480,7 @@ def _panel_scenarios() -> dbc.Collapse:
                 # Baseline vs scenario chart (callback fills)
                 dcc.Graph(
                     id="forecast-scenarios-chart",
-                    style={"height": "240px"},
+                    style={"height": "var(--chart-h-inline)"},
                     config={"displayModeBar": False, "responsive": True},
                 ),
             ],
@@ -499,33 +507,52 @@ def layout() -> html.Div:
                     ),
                     # 2b. Replay panel (hidden carrier — preserved for callback)
                     _replay_panel(),
-                    # 3. Hero forecast chart (full-width, with confidence band)
-                    html.Div(
-                        dcc.Loading(
-                            dcc.Graph(
-                                id="outlook-chart",
-                                style={"height": "380px"},
-                                config=_GRAPH_CONFIG,
-                            ),
-                            type="circle",
-                            color="#35c6ff",
-                        ),
-                        className="gp-chart-card",
-                    ),
-                    # 3b. Forecast as-of (preserved id, now rendered as a chip)
+                    # 3–4. The lede: hero chart + its numbers as a right rail.
+                    # Peak / Average / Min / Range are readings OF the curve,
+                    # not a separate section, so above 1024px they stand beside
+                    # it instead of queueing underneath — the chart keeps the
+                    # weight, and the eye reads subject-then-annotation rather
+                    # than two equal bands. Below 1024px the rail has no room
+                    # to be a rail and this collapses back to a stack.
                     html.Div(
                         [
-                            html.Span("Forecast as of ", className="gp-chip-label"),
-                            html.Span(
-                                id="outlook-data-through",
-                                children="—",
-                                className="gp-chip-value tabular",
+                            html.Div(
+                                [
+                                    html.Div(
+                                        dcc.Loading(
+                                            dcc.Graph(
+                                                id="outlook-chart",
+                                                style={"height": "var(--chart-h-hero)"},
+                                                config=_GRAPH_CONFIG,
+                                            ),
+                                            type="circle",
+                                            color=tokens.ACCENT,
+                                        ),
+                                        className="gp-chart-card",
+                                    ),
+                                    # Forecast as-of (preserved id, as a chip)
+                                    html.Div(
+                                        [
+                                            html.Span(
+                                                "Forecast as of ",
+                                                className="gp-chip-label",
+                                            ),
+                                            html.Span(
+                                                id="outlook-data-through",
+                                                children="—",
+                                                className="gp-chip-value tabular",
+                                            ),
+                                        ],
+                                        className="gp-as-of-chip",
+                                    ),
+                                ],
+                                className="gp-forecast-lede__main",
                             ),
+                            # MetricsBar (reuses existing outlook-* IDs)
+                            _metrics_bar(),
                         ],
-                        className="gp-as-of-chip",
+                        className="gp-forecast-lede",
                     ),
-                    # 4. MetricsBar (4-up, reuses existing outlook-* IDs)
-                    _metrics_bar(),
                     # 5. ModelMetricsCard (callback fills)
                     html.Div(id="outlook-model-card"),
                     # 6. InsightCard (existing id; styled by the wrapper)

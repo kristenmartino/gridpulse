@@ -51,6 +51,7 @@ import plotly.graph_objects as go
 import structlog
 from dash import Input, Output, State, html, no_update
 
+from components import tokens
 from components._callbacks_shared import (
     _MODEL_CACHE,
     COLORS,
@@ -255,7 +256,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
                 text=provenance,
                 showarrow=False,
                 xanchor="left",
-                font=dict(size=10, color="rgba(160,180,200,0.85)"),
+                font=dict(size=10, color=tokens.alpha(tokens.TEXT_SECONDARY, 0.85)),
             )
         return fig
 
@@ -278,7 +279,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             line=dict(color=COLORS["arima"], width=1),
         )
     )
-    fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
+    fig_resid_time.add_hline(y=0, line=dict(color=tokens.TEXT_PRIMARY, dash="dash", width=0.5))
     fig_resid_time.update_layout(**_layout(uirevision=uirev, yaxis_title="Residual (MW)"))
 
     fig_resid_hist = go.Figure(
@@ -296,7 +297,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
             marker=dict(size=2, color=COLORS["xgboost"], opacity=0.3),
         )
     )
-    fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
+    fig_resid_pred.add_hline(y=0, line=dict(color=tokens.TEXT_PRIMARY, dash="dash", width=0.5))
     fig_resid_pred.update_layout(
         **_layout(
             uirevision=uirev,
@@ -1079,7 +1080,7 @@ def register_models_callbacks(app):
                     line=dict(color=model_colors.get(model_key, COLORS["actual"]), width=1),
                 )
             )
-        fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
+        fig_resid_time.add_hline(y=0, line=dict(color=tokens.TEXT_PRIMARY, dash="dash", width=0.5))
         fig_resid_time.update_layout(**_layout(uirevision=uirev, yaxis_title="Residual (MW)"))
 
         fig_resid_hist = go.Figure()
@@ -1118,7 +1119,7 @@ def register_models_callbacks(app):
                     ),
                 )
             )
-        fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
+        fig_resid_pred.add_hline(y=0, line=dict(color=tokens.TEXT_PRIMARY, dash="dash", width=0.5))
         fig_resid_pred.update_layout(
             **_layout(uirevision=uirev, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)")
         )

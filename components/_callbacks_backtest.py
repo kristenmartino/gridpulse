@@ -73,6 +73,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import structlog
 
+from components import tokens
 from components._callbacks_shared import (
     _BACKTEST_CACHE,
     _CACHE_VERSION,
@@ -249,10 +250,10 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
     # Build the chart
     fig = go.Figure()
     model_colors = {
-        "xgboost": COLORS.get("ensemble", "#2DE2C4"),
-        "prophet": COLORS.get("prophet", "#E69F00"),
-        "arima": COLORS.get("arima", "#009E73"),
-        "ensemble": COLORS.get("ensemble", "#2DE2C4"),
+        "xgboost": COLORS.get("ensemble", tokens.ACCENT),
+        "prophet": COLORS.get("prophet", tokens.CB_PALETTE["orange"]),
+        "arima": COLORS.get("arima", tokens.CB_PALETTE["green"]),
+        "ensemble": COLORS.get("ensemble", tokens.ACCENT),
     }
     fig.add_trace(
         go.Scatter(
@@ -269,7 +270,7 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
             y=predictions,
             mode="lines",
             name=f"{model_name.upper()} Forecast",
-            line=dict(color=model_colors.get(model_name, "#2DE2C4"), width=2, dash="dash"),
+            line=dict(color=model_colors.get(model_name, tokens.ACCENT), width=2, dash="dash"),
         )
     )
     if interval_available:
@@ -300,7 +301,7 @@ def _backtest_tab_from_redis(region, horizon_hours, model_name, persona_id):
             x=list(timestamps) + list(timestamps[::-1]),
             y=list(predictions) + list(actual[::-1]),
             fill="toself",
-            fillcolor="rgba(255,92,122,0.12)",
+            fillcolor=tokens.alpha(tokens.DANGER, 0.12),
             line=dict(width=0),
             name="Forecast Error",
             showlegend=True,

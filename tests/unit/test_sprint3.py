@@ -33,13 +33,22 @@ class TestColorblindPalette:
         required = {"nuclear", "coal", "gas", "hydro", "wind", "solar", "other"}
         assert required <= set(FUEL_COLORS.keys())
 
-    def test_severity_colors_have_all_levels(self):
-        from components.accessibility import SEVERITY_COLORS
-
-        for level in ("critical", "warning", "info"):
-            assert level in SEVERITY_COLORS
-            assert "bg" in SEVERITY_COLORS[level]
-            assert "border" in SEVERITY_COLORS[level]
+    # The old ``test_severity_colors_have_all_levels`` lived here and asserted
+    # that accessibility.SEVERITY_COLORS had "critical"/"warning"/"info" keys
+    # each carrying "bg" and "border". It passed for the whole life of a
+    # constant that had ZERO callsites, while the app painted severity from two
+    # OTHER triads (#FF5C7A/#FFB84D/#2BD67B and the CSS semantic tokens). Three
+    # triads for one concept, and the tests guarded the one nothing rendered.
+    #
+    # SEVERITY_COLORS is deleted. Severity is now components.tokens.SEVERITY,
+    # mapped onto the semantic tokens, and asserted against what actually
+    # renders in tests/unit/test_color_tokens.py.
+    #
+    # The key-existence checks above are kept but are NOT the real guarantee —
+    # see test_color_tokens.py::TestRenderedTraceColors, which pins FUEL_COLORS
+    # to the palette the fuel chart actually paints. That linkage is what this
+    # class was missing: FUEL_COLORS passed every test here while having no
+    # callsites at all.
 
 
 class TestARIALabels:

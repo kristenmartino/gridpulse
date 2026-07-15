@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 from dash import html
 
+from components import tokens
 from config import REGION_CAPACITY_MW, feature_enabled, mape_grade
 from personas.config import get_persona
 
@@ -806,20 +807,20 @@ def build_insight_card(
         persona_color = persona.color
         persona_title = persona.title
     except (KeyError, AttributeError):
-        persona_color = "#64b5f6"
+        persona_color = tokens.INFO
         persona_title = "Analyst"
 
     severity_colors = {
-        "info": "#64b5f6",
-        "notable": "#ffb74d",
-        "warning": "#FF5C7A",
+        "info": tokens.INFO,
+        "notable": tokens.WARNING,
+        "warning": tokens.DANGER,
     }
 
     show_links = feature_enabled("cross_tab_links")
 
     insight_items = []
     for insight in insights[:max_insights]:
-        sev_color = severity_colors.get(insight.severity, "#64b5f6")
+        sev_color = severity_colors.get(insight.severity, tokens.INFO)
 
         category_badge = html.Span(
             insight.category.upper(),
@@ -859,9 +860,9 @@ def build_insight_card(
                 row_children,
                 style={
                     "padding": "6px 0",
-                    "borderBottom": "1px solid #263556",
+                    "borderBottom": f"1px solid {tokens.BORDER_DEFAULT}",
                     "fontSize": "0.82rem",
-                    "color": "#DDE6F2",
+                    "color": tokens.TEXT_PRIMARY,
                     "lineHeight": "1.5",
                 },
             )
@@ -881,13 +882,13 @@ def build_insight_card(
                         "Insights",
                         style={
                             "fontWeight": "600",
-                            "color": "#ffffff",
+                            "color": tokens.TEXT_PRIMARY,
                             "fontSize": "0.85rem",
                         },
                     ),
                     html.Span(
                         f"  {persona_title}",
-                        style={"color": "#A8B3C7", "fontSize": "0.75rem"},
+                        style={"color": tokens.TEXT_SECONDARY, "fontSize": "0.75rem"},
                     ),
                 ],
                 style={"marginBottom": "8px"},

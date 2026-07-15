@@ -37,6 +37,7 @@ from dash import ALL, Input, Output, State, ctx, html, no_update
 # noqa: F401 on the re-exports below — these aren't unused, they're
 # the public-import shim. Anything imported from this module via
 # ``from components.callbacks import <X>`` resolves through here.
+from components import tokens
 from components._callbacks_alerts import (
     _alerts_tab_from_redis,  # noqa: F401 — re-export (callback now lives in _callbacks_alerts)
     register_alerts_callbacks,
@@ -102,9 +103,9 @@ from components._callbacks_shared import (
     _MODEL_CACHE,  # noqa: F401 — re-export (test fixture `_clear_module_caches`)
     _PREDICTION_CACHE,  # noqa: F401 — re-export (test fixture `_clear_module_caches`)
     _STRESS_RELIABLE_CEILING,  # noqa: F401 — re-export (tests/unit/test_us_grid_stress_cap)
+    ACCENT,  # noqa: F401 — re-export (brand accent hex mirror; top-design pass)
     BACKTEST_EXOG_MODES,  # noqa: F401 — re-export
     COLORS,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py::TestModuleConstants)
-    ACCENT,  # noqa: F401 — re-export (brand accent hex mirror; top-design pass)
     DEFAULT_BACKTEST_EXOG_MODE,  # noqa: F401 — re-export (tests + Backtest module imports it elsewhere)
     PLOT_CONFIG,  # noqa: F401 — re-export
     PLOT_LAYOUT,  # noqa: F401 — re-export
@@ -658,19 +659,21 @@ def register_callbacks(app):
         from datetime import datetime
 
         if not freshness_json:
-            return html.Span("⏳ Loading…", style={"color": "#A8B3C7", "fontSize": "0.75rem"})
+            return html.Span(
+                "⏳ Loading…", style={"color": tokens.TEXT_SECONDARY, "fontSize": "0.75rem"}
+            )
 
         freshness = json.loads(freshness_json)
         statuses = [freshness.get(s, "fresh") for s in ("demand", "weather", "alerts")]
 
         if all(s == "fresh" for s in statuses):
-            color, icon, label = "#2BD67B", "🟢", "Live"
+            color, icon, label = tokens.SUCCESS, "🟢", "Live"
         elif all(s == "demo" for s in statuses):
-            color, icon, label = "#A8B3C7", "🧪", "Demo"
+            color, icon, label = tokens.TEXT_SECONDARY, "🧪", "Demo"
         elif any(s == "error" for s in statuses):
-            color, icon, label = "#FF5C7A", "🔴", "Degraded"
+            color, icon, label = tokens.DANGER, "🔴", "Degraded"
         else:
-            color, icon, label = "#FFB84D", "🟡", "Partial"
+            color, icon, label = tokens.WARNING, "🟡", "Partial"
 
         # Show latest data timestamp (when the actual data is from)
         latest_data = freshness.get("latest_data", "")
@@ -688,7 +691,7 @@ def register_callbacks(app):
                 html.Span(f"{icon} {label}", style={"marginRight": "8px"}),
                 html.Span(
                     f"Data through: {data_time_text}" if data_time_text else "",
-                    style={"color": "#A8B3C7", "fontSize": "0.7rem"},
+                    style={"color": tokens.TEXT_SECONDARY, "fontSize": "0.7rem"},
                 ),
             ],
             style={"color": color, "fontSize": "0.75rem", "fontWeight": "500"},
@@ -826,7 +829,11 @@ def register_callbacks(app):
             dismissable=True,
             duration=4000,
             is_open=True,
-            style={"backgroundColor": "#11182D", "color": "#DDE6F2", "border": "1px solid #263556"},
+            style={
+                "backgroundColor": tokens.BG_RAISED,
+                "color": tokens.TEXT_PRIMARY,
+                "border": f"1px solid {tokens.BORDER_DEFAULT}",
+            },
         )
         return search, toast
 

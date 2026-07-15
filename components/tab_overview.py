@@ -19,6 +19,8 @@ footer built by ``components/layout.py`` (no per-tab footer).
 
 from dash import dcc, html
 
+from components import tokens
+
 
 def layout() -> html.Div:
     """Build the v2-style Overview linear stack."""
@@ -35,14 +37,14 @@ def layout() -> html.Div:
                         dcc.Loading(
                             dcc.Graph(
                                 id="overview-spotlight-chart",
-                                style={"height": "380px"},
+                                style={"height": "var(--chart-h-hero)"},
                                 config={
                                     "displayModeBar": False,
                                     "responsive": True,
                                 },
                             ),
                             type="circle",
-                            color="#35c6ff",
+                            color=tokens.ACCENT,
                         ),
                         className="gp-chart-card",
                     ),

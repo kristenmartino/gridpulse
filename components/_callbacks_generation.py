@@ -40,6 +40,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import structlog
 
+from components import tokens
 from components._callbacks_shared import COLORS, _layout
 from data.redis_client import redis_get, redis_key
 
@@ -154,7 +155,7 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
             name="Renewable Contribution",
             line=dict(width=0),
             fill="tonexty",
-            fillcolor="rgba(45,226,196,0.15)",
+            fillcolor=tokens.alpha(tokens.ACCENT, 0.15),
         )
     )
     fig_hero.update_layout(
@@ -188,7 +189,7 @@ def _generation_tab_from_redis(region, range_hours, demand_json, persona_id):
                     name=fuel.replace("_", " ").title(),
                     stackgroup="one",
                     line=dict(width=0),
-                    fillcolor=COLORS.get(fuel, "#95a5a6"),
+                    fillcolor=COLORS.get(fuel, tokens.FUEL_COLORS["other"]),
                 )
             )
     fig_mix.update_layout(

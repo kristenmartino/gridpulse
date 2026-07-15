@@ -16,6 +16,8 @@ new slots (risk-title, risk-insight-card) for callback population.
 
 from dash import dcc, html
 
+from components import tokens
+
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
@@ -106,11 +108,11 @@ def _hero_anomaly_chart() -> html.Div:
         dcc.Loading(
             dcc.Graph(
                 id="tab5-anomaly-chart",
-                style={"height": "320px"},
+                style={"height": "var(--chart-h-panel)"},
                 config=_GRAPH_CONFIG,
             ),
             type="circle",
-            color="#35c6ff",
+            color=tokens.ACCENT,
         ),
         className="gp-chart-card",
     )
@@ -126,11 +128,11 @@ def _secondary_chart_grid() -> html.Div:
                     dcc.Loading(
                         dcc.Graph(
                             id="tab5-temp-exceedance",
-                            style={"height": "260px"},
+                            style={"height": "var(--chart-h-half)"},
                             config=_GRAPH_CONFIG,
                         ),
                         type="circle",
-                        color="#35c6ff",
+                        color=tokens.ACCENT,
                     ),
                 ],
                 className="gp-chart-card",
@@ -141,11 +143,11 @@ def _secondary_chart_grid() -> html.Div:
                     dcc.Loading(
                         dcc.Graph(
                             id="tab5-timeline",
-                            style={"height": "260px"},
+                            style={"height": "var(--chart-h-half)"},
                             config=_GRAPH_CONFIG,
                         ),
                         type="circle",
-                        color="#35c6ff",
+                        color=tokens.ACCENT,
                     ),
                 ],
                 className="gp-chart-card",

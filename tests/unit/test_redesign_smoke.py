@@ -17,6 +17,8 @@ silently re-introduce the cluttered Bootstrap-darkly chrome:
 
 from __future__ import annotations
 
+from components import tokens
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
@@ -216,8 +218,8 @@ class TestBrandIdentity:
         assert '<link rel="icon" type="image/svg+xml"' in idx
         assert '<link rel="apple-touch-icon"' in idx
         assert '<link rel="mask-icon"' in idx
-        # Mask-icon color should be the electric grid-blue accent (top-design pass)
-        assert "#35c6ff" in idx
+        # Mask-icon color is the brand accent, read from the token module.
+        assert tokens.ACCENT in idx
 
     def test_og_meta_present(self):
         import app as app_module
@@ -229,13 +231,24 @@ class TestBrandIdentity:
         assert 'name="twitter:card"' in idx
         assert 'name="description"' in idx
 
-    def test_no_pre_v2_cyan_in_index_string(self):
-        """R1 retargeted #38D0FF → #3b82f6; the cyan should not return."""
+    def test_index_string_carries_no_stray_color(self):
+        """No color may appear in the document head except the accent token.
+
+        Generalised from a hardcoded "#38D0FF must not return" guard. That
+        version only caught the ONE retired hex someone remembered to name, and
+        it named it as a literal — so the test itself was a copy of the value it
+        policed. This asserts the actual invariant: the only color the head is
+        allowed to state is the accent (the mask-icon needs a literal because
+        Safari will not resolve a CSS variable there). Any other hex — a
+        re-lapsed #38D0FF, a stock #3b82f6, a stray fill — fails.
+        """
+        import re
+
         import app as app_module
 
         idx = app_module.app.index_string
-        assert "#38D0FF" not in idx
-        assert "#38d0ff" not in idx
+        found = {m.group(0).lower() for m in re.finditer(r"#[0-9a-fA-F]{6}\b", idx)}
+        assert found <= {tokens.ACCENT.lower()}, f"stray color(s) in index_string: {found}"
 
 
 # ── Header (R3, R5b) ─────────────────────────────────────────────────
@@ -271,15 +284,17 @@ class TestCSSTokens:
         css_path = Path(__file__).resolve().parents[2] / "assets" / "custom.css"
         css = css_path.read_text()
         # 3-tier surfaces + accent + forecast + semantic v2 colors
-        for token in [
-            "--bg-base: #0a0a0b",
-            "--bg-raised: #111113",
-            "--bg-hover: #18181b",
-            "--accent-base: #35c6ff",
-            "--forecast: #f97316",
-            "--text-primary: #e4e4e7",
+        # Values come from the Python token module, so this asserts the two
+        # mirrors AGREE rather than restating the hexes a third time.
+        for name, value in [
+            ("--bg-base", tokens.BG_BASE),
+            ("--bg-raised", tokens.BG_RAISED),
+            ("--bg-hover", tokens.BG_HOVER),
+            ("--accent-base", tokens.ACCENT),
+            ("--forecast", tokens.FORECAST),
+            ("--text-primary", tokens.TEXT_PRIMARY),
         ]:
-            assert token in css, f"R1 token missing: {token}"
+            assert f"{name}: {value}" in css, f"CSS/Python token drift: {name} != {value}"
 
     def test_micro_craft_present(self):
         from pathlib import Path
@@ -314,5 +329,4 @@ class TestPlotLayout:
         from components.callbacks import PLOT_LAYOUT
 
         assert isinstance(PLOT_LAYOUT, dict)
-        # Font color matches the R1 v2 text-secondary
-        assert PLOT_LAYOUT["font"]["color"] == "#a1a1aa"
+        assert PLOT_LAYOUT["font"]["color"] == tokens.TEXT_SECONDARY

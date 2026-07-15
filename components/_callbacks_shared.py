@@ -34,6 +34,7 @@ import numpy as np
 import plotly.graph_objects as go
 import plotly.io as pio
 
+from components import tokens
 from components.accessibility import CB_PALETTE
 from data.redis_client import redis_get, redis_key
 
@@ -94,28 +95,34 @@ _EIA_FUEL_MAP: dict[str, str] = {
 # through ``_layout()`` picks them up; per-chart overrides still win
 # because ``_layout()`` does a shallow merge over ``PLOT_LAYOUT``.
 
-# ── Design-token mirrors (source of truth is assets/custom.css :root) ──
-# Kept in sync with --accent-base so a chart's "primary series" matches the
-# UI brand accent without importing CSS. Top-design pass: electric grid-blue.
-ACCENT = "#35c6ff"       # --accent-base
-ACCENT_SOFT = "#63d6ff"  # --accent-hover
+# ── Design tokens ─────────────────────────────────────────────────────
+# Re-exported from components.tokens (the single source of truth, which
+# mirrors assets/custom.css :root) so existing `from ._callbacks_shared
+# import ACCENT` callsites keep working. Do not redefine the values here.
+ACCENT = tokens.ACCENT
+ACCENT_SOFT = tokens.ACCENT_SOFT
 
 # One accessible categorical colorway for EVERY figure that does not set
 # explicit trace colors — the fix for the four palettes that had drifted
 # apart (each callsite previously fell back to a different default sequence).
-# Okabe-Ito / Wong order, reused from accessibility.CB_PALETTE, verified
-# distinguishable under protanopia / deuteranopia / tritanopia. Charts that
-# encode *model identity* keep their own CB_PALETTE color + dash pattern
-# (accessibility.LINE_STYLES), which sets explicit colors and so overrides
-# this colorway — the color+dash double-encoding stays intact.
+# Verified distinguishable under protanopia / deuteranopia / tritanopia.
+# Charts that encode *model identity* keep their own CB_PALETTE color + dash
+# pattern (accessibility.LINE_STYLES), which sets explicit colors and so
+# overrides this colorway — the color+dash double-encoding stays intact.
+#
+# Slot 0 is the ACCENT: the first/primary series of any chart is the demand
+# series, so the brand color and the data color are one system rather than
+# two. It takes the slot Wong's sky_blue used to hold — sky_blue stays the
+# XGBoost identity color, which is only ever drawn in its own single-trace
+# figure, so the accent and sky_blue never share a chart.
 _COLORWAY = [
-    CB_PALETTE["sky_blue"],    # #56B4E9
-    CB_PALETTE["orange"],      # #E69F00
-    CB_PALETTE["green"],       # #009E73
-    CB_PALETTE["vermillion"],  # #D55E00
-    CB_PALETTE["yellow"],      # #F0E442
-    CB_PALETTE["purple"],      # #CC79A7
-    CB_PALETTE["blue"],        # #0072B2
+    tokens.ACCENT,  # demand / primary
+    CB_PALETTE["orange"],
+    CB_PALETTE["green"],
+    CB_PALETTE["vermillion"],
+    CB_PALETTE["yellow"],
+    CB_PALETTE["purple"],
+    CB_PALETTE["blue"],
 ]
 
 # Register ONE named template so the colorway + shared dark tone apply to
@@ -125,8 +132,8 @@ _COLORWAY = [
 # go.Figure() inherits the accessible colorway. Idempotent at import time.
 _gridpulse_template = go.layout.Template(pio.templates["plotly_dark"])
 _gridpulse_template.layout.colorway = tuple(_COLORWAY)
-_gridpulse_template.layout.paper_bgcolor = "rgba(0,0,0,0)"
-_gridpulse_template.layout.plot_bgcolor = "rgba(0,0,0,0)"
+_gridpulse_template.layout.paper_bgcolor = tokens.TRANSPARENT
+_gridpulse_template.layout.plot_bgcolor = tokens.TRANSPARENT
 pio.templates["gridpulse"] = _gridpulse_template
 pio.templates.default = "gridpulse"
 
@@ -158,15 +165,40 @@ PLOT_CONFIG: dict[str, object] = {
     "responsive": True,
 }
 
+# Data-morph transition for figures that opt in via ``_layout(transition=True)``.
+#
+# Plotly's easing is a **d3 easing name**, not a CSS timing function — it
+# rejects ``cubic-bezier(...)`` outright, so the stylesheet's curves cannot be
+# passed through verbatim. Both CSS curves in the motion vocabulary
+# (``--ease-out-quint`` = cubic-bezier(.22,1,.36,1) and ``--ease-spring`` =
+# cubic-bezier(.16,1,.3,1)) are strong *ease-outs*: near-instant start, long
+# settle. ``exp-out`` is the closest member of Plotly's enum to that character;
+# a symmetric ``cubic-in-out`` would read as a foreign curve next to the CSS.
+#
+# 400ms ≈ --duration-slow, so a curve morph and the chrome around it settle
+# together.
+#
+# NOTE: this only declares *intent*. Two conditions that would make the motion
+# wrong can only be evaluated on the client, and are enforced there in
+# assets/motion.js (see ``patchPlotlyReact``):
+#   1. prefers-reduced-motion — a media query cannot reach a Plotly transition,
+#      because it is driven by d3/rAF in JS rather than by CSS.
+#   2. a change in a trace's point count — d3 interpolates the path's ``d``
+#      string by pairing up numbers positionally, so a 24h→720h horizon change
+#      morphs the vertices that pair and *snaps* the rest, tearing the curve.
+#      Python builds figures statelessly and cannot know the previous point
+#      count; the client can.
+CHART_TRANSITION: dict[str, object] = {"duration": 400, "easing": "exp-out"}
+
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,
     # Explicit belt over the template's colorway — guarantees the accessible
     # sequence on every figure that flows through _layout().
     colorway=list(_COLORWAY),
-    paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
+    paper_bgcolor=tokens.TRANSPARENT,
+    plot_bgcolor=tokens.TRANSPARENT,
     font=dict(
-        color="#a1a1aa",  # --text-secondary (v2 palette)
+        color=tokens.TEXT_SECONDARY,
         size=11,
         family="Inter, 'Segoe UI', system-ui, sans-serif",
     ),
@@ -175,18 +207,18 @@ PLOT_LAYOUT = dict(
         orientation="h",
         y=-0.18,
         font=dict(size=11),
-        bgcolor="rgba(0,0,0,0)",
+        bgcolor=tokens.TRANSPARENT,
     ),
     # Hover label — dark surface, Inter, left-aligned. Matches the
     # rest of the v2 chrome and reads as "part of the same surface"
     # rather than a Plotly-default light pill.
     hoverlabel=dict(
-        bgcolor="#11141c",
-        bordercolor="rgba(255,255,255,0.10)",
+        bgcolor=tokens.HOVER_BG,
+        bordercolor=tokens.HOVER_BORDER,
         font=dict(
             family="Inter, 'Segoe UI', system-ui, sans-serif",
             size=12,
-            color="#F5F7FA",
+            color=tokens.TEXT_PRIMARY,
         ),
         align="left",
     ),
@@ -200,22 +232,32 @@ PLOT_LAYOUT = dict(
     # which is exactly the cue we want (gridlines guide the eye
     # without competing with the data).
     xaxis=dict(
-        gridcolor="rgba(255,255,255,0.04)",
-        zerolinecolor="rgba(255,255,255,0.08)",
-        linecolor="rgba(255,255,255,0.10)",
-        tickfont=dict(color="#71717a", size=11),
+        gridcolor=tokens.GRID_LINE,
+        zerolinecolor=tokens.ZERO_LINE,
+        linecolor=tokens.AXIS_LINE,
+        tickfont=dict(color=tokens.TEXT_TERTIARY, size=11),
     ),
     yaxis=dict(
-        gridcolor="rgba(255,255,255,0.04)",
-        zerolinecolor="rgba(255,255,255,0.08)",
-        linecolor="rgba(255,255,255,0.10)",
-        tickfont=dict(color="#71717a", size=11),
+        gridcolor=tokens.GRID_LINE,
+        zerolinecolor=tokens.ZERO_LINE,
+        linecolor=tokens.AXIS_LINE,
+        tickfont=dict(color=tokens.TEXT_TERTIARY, size=11),
     ),
 )
 
 
-def _layout(*, uirevision: str | None = None, **overrides) -> dict:
+def _layout(*, uirevision: str | None = None, transition: bool = False, **overrides) -> dict:
     """Compose a Plotly layout dict from PLOT_LAYOUT + per-call overrides.
+
+    ``transition`` opts the figure into ``CHART_TRANSITION``, so its traces
+    MORPH between states (region switch, model switch, hourly refresh) instead
+    of hard-cutting. Off by default: it is opt-in per chart rather than a
+    PLOT_LAYOUT-wide default because a transition is only an improvement where
+    consecutive renders are the *same series measured differently*. On the 51
+    US-Grid small multiples it would also mean 51 concurrent d3 path
+    interpolations per refresh, which is a frame-budget risk that has not been
+    measured on real hardware — so those stay off until someone can profile
+    them (see the note in assets/motion.js).
 
     ``uirevision`` is the Plotly hook that preserves user-set UI state
     (zoom, pan, legend toggles) across figure re-renders. Tie it to
@@ -251,6 +293,8 @@ def _layout(*, uirevision: str | None = None, **overrides) -> dict:
     # outer merge above.
     if uirevision is not None:
         layout["uirevision"] = uirevision
+    if transition:
+        layout["transition"] = dict(CHART_TRANSITION)
     return layout
 
 
@@ -276,7 +320,7 @@ def _empty_figure(message: str = "") -> go.Figure:
                     # 3-up residual grid on the Models tab.
                     text="<br>".join(textwrap.wrap(message, width=40)),
                     showarrow=False,
-                    font=dict(size=13, color="#A8B3C7"),
+                    font=dict(size=13, color=tokens.TEXT_SECONDARY),
                     xref="paper",
                     yref="paper",
                     x=0.5,
@@ -603,32 +647,41 @@ def _empirical_interval_from_backtests(
 
 # ── Color palette (colorblind-safe per Wong 2011) ────────────────────
 
+# Series colors. Model identities come from the Wong palette; "actual" is the
+# demand series and carries the brand ACCENT (see accessibility.LINE_STYLES).
+# The fuel entries come from the DESIGNED fuel ramp — they used to alias Wong
+# slots, which is what made hydro identical to "actual" and solar identical to
+# "temperature". Fuel and model series are separate concerns and now have
+# separate palettes.
 COLORS = {
-    "actual": CB_PALETTE["blue"],
+    "actual": tokens.ACCENT,
     "prophet": CB_PALETTE["orange"],
     "arima": CB_PALETTE["green"],
     "xgboost": CB_PALETTE["sky_blue"],
     "ensemble": CB_PALETTE["vermillion"],
-    "eia_forecast": "#7f7f7f",
+    "eia_forecast": tokens.NEUTRAL_SERIES,
     "temperature": CB_PALETTE["yellow"],
-    "confidence": "rgba(213,94,0,0.15)",
-    "gas": CB_PALETTE["orange"],
-    "nuclear": CB_PALETTE["purple"],
-    "coal": "#7f7f7f",
-    "wind": CB_PALETTE["green"],
-    "solar": CB_PALETTE["yellow"],
-    "hydro": CB_PALETTE["blue"],
-    "other": "#b0b0b0",
+    "confidence": tokens.alpha(CB_PALETTE["vermillion"], 0.15),
+    "gas": tokens.FUEL_COLORS["gas"],
+    "nuclear": tokens.FUEL_COLORS["nuclear"],
+    "coal": tokens.FUEL_COLORS["coal"],
+    "oil": tokens.FUEL_COLORS["oil"],
+    "biomass": tokens.FUEL_COLORS["biomass"],
+    "wind": tokens.FUEL_COLORS["wind"],
+    "solar": tokens.FUEL_COLORS["solar"],
+    "hydro": tokens.FUEL_COLORS["hydro"],
+    "other": tokens.FUEL_COLORS["other"],
 }
 
 # Model-aware confidence-band fill colors — base model color at 12% opacity.
 # Used by ``_add_confidence_bands`` to tint the band per-model so a
-# multi-model overlay reads at a glance.
+# multi-model overlay reads at a glance. Derived via tokens.alpha() from each
+# model's own color, so a band can never drift off the line it belongs to.
 _MODEL_BAND_COLORS = {
-    "xgboost": "rgba(86,180,233,0.12)",  # sky_blue
-    "prophet": "rgba(230,159,0,0.12)",  # orange
-    "arima": "rgba(0,158,115,0.12)",  # green
-    "ensemble": "rgba(213,94,0,0.12)",  # vermillion
+    "xgboost": tokens.alpha(CB_PALETTE["sky_blue"], 0.12),
+    "prophet": tokens.alpha(CB_PALETTE["orange"], 0.12),
+    "arima": tokens.alpha(CB_PALETTE["green"], 0.12),
+    "ensemble": tokens.alpha(CB_PALETTE["vermillion"], 0.12),
 }
 
 
@@ -695,35 +748,21 @@ _STRESS_RELIABLE_CEILING = 2.0
 # end — without becoming the visual focus. See PR #79 for the regression
 # that motivated the contrast bump.
 
-_MAP_LAND_COLOR = "#111113"  # --bg-raised
-_MAP_COASTLINE_COLOR = "#27272a"
-_MAP_SUBUNIT_COLOR = "#1f1f23"
-_MAP_AXIS_FONT_COLOR = "#71717a"  # --text-tertiary
+_MAP_LAND_COLOR = tokens.MAP_LAND
+_MAP_COASTLINE_COLOR = tokens.MAP_COASTLINE
+_MAP_SUBUNIT_COLOR = tokens.MAP_SUBUNIT
+_MAP_AXIS_FONT_COLOR = tokens.MAP_AXIS_FONT
 
 # Polygon borders need to read against ANY colorscale fill (dim slate →
-# bright amber). A near-black border (#1f1f23) was nearly identical to the
+# bright amber). A near-black border (MAP_SUBUNIT) was nearly identical to the
 # darkest polygon fill, so adjacent BAs visually fused into one blob on
 # the Polygons view. A translucent zinc reads against everything.
-_MAP_BORDER_COLOR = "rgba(228, 228, 231, 0.5)"
+_MAP_BORDER_COLOR = tokens.MAP_BORDER
 
 # Utilization / grid-stress colorscale (0 = idle headroom → 1 = peak).
-#
-# The prior emerald→lime→yellow→orange→red ramp was a WCAG 1.4.1
-# use-of-color failure: protanopia/deuteranopia collapse the green↔red
-# axis, so "comfortable" and "stressed" BAs were indistinguishable for
-# ~8% of men. Replaced with a CVD-safe, LUMINANCE-MONOTONIC blue→amber
-# scale: it rides the blue–yellow axis (preserved under protan/deutan)
-# and increases steadily in brightness, so stress reads even in grayscale
-# and for tritanopia. Low utilization recedes (dim slate-blue); high
-# utilization pops (bright amber) — the "hotter = more stressed" read,
-# without the red-green trap. Re-verify any edit with a CVD simulator.
-_MAP_COLORSCALE = [
-    [0.00, "#26324a"],  # dim slate-blue — idle / comfortable headroom
-    [0.40, "#3f6690"],  # muted blue — running easy
-    [0.60, "#6f83a1"],  # blue-gray — getting tight
-    [0.80, "#c99a44"],  # amber — warning
-    [1.00, "#f4c531"],  # bright amber — peak / stressed
-]
+# CVD-safe and luminance-monotonic; rationale + measured L* live with the
+# definition in components.tokens.
+_MAP_COLORSCALE = tokens.MAP_COLORSCALE
 
 
 def _pipeline_alive(region: str, max_age_hours: float = 3.0) -> bool:

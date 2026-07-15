@@ -92,7 +92,12 @@ def _build_header() -> html.Header:
                             html.Span("Grid", className="gp-header__wordmark-grid"),
                             html.Span("Pulse", className="gp-header__wordmark-pulse"),
                         ],
-                        className="gp-header__wordmark dashboard-title",
+                        # The wordmark owns its own type, including its mobile
+                        # size. It used to carry `dashboard-title` as well —
+                        # a legacy class that, later in source order at equal
+                        # specificity, quietly won every declaration they
+                        # shared and halved the brand mark on phones.
+                        className="gp-header__wordmark",
                     ),
                     html.P(
                         "Energy intelligence platform",
