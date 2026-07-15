@@ -169,14 +169,25 @@ PLOT_CONFIG: dict[str, object] = {
 #
 # Plotly's easing is a **d3 easing name**, not a CSS timing function — it
 # rejects ``cubic-bezier(...)`` outright, so the stylesheet's curves cannot be
-# passed through verbatim. Both CSS curves in the motion vocabulary
-# (``--ease-out-quint`` = cubic-bezier(.22,1,.36,1) and ``--ease-spring`` =
-# cubic-bezier(.16,1,.3,1)) are strong *ease-outs*: near-instant start, long
-# settle. ``exp-out`` is the closest member of Plotly's enum to that character;
-# a symmetric ``cubic-in-out`` would read as a foreign curve next to the CSS.
+# passed through verbatim.
 #
-# 400ms ≈ --duration-slow, so a curve morph and the chrome around it settle
-# together.
+# Do NOT reach for the nearest match to the CSS curves here. ``--ease-out-quint``
+# and ``--ease-spring`` are strong ease-outs, and their Plotly analogue
+# (``exp-out``) was tried first and read as abrupt: it covers half the distance
+# in the first 40ms of 400 and 75% within 80ms, so the curve snaps and then
+# crawls. That character is right for the CSS it came from — chrome *entering*,
+# where an instant start reads as responsive and there is nothing to track. It is
+# wrong here. A data morph exists for object constancy: the eye has to follow a
+# demand curve from its old shape to its new one, and a near-instant start
+# defeats that before it can lock on.
+#
+# ``cubic-in-out`` starts and ends at zero velocity, which is why it is both
+# Plotly's and d3's default for data transitions. The motion is legible for its
+# whole duration rather than over in a tenth of it.
+#
+# 400ms is deliberately longer than --duration-slow (240ms). That token paces
+# chrome moving a few px; this paces a full curve traversing the plot area, and
+# needs the extra time to stay trackable.
 #
 # NOTE: this only declares *intent*. Two conditions that would make the motion
 # wrong can only be evaluated on the client, and are enforced there in
@@ -188,7 +199,7 @@ PLOT_CONFIG: dict[str, object] = {
 #      morphs the vertices that pair and *snaps* the rest, tearing the curve.
 #      Python builds figures statelessly and cannot know the previous point
 #      count; the client can.
-CHART_TRANSITION: dict[str, object] = {"duration": 400, "easing": "exp-out"}
+CHART_TRANSITION: dict[str, object] = {"duration": 400, "easing": "cubic-in-out"}
 
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,

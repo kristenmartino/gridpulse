@@ -34,7 +34,17 @@ class TestLayoutTransitionOptIn:
 
     def test_present_when_opted_in(self):
         layout = _layout(uirevision="DUK", transition=True)
-        assert layout["transition"] == {"duration": 400, "easing": "exp-out"}
+        assert layout["transition"] == {"duration": 400, "easing": "cubic-in-out"}
+
+    def test_easing_starts_from_rest(self):
+        """Not an ease-OUT. `exp-out` (the nearest analogue to the stylesheet's
+        --ease-out-quint / --ease-spring) shipped first and read as abrupt: it
+        covers half the distance in the first 40ms of 400. That is correct for
+        chrome entering and wrong for a data morph, whose job is object
+        constancy — the eye must be able to follow the curve. Pins the
+        symmetric, starts-at-rest family so a future "match the CSS tokens"
+        edit has to come back and read this."""
+        assert _layout(transition=True)["transition"]["easing"].endswith("-in-out")
 
     def test_returns_a_copy_not_the_shared_constant(self):
         """A callsite mutating its own layout must not rewrite the module-level
@@ -57,13 +67,14 @@ class TestLayoutTransitionOptIn:
         an invalid easing would take the whole chart down, not degrade."""
         fig = go.Figure()
         fig.update_layout(**_layout(transition=True))
-        assert fig.layout.transition.easing == "exp-out"
+        assert fig.layout.transition.easing == "cubic-in-out"
         assert fig.layout.transition.duration == 400
 
     def test_css_cubic_bezier_is_rejected_by_plotly(self):
-        """The reason `exp-out` is used instead of the stylesheet's
-        --ease-out-quint verbatim. Documents the constraint so a future edit
-        doesn't "fix" the easing back to a CSS curve."""
+        """Why the stylesheet's --ease-out-quint cannot simply be passed through:
+        Plotly's easing is a d3 easing NAME. Documents the constraint so a future
+        edit doesn't "fix" the easing back to a CSS curve — it would raise, not
+        degrade."""
         with pytest.raises(ValueError):
             go.Figure().update_layout(
                 transition=dict(duration=400, easing="cubic-bezier(0.22, 1, 0.36, 1)")
