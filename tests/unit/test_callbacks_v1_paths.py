@@ -22,6 +22,7 @@ Also covers module-level helpers:
 """
 
 import json
+import re
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -36,6 +37,12 @@ from dash import html, no_update
 # ---------------------------------------------------------------------------
 # Shared test data helpers
 # ---------------------------------------------------------------------------
+
+# A demand KPI as the outlook 9-tuple emits it: thousands-separated integer, no
+# unit (the MetricsBar cell renders " MW" itself — see 270a50f). Mirrors
+# _BARE_MW_VALUE in test_redis_fast_paths.py, which pins the same contract on
+# the Redis fast path this file's V1 path falls back from.
+_BARE_MW_VALUE = re.compile(r"^-?\d{1,3}(,\d{3})*$")
 
 
 def _demand_json(n=168, base_mw=35000):
@@ -992,8 +999,14 @@ class TestDemandOutlookV1:
         peak = result[2]
         avg = result[4]
         assert isinstance(fig, go.Figure)
-        assert "MW" in peak
-        assert "MW" in avg
+        # Values only — the MetricsBar cell renders " MW" as its own
+        # <span class="gp-metric-unit">, so a unit baked in here renders
+        # "27,535 MW MW" (270a50f). Assert the value's shape rather than just
+        # dropping the old check: still catches an empty/placeholder KPI, and
+        # now also catches a re-added unit. The V1 inline-compute path must
+        # emit the same shape as the Redis fast path it falls back from.
+        assert _BARE_MW_VALUE.match(peak), peak
+        assert _BARE_MW_VALUE.match(avg), avg
 
     def test_v1_forecast_error(self, callbacks):
         """When forecast returns error, display error annotation."""

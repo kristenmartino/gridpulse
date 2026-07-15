@@ -9,6 +9,7 @@ is needed.
 """
 
 import json
+import re
 from unittest.mock import patch
 
 import pandas as pd
@@ -18,6 +19,20 @@ from dash import html
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+# A demand value as the outlook 9-tuple now emits it: thousands-separated
+# integer, NO unit. The MetricsBar cell supplies " MW" as its own
+# <span class="gp-metric-unit">, so a unit baked into the value renders
+# "27,535 MW MW" (270a50f). These tests previously asserted `"MW" in value`
+# as a cheap "did it populate?" proxy; that proxy inverted when the unit
+# moved, so assert the value's actual shape instead — it still catches an
+# empty/placeholder value, and now also catches a re-added unit.
+_BARE_MW_VALUE = re.compile(r"^-?\d{1,3}(,\d{3})*$")
+
+
+def _is_bare_mw_value(value):
+    """True when *value* is a populated demand figure carrying no unit."""
+    return isinstance(value, str) and bool(_BARE_MW_VALUE.match(value))
 
 
 def _ts(n=48):
@@ -724,10 +739,14 @@ class TestOutlookTabFromRedis:
             result
         )
         assert isinstance(fig, go.Figure)
-        assert "MW" in peak_str
-        assert "MW" in avg_str
-        assert "MW" in min_str
-        assert "MW" in range_str
+        # Values only — the MetricsBar cell renders " MW" as its own
+        # <span class="gp-metric-unit">, so a unit baked in here renders
+        # "27,535 MW MW" (270a50f). Assert the *shape* of the value rather than
+        # just dropping the old check: a bare thousands-separated integer, and
+        # no unit. Re-adding one fails here instead of on the .gp-forecast-lede
+        # rail, where the doubling is only visible at display size.
+        for value in (peak_str, avg_str, min_str, range_str):
+            assert _is_bare_mw_value(value), value
 
     @patch("components._callbacks_forecast.redis_get")
     def test_cache_miss_returns_none(self, mock_rg):
@@ -819,7 +838,7 @@ class TestOutlookTabFromRedis:
         assert result is not None
         fig = result[0]
         assert len(fig.data) > 0  # normal render
-        assert "MW" in result[2]
+        assert _is_bare_mw_value(result[2]), result[2]
 
     @patch("components._callbacks_forecast.redis_get")
     def test_horizon_guard_resolves_primary_for_predicted_demand_mw(self, mock_rg):
@@ -890,7 +909,7 @@ class TestOutlookTabFromRedis:
             result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
             assert result is not None, f"crashed on {bad!r}"
             assert len(result[0].data) > 0, f"withheld on malformed guard {bad!r}"
-            assert "MW" in result[2]
+            assert _is_bare_mw_value(result[2]), result[2]
 
     @patch("components._callbacks_forecast.redis_get")
     def test_withheld_copy_ensemble_recommendation_is_conditional(self, mock_rg):
@@ -1076,7 +1095,7 @@ class TestServedModelForPayload:
         result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
         assert result is not None
         assert len(result[0].data) > 0
-        assert "MW" in result[2]
+        assert _is_bare_mw_value(result[2]), result[2]
 
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")
