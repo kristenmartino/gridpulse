@@ -46,13 +46,15 @@ from color_science import (  # noqa: E402
     lstar,
     simulate,
 )
-from stock_palettes import TAILWIND  # noqa: E402
+from stock_palettes import STOCK  # noqa: E402
 
 # The derivation rules live with the CLI verifier so the script and these
 # tests check ONE definition rather than two that can drift apart.
 from verify_palette import (  # noqa: E402
     NEUTRAL_LIGHTNESS,
-    SEMANTIC_HUES,
+    SEMANTIC_COMPARED,
+    SEMANTIC_SPEC,
+    STOCK_FLOOR,
     _chroma,
     _fit,
 )
@@ -111,6 +113,41 @@ class TestSingleSourceOfTruth:
             f"{css_var} and tokens.{token_name} have drifted apart"
         )
 
+    def test_every_derived_root_property_matches_its_source(self, css: str):
+        """The :root block was the gate's designed blind spot, and the brand lived there.
+
+        check_css skips any `--x:` line — that is where values are ALLOWED to be
+        written. But only ~15 of them were mirrored against Python, so the rest
+        were unguarded: an audit reverted --border-accent and the
+        --accent-glow/dim/ring channels to the RETIRED accent and shipped green.
+        They paint (a gradient, three backgrounds, a focus ring), so that was the
+        5.5-era "accent copied N ways" defect, alive inside the one region built
+        not to look.
+
+        Every :root property that is DERIVED from a token is now checked against
+        it, so "declared here" no longer means "unchecked here".
+        """
+        expected = {
+            "--border-accent": tokens.ACCENT,
+            "--accent-glow": tokens.alpha(tokens.ACCENT, 0.08),
+            "--accent-dim": tokens.alpha(tokens.ACCENT, 0.15),
+            "--accent-ring": tokens.alpha(tokens.ACCENT, 0.32),
+            "--bg-overlay": tokens.alpha(tokens.BG_BASE, 0.72),
+            "--forecast-dim": tokens.alpha(tokens.FORECAST, 0.12),
+            "--success-dim": tokens.alpha(tokens.SUCCESS, 0.12),
+            "--warning-dim": tokens.alpha(tokens.WARNING, 0.12),
+            "--danger-dim": tokens.alpha(tokens.DANGER, 0.12),
+            "--info-dim": tokens.alpha(tokens.INFO, 0.12),
+        }
+        for var, want in expected.items():
+            m = re.search(rf"^\s*{re.escape(var)}\s*:\s*([^;]+);", css, re.M)
+            assert m, f"{var} not declared in :root"
+            got = m.group(1).strip()
+            assert got.lower() == want.lower(), (
+                f"{var} is {got} but derives from its token as {want} — a :root "
+                f"property has drifted off the color it is supposed to tint"
+            )
+
     def test_accent_is_declared_once_in_css(self, css: str):
         """The accent's channels may only appear in :root declarations.
 
@@ -149,13 +186,17 @@ class TestOwnership:
     """
 
     def test_accent_is_not_a_stock_swatch(self):
-        """The one color a human picked may not be one someone could download."""
-        near, hexv = min(TAILWIND.items(), key=lambda kv: ciede2000(tokens.ACCENT, kv[1]))
+        """The one color a human picked may not be one someone could download.
+
+        Measured against every corpus in scripts/stock_palettes.py, not one.
+        A Tailwind-only ruler passed an accent sitting 1.64 from CSS
+        darkturquoise — below the ~2.3 JND, i.e. the same color.
+        """
+        near, hexv = min(STOCK.items(), key=lambda kv: ciede2000(tokens.ACCENT, kv[1]))
         d = ciede2000(tokens.ACCENT, hexv)
-        assert d >= 6.0, (
-            f"ACCENT {tokens.ACCENT} is CIEDE2000 {d:.1f} from Tailwind {near} — a "
-            f"near-duplicate. The retired accent measured 2.5 from sky-400 and that is "
-            f"the defect this palette exists to fix."
+        assert d >= STOCK_FLOOR, (
+            f"ACCENT {tokens.ACCENT} is CIEDE2000 {d:.1f} from {near} — a copy. "
+            f"JND is ~2.3; both retired accents measured under it."
         )
 
     def test_neutrals_reproduce_from_the_stated_curve(self):
@@ -169,33 +210,40 @@ class TestOwnership:
                 f"at the accent's hue (regenerates to {regen}, dE {d:.1f})"
             )
 
-    def test_semantics_sit_on_the_anchors_lightness(self):
-        """One family: no severity outshouts another by brightness."""
-        anchor_l, anchor_c, _ = hex_to_oklch(tokens.ACCENT)
-        for name, hue in SEMANTIC_HUES.items():
-            regen = _fit(anchor_l, anchor_c, hue)
+    def test_semantics_reproduce_from_the_rule(self):
+        """Anchor chroma at a solved lightness — see tokens.py for why not constant."""
+        _, anchor_c, _ = hex_to_oklch(tokens.ACCENT)
+        for name, (sem_l, hue) in SEMANTIC_SPEC.items():
+            regen = _fit(sem_l, anchor_c, hue)
             d = ciede2000(getattr(tokens, name), regen)
             assert d <= 1.0, (
                 f"{name} = {getattr(tokens, name)} does not reproduce from the semantic "
-                f"rule (anchor lightness {anchor_l:.3f}, hue {hue} -> {regen}, dE {d:.1f})"
+                f"rule (solved lightness {sem_l:.2f}, hue {hue} -> {regen}, dE {d:.1f})"
             )
 
-    def test_no_semantic_is_stock_tailwind_verbatim(self):
-        """The specific 5.5-audit finding: all five were dE 0.00 from the download."""
-        for name in SEMANTIC_HUES:
-            value = getattr(tokens, name)
-            near, hexv = min(TAILWIND.items(), key=lambda kv: ciede2000(value, kv[1]))
-            d = ciede2000(value, hexv)
-            assert d > 1.0, f"{name} = {value} is Tailwind {near} verbatim (dE {d:.2f})"
+    def test_severity_triad_separates_under_dichromacy(self):
+        """The check that did not exist while a constant-lightness rule shipped.
 
-    def test_semantics_are_one_family(self):
-        """Measured in OKLab L — the scale the rule is written in, not CIE L*."""
-        ls = [hex_to_oklch(getattr(tokens, n))[0] for n in SEMANTIC_HUES]
-        spread = max(ls) - min(ls)
-        assert spread <= 0.005, (
-            f"semantic OKLab L spread {spread:.4f} — Tailwind's -400 row spread 0.132, "
-            f"which is what 'no system' looks like"
-        )
+        SUCCESS/WARNING/DANGER all collapse toward one yellow under deuteranopia;
+        lightness is the only channel left. Holding it constant measured 1.5 —
+        invisible — and nothing noticed, because verify_palette checked the fuel
+        stack, the accent's co-occurring series, the drivers and the map, and
+        never the semantics against each other.
+        """
+        for a, b in SEMANTIC_COMPARED:
+            m = min_cvd(getattr(tokens, a), getattr(tokens, b))
+            assert m >= SHARED_FIGURE_FLOOR, (
+                f"severity {a}/{b} minCVD {m:.1f} — a constant-lightness rule "
+                f"measured 1.5 here; stock Tailwind measured 3.3"
+            )
+
+    def test_no_semantic_is_a_stock_swatch(self):
+        """The 5.5 finding: all five were dE 0.00 from the download."""
+        for name in SEMANTIC_SPEC:
+            value = getattr(tokens, name)
+            near, hexv = min(STOCK.items(), key=lambda kv: ciede2000(value, kv[1]))
+            d = ciede2000(value, hexv)
+            assert d > 1.0, f"{name} = {value} is {near} verbatim (dE {d:.2f})"
 
 
 class TestRenderedTraceColors:
@@ -392,4 +440,131 @@ class TestContrast:
         assert ratio >= 4.5, (
             f"--text-tertiary is {ratio:.2f}:1 on --bg-base — below WCAG AA for the "
             f"11px tick labels it renders"
+        )
+
+
+class TestEveryTokenIsLive:
+    """No token may exist without being painted. This is the repo's oldest bug.
+
+    It has now happened four times, three of them inside the module written to
+    stop it:
+
+      * accessibility.FUEL_COLORS — CVD-safe, tested, ZERO callsites, while the
+        app painted a different unverified palette. The 5.5 audit's headline.
+      * accessibility.SEVERITY_COLORS — same defect, one constant over.
+      * tokens.SEVERITY — invented while deleting those two, keyed to a
+        vocabulary nothing in the product speaks. Now deleted.
+      * tokens.WEATHER_DRIVERS — declared with three entries, wired with ONE.
+        The Wind sparkline painted tokens.SUCCESS (a semantic token) and Solar
+        painted tokens.FORECAST, while scripts/verify_palette.py dutifully
+        measured the two colors that never rendered.
+
+    A dead token is worse than no token: it is a claim the tests defend. So the
+    rule is mechanical — every public token is painted by something, or it does
+    not exist.
+    """
+
+    @staticmethod
+    def _product_source() -> str:
+        root = pathlib.Path(__file__).resolve().parents[2]
+        parts = []
+        for d in ("components", "personas"):
+            for f in (root / d).rglob("*.py"):
+                if f.name != "tokens.py" and "__pycache__" not in f.parts:
+                    parts.append(f.read_text())
+        parts.append((root / "app.py").read_text())
+        parts.append((root / "scripts" / "generate_brand_assets.py").read_text())
+        return "\n".join(parts)
+
+    @staticmethod
+    def _css() -> str:
+        return (pathlib.Path(__file__).resolve().parents[2] / "assets" / "custom.css").read_text()
+
+    # token -> the custom property it mirrors, for tokens only the browser paints
+    CSS_NAMES = {
+        "BG_BASE": "--bg-base",
+        "BG_RAISED": "--bg-raised",
+        "BG_HOVER": "--bg-hover",
+        "SURFACE_SUNKEN": "--surface-sunken",
+        "TEXT_PRIMARY": "--text-primary",
+        "TEXT_SECONDARY": "--text-secondary",
+        "TEXT_TERTIARY": "--text-tertiary",
+        "TEXT_DISABLED": "--text-disabled",
+        "ACCENT": "--accent-base",
+        "ACCENT_SOFT": "--accent-hover",
+        "FORECAST": "--forecast",
+        "SUCCESS": "--success",
+        "WARNING": "--warning",
+        "DANGER": "--danger",
+        "INFO": "--info",
+        "BORDER_SUBTLE": "--border-subtle",
+        "BORDER_DEFAULT": "--border-default",
+        "BORDER_STRONG": "--border-strong",
+    }
+
+    def test_every_token_has_a_callsite(self):
+        """Live in EITHER surface: Plotly reads the Python, the browser the CSS.
+
+        --bg-hover is never used by a figure but paints every hover state; its
+        Python mirror exists so test_css_root_matches_python_token can hold the
+        two sides together. That is a real job, so "live" means painted by
+        something, on either side.
+        """
+        src, css = self._product_source(), self._css()
+        dead = [
+            n
+            for n in dir(tokens)
+            if not (n.startswith("_") or n.islower() or n == "annotations")
+            and f"tokens.{n}" not in src
+            and not (self.CSS_NAMES.get(n) and f"var({self.CSS_NAMES[n]})" in css)
+        ]
+        assert not dead, (
+            f"token(s) painted by nothing — no Python callsite and no var() use in "
+            f"custom.css: {dead}. A token nothing paints is a claim nothing checks."
+        )
+
+    def test_every_entry_of_every_token_group_has_a_callsite(self):
+        """A group can be two-thirds dead while the group itself looks used."""
+        src = self._product_source()
+        groups = {
+            "WEATHER_DRIVERS": tokens.WEATHER_DRIVERS,
+            "FUEL_COLORS": tokens.FUEL_COLORS,
+            "PERSONA_COLORS": tokens.PERSONA_COLORS,
+        }
+        dead = []
+        for gname, group in groups.items():
+            # A comprehension over .items() reaches every entry wholesale.
+            if f"{gname}.items()" in src:
+                continue
+            dead += [f"{gname}[{k!r}]" for k in group if f'{gname}["{k}"]' not in src]
+        assert not dead, (
+            f"token group entries with no callsite: {dead}. WEATHER_DRIVERS shipped "
+            f"2 of 3 entries dead while the drivers painted semantic tokens instead."
+        )
+
+
+class TestGeneratedAssetsReproduce:
+    """Generated artifacts are gated by reproduction, not literal-freedom.
+
+    A rendered SVG necessarily contains literals, so the color gate skips it —
+    safe only if something else proves it still matches the tokens. The
+    generator once held stock blue-500 in a tuple commented "--accent-base"
+    while the checked-in favicon had been hand-edited to the real accent; the
+    two disagreed silently, and re-running the generator would have reverted the
+    brand.
+    """
+
+    def test_favicon_svg_matches_its_generator(self):
+        import tempfile
+
+        root = pathlib.Path(__file__).resolve().parents[2]
+        sys.path.insert(0, str(root / "scripts"))
+        import generate_brand_assets as gen
+
+        out = pathlib.Path(tempfile.mkdtemp()) / "favicon.svg"
+        gen.make_favicon_svg(out)
+        assert out.read_text() == (root / "assets" / "favicon.svg").read_text(), (
+            "assets/favicon.svg does not match what generate_brand_assets.py now "
+            "produces — the brand mark and the token have drifted. Re-run "
+            "`python scripts/generate_brand_assets.py --target favicon`."
         )

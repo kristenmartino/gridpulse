@@ -70,15 +70,33 @@ ADJACENT_CHART_FLOOR = 10.0
 AA_TEXT = 4.5
 AA_GRAPHIC = 3.0
 
-# How far the accent must sit from the nearest off-the-shelf swatch. This is a
-# FLOOR, not a target — see scripts/stock_palettes.py for why the distinction
-# matters. 6.0 is "clearly its own color"; the retired accent measured 2.5.
-STOCK_FLOOR = 6.0
+# How far the accent must sit from the nearest OFF-THE-SHELF swatch.
+#
+# A FLOOR, not a target. With a real corpus the metric nearly saturates: the
+# greatest distance from all stock, anywhere in usable accent space (contrast
+# >= 4.5 on the ground, chroma >= 0.10), measures 10.8. So a high floor stops
+# being a floor and becomes an optimisation target — and optimising distance
+# drives you to neon #00fdfd, the least owned color there is.
+#
+# 4.0 asks only the question worth asking: is this a COPY? CIEDE2000 ~2.3 is
+# the just-noticeable difference under careful viewing, so 4.0 is 1.7x JND —
+# "clearly not the same color as anything published", with margin.
+#
+# This number went DOWN from 6.0 and the gate got STRICTER, which is worth
+# spelling out because it looks like the opposite. 6.0 was set against a
+# Tailwind-only corpus where it was cheap; the accent it passed at 7.8 sat 1.64
+# from CSS darkturquoise, below JND. Under the corpus below that same accent
+# scores 1.64 and FAILS. The corpus was the thing that was wrong, not the number.
+STOCK_FLOOR = 4.0
 
 # Tolerance when re-deriving a token from its rule. Non-zero only because the
 # rule runs in OKLCh and the token is stored as 8-bit sRGB, so a round-trip
 # quantises.
 RAMP_TOL = 1.0
+
+# ACCENT_SOFT is the accent lifted for hover. One number, stated, so it can be
+# re-derived rather than trusted.
+ACCENT_SOFT_DL = 0.07
 
 # The semantics must share the anchor's OKLab lightness. Tolerance covers 8-bit
 # sRGB quantisation only.
@@ -103,7 +121,32 @@ NEUTRAL_LIGHTNESS = {
 # constant but the SOLUTION to "clear WCAG AA on --bg-base", so it is checked by
 # contrast rather than by reproduction. See check_contrast.
 
-SEMANTIC_HUES = {"SUCCESS": 150, "WARNING": 95, "DANGER": 25, "INFO": 250, "FORECAST": 60}
+# The semantic rule. Hue is convention; chroma is the anchor's (or the gamut max
+# at that hue); LIGHTNESS IS SOLVED for dichromatic separation and clamped to a
+# band where the color still reads as its meaning. See components/tokens.py for
+# why constant lightness was an accessibility bug rather than a design position.
+SEMANTIC_SPEC = {
+    "SUCCESS": (0.86, 150),
+    "WARNING": (0.74, 95),
+    "DANGER": (0.64, 25),
+    "INFO": (0.70, 250),
+    "FORECAST": (0.80, 60),
+}
+SEMANTIC_HUES = {k: v[1] for k, v in SEMANTIC_SPEC.items()}
+
+# Pairs that a reader actually compares, read off the callsites. The severity
+# triad is ONE badge that takes one of three colors by threshold, and three such
+# badges sit side by side in the weather strip — so they are compared. FORECAST
+# and the ACCENT are two lines in the hero figure.
+#
+# FORECAST vs WARNING is deliberately absent: they share the hero figure, but as
+# a dashed LINE and a 10px TEXT annotation. Different mark types are already
+# distinguished by form; the floor is for colors encoding the same kind of mark.
+SEMANTIC_COMPARED = [
+    ("SUCCESS", "WARNING"),
+    ("SUCCESS", "DANGER"),
+    ("WARNING", "DANGER"),
+]
 
 
 def _chroma(L: float) -> float:
@@ -115,11 +158,6 @@ def _fit(L: float, C: float, H: float) -> str:
     while c > 0 and not in_gamut(L, c, H):
         c -= 0.0005
     return oklch_to_hex(L, c, H)
-
-
-def _gamut_chroma(L: float, H: float) -> float:
-    """The semantic rule's chroma: the anchor's, or the gamut max at this hue."""
-    return hex_to_oklch(tokens.ACCENT)[1]
 
 
 def _nearest_stock(color: str) -> tuple[str, float]:
@@ -170,7 +208,7 @@ def check_ownership(failures: list[str]) -> None:
         )
 
     # 2. The neutrals reproduce from the curve.
-    L_a, _, H_a = hex_to_oklch(tokens.ACCENT)
+    L_a, C_a, H_a = hex_to_oklch(tokens.ACCENT)
     worst = 0.0
     for name, L in NEUTRAL_LIGHTNESS.items():
         regen = _fit(L, _chroma(L), H_a)
@@ -187,46 +225,62 @@ def check_ownership(failures: list[str]) -> None:
         f"worst dE={worst:4.1f}  (tol {RAMP_TOL}) {'ok' if worst <= RAMP_TOL else 'FAIL'}"
     )
 
+    # 2b. ACCENT_SOFT reproduces from the accent. It had no stated rule at all —
+    # a second brand color, ungated, sitting dE 5.35 from stock cyan-300, i.e.
+    # under the floor the accent itself must clear. Swapping it to stock passed
+    # every check.
+    soft = _fit(L_a + ACCENT_SOFT_DL, C_a, H_a)
+    d = ciede2000(tokens.ACCENT_SOFT, soft)
+    ok = d <= RAMP_TOL
+    print(
+        f"  ACCENT_SOFT reproduces from the accent (+{ACCENT_SOFT_DL} L)  "
+        f"dE={d:4.1f}  {'ok' if ok else 'FAIL'}"
+    )
+    if not ok:
+        failures.append(
+            f"ACCENT_SOFT {tokens.ACCENT_SOFT} does not reproduce from the accent "
+            f"(regenerates to {soft}, dE {d:.1f}) — the hover brand color has come "
+            f"loose from the brand."
+        )
+
     # 3. The semantics sit on the accent's lightness at their stated hues.
     worst_s = 0.0
-    for name, hue in SEMANTIC_HUES.items():
-        regen = _fit(L_a, _gamut_chroma(L_a, hue), hue)
+    for name, (sem_l, hue) in SEMANTIC_SPEC.items():
+        regen = _fit(sem_l, C_a, hue)
         d = ciede2000(getattr(tokens, name), regen)
         worst_s = max(worst_s, d)
         if d > RAMP_TOL:
             failures.append(
                 f"{name} = {getattr(tokens, name)} does not reproduce from the semantic rule "
-                f"(anchor lightness {L_a:.3f}, hue {hue} → {regen}, dE {d:.1f})."
+                f"(solved lightness {sem_l:.2f}, hue {hue} → {regen}, dE {d:.1f})."
             )
     print(
         f"  semantic ramp reproduces at the anchor's lightness (L={L_a:.3f})  "
         f"worst dE={worst_s:4.1f}  (tol {RAMP_TOL}) {'ok' if worst_s <= RAMP_TOL else 'FAIL'}"
     )
 
-    # The property the constant-lightness rule exists to create: one family, no
-    # severity outshouting another by brightness.
-    #
-    # Measured in OKLab L, which is the scale the rule is written in. CIE L* is
-    # a different lightness scale, so tokens at identical OKLab L still spread
-    # ~3 in L* — asserting on L* here would fail a palette that is doing exactly
-    # what it claims.
-    oklab_ls = [hex_to_oklch(getattr(tokens, n))[0] for n in SEMANTIC_HUES]
-    spread = max(oklab_ls) - min(oklab_ls)
-    contrasts = [contrast_ratio(getattr(tokens, n), tokens.BG_BASE) for n in SEMANTIC_HUES]
-    ok = spread <= SEMANTIC_L_TOL
-    print(
-        f"  semantic family: OKLab L spread {spread:.4f} (tol {SEMANTIC_L_TOL}) — "
-        f"Tailwind's -400 row spread 0.132  {'ok' if ok else 'FAIL'}"
-    )
-    print(
-        f"    → contrast band {min(contrasts):.2f}–{max(contrasts):.2f} "
-        f"(was 7.04–11.82: WARNING carried 68% more weight than FORECAST, unchosen)"
-    )
-    if not ok:
-        failures.append(
-            f"semantic OKLab L spread {spread:.4f} > {SEMANTIC_L_TOL} — the semantics are no "
-            f"longer one family at the anchor's lightness."
+    # The check that did NOT exist while the constant-lightness rule was
+    # shipping, which is why the rule's accessibility cost went unmeasured:
+    # the severity triad against ITSELF, under dichromacy.
+    _hdr("Severity triad — the pairs a reader compares, under dichromacy")
+    for a, b in SEMANTIC_COMPARED:
+        m = min_cvd(getattr(tokens, a), getattr(tokens, b))
+        ok = m >= SHARED_FIGURE_FLOOR
+        print(
+            f"  {a:8s} vs {b:8s} minCVD={m:5.1f}  (floor {SHARED_FIGURE_FLOOR}) "
+            f"{'ok' if ok else 'FAIL'}"
         )
+        if not ok:
+            failures.append(
+                f"severity {a}/{b} minCVD {m:.1f} < {SHARED_FIGURE_FLOOR} — these three "
+                f"collapse toward one yellow under deuteranopia and lightness is the only "
+                f"channel left; a constant-lightness rule measured 1.5 here."
+            )
+    contrasts = [contrast_ratio(getattr(tokens, n), tokens.BG_BASE) for n in SEMANTIC_SPEC]
+    print(
+        f"    contrast band {min(contrasts):.2f}-{max(contrasts):.2f} "
+        f"(every semantic still clears AA; see check_contrast)"
+    )
 
 
 def check_contrast(failures: list[str]) -> None:

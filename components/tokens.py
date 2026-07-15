@@ -84,119 +84,158 @@ def alpha(color: str, a: float) -> str:
 # ── Token values ─────────────────────────────────────────────────────
 # ── The neutral ramp — DERIVED, not downloaded ───────────────────────
 #
-# Every neutral below is generated from the ACCENT's own hue (196°) at low
-# chroma, on a deliberate curve. It replaces stock Tailwind zinc, which sat at
-# CIEDE2000 0.00 from the download — literally the shipped values, at a hue
-# (~286°) unrelated to anything else in the product.
+# Every neutral below is generated from the ACCENT's own hue (202°) at low
+# chroma. It replaces stock Tailwind zinc, which sat at CIEDE2000 0.00 from the
+# download — literally the shipped values, at a hue (~286°) unrelated to
+# anything else in the product.
 #
-# The curve: chroma = 0.019 · exp(−((L − 0.38)/0.34)²), skewed toward the DARK
-# end rather than symmetric. The rationale is TINT THE ROOM, NOT THE INK. Dark
-# surfaces are large, so a trace of the brand hue there reads as atmosphere;
-# the same chroma in text reads as a rendering fault, so it tapers off as
-# lightness rises. Zinc's curve peaks at ~0.0146 around mid-tone and is
-# symmetric — a different shape, for no reason, because it was never chosen.
+# The curve: chroma = 0.019 · exp(−((L − 0.38)/0.34)²).
+#
+# It is a Gaussian, so it is SYMMETRIC about its peak; what is deliberate is
+# where the peak sits — L 0.38, below mid-tone. An earlier version of this
+# comment claimed the curve was "skewed toward the dark end rather than
+# symmetric", which is false about a Gaussian by construction, and it was
+# written in the same commit that corrected a different false comment. Recorded
+# rather than quietly deleted: this module's whole thesis is that prose drifts
+# from code, and the author of the thesis is not exempt.
+#
+# The rationale for the low peak is TINT THE ROOM, NOT THE INK. Dark surfaces
+# are large, so a trace of the brand hue there reads as atmosphere; the same
+# chroma in text reads as a rendering fault, so it tapers as lightness rises.
+# Zinc's curve peaks at ~0.0146 near mid-tone at a hue unrelated to its accent —
+# not a worse shape, just an unchosen one.
 #
 # LIGHTNESS IS DELIBERATELY UNCHANGED from the zinc ramp it replaces (L* 2.8 →
-# 2.9, 90.7 → 90.8, and so on). The value architecture of the UI was already
-# right; only the hue bias was borrowed. Changing both at once would have made
-# a visual regression impossible to attribute.
+# 2.9, 90.7 → 90.8, and so on). The UI's value architecture was already right;
+# only the hue bias was borrowed. Changing both at once would make a visual
+# regression impossible to attribute.
 #
-# The one exception is --text-tertiary, lifted from L* 47.9 to 51.0. At zinc's
-# lightness it measured 4.09:1 on --bg-base — below WCAG AA for normal text,
-# while rendering 11px chart tick labels. Its lightness is now SOLVED for
-# 4.55:1 rather than sampled and hoped for.
+# The one exception is --text-tertiary, whose lightness is SOLVED for WCAG AA on
+# --bg-base rather than chosen. At zinc's lightness it measured 4.09:1 — below
+# AA for the 11px chart ticks it renders.
 
 BG_BASE = "#050c0c"  # --bg-base: page background, deepest
-BG_RAISED = "#0a1313"  # --bg-raised: cards, dropdowns, badges
-BG_HOVER = "#101a1a"  # --bg-hover: interactive hover state
-SURFACE_SUNKEN = "#030707"  # --surface-sunken: recessed track/inset
+BG_RAISED = "#0a1314"  # --bg-raised: cards, dropdowns, badges
+BG_HOVER = "#101a1b"  # --bg-hover: interactive hover state
+SURFACE_SUNKEN = "#030708"  # --surface-sunken: recessed track/inset
 
 TEXT_PRIMARY = "#e3e5e5"  # --text-primary
-TEXT_SECONDARY = "#9da4a3"  # --text-secondary
-TEXT_TERTIARY = "#707c7b"  # --text-tertiary — solved for AA, not sampled
-TEXT_DISABLED = "#485656"  # --text-disabled (WCAG 1.4.3 exempts inactive UI)
+TEXT_SECONDARY = "#9da3a4"  # --text-secondary
+TEXT_TERTIARY = "#707c7c"  # --text-tertiary — solved for AA, not sampled
+TEXT_DISABLED = "#485657"  # --text-disabled (WCAG 1.4.3 exempts inactive UI)
 
-# ── Accent — the brand hue (mirrors --accent-base / --accent-hover) ───
+# ── Accent — the brand hue, and the anchor everything derives from ───
 #
-# OKLCh(0.79, 0.125, 196°) — a spectral teal-cyan, and the anchor the neutral
-# ramp above is generated from.
+# OKLCh(0.82, 0.130, 202°). This is the ONE color a human chose. Every other
+# non-external token in this module is generated from it, so it is the only one
+# that needs defending by a different means: it must not be a copy.
 #
-# It replaces #35c6ff, which was CIEDE2000 2.5 from Tailwind sky-400: a
-# near-duplicate of a stock swatch, reached after a previous pass had moved off
-# stock blue-500 and landed on a different stock blue. This one is 18.6 from
-# sky-400 and 7.8 from its nearest Tailwind neighbour.
+# "Not a copy" is measured against 329 published swatches — Tailwind, the CSS
+# named colors, Material, IBM Carbon, Ant Design, Chakra and Bootstrap
+# (scripts/stock_palettes.py). Nearest today: material cyan-300 at CIEDE2000 4.24.
 #
-# Distance from Tailwind is NOT the point and is a poor target on its own —
-# Tailwind's 242 swatches tile color space, so optimising for pure distance
-# drives you to neon (#00fdfd), the least owned color there is. What makes this
-# palette the product's own is that ONE anchor generates the neutrals through a
-# stated curve, and every relationship in it is measured.
+# That corpus is deliberately broad because the last two accents were not.
+# #35c6ff was condemned at 2.5 from Tailwind sky-400 — and measures 1.51 from
+# Material lightblue-300. Its replacement #33d3d5 scored 7.8 against a
+# Tailwind-only ruler and shipped as "owned" while sitting 1.64 from CSS
+# ``darkturquoise``, a color every browser ships. Both were below the ~2.3
+# CIEDE2000 just-noticeable difference: perceptually the same color as something
+# off a shelf. The gate reported otherwise because it had been given one shelf.
+#
+# The floor is 4.0 — see STOCK_FLOOR in scripts/verify_palette.py for why that
+# number and not a rounder one. Short version: with a real corpus the metric
+# nearly saturates (the greatest distance from all stock, anywhere in usable
+# accent space, is 10.8), so a high floor stops being a floor and becomes an
+# optimisation target — and optimising distance drives you to neon #00fdfd, the
+# least owned color there is. 4.0 asks only the question worth asking: is this a
+# copy? It is not; it is 1.7× the JND from anything published.
+#
+# What makes the palette this product's own is NOT that number. It is that one
+# anchor generates the neutrals and the semantics through two stated rules, and
+# every relationship in it is measured.
 #
 # This is ALSO the demand/primary data series (``COLORS["actual"]``,
-# ``LINE_STYLES["actual"]``, ``_COLORWAY[0]``) so brand color and data color
-# are one system rather than two. ``scripts/verify_palette.py`` proves it
-# clears every series it shares a figure with under all three CVD types.
+# ``LINE_STYLES["actual"]``, ``_COLORWAY[0]``) so brand color and data color are
+# one system rather than two.
 
-ACCENT = "#33d3d5"  # --accent-base
-ACCENT_SOFT = "#7ce5e6"  # --accent-hover
+ACCENT = "#35dde8"  # --accent-base
+ACCENT_SOFT = "#59f4ff"  # --accent-hover
 
 # ── Semantic ramp — DERIVED from the anchor ──────────────────────────
 #
-# THE RULE: every semantic sits at the ANCHOR'S LIGHTNESS, at the anchor's
-# chroma or the sRGB gamut maximum at that hue — whichever is lower. Hue is the
-# only free variable, chosen by convention and then spread so the three warm
-# semantics do not muddy together.
+# THE RULE: chroma is the anchor's (0.130) or the sRGB gamut maximum at that hue,
+# whichever is lower — so nothing can out-saturate the brand. Hue is convention.
+# LIGHTNESS IS SOLVED for dichromatic separation, then clamped to a band where
+# the color still reads as its meaning.
 #
-# What that buys, and why it is a design position rather than a formula:
+# The lightness rule exists because the previous one was an accessibility bug I
+# shipped. It held every semantic at the anchor's lightness, on the reasoning
+# that "no severity outshouts another by brightness" — and mocked the Tailwind
+# row it replaced for spanning L 0.705-0.837 with "no reason anyone chose".
 #
-#   * Constant lightness means no severity outshouts another by brightness.
-#     The Tailwind row these replace spanned L 0.705-0.837 and contrast
-#     7.04-11.82 — WARNING carried 68% more perceived weight than FORECAST for
-#     no reason anyone chose. Urgency is carried by hue and by the icon/label
-#     pairing every callsite already has, never by shouting. That is the right
-#     posture for a control room: an operator should not be strobed at.
-#   * Capping chroma at the ANCHOR'S means no semantic can out-saturate the
-#     brand. These read muted next to Tailwind's punchy -400 row. That is the
-#     point — "calmer, more premium", per the product brief.
+# That reasoning was exactly backwards. Under deuteranopia SUCCESS (green),
+# WARNING (amber) and DANGER (red) all collapse toward the same yellow;
+# lightness is the ONLY channel left. Holding it constant deleted the one thing
+# telling them apart. Measured: the severity triad's worst pair went from 3.3
+# (stock Tailwind) to 1.5 (the "designed" version) — and 1.5 is what
+# scripts/color_science.py's own docstring calls invisible. The spread being
+# mocked was doing the accessibility work.
+#
+# Nothing caught it because verify_palette.py checked fuel adjacency, the accent
+# against its co-occurring series, the drivers and the map — and never the
+# semantics against each other. It checks them now.
+#
+# Solved values give a worst pair of 15.3 (SUCCESS/WARNING), 18.8
+# (SUCCESS/DANGER), 14.3 (WARNING/DANGER) — better than both the stock row and
+# the constant-lightness version, with every color still reading correctly:
+# light green, amber-gold, a real red.
+#
+# The lightness ordering that falls out (DANGER darkest, SUCCESS lightest) is
+# NOT a claim that danger should be dim. It is what the sRGB gamut allows at
+# constant chroma: red desaturates to pink as it lightens, so a bright DANGER
+# stops looking like danger. The ordering is a consequence, not an intent.
+#
+# Colour alone still cannot carry severity — the triad rides the red-green axis
+# that protan/deutan collapse, and no palette fixes that. That is precisely why
+# WCAG 1.4.1 demands a second channel. Every severity callsite pairs the color
+# with an icon or a label, and tests/unit/test_color_tokens.py now asserts that
+# rather than trusting this paragraph.
 #
 # These replace SUCCESS=emerald-400, WARNING=amber-400, DANGER=red-400,
-# INFO=blue-400, FORECAST=orange-500 — five tokens that were byte-identical
-# stock Tailwind (CIEDE2000 0.00), which an independent re-audit named as the
-# specific reason this palette read as "downloaded, not designed". Their hue
-# offsets from the accent were -33.0, -111.8, -174.0, +58.4, -148.6: not
-# harmonic, not spaced, no rule — because they were never chosen, only taken.
+# INFO=blue-400, FORECAST=orange-500 — five tokens byte-identical to stock
+# Tailwind (CIEDE2000 0.00), which an independent re-audit named as the specific
+# reason this palette read as "downloaded, not designed".
+
+FORECAST = "#fba962"  # --forecast: forward-looking series (hue 60)
+
+SUCCESS = "#90e9a3"  # --success (hue 150)
+WARNING = "#c5a93b"  # --warning (hue 95)
+DANGER = "#cf6963"  # --danger (hue 25)
+INFO = "#5aa3ec"  # --info (hue 250)
+
+# There is no SEVERITY dict here, and that is deliberate — there was one, it had
+# ZERO callsites, and this comment used to claim it meant severity "can never
+# drift apart again".
 #
-# They are DERIVED, not picked: change ACCENT's lightness and every one of them
-# moves. scripts/verify_palette.py recomputes them from this rule and fails if
-# a literal below has drifted off it.
-
-FORECAST = "#f5a763"  # --forecast: forward-looking series (hue 60)
-
-SUCCESS = "#7cd18f"  # --success (hue 150)
-WARNING = "#d4ba53"  # --warning (hue 95)
-DANGER = "#ff9b93"  # --danger (hue 25)
-INFO = "#83c0ff"  # --info (hue 250)
-
-# THE severity triad. Two rival triads used to exist alongside this one —
-# (#FF5C7A/#FFB84D/#2BD67B) and an Okabe-Ito ``SEVERITY_COLORS`` — for the
-# same three-level concept. Both are deleted; this maps severity onto the
-# semantic tokens above so severity and status can never drift apart again.
+# It was keyed critical/warning/info/ok. Nothing in the product speaks that
+# vocabulary: insights.py grades info/notable/warning, error_handling.py grades
+# confidence high/medium/low/demo. So it unified nothing; it was a fourth
+# spelling of severity invented while deleting three, dressed as the fix. The
+# FUEL_COLORS-with-zero-callsites defect, one file over, by the author of the
+# module that exists to prevent it.
 #
-# Severity is never carried by color ALONE at any callsite (each pairs the
-# color with an icon, a label, or both) — required by WCAG 1.4.1, because
-# --success/--danger sit on the red-green axis that protan/deutan collapse.
-SEVERITY = {
-    "critical": DANGER,
-    "warning": WARNING,
-    "info": INFO,
-    "ok": SUCCESS,
-}
+# The real contract is narrower and already holds: this module owns the VALUES
+# (SUCCESS/WARNING/DANGER/INFO); each domain maps its own vocabulary onto them
+# at its own callsite, which is where that knowledge belongs. Two mappings
+# exist, they are not rivals, and neither carries a color literal.
 
 # ── Borders ──────────────────────────────────────────────────────────
 
 BORDER_SUBTLE = "rgba(255, 255, 255, 0.06)"  # --border-subtle
 BORDER_DEFAULT = "rgba(255, 255, 255, 0.12)"  # --border-default
-BORDER_STRONG = "rgba(255, 255, 255, 0.18)"  # --border-strong
+# (BORDER_STRONG existed here too, mirroring --border-strong, and was
+#  referenced by neither Python nor any CSS rule. Removed by the callsite
+#  test rather than by inspection — which is the point of the test.)
 
 TRANSPARENT = "rgba(0,0,0,0)"
 
@@ -320,28 +359,38 @@ PERSONA_COLORS = {
 
 # ── Weather drivers ──────────────────────────────────────────────────
 #
-# The Overview's three driver sparklines. Temperature used to be #3b82f6 here
-# while the Weather tab drew the same quantity in Wong yellow — one concept,
-# two hexes, and the #3b82f6 was also byte-identical to hydro (the "hydro and
-# temperature share a hex" defect). Temperature now resolves to the Wong
-# yellow everywhere: it is the hue that clears the accent demand line it is
-# plotted against (CIEDE2000 39.2) and it is hue-distinct from hydro (71.1).
+# The Overview's three driver sparklines: Temperature, Wind, Solar irradiance.
 #
-# Solar deliberately does NOT reuse FUEL_COLORS["solar"]: that yellow is
-# CIEDE2000 3.2 from the temperature yellow, which would render the
-# Temperature and Solar sparklines identical side by side. The trio below is
-# mutually >= 15.5 under all three CVD types.
+# temperature is pinned to the Wong yellow because LINE_STYLES draws the same
+# quantity in it on the Weather tab — one concept, one color. wind reuses the
+# wind-GENERATION color: same physical driver, so sharing is correct rather than
+# accidental.
+#
+# solar does NOT reuse FUEL_COLORS["solar"], and that is the interesting one:
+# the solar-generation yellow measures CIEDE2000 0.4 from the temperature yellow
+# it would sit beside — the same color. So the irradiance driver is derived on
+# the semantic rule (anchor chroma, hue 50, L 0.78) at a hue solved to clear
+# both neighbours. Reusing the "obviously right" token would have shipped two
+# identical sparklines labelled Temperature and Solar.
+#
+# These were declared and then only ONE THIRD wired: the sparkline list passed
+# tokens.SUCCESS for Wind and tokens.FORECAST for Solar — semantic tokens doing
+# duty as driver identities — so this dict had two dead entries while
+# verify_palette dutifully checked colors that never rendered. Exactly the
+# FUEL_COLORS-with-zero-callsites defect this module was written to kill,
+# reproduced by its own author. tests/unit/test_color_tokens.py now asserts every
+# token group is actually referenced.
 WEATHER_DRIVERS = {
     "temperature": CB_PALETTE["yellow"],
-    "wind": FUEL_COLORS["wind"],  # same physical driver as wind generation
-    "solar": FORECAST,
+    "wind": FUEL_COLORS["wind"],
+    "solar": "#fa9d68",
 }
 
 # ── US-Grid choropleth ───────────────────────────────────────────────
 
 MAP_LAND = BG_RAISED
-MAP_COASTLINE = "#1e2a2a"
-MAP_SUBUNIT = "#172222"
+MAP_COASTLINE = "#1d2a2b"
+MAP_SUBUNIT = "#162223"
 MAP_AXIS_FONT = TEXT_TERTIARY
 MAP_BORDER = alpha(TEXT_PRIMARY, 0.5)
 

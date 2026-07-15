@@ -40,9 +40,10 @@ class TestColorblindPalette:
     # OTHER triads (#FF5C7A/#FFB84D/#2BD67B and the CSS semantic tokens). Three
     # triads for one concept, and the tests guarded the one nothing rendered.
     #
-    # SEVERITY_COLORS is deleted. Severity is now components.tokens.SEVERITY,
-    # mapped onto the semantic tokens, and asserted against what actually
-    # renders in tests/unit/test_color_tokens.py.
+    # SEVERITY_COLORS is deleted. Each domain now maps its own severity
+    # vocabulary onto the semantic tokens at its own callsite (insights.py grades
+    # info/notable/warning; error_handling.py grades confidence tiers), and those
+    # are asserted against what actually renders in test_color_tokens.py.
     #
     # The key-existence checks above are kept but are NOT the real guarantee —
     # see test_color_tokens.py::TestRenderedTraceColors, which pins FUEL_COLORS

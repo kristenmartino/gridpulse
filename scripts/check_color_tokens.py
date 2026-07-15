@@ -101,6 +101,11 @@ RGBA_RE = re.compile(r"\brgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+", re.I)
 
 CSS_VAR_LINE = re.compile(r"^\s*--[\w-]+\s*:")
 
+# Artifacts rendered by scripts/generate_brand_assets.py. Gated by
+# reproduction (tests/unit/test_color_tokens.py) rather than by
+# literal-freedom, which a rendered file cannot have.
+GENERATED_ASSETS = {"favicon.svg"}
+
 
 def _iter_py() -> list[pathlib.Path]:
     out: list[pathlib.Path] = []
@@ -254,10 +259,29 @@ def main() -> int:
         for lineno, lit in check_python(path):
             failures.append(f"{path.relative_to(REPO)}:{lineno}: {lit}")
 
-    css = REPO / "assets" / "custom.css"
-    if css.exists():
+    # Every CSS asset Dash serves — a glob, not a fixed path. This hardcoded
+    # `custom.css` while the JS check globbed, one line under a comment
+    # explaining why a fixed list is dangerous. A new assets/theme.css would
+    # have arrived outside the gate entirely.
+    for css in sorted((REPO / "assets").glob("*.css")):
         for lineno, lit in check_css(css):
             failures.append(f"{css.relative_to(REPO)}:{lineno}: {lit}")
+
+    # SVG assets are served straight to the browser and were walked by nothing —
+    # reverting assets/favicon.svg to the retired brand passed every check.
+    #
+    # But a GENERATED artifact necessarily contains literals: that is what
+    # rendering means. Demanding literal-freedom of it would be a rule it can
+    # never satisfy, and the escape hatch would then rot. So generated files are
+    # gated by REPRODUCTION instead — tests/unit/test_color_tokens.py rebuilds
+    # them from scripts/generate_brand_assets.py and asserts byte equality, which
+    # is strictly stronger: it catches a hand-edit AND a stale regeneration after
+    # the token moves. Hand-authored SVGs (there are none today) are still walked.
+    for svg in sorted((REPO / "assets").glob("*.svg")):
+        if svg.name in GENERATED_ASSETS:
+            continue
+        for lineno, lit in check_js(svg):  # same line-scan; SVG has no :root
+            failures.append(f"{svg.relative_to(REPO)}:{lineno}: {lit}")
 
     # Every JS asset Dash serves. Not a fixed list: a new assets/*.js would
     # otherwise arrive outside the gate, which is how the last blind spot

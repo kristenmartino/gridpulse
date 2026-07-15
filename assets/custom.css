@@ -18,9 +18,9 @@
      * download, at an unrelated hue). Same lightness as the zinc ramp it
      * replaces — only the hue bias changed. See components/tokens.py. */
     --bg-base: #050c0c;       /* page background, deepest */
-    --bg-raised: #0a1313;     /* cards, dropdowns, badges */
-    --bg-hover: #101a1a;      /* interactive hover state */
-    --surface-sunken: #030707; /* recessed track/inset, deeper than --bg-base */
+    --bg-raised: #0a1314;     /* cards, dropdowns, badges */
+    --bg-hover: #101a1b;      /* interactive hover state */
+    --surface-sunken: #030708; /* recessed track/inset, deeper than --bg-base */
     /* Back-compat aliases for rules still referencing the old 5-tier system. */
     --bg-elevated: var(--bg-raised);
     --bg-overlay: rgba(5, 12, 12, 0.72);
@@ -28,16 +28,15 @@
     /* Borders — translucent white ramp; tightened to 0.06 / 0.12 / 0.18 */
     --border-subtle: rgba(255, 255, 255, 0.06);
     --border-default: rgba(255, 255, 255, 0.12);
-    --border-strong: rgba(255, 255, 255, 0.18);
-    --border-accent: #33d3d5;
+    --border-accent: #35dde8;
 
     /* Text — 4-tier ramp on the same derivation. --text-tertiary is SOLVED for
      * WCAG AA (4.56:1) rather than sampled: at zinc's lightness it measured
      * 4.09:1, below AA for the 11px chart ticks it renders. */
     --text-primary: #e3e5e5;
-    --text-secondary: #9da4a3;
-    --text-tertiary: #707c7b;
-    --text-disabled: #485656;
+    --text-secondary: #9da3a4;
+    --text-tertiary: #707c7c;
+    --text-disabled: #485657;
     /* Back-compat alias */
     --text-muted: var(--text-disabled);
 
@@ -55,11 +54,11 @@
      * rules used to inline rgba(53, 198, 255, ...) directly, which is how this
      * hex ended up copied four ways. scripts/check_color_tokens.py now fails
      * the build on any color literal outside a custom-property declaration. */
-    --accent-base: #33d3d5;
-    --accent-hover: #7ce5e6;
-    --accent-glow: rgba(51, 211, 213, 0.08);
-    --accent-dim: rgba(51, 211, 213, 0.15);
-    --accent-ring: rgba(51, 211, 213, 0.32);
+    --accent-base: #35dde8;
+    --accent-hover: #59f4ff;
+    --accent-glow: rgba(53, 221, 232, 0.08);
+    --accent-dim: rgba(53, 221, 232, 0.15);
+    --accent-ring: rgba(53, 221, 232, 0.32);
 
     /* Forecast + semantic — DERIVED from the accent, not taken from a
      * palette. Every one sits at the ACCENT'S lightness, at the accent's
@@ -68,17 +67,17 @@
      * out-saturates the brand. These replace emerald-400 / amber-400 /
      * red-400 / blue-400 / orange-500, which were byte-identical stock
      * Tailwind. See components/tokens.py for the rule and the rationale. */
-    --forecast: #f5a763;
-    --forecast-dim: rgba(245, 167, 99, 0.12);
+    --forecast: #fba962;
+    --forecast-dim: rgba(251, 169, 98, 0.12);
 
-    --success: #7cd18f;
-    --success-dim: rgba(124, 209, 143, 0.12);
-    --warning: #d4ba53;
-    --warning-dim: rgba(212, 186, 83, 0.12);
-    --danger: #ff9b93;
-    --danger-dim: rgba(255, 155, 147, 0.12);
-    --info: #83c0ff;
-    --info-dim: rgba(131, 192, 255, 0.12);
+    --success: #90e9a3;
+    --success-dim: rgba(144, 233, 163, 0.12);
+    --warning: #c5a93b;
+    --warning-dim: rgba(197, 169, 59, 0.12);
+    --danger: #cf6963;
+    --danger-dim: rgba(207, 105, 99, 0.12);
+    --info: #5aa3ec;
+    --info-dim: rgba(90, 163, 236, 0.12);
 
     /* Typography */
     --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;

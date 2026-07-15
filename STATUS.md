@@ -205,14 +205,47 @@ held matplotlib's tab10 defaults — a *fifth* color system. And `--text-tertiar
 was stock zinc-500 at **4.09:1**, below WCAG AA for the 11px chart ticks it
 renders; its lightness is now solved for 4.55 rather than sampled.
 
-**Nuclear is wine, not purple** — a measurement, not taste. Sweeping hue 260–375
-× L\* 40–94 yields zero violet that clears both hydro and the accent, because
-violet collapses onto the blue axis under deutan.
+**Nuclear is wine, not purple — and the reason this file first gave was wrong.**
+It claimed a sweep found "zero violet", which was true only against the *Phase 1*
+accent; Phase 2 moved the accent and nothing re-ran the sweep. Re-run against
+what ships, 61 violet candidates clear. Wine stays for margin (19.7 vs violet's
+best 15.1), as a CHOICE. Corrected in `components/tokens.py`; corrected here
+second, which is itself the lesson — the fix landed in code and this file went on
+asserting the retracted claim until an audit found it.
 
-**Open question:** the re-audit's other dimensions (Typography 6.8, Composition
-6.5, Details 7.0) are untouched by this pass. Color's own 9–10 gate asked for a
-palette "invented for THIS project"; that is now true by derivation, but a
-re-score is needed to confirm the dimension actually moved.
+**2026-07-15 — Color re-scored twice, then hardened. 5.5 → 7.5 → 8.0.** Both
+re-scores were independent and unanimous (3 fresh graders each, same rubric,
+told to credit only what the code computes). Each round found real defects, and
+the pattern in them is the useful part: **the instance kept getting fixed while
+the class stayed open.**
+
+- "Comments lie" → built a gate → then wrote a false comment *in the gate's own
+  commit* (a Gaussian described as "skewed rather than symmetric"; only its peak
+  is dark-biased).
+- "The accent must not be stock" → gated it against Tailwind → shipped an accent
+  **1.64** from CSS `darkturquoise`, closer than the 2.55 that condemned its
+  predecessor. One-vendor ruler, same blind spot one level up.
+- "A palette with zero callsites is the headline defect" → deleted two such
+  → then shipped `tokens.SEVERITY` (zero callsites, keyed to a vocabulary
+  nothing speaks) and `WEATHER_DRIVERS` (declared 3, wired 1 — the Wind
+  sparkline painted a *semantic* token).
+- Deriving the semantics at constant lightness **deleted the only channel
+  dichromats have**: the severity triad's worst pair went 3.3 (stock Tailwind)
+  → **1.5** (invisible). Nothing measured it, because no check compared the
+  semantics to each other.
+
+Fixed by gating the CLASS, not the instances: a 329-swatch multi-vendor stock
+corpus; every token classified and re-derived from the anchor by a stated rule
+that CI recomputes; severity lightness **solved** for dichromatic separation
+(worst pair now 15.3); a callsite test that fails on any dead token or dead
+group entry; generated assets gated by reproduction; the gate now walks
+`assets/*.js`, `assets/*.svg` and globs `assets/*.css`. 13/13 adversarial
+reversions caught, control clean.
+
+**Open question:** the other dimensions (Typography 6.8, Composition 6.5,
+Details 7.0) are untouched by this work. Color needs a third independent
+re-score — the two prior self-estimates in this file were both wrong, in the
+same direction.
 
 ---
 
