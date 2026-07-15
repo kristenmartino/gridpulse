@@ -439,6 +439,71 @@ instrument before you touch the thing — it tells you which parts of the brief 
 right, and it's the only thing that catches you when you're the one who's wrong.
 And a convention that lives in a comment isn't a convention; it's a wish.*
 
+### 16. "Tell me about a time the tests passed and the feature didn't work."
+
+**The chart animation that never played (commits `e2b2c6e` … `43c0a70`).**
+
+Situation: A design re-audit found that every GridPulse chart hard-cuts — no
+`layout.transition` anywhere — so in a forecast-confidence product, nothing about
+uncertainty or time was ever expressed through movement. The ask: morph the demand
+curve between regions, and make the P10–P90 band "breathe outward" as the horizon
+extends.
+
+Action: Three things came out of it, and **each one shipped green**.
+
+1. **The gate was never installed.** A Plotly transition is d3/rAF-driven JS, so
+   the `@media (prefers-reduced-motion)` block in the stylesheet — including its
+   `* { transition-duration: 0.01ms }` catch-all — cannot touch it. I wrote a
+   client-side gate to suppress it. I defined the installer and never called it.
+   The file loaded, its CSS class applied, everything looked wired, and every
+   transition played straight through the user's stated preference. Caught by
+   reading `Plotly.__gpMotionPatched` in the live app.
+2. **The gate then suppressed everything.** plotly.py ≥6 ships numpy arrays
+   base64-encoded as `{dtype, bdata}`, which has no `.length`. My shape check read
+   `undefined`, called every update a shape change, and suppressed **100%** of
+   transitions. The feature was dead on arrival with a fully green suite.
+3. **The morph never ran at all.** Plotly splits a transition into an axis half
+   and a trace half and animates *only one*. Its default animates the axes and
+   redraws traces with `duration: 0` afterwards. Every balancing authority carries
+   a different load, so a region switch always moves the y range (0–30,689 →
+   0–46,694) and Plotly always took that branch: it panned the plot area with the
+   **old** curve inside it, then snapped the new one in. My morph was handed
+   `duration: 0` every single time. `ordering: "traces first"` inverts it.
+
+Not one of these was catchable by the suite. `layout.transition` was present,
+Plotly emitted `plotly_transitioning`, my own instrumentation reported "allowed at
+500ms." Every signal I had built said working. The third one surfaced only because
+a human watched it and said *the data slides sideways* — an artifact I had no test
+for and could not have named.
+
+I also got the easing wrong by reasoning instead of looking. I picked `exp-out` to
+match the stylesheet's `--ease-out-quint`/`--ease-spring`, and it read as abrupt:
+it covers half the distance in the first tenth of the duration, so the curve leaps
+then crawls. Those curves pace *chrome entering*, where an instant start reads as
+responsive and there's nothing to track. A data morph exists for object constancy —
+the eye following the curve from its old shape to its new one — and a near-instant
+start defeats it. `cubic-in-out` starts from rest, which is why it's both Plotly's
+and d3's default here. The original brief said `cubic-in-out`; I overrode it on a
+criterion that sounded principled and wasn't.
+
+Result: I also **declined the headline ask.** The band already expressed the thesis
+— `_widening_interval_from_backtests` builds an empirically calibrated, monotone-
+widening P10–P90 fan anchored on 24/168/720h backtest residuals — just statically
+rather than through motion. And "breathe outward" couldn't be built honestly: a
+horizon change alters the point count, and d3 pairs path vertices *positionally*, so
+24h→720h morphs ~24 and snaps ~696 — a torn curve. More importantly, a vertical
+narrow→wide grow would transiently **understate uncertainty**, the one direction of
+error that matters in a forecast-confidence product. What shipped instead is honest:
+at a fixed horizon the band morphs and visibly re-fans to the new region's real
+calibration, with both endpoints true. I left the 51 small multiples off, because I
+could not measure their frame cost and wasn't willing to assume it.
+
+**Lesson to convey**: *A green suite proves the code does what I told it to do. It
+cannot prove I told it the right thing. Three times here the tests, the events, and
+my own instrumentation all agreed the feature worked while it did nothing — and the
+one that mattered most was found by a person watching the screen for two seconds.
+Build the thing that lets you look.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

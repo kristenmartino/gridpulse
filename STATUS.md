@@ -19,7 +19,54 @@ follow-up commit.
 
 ## Active focus + open question
 
-**2026-07-14 (latest) — Color pass shipped: the palette has ONE source of truth,
+**2026-07-14 (latest) — Motion pass shipped: the demand curve MORPHS between
+regions, and the motion is gated where it would lie or tear.** Answers the
+re-audit's #1 leverage item (zero `layout.transition` anywhere: every chart
+hard-cut, so a forecast-confidence product expressed nothing about uncertainty or
+time through movement). Commits `e2b2c6e`, `7a2a2f4`, `3f4ec0b`, plus the
+traces-first fix and the KPI-contract re-pin (`9857a0a`).
+
+Python *declares* the morph (`_layout(transition=True)` → `CHART_TRANSITION`,
+500ms/`cubic-in-out`/`traces first`), scoped to the Overview hero and the forecast
+chart. The client *gates* it in [`assets/motion.js`](assets/motion.js), because
+both disqualifying conditions are only knowable in the browser: a Plotly
+transition is d3/rAF-driven JS, so the `prefers-reduced-motion` media query
+**cannot reach it**; and a change in a trace's point count tears the curve (d3
+pairs path vertices positionally, so 24h→720h morphs ~24 and snaps ~696). Dash
+routes every figure update through the bare global `Plotly.react`, so one wrapper
+is the whole surface.
+
+**What running it found that the suite could not.** Three separate bugs each
+shipped fully green. (1) The gate was *defined and never called* — motion.js
+loaded, its CSS class applied, and every transition played straight through the
+reduced-motion preference. (2) plotly.py ≥6 ships numpy `y` as base64
+`{dtype, bdata}`, which has no `.length`; the shape check read `undefined` and
+suppressed **100%** of transitions — dead on arrival, suite green. (3) **The morph
+never played at all**: Plotly animates either the axes or the traces, never both,
+and its default picks the axes. Every BA has a different load, so a region switch
+always moves the y range (0–30,689 → 0–46,694) and Plotly always took its axis
+branch — panning the plot area with the OLD curve inside it, then snapping the new
+one in. Found only by a human watching it slide sideways.
+
+**The headline ask was declined, on the repo's own honesty guardrail.** The audit
+wanted the band to "breathe outward as the horizon extends." It already expresses
+that thesis — `_widening_interval_from_backtests` builds an empirically calibrated,
+monotone-widening P10–P90 fan anchored on 24/168/720h backtest residuals — just
+geometrically, not through motion. Animating it narrow→wide would transiently
+**understate uncertainty**, the one direction of error that matters here. What
+ships instead: at a fixed horizon the band morphs and re-fans to the new region's
+real calibration, both endpoints true.
+
+**Open question:** the 51 US-Grid small multiples are deliberately **off** — 51
+concurrent d3 path interpolations per refresh is a frame budget nobody has
+measured on real hardware. And reduced-motion is verified by construction, not
+observation (the live `MediaQueryList` can't be faked from a test harness); it
+reuses the same `reduced()` helper the three shipped effects already rely on, but
+a manual toggle would confirm it in ten seconds.
+
+---
+
+**2026-07-14 (earlier) — Color pass shipped: the palette has ONE source of truth,
 and CI now enforces it.** Answers the re-audit's weakest dimension (Color 5.5,
 "the palette is downloaded, not designed") in two commits on
 `feat/gridpulse-top-design`.
