@@ -19,7 +19,95 @@ follow-up commit.
 
 ## Active focus + open question
 
-**2026-07-14 (latest) — Motion pass shipped: the demand curve MORPHS between
+**2026-07-14 (latest) — Composition pass shipped: the 51-BA grid LEAVES the
+column, and the layout finally takes a side.** Answers the re-audit's third
+next-3 item (Composition 6.5, 25% rubric weight): asymmetry was Overview-only,
+so every other tab was the same centered 75rem stack — "the rhythm is correct
+and tokenized; what's missing is any evidence a designer made a CHOICE rather
+than a grid."
+
+**Commit attribution — read this before trusting `git log` here.** This work has
+**no commit of its own**. It was authored in the main worktree while a
+*concurrent session* was running the color pass in the same tree; that session's
+`git stash` swept these changes up mid-session and its `git stash pop` committed
+them inside **`270a50f`** ("unify the palette behind one token module"), with the
+two change sets interleaved at hunk level across ~10 files. Nothing was lost and
+the tree is green, but `270a50f`'s message describes only half of what it
+contains. Splitting it was declined as disproportionate surgery on an unpushed,
+still-live branch. **The lesson is the durable part: two agents, one working
+tree, one branch — don't.** Use a worktree per session.
+
+*The one real break.* `.gp-page` and `.gp-section-stack` now share a named-line
+grid (`--page-columns`: `full | content | full`) held in a single custom
+property, so the two grids cannot drift. Everything defaults to the bounded
+`content` track; leaving it is one deliberate line (`grid-column: full`), which
+is what keeps "one confident break" from becoming five timid ones. **US Grid's
+51-BA grid takes it**: at 1440px the band measures **1440px against a 1152px
+column — a 288px break** — while title, metrics bar and controls stay pinned at
+x=144. That screen's argument is "here is the whole country at once"; making it
+plead that case through a 1200px slot while its own title sat in the same slot
+was the layout refusing to take its own side. Capped at `--content-wide` (105rem)
+— 51 cards stretched across a 2560px monitor is not composition, it's
+abdication.
+
+*Container queries, scoped to where they're earned.* The band's width no longer
+tracks the viewport **by design**, so a media query genuinely cannot tell those
+cards how much room they have. The 4→3→2→1 ladder is now `@container gridband`,
+landing on the same rungs, plus a 5th column past 1400px — otherwise breaking out
+would only make cards fatter. Adopting container queries repo-wide was **not**
+done: everywhere else the viewport still is the container, and the honest case
+was this one.
+
+*Forecast got the asymmetry it lacked.* Hero chart and its 4-up MetricsBar are
+now one lede — chart left at ~2.6fr, the numbers as a right rail — instead of two
+full-width bands of equal weight. Collapses to a stack below 1024px.
+
+*Magic numbers.* All 15 hardcoded chart heights (480/380/320/300/260/240/60 across
+8 files) are gone, replaced by five **role-keyed** steps
+(`hero`/`panel`/`half`/`third`/`inline`) plus `--map-h` and `--sparkline-h`. A
+height was a fact about its file; it is now a fact about the chart's job.
+Assigning by role moved exactly one surface (Risk's 2-up charts, 260→300px);
+every other site kept its rendered height and gained a reason for it.
+
+**What running it found that the suite could not.** (1) The Forecast callback
+wrote `"27,535 MW"` into a cell that already renders its own `MW` span — it
+displayed **`27,535 MW MW`** at both writer sites, and four tests *pinned the
+bug* (`assert "MW" in peak_str`). Invisible in a dense 4-up strip; unmissable the
+moment the rail set the value at display size. The Overview bar had been doing it
+correctly all along. (2) Chasing the leaky `.dashboard-title` surfaced that
+`.dashboard-header` was **also** beating `.gp-header` — later in source at equal
+specificity — on `background` **and** `padding`. It double-gutter'd the header
+(48px vs the page's 24px, so the two columns never aligned) and, under
+border-box, left the 60px bar just 36px to seat a ~45px brand lockup. Header
+content and page column now both start at **x=144**. The frosted chrome moved
+onto `.gp-header` — same pixels, stated by the owner; `.dashboard-header` survives
+as a pure hook, which is all the callbacks and tests actually need. **A legacy
+class may keep an identity, never a declaration.**
+
+*Mobile defects, all three measured rather than assumed.* The missing ~1024px
+rung exists: at 900px `.gp-drivers-grid`/`.gp-residual-grid` are **2 columns**
+(were 3-up crushed, jumping 3→1 at 768 with nothing between). The Overview hero's
+`--text-hero` 42px clamp floor no longer overruns its ~140px 2-up cell — it's
+28px with `overflow: hidden` (was `overflow: visible`, i.e. spilling across its
+neighbour); the desktop rule's comment claimed "desktop only" while scoping only
+the tracks, not the size. And `.dashboard-title` is off the H1 with its rules
+deleted; the wordmark's 20px mobile step now belongs to `.gp-header__wordmark`.
+
+Verified at 1440/1024/900/768/375 (no horizontal overflow on fresh load at any;
+the transient overflow while resizing is Plotly's stale relayout, not layout).
+Suite green — **2306 passed**. Sticky z-ladder (50/40), `--header-height: 60px`,
+the reduced-motion architecture and data-honesty labels all preserved.
+
+**Open question:** Composition was capped at 6.5 by "asymmetry is Overview-only."
+Three tabs now have deliberate composition (Overview, US Grid, Forecast); **Risk
+and Models are still the plain centered stack**, and were left that way rather
+than given a break they don't argue for. Whether that reads as restraint or as an
+unfinished job is a re-score question, not one this session can answer for
+itself — the same self-estimation trap the 6.6 re-audit already caught once.
+
+---
+
+**2026-07-14 (earlier) — Motion pass shipped: the demand curve MORPHS between
 regions, and the motion is gated where it would lie or tear.** Answers the
 re-audit's #1 leverage item (zero `layout.transition` anywhere: every chart
 hard-cut, so a forecast-confidence product expressed nothing about uncertainty or
@@ -152,10 +240,15 @@ tooltip doc; "seven sections" listing five). Suite green (2249 passed).
    falls back to); the CVD-safe `FUEL_COLORS` has zero callsites while the
    shipped fuel stack is a green/orange/amber deutan trap. Nothing in CI fails
    on a raw hex, which is why it rotted — the gate is the point.
-3. **Composition & responsive** (6.5→7.5): asymmetry is Overview-ONLY; the other
-   four tabs are the same centered 75rem column, which caps the 25%-weight
+3. ~~**Composition & responsive** (6.5→7.5): asymmetry is Overview-ONLY; the
+   other four tabs are the same centered 75rem column, which caps the 25%-weight
    dimension. Plus 15 magic-number chart heights, a missing ~1024px grid rung,
-   and the legacy `.dashboard-title` class hijacking the wordmark.
+   and the legacy `.dashboard-title` class hijacking the wordmark.~~
+   **SHIPPED 2026-07-14** — see the composition-pass block at the top of this
+   file. All four sub-items done (break-out + Forecast lede, 15 heights → role
+   tokens, the 1024px rung, the leaky class). Risk and Models were deliberately
+   left as the plain stack. Re-score still pending; the code has **no commit of
+   its own** — it landed inside `270a50f`.
 
 **Scope calls on the previously-deferred list:** other-tab redesign and mobile
 were **promoted** into (3) — the re-audit showed they are what caps Composition,

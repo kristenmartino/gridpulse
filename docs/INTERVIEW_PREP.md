@@ -504,6 +504,59 @@ my own instrumentation all agreed the feature worked while it did nothing — an
 one that mattered most was found by a person watching the screen for two seconds.
 Build the thing that lets you look.*
 
+### 17. "Tell me about a time you lost work — and what you changed afterward."
+
+**Two agents, one working tree (the composition pass, absorbed into `270a50f`).**
+
+Situation: A design re-audit put Composition at 6.5/10 — 25% of the rubric's
+weight. The finding was sharp: the grid rhythm was correct and fully tokenized,
+but only the Overview broke it, so every other tab was the same centered 75rem
+stack. *"What's missing is any evidence a designer made a CHOICE rather than a
+grid."* I set out to give it exactly one real break.
+
+Action: The design call was to let US Grid's 51-BA grid leave the column while
+the narrative around it — title, metrics, controls — stayed bounded, so the break
+reads as a claim about *that grid* rather than about the page. I built it on a
+named-line grid (`full | content | full`) shared by two rules through one custom
+property, so leaving the column costs one deliberate line and can't happen by
+accident.
+
+**Then the work vanished mid-session.** A *concurrent agent session* was running
+a color-token refactor in the same working tree on the same branch. It ran
+`git stash`, which swept my entire uncommitted change set to HEAD. I noticed
+because tests I had never touched started failing — a colorblind-palette import,
+a `#34d399` → `#2BD67B` assertion — and the failure count *changed between two
+runs of the same suite*. Files I hadn't opened had mtimes from ninety seconds
+ago. The tell wasn't the failures; it was that they were **inconsistent**.
+
+I stopped rather than re-doing the work. Three things mattered in what came next.
+The recovery was in a stash the whole time — my first grep said otherwise only
+because **zsh brace-expanded the unquoted `stash@{0}`**, and I nearly concluded
+the work was gone on the strength of a shell quoting bug. When I then ran
+`git stash apply`, it conflicted across six files: the other session had
+*committed* in the interim, so HEAD had moved and my work was **already in it**.
+And my instinct to `git reset --hard` was refused by a guardrail — correctly, on
+a shared tree. I unwound my own bad apply by *saving* it to a stash instead of
+destroying it.
+
+Result: Nothing was lost. The break-out measures a real 288px against a 1152px
+column at 1440px; 15 magic-number chart heights became five role-keyed steps;
+the missing ~1024px grid rung exists; suite green at 2306. But the code has **no
+commit of its own** — it sits inside `270a50f`, whose message describes only the
+color half of what it contains. I chose to record that discrepancy in `STATUS.md`
+rather than perform hunk-level surgery on an unpushed, still-live branch: the
+history is wrong in a *documented* way instead of wrong in a way that looks
+right. Splitting it would have risked the other session's work to fix my own
+attribution.
+
+**Lesson to convey**: *Concurrency bugs don't announce themselves as concurrency
+bugs — they arrive as flaky tests. Two agents in one working tree is the same
+race condition as two threads on one variable, and I found it by noticing that
+two identical test runs disagreed. The fix isn't better merge skills, it's
+isolation: one worktree per session. And when the tree is shared, the destructive
+command you're sure is safe is exactly the one to route around — `git stash` is
+almost always available where `reset --hard` is what you reached for.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
