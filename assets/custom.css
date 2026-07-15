@@ -13,45 +13,53 @@
 
 /* ── Design Tokens ────────────────────────────────────── */
 :root {
-    /* Surfaces — 3 tiers (was 5). Neutral, no blue cast. */
-    --bg-base: #0a0a0b;       /* page background, deepest */
-    --bg-raised: #111113;     /* cards, dropdowns, badges */
-    --bg-hover: #18181b;      /* interactive hover state */
-    --surface-sunken: #060607; /* recessed track/inset, deeper than --bg-base */
+    /* Surfaces — 3 tiers. DERIVED from the accent's hue (196deg) at low
+     * chroma, replacing stock Tailwind zinc (which was CIEDE2000 0.00 from the
+     * download, at an unrelated hue). Same lightness as the zinc ramp it
+     * replaces — only the hue bias changed. See components/tokens.py. */
+    --bg-base: #050c0c;       /* page background, deepest */
+    --bg-raised: #0a1313;     /* cards, dropdowns, badges */
+    --bg-hover: #101a1a;      /* interactive hover state */
+    --surface-sunken: #030707; /* recessed track/inset, deeper than --bg-base */
     /* Back-compat aliases for rules still referencing the old 5-tier system. */
     --bg-elevated: var(--bg-raised);
-    --bg-overlay: rgba(10, 10, 11, 0.72);
+    --bg-overlay: rgba(5, 12, 12, 0.72);
 
     /* Borders — translucent white ramp; tightened to 0.06 / 0.12 / 0.18 */
     --border-subtle: rgba(255, 255, 255, 0.06);
     --border-default: rgba(255, 255, 255, 0.12);
     --border-strong: rgba(255, 255, 255, 0.18);
-    --border-accent: #35c6ff;
+    --border-accent: #33d3d5;
 
-    /* Text — neutral 4-tier ramp (warmer than the prior cool slate) */
-    --text-primary: #e4e4e7;
-    --text-secondary: #a1a1aa;
-    --text-tertiary: #71717a;
-    --text-disabled: #52525b;
+    /* Text — 4-tier ramp on the same derivation. --text-tertiary is SOLVED for
+     * WCAG AA (4.56:1) rather than sampled: at zinc's lightness it measured
+     * 4.09:1, below AA for the 11px chart ticks it renders. */
+    --text-primary: #e3e5e5;
+    --text-secondary: #9da4a3;
+    --text-tertiary: #707c7b;
+    --text-disabled: #485656;
     /* Back-compat alias */
     --text-muted: var(--text-disabled);
 
-    /* Accent — the brand hue, and also the demand/primary chart series, so
-     * brand color and data color are one system. Mirrored in Python as
-     * components/tokens.py ACCENT (that module is the source of truth for the
-     * Plotly layer, which cannot read custom properties; the two are asserted
-     * equal by tests/unit/test_color_tokens.py).
+    /* Accent — OKLCh(0.79, 0.125, 196deg), a spectral teal-cyan. The brand hue
+     * AND the demand/primary chart series, so brand color and data color are
+     * one system. The --text-* / --bg-* ramp above is GENERATED from this hue
+     * at low chroma (see components/tokens.py for the curve), which is what
+     * makes the palette this product's own rather than a download. Mirrored in
+     * Python as components/tokens.py ACCENT (the source of truth for the Plotly
+     * layer, which cannot read custom properties; the two are asserted equal by
+     * tests/unit/test_color_tokens.py).
      *
      * The translucent variants below are the ONLY place the accent's channels
      * may be written out — every rule references these, never a literal. Three
      * rules used to inline rgba(53, 198, 255, ...) directly, which is how this
      * hex ended up copied four ways. scripts/check_color_tokens.py now fails
      * the build on any color literal outside a custom-property declaration. */
-    --accent-base: #35c6ff;
-    --accent-hover: #63d6ff;
-    --accent-glow: rgba(53, 198, 255, 0.08);
-    --accent-dim: rgba(53, 198, 255, 0.15);
-    --accent-ring: rgba(53, 198, 255, 0.32);
+    --accent-base: #33d3d5;
+    --accent-hover: #7ce5e6;
+    --accent-glow: rgba(51, 211, 213, 0.08);
+    --accent-dim: rgba(51, 211, 213, 0.15);
+    --accent-ring: rgba(51, 211, 213, 0.32);
 
     /* Forecast — v2 orange (new; was implicit in --warning previously) */
     --forecast: #f97316;

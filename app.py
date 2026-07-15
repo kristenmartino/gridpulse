@@ -33,6 +33,8 @@ import structlog  # noqa: E402
 from flask import Flask, jsonify, request  # noqa: E402
 from flask_compress import Compress  # noqa: E402
 
+from components import tokens  # noqa: E402
+
 log = structlog.get_logger()
 
 # Flask server (needed for gunicorn and health/metrics endpoints)
@@ -117,7 +119,7 @@ app.index_string = """<!DOCTYPE html>
     <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
     <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
-    <link rel="mask-icon" href="/assets/favicon.svg" color="#35c6ff">
+    <link rel="mask-icon" href="/assets/favicon.svg" color="__ACCENT__">
     <meta name="description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
     <meta property="og:type" content="website">
     <meta property="og:title" content="GridPulse — Energy Intelligence Platform">
@@ -137,6 +139,13 @@ app.index_string = """<!DOCTYPE html>
     <footer>{%config%}{%scripts%}{%renderer%}</footer>
   </body>
 </html>"""
+
+# Safari's mask-icon does not resolve CSS custom properties, so the accent has
+# to appear as a real value in <head>. Substituted from the token rather than
+# typed, so the brand color in the document head cannot drift from the brand.
+# (index_string is a plain string, not an f-string: Dash's {%app_entry%}
+# placeholders would each need brace-escaping.)
+app.index_string = app.index_string.replace("__ACCENT__", tokens.ACCENT)
 
 # Layout
 from components.layout import build_layout  # noqa: E402

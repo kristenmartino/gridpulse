@@ -38,6 +38,7 @@ Usage:
 
 from __future__ import annotations
 
+import ast
 import io
 import pathlib
 import re
@@ -108,6 +109,37 @@ def _iter_py() -> list[pathlib.Path]:
     return [p for p in sorted(set(out)) if p not in PY_EXCLUDE]
 
 
+def _docstring_lines(src: str) -> set[int]:
+    """Line numbers of real docstrings — prose, which cannot paint anything.
+
+    Only the first statement of a module/class/function counts. An earlier
+    version skipped EVERY triple-quoted string, which let app.py's
+    ``index_string`` — a triple-quoted HTML template carrying
+    ``<link rel="mask-icon" color="#35c6ff">`` — sail straight through the
+    gate. Triple quotes mean nothing about whether a string reaches a browser.
+    """
+    lines: set[int] = set()
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return lines
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        body = getattr(node, "body", None)
+        if not body:
+            continue
+        first = body[0]
+        if (
+            isinstance(first, ast.Expr)
+            and isinstance(first.value, ast.Constant)
+            and isinstance(first.value.value, str)
+        ):
+            for ln in range(first.lineno, (first.end_lineno or first.lineno) + 1):
+                lines.add(ln)
+    return lines
+
+
 def check_python(path: pathlib.Path) -> list[tuple[int, str]]:
     """Return (lineno, offending literal) for color literals in STRING tokens."""
     hits: list[tuple[int, str]] = []
@@ -119,16 +151,15 @@ def check_python(path: pathlib.Path) -> list[tuple[int, str]]:
         toks = list(tokenize.generate_tokens(io.StringIO(src).readline))
     except (tokenize.TokenError, IndentationError, SyntaxError):
         return hits
+    skip = _docstring_lines(src)
     for tok in toks:
         # STRING covers plain strings; FSTRING_MIDDLE covers the literal text
         # between {} in an f-string on 3.12+, so f"1px solid #263556" is caught.
         if tok.type not in (tokenize.STRING, getattr(tokenize, "FSTRING_MIDDLE", -1)):
             continue
-        text = tok.string
-        # A docstring is prose; skip triple-quoted strings so the token module
-        # can be *described* elsewhere without tripping the gate.
-        if text.startswith(('"""', "'''", 'r"""', "r'''")):
+        if tok.start[0] in skip:
             continue
+        text = tok.string
         for m in HEX_RE.finditer(text):
             hits.append((tok.start[0], m.group(0)))
         if HEX3_RE.match(text.strip("\"'")):

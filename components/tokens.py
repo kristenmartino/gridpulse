@@ -31,29 +31,114 @@ ANY edit; ``tests/unit/test_color_tokens.py`` runs the same invariants in CI.
 
 from __future__ import annotations
 
-# ── Surfaces — 3 tiers, neutral, no blue cast (mirrors --bg-*) ────────
+# ── Helpers ──────────────────────────────────────────────────────────
 
-BG_BASE = "#0a0a0b"  # --bg-base: page background, deepest
-BG_RAISED = "#111113"  # --bg-raised: cards, dropdowns, badges
-BG_HOVER = "#18181b"  # --bg-hover: interactive hover state
-SURFACE_SUNKEN = "#060607"  # --surface-sunken: recessed track/inset
 
-# ── Text — neutral 4-tier ramp (mirrors --text-*) ─────────────────────
+def rgb(color: str) -> tuple[int, int, int]:
+    """Return ``color`` as an ``(r, g, b)`` tuple.
 
-TEXT_PRIMARY = "#e4e4e7"  # --text-primary
-TEXT_SECONDARY = "#a1a1aa"  # --text-secondary
-TEXT_TERTIARY = "#71717a"  # --text-tertiary
-TEXT_DISABLED = "#52525b"  # --text-disabled
+    For PIL and any other consumer that wants channels rather than a CSS
+    string. ``scripts/generate_brand_assets.py`` previously kept its own
+    ``ACCENT_BLUE = (59, 130, 246)`` tuple — commented "--accent-base" while
+    actually holding the retired stock blue — so the generated favicon,
+    og-image and touch icon painted the brand in a color the brand had
+    already left behind. A tuple is a color literal that a hex grep cannot
+    see; deriving it from a token closes that hole.
+
+    Args:
+        color: A ``#rrggbb`` token from this module.
+
+    Returns:
+        ``(r, g, b)`` with each channel in ``[0, 255]``.
+    """
+    h = color.lstrip("#")
+    if len(h) != 6:
+        raise ValueError(f"rgb() expects #rrggbb, got {color!r}")
+    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
+
+def alpha(color: str, a: float) -> str:
+    """Return ``color`` as an ``rgba()`` string at alpha ``a``.
+
+    The reason this exists: an ``rgba(59, 130, 246, 0.08)`` literal is a color
+    literal that a hex grep does not catch. Two such literals had already
+    drifted off their own line color — the Overview hero drew an accent line
+    over a stock-blue fill, and the Forecast band used the retired #38D0FF.
+    Building translucent fills from a token keeps a fill tied to its source
+    color by construction.
+
+    Args:
+        color: A ``#rrggbb`` token from this module.
+        a: Alpha in ``[0, 1]``.
+
+    Returns:
+        An ``rgba(r, g, b, a)`` string.
+    """
+    h = color.lstrip("#")
+    if len(h) != 6:
+        raise ValueError(f"alpha() expects #rrggbb, got {color!r}")
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    return f"rgba({r}, {g}, {b}, {a})"
+
+
+# ── Token values ─────────────────────────────────────────────────────
+# ── The neutral ramp — DERIVED, not downloaded ───────────────────────
+#
+# Every neutral below is generated from the ACCENT's own hue (196°) at low
+# chroma, on a deliberate curve. It replaces stock Tailwind zinc, which sat at
+# CIEDE2000 0.00 from the download — literally the shipped values, at a hue
+# (~286°) unrelated to anything else in the product.
+#
+# The curve: chroma = 0.019 · exp(−((L − 0.38)/0.34)²), skewed toward the DARK
+# end rather than symmetric. The rationale is TINT THE ROOM, NOT THE INK. Dark
+# surfaces are large, so a trace of the brand hue there reads as atmosphere;
+# the same chroma in text reads as a rendering fault, so it tapers off as
+# lightness rises. Zinc's curve peaks at ~0.0146 around mid-tone and is
+# symmetric — a different shape, for no reason, because it was never chosen.
+#
+# LIGHTNESS IS DELIBERATELY UNCHANGED from the zinc ramp it replaces (L* 2.8 →
+# 2.9, 90.7 → 90.8, and so on). The value architecture of the UI was already
+# right; only the hue bias was borrowed. Changing both at once would have made
+# a visual regression impossible to attribute.
+#
+# The one exception is --text-tertiary, lifted from L* 47.9 to 51.0. At zinc's
+# lightness it measured 4.09:1 on --bg-base — below WCAG AA for normal text,
+# while rendering 11px chart tick labels. Its lightness is now SOLVED for
+# 4.55:1 rather than sampled and hoped for.
+
+BG_BASE = "#050c0c"  # --bg-base: page background, deepest
+BG_RAISED = "#0a1313"  # --bg-raised: cards, dropdowns, badges
+BG_HOVER = "#101a1a"  # --bg-hover: interactive hover state
+SURFACE_SUNKEN = "#030707"  # --surface-sunken: recessed track/inset
+
+TEXT_PRIMARY = "#e3e5e5"  # --text-primary
+TEXT_SECONDARY = "#9da4a3"  # --text-secondary
+TEXT_TERTIARY = "#707c7b"  # --text-tertiary — solved for AA, not sampled
+TEXT_DISABLED = "#485656"  # --text-disabled (WCAG 1.4.3 exempts inactive UI)
 
 # ── Accent — the brand hue (mirrors --accent-base / --accent-hover) ───
 #
+# OKLCh(0.79, 0.125, 196°) — a spectral teal-cyan, and the anchor the neutral
+# ramp above is generated from.
+#
+# It replaces #35c6ff, which was CIEDE2000 2.5 from Tailwind sky-400: a
+# near-duplicate of a stock swatch, reached after a previous pass had moved off
+# stock blue-500 and landed on a different stock blue. This one is 18.6 from
+# sky-400 and 7.8 from its nearest Tailwind neighbour.
+#
+# Distance from Tailwind is NOT the point and is a poor target on its own —
+# Tailwind's 242 swatches tile color space, so optimising for pure distance
+# drives you to neon (#00fdfd), the least owned color there is. What makes this
+# palette the product's own is that ONE anchor generates the neutrals through a
+# stated curve, and every relationship in it is measured.
+#
 # This is ALSO the demand/primary data series (``COLORS["actual"]``,
 # ``LINE_STYLES["actual"]``, ``_COLORWAY[0]``) so brand color and data color
-# are one system rather than two. Verified in ``scripts/verify_palette.py``
-# to clear every series it shares a figure with under all three CVD types.
+# are one system rather than two. ``scripts/verify_palette.py`` proves it
+# clears every series it shares a figure with under all three CVD types.
 
-ACCENT = "#35c6ff"  # --accent-base
-ACCENT_SOFT = "#63d6ff"  # --accent-hover
+ACCENT = "#33d3d5"  # --accent-base
+ACCENT_SOFT = "#7ce5e6"  # --accent-hover
 
 # ── Forecast + semantic (mirrors --forecast / --success / ...) ────────
 
@@ -161,7 +246,7 @@ FUEL_COLORS = {
     "other": "#898d91",  # L* 58.4 — neutral gray
     "nuclear": "#b13554",  # L* 42.1 — wine; see "why not purple" below
     "hydro": "#2672b7",  # L* 46.8 — mid blue; dropped to clear nuclear
-    "wind": "#a4d1ac",  # L* 79.9 — pale green; kept off the accent's cyan
+    "wind": "#b7cca4",  # L* 79.6 — sage; pulled off the accent's cyan (was 12.0, now 19.4)
     "solar": "#f9e03f",  # L* 88.8 — bright sun yellow
 }
 
@@ -215,10 +300,10 @@ WEATHER_DRIVERS = {
 # ── US-Grid choropleth ───────────────────────────────────────────────
 
 MAP_LAND = BG_RAISED
-MAP_COASTLINE = "#27272a"
-MAP_SUBUNIT = "#1f1f23"
+MAP_COASTLINE = "#1e2a2a"
+MAP_SUBUNIT = "#172222"
 MAP_AXIS_FONT = TEXT_TERTIARY
-MAP_BORDER = "rgba(228, 228, 231, 0.5)"
+MAP_BORDER = alpha(TEXT_PRIMARY, 0.5)
 
 # Utilization / grid-stress colorscale (0 = idle headroom -> 1 = peak).
 #
@@ -246,53 +331,3 @@ MAP_COLORSCALE = [
 # with no "this one doesn't count" escape hatch. The last convention rotted
 # because it was a comment rather than a rule.
 ICON_MASK_STROKE = "#000"
-
-
-# ── Helpers ──────────────────────────────────────────────────────────
-
-
-def rgb(color: str) -> tuple[int, int, int]:
-    """Return ``color`` as an ``(r, g, b)`` tuple.
-
-    For PIL and any other consumer that wants channels rather than a CSS
-    string. ``scripts/generate_brand_assets.py`` previously kept its own
-    ``ACCENT_BLUE = (59, 130, 246)`` tuple — commented "--accent-base" while
-    actually holding the retired stock blue — so the generated favicon,
-    og-image and touch icon painted the brand in a color the brand had
-    already left behind. A tuple is a color literal that a hex grep cannot
-    see; deriving it from a token closes that hole.
-
-    Args:
-        color: A ``#rrggbb`` token from this module.
-
-    Returns:
-        ``(r, g, b)`` with each channel in ``[0, 255]``.
-    """
-    h = color.lstrip("#")
-    if len(h) != 6:
-        raise ValueError(f"rgb() expects #rrggbb, got {color!r}")
-    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
-
-
-def alpha(color: str, a: float) -> str:
-    """Return ``color`` as an ``rgba()`` string at alpha ``a``.
-
-    The reason this exists: an ``rgba(59, 130, 246, 0.08)`` literal is a color
-    literal that a hex grep does not catch. Two such literals had already
-    drifted off their own line color — the Overview hero drew an accent line
-    over a stock-blue fill, and the Forecast band used the retired #38D0FF.
-    Building translucent fills from a token keeps a fill tied to its source
-    color by construction.
-
-    Args:
-        color: A ``#rrggbb`` token from this module.
-        a: Alpha in ``[0, 1]``.
-
-    Returns:
-        An ``rgba(r, g, b, a)`` string.
-    """
-    h = color.lstrip("#")
-    if len(h) != 6:
-        raise ValueError(f"alpha() expects #rrggbb, got {color!r}")
-    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
-    return f"rgba({r}, {g}, {b}, {a})"
