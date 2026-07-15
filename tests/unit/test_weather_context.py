@@ -19,21 +19,31 @@ import numpy as np
 import pandas as pd
 
 
-def _card_labels(div) -> list[str]:
-    """The gp-kpi-label text of every rendered card (in order)."""
+def _card_labels(node) -> list[str]:
+    """The gp-kpi-label text of every rendered card (in order).
+
+    Accepts a list as well as a single node: ``_build_weather_context`` returns
+    the cards as a LIST so each is a direct child of the ``.gp-weather-strip``
+    slot and that strip's flex lays them out. Without the list branch this
+    walker would silently return [] for every populated case.
+    """
     labels: list[str] = []
 
-    def walk(node):
-        if getattr(node, "className", None) == "gp-kpi-label" and isinstance(node.children, str):
-            labels.append(node.children)
-        ch = getattr(node, "children", None)
+    def walk(n):
+        if isinstance(n, (list, tuple)):
+            for c in n:
+                walk(c)
+            return
+        if getattr(n, "className", None) == "gp-kpi-label" and isinstance(n.children, str):
+            labels.append(n.children)
+        ch = getattr(n, "children", None)
         if isinstance(ch, (list, tuple)):
             for c in ch:
                 walk(c)
         elif ch is not None and not isinstance(ch, str):
             walk(ch)
 
-    walk(div)
+    walk(node)
     return labels
 
 

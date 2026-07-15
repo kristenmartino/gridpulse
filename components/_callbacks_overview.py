@@ -1759,8 +1759,44 @@ def _build_overview_briefing(
     )
 
 
-def _build_weather_context(latest: pd.Series) -> html.Div:
-    """Build a row of weather KPI mini-cards from the latest weather reading."""
+def weather_card(label: str, value: str, accent: str) -> html.Div:
+    """One "Current Conditions" mini-card, severity-tinted on its top edge.
+
+    Shared so the Redis path and ``_callbacks_alerts``' temperature-only
+    back-compat path cannot drift into two different cards.
+    """
+    return html.Div(
+        [
+            html.P(label, className="gp-kpi-label"),
+            html.H4(value, className="gp-kpi-value", style={"fontSize": "1.3rem"}),
+        ],
+        className="gp-kpi-card",
+        style={"borderTop": f"3px solid {accent}"},
+    )
+
+
+def _build_weather_context(latest: pd.Series) -> list[html.Div]:
+    """Build the Risk tab's "Current Conditions" cards from the latest reading.
+
+    Returns the cards as a LIST, so each one lands as a direct child of the
+    ``.gp-weather-strip`` slot and that strip's own ``display: flex; gap`` is
+    what lays them out.
+
+    This used to return a ``dbc.Row`` of ``dbc.Col(md=3)``, which stacked two
+    layout systems so that each cancelled the other: the strip's flex had a
+    single child to lay out (so its gap did nothing), and that row — being a
+    flex item — shrink-to-fit to ~469px, so ``col-md-3`` resolved to 25% of 469
+    rather than of the 1152px column, giving 117px cards. ``md=3`` was wrong on
+    its own terms too: this builder emits ONE TO FOUR cards depending on which
+    readings exist, so a hardcoded quarter-width left proportional dead space
+    whenever a reading was missing.
+
+    The compact width is deliberate, not a leftover. Risk's subject is the
+    stress score and the alert list; conditions are context, and a full-column
+    band of four small numbers would give context the same weight as the hero.
+    Flex also equalizes the card heights for free — "CLOUD COVER" wraps to two
+    lines and used to hang 17px below its siblings.
+    """
 
     def _val(key: str) -> float | None:
         # None AND NaN both mean "no reading" — skip the card. (pd.Series coerces
@@ -1781,93 +1817,36 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
     cards = []
 
     if temp is not None:
-        t = float(temp)
-        color = tokens.DANGER if t >= 95 else (tokens.WARNING if t >= 85 else tokens.SUCCESS)
         cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("TEMPERATURE", className="gp-kpi-label"),
-                        html.H4(
-                            f"{t:.0f}°F",
-                            className="gp-kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="gp-kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
+            weather_card(
+                "TEMPERATURE",
+                f"{temp:.0f}°F",
+                tokens.DANGER if temp >= 95 else (tokens.WARNING if temp >= 85 else tokens.SUCCESS),
             )
         )
 
     if wind is not None:
-        w = float(wind)
-        color = tokens.DANGER if w >= 40 else (tokens.WARNING if w >= 25 else tokens.SUCCESS)
         cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("WIND SPEED", className="gp-kpi-label"),
-                        html.H4(
-                            f"{w:.0f} mph",
-                            className="gp-kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="gp-kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
+            weather_card(
+                "WIND SPEED",
+                f"{wind:.0f} mph",
+                tokens.DANGER if wind >= 40 else (tokens.WARNING if wind >= 25 else tokens.SUCCESS),
             )
         )
 
     if humidity is not None:
-        h = float(humidity)
-        color = tokens.WARNING if h >= 80 else tokens.SUCCESS
         cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("HUMIDITY", className="gp-kpi-label"),
-                        html.H4(
-                            f"{h:.0f}%",
-                            className="gp-kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="gp-kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
+            weather_card(
+                "HUMIDITY",
+                f"{humidity:.0f}%",
+                tokens.WARNING if humidity >= 80 else tokens.SUCCESS,
             )
         )
 
     if cloud is not None:
-        c = float(cloud)
-        color = tokens.TEXT_SECONDARY
-        cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("CLOUD COVER", className="gp-kpi-label"),
-                        html.H4(
-                            f"{c:.0f}%",
-                            className="gp-kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="gp-kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
-            )
-        )
+        cards.append(weather_card("CLOUD COVER", f"{cloud:.0f}%", tokens.TEXT_SECONDARY))
 
-    if not cards:
-        return html.Div()
-
-    return dbc.Row(cards, className="g-2")
+    return cards
 
 
 def _build_overview_data_health(freshness_data: dict | None) -> html.Div:

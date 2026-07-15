@@ -277,7 +277,9 @@ def _alerts_tab_from_redis(region):
     # web tier used to only have the temperature series, so it rendered a lone
     # Temperature card; the scoring job now ships ``weather_current`` so this
     # matches the dev path's multi-card view.
-    weather_context = html.Div()
+    # A list, not a Div: the cards are direct children of the
+    # .gp-weather-strip slot so its own flex lays them out.
+    weather_context: list = []
     weather_current = cached.get("weather_current")
     if weather_current:
         from components._callbacks_overview import _build_weather_context
@@ -286,7 +288,7 @@ def _alerts_tab_from_redis(region):
     elif t_vals:
         # Back-compat: older payloads (pre this change, or Redis not yet
         # refreshed) carry only the temperature series — show that one card.
-        import dash_bootstrap_components as dbc
+        from components._callbacks_overview import weather_card
 
         last_temp = float(t_vals[-1])
         if pd.isna(last_temp):
@@ -299,26 +301,10 @@ def _alerts_tab_from_redis(region):
                 if last_temp >= 95
                 else (tokens.WARNING if last_temp >= 85 else tokens.SUCCESS)
             )
-        weather_context = dbc.Row(
-            [
-                dbc.Col(
-                    html.Div(
-                        [
-                            html.P("TEMPERATURE", className="gp-kpi-label"),
-                            html.H4(
-                                temp_display,
-                                className="gp-kpi-value",
-                                style={"fontSize": "1.3rem"},
-                            ),
-                        ],
-                        className="gp-kpi-card",
-                        style={"borderTop": f"3px solid {color}"},
-                    ),
-                    md=3,
-                ),
-            ],
-            className="g-2",
-        )
+        # A list, matching _build_weather_context: the cards are direct children
+        # of the .gp-weather-strip slot so its flex lays them out. This path used
+        # to hand-roll its own dbc.Row/Col copy of the card.
+        weather_context = [weather_card("TEMPERATURE", temp_display, color)]
 
     return (
         alert_cards,
@@ -688,8 +674,9 @@ def register_alerts_callbacks(app):
             )
         )
 
-        # Build weather context from latest reading
-        weather_context = html.Div()
+        # Build weather context from latest reading (a list — see
+        # _build_weather_context on why these are not wrapped in a Row).
+        weather_context: list = []
         if weather_json:
             try:
                 w_df = pd.read_json(io.StringIO(weather_json))
