@@ -123,6 +123,140 @@
         tabs.classList.add("gp-ink-ready");                    // swap static→sliding
     }
 
+    // ── 4. Chart morph gate ─────────────────────────────────────────
+    // Python marks a figure as wanting a data morph by putting
+    // `layout.transition` on it (components/_callbacks_shared._layout). That is
+    // only a REQUEST: whether the morph should actually play depends on two
+    // things Python cannot see, both of which live here.
+    //
+    // Why a patch and not CSS or a dcc.Store:
+    //   - CSS can't touch it. A Plotly transition is d3/rAF-driven JS, so the
+    //     @media (prefers-reduced-motion) block in custom.css — including the
+    //     `* { transition-duration: 0.01ms }` catch-all — has no effect on it.
+    //     Shipping the transition without this gate would ship motion that
+    //     ignores the media query.
+    //   - A dcc.Store flag would have to be threaded as an Input through every
+    //     chart callback (re-firing them all) and would still race the first
+    //     render. Dash routes every figure update through `Plotly.react`
+    //     (dcc/async-graph.js calls the bare global; `Plotly.animate` is only
+    //     used when the Graph sets animate=True, which this app never does), so
+    //     one wrapper here is the whole surface.
+    //
+    // The two suppression rules:
+    //   a. prefers-reduced-motion — the user asked for no motion.
+    //   b. point-count change — d3 tweens a path's `d` attribute with
+    //      interpolateString, which pairs numbers POSITIONALLY. Morphing a
+    //      24-point curve into a 720-point one interpolates the ~24 vertices
+    //      that pair up and leaves the remaining ~696 already at their final
+    //      values — a torn curve, half mid-flight and half landed. So a morph
+    //      is only coherent when each trace keeps its length (region switch,
+    //      model switch, hourly refresh). Horizon changes and first paints of a
+    //      shorter/longer history hard-cut instead, which is the honest
+    //      rendering: every frame shows real values.
+    //
+    // HONESTY NOTE: a permitted morph tweens between two REAL states and lands
+    // on real values — the same contract as the hero count-up above. The band
+    // itself is never faked: its width is the empirically-calibrated P10–P90
+    // interval computed in Python, and it is not grown, eased open, or revealed
+    // progressively, which would understate uncertainty mid-flight.
+    // A trace's y/x arrives in one of THREE encodings, and the point count has
+    // to be read out of all of them:
+    //   - plain Array          — e.g. string timestamps
+    //   - TypedArray           — what plotly holds after it decodes
+    //   - {dtype, bdata}       — plotly.py >=6 ships numpy arrays base64-encoded,
+    //                            and this object has NO .length. Reading .length
+    //                            here yields undefined, which would mark every
+    //                            update a shape change and silently suppress
+    //                            100% of transitions — the feature would look
+    //                            wired up and simply never play.
+    var BYTES_PER_ITEM = { i1: 1, u1: 1, i2: 2, u2: 2, i4: 4, u4: 4, i8: 8, u8: 8, f4: 4, f8: 8 };
+
+    function arrayLength(v) {
+        if (v == null) return -1;
+        if (typeof v.length === "number") return v.length;
+        // plotly caches its decode on the object it was handed; prefer it.
+        if (v._inputArray && typeof v._inputArray.length === "number") return v._inputArray.length;
+        if (typeof v.bdata === "string" && BYTES_PER_ITEM[v.dtype]) {
+            var b64 = v.bdata;
+            var pad = b64.charCodeAt(b64.length - 1) === 61 ? (b64.charCodeAt(b64.length - 2) === 61 ? 2 : 1) : 0;
+            var bytes = (b64.length / 4) * 3 - pad;
+            return Math.floor(bytes / BYTES_PER_ITEM[v.dtype]);
+        }
+        return -1;
+    }
+
+    // Same trace count AND same per-trace vertex count → interpolateString pairs
+    // every number → coherent morph. Anything else would tear.
+    function shapeMatches(gd, nextData) {
+        var before = (gd && gd.data) || [];
+        var after = nextData || [];
+        if (!after.length || before.length !== after.length) return false;
+        for (var i = 0; i < before.length; i++) {
+            var by = arrayLength(before[i] && before[i].y);
+            var ay = arrayLength(after[i] && after[i].y);
+            if (by < 0 || ay < 0 || by !== ay) return false;
+            if (arrayLength(before[i] && before[i].x) !== arrayLength(after[i] && after[i].x)) return false;
+        }
+        return true;
+    }
+
+    function suppressTransition(layout) {
+        if (!layout || !layout.transition) return layout;
+        // Copy — never mutate the figure Dash handed us (it is retained across
+        // renders, so a mutation would permanently strip the request).
+        var out = {};
+        for (var k in layout) if (Object.prototype.hasOwnProperty.call(layout, k)) out[k] = layout[k];
+        out.transition = { duration: 0, easing: layout.transition.easing };
+        return out;
+    }
+
+    function patchPlotlyReact(P) {
+        if (!P || P.__gpMotionPatched) return false;
+        var original = P.react;
+        if (typeof original !== "function") return false;
+        P.react = function (gd, dataOrFigure, layout) {
+            try {
+                // Dash calls react(gd, {data, layout, frames, config}); the
+                // (gd, data, layout) form is plotly's other public signature.
+                var isFigureObj =
+                    dataOrFigure && !Array.isArray(dataOrFigure) && typeof dataOrFigure === "object";
+                var nextData = isFigureObj ? dataOrFigure.data : dataOrFigure;
+                var nextLayout = isFigureObj ? dataOrFigure.layout : layout;
+                if (nextLayout && nextLayout.transition && (reduced() || !shapeMatches(gd, nextData))) {
+                    if (isFigureObj) {
+                        var figure = {};
+                        for (var k in dataOrFigure) {
+                            if (Object.prototype.hasOwnProperty.call(dataOrFigure, k)) {
+                                figure[k] = dataOrFigure[k];
+                            }
+                        }
+                        figure.layout = suppressTransition(nextLayout);
+                        arguments[1] = figure;
+                    } else {
+                        arguments[2] = suppressTransition(nextLayout);
+                    }
+                }
+            } catch (e) {
+                /* Never let the gate break rendering — fall through to plotly. */
+            }
+            return original.apply(this, arguments);
+        };
+        P.__gpMotionPatched = true;
+        return true;
+    }
+
+    // Dash loads plotly.js as a global <script> (window._dashPlotlyJSURL), so it
+    // may not exist yet when this file runs. Poll briefly; the first figure
+    // UPDATE (the only thing that can transition — the initial paint never
+    // does) is always many seconds out, behind a user interaction.
+    function watchForPlotly() {
+        if (patchPlotlyReact(window.Plotly)) return;
+        var tries = 0;
+        var id = setInterval(function () {
+            if (patchPlotlyReact(window.Plotly) || ++tries > 100) clearInterval(id);
+        }, 100);
+    }
+
     // ── Wiring ──────────────────────────────────────────────────────
     var rafPending = false;
     function onDomChange() {
@@ -142,6 +276,9 @@
 
     function start() {
         enableMotionCss();
+        // Install the chart morph gate before any figure can update. Must run
+        // even under reduced motion — suppressing the transition IS its job.
+        watchForPlotly();
         onDomChange();
         var mo = new MutationObserver(onDomChange);
         mo.observe(document.body, { childList: true, subtree: true });
