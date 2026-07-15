@@ -397,6 +397,78 @@ def merge_and_trim(
     return ordered
 
 
+def probe_actual_revisions(
+    existing_payload: dict[str, Any] | None,
+    actuals: dict[str, float],
+    *,
+    revision_threshold_pct: float = 1.0,
+) -> dict[str, dict[str, Any]]:
+    """Diff each stored drift record's actual against today's settled value (#304).
+
+    A ``DriftRecord.actual`` is the value EIA had published **at the tick
+    that created it** (preliminary). ``actuals`` is the freshly-fetched
+    window, where those same hours have since been **revised/settled**. If
+    EIA revises materially, the live drift MAPE measures
+    prediction-vs-preliminary rather than forecast skill — which would show
+    up as error that is flat across every lead (the BPAT signature: live 1h
+    11.9% ≈ 24h 12.8% ≈ 72h 12.3%, while the served forecast measures 0.58%
+    against settled data).
+
+    Pure observability: reads only, mutates nothing, and is caller-guarded
+    so it can never fail the drift phase.
+
+    Args:
+        existing_payload: The ``gridpulse:drift:{region}`` payload *before*
+            this tick's write (its records carry the preliminary actuals).
+        actuals: ``{timestamp_iso -> settled_mw}`` from the current fetch.
+        revision_threshold_pct: |revision| above which an hour counts as
+            revised (default 1%).
+
+    Returns:
+        ``{model_name -> stats}``, where stats carries ``n_compared``,
+        ``n_revised``, ``mean_abs_revision_pct``, ``max_abs_revision_pct``,
+        ``stored_mape`` (what the panel reports) and ``settled_mape`` (the
+        same predictions rescored against settled actuals). A large
+        stored-vs-settled gap is the smoking gun. Empty dict when there is
+        nothing to compare.
+    """
+    if not existing_payload or not actuals:
+        return {}
+    settled = {_normalize_ts(k): v for k, v in actuals.items()}
+    out: dict[str, dict[str, Any]] = {}
+
+    for model_name, block in (existing_payload.get("models") or {}).items():
+        if not isinstance(block, dict):
+            continue
+        records = deserialize_records(block.get("records"))
+        revisions: list[float] = []
+        stored_errs: list[float] = []
+        settled_errs: list[float] = []
+        for r in records:
+            now_actual = settled.get(r.timestamp)
+            if now_actual is None or not np.isfinite(now_actual) or now_actual <= 0:
+                continue
+            if not np.isfinite(r.actual) or r.actual <= 0:
+                continue
+            revisions.append(abs(now_actual - r.actual) / now_actual * 100.0)
+            if np.isfinite(r.abs_pct_error):
+                stored_errs.append(r.abs_pct_error)
+            rescored = absolute_pct_error(r.predicted, now_actual)
+            if rescored is not None:
+                settled_errs.append(rescored)
+        if not revisions:
+            continue
+        out[model_name] = {
+            "n_compared": len(revisions),
+            "n_revised": int(sum(1 for v in revisions if v > revision_threshold_pct)),
+            "mean_abs_revision_pct": round(float(np.mean(revisions)), 4),
+            "max_abs_revision_pct": round(float(np.max(revisions)), 4),
+            "stored_mape": round(float(np.mean(stored_errs)), 4) if stored_errs else None,
+            "settled_mape": round(float(np.mean(settled_errs)), 4) if settled_errs else None,
+        }
+    return out
+
+
 def serialize_records(records: list[DriftRecord]) -> list[dict[str, Any]]:
     """Compact dict form for Redis JSON. Keys deliberately short.
 
