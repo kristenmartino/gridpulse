@@ -34,14 +34,14 @@ class TestLayoutTransitionOptIn:
 
     def test_present_when_opted_in(self):
         layout = _layout(uirevision="DUK", transition=True)
-        assert layout["transition"] == {"duration": 400, "easing": "cubic-in-out"}
+        assert layout["transition"] == {"duration": 500, "easing": "cubic-in-out"}
 
     def test_easing_starts_from_rest(self):
         """Not an ease-OUT. `exp-out` (the nearest analogue to the stylesheet's
         --ease-out-quint / --ease-spring) shipped first and read as abrupt: it
-        covers half the distance in the first 40ms of 400. That is correct for
-        chrome entering and wrong for a data morph, whose job is object
-        constancy — the eye must be able to follow the curve. Pins the
+        covers half the distance in the first tenth of the duration. That is
+        correct for chrome entering and wrong for a data morph, whose job is
+        object constancy — the eye must follow the curve. Pins the
         symmetric, starts-at-rest family so a future "match the CSS tokens"
         edit has to come back and read this."""
         assert _layout(transition=True)["transition"]["easing"].endswith("-in-out")
@@ -51,8 +51,8 @@ class TestLayoutTransitionOptIn:
         constant for every other chart in the process."""
         layout = _layout(transition=True)
         layout["transition"]["duration"] = 9999
-        assert CHART_TRANSITION["duration"] == 400
-        assert _layout(transition=True)["transition"]["duration"] == 400
+        assert CHART_TRANSITION["duration"] == 500
+        assert _layout(transition=True)["transition"]["duration"] == 500
 
     def test_transition_does_not_disturb_the_axis_merge(self):
         """Regression: `transition` is a reserved kwarg, not an override — it
@@ -68,7 +68,7 @@ class TestLayoutTransitionOptIn:
         fig = go.Figure()
         fig.update_layout(**_layout(transition=True))
         assert fig.layout.transition.easing == "cubic-in-out"
-        assert fig.layout.transition.duration == 400
+        assert fig.layout.transition.duration == 500
 
     def test_css_cubic_bezier_is_rejected_by_plotly(self):
         """Why the stylesheet's --ease-out-quint cannot simply be passed through:

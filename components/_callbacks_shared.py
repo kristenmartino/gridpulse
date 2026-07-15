@@ -174,20 +174,22 @@ PLOT_CONFIG: dict[str, object] = {
 # Do NOT reach for the nearest match to the CSS curves here. ``--ease-out-quint``
 # and ``--ease-spring`` are strong ease-outs, and their Plotly analogue
 # (``exp-out``) was tried first and read as abrupt: it covers half the distance
-# in the first 40ms of 400 and 75% within 80ms, so the curve snaps and then
-# crawls. That character is right for the CSS it came from — chrome *entering*,
-# where an instant start reads as responsive and there is nothing to track. It is
-# wrong here. A data morph exists for object constancy: the eye has to follow a
-# demand curve from its old shape to its new one, and a near-instant start
-# defeats that before it can lock on.
+# in the first tenth of the duration and 75% within a fifth, so the curve snaps
+# and then crawls. That character is right for the CSS it came from — chrome
+# *entering*, where an instant start reads as responsive and there is nothing to
+# track. It is wrong here. A data morph exists for object constancy: the eye has
+# to follow a demand curve from its old shape to its new one, and a near-instant
+# start defeats that before it can lock on.
 #
 # ``cubic-in-out`` starts and ends at zero velocity, which is why it is both
 # Plotly's and d3's default for data transitions. The motion is legible for its
 # whole duration rather than over in a tenth of it.
 #
-# 400ms is deliberately longer than --duration-slow (240ms). That token paces
-# chrome moving a few px; this paces a full curve traversing the plot area, and
-# needs the extra time to stay trackable.
+# 500ms is deliberately much longer than --duration-slow (240ms). That token
+# paces chrome moving a few px; this paces a full curve traversing the plot area.
+# Tuned by eye from 400ms, which still read as slightly abrupt — a morph the eye
+# is meant to track wants noticeably more time than chrome that just needs to
+# feel responsive.
 #
 # NOTE: this only declares *intent*. Two conditions that would make the motion
 # wrong can only be evaluated on the client, and are enforced there in
@@ -199,7 +201,7 @@ PLOT_CONFIG: dict[str, object] = {
 #      morphs the vertices that pair and *snaps* the rest, tearing the curve.
 #      Python builds figures statelessly and cannot know the previous point
 #      count; the client can.
-CHART_TRANSITION: dict[str, object] = {"duration": 400, "easing": "cubic-in-out"}
+CHART_TRANSITION: dict[str, object] = {"duration": 500, "easing": "cubic-in-out"}
 
 PLOT_LAYOUT = dict(
     template=PLOT_TEMPLATE,
