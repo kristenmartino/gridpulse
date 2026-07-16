@@ -58,25 +58,43 @@ Live as of 2026-05-29: policy
 
 **Applied 2026-07-08 (#253 + #171):**
 
-| Resource | Live id |
-|---|---|
-| Cloud Run Job failed execution | `alertPolicies/5965243952275624431` |
-| scoring-job runtime creep (#171) | `alertPolicies/5813319064717268577` |
-| web service sustained 5xx | `alertPolicies/14035657251363314798` |
-| web service pinned at max instances | `alertPolicies/7343953142414788448` |
-| /health uptime check failing (alert) | `alertPolicies/1577408926164424010` |
-| Uptime check config — public `/health` | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
-| Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
+The `File` column is **load-bearing, not decoration**:
+`tests/unit/test_monitoring_policies_applied.py` parses this table and fails CI
+if a policy JSON is committed without either a live id here or an explicit
+not-yet-applied declaration. That check exists because
+`scoring_partial_failure` sat committed-and-inert for a week with nobody
+noticing (below).
 
-All five alert policies + the uptime check + the budget are live and bound to
-the email channel. The budget also emails the billing-account admins by default.
+| Resource | File | Live id |
+|---|---|---|
+| Cloud Run Job failed execution | `cloud_run_job_failure_alert.json` | `alertPolicies/5965243952275624431` |
+| scoring-job runtime creep (#171) | `scoring_runtime_creep_alert.json` | `alertPolicies/5813319064717268577` |
+| web service sustained 5xx | `web_service_5xx_alert.json` | `alertPolicies/14035657251363314798` |
+| web service pinned at max instances | `web_service_max_instances_alert.json` | `alertPolicies/7343953142414788448` |
+| /health uptime check failing (alert) | `web_service_uptime_alert.json` | `alertPolicies/1577408926164424010` |
+| Uptime check config — public `/health` | — | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
+| Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | — | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
 
-> ⚠ **`scoring_partial_failure` (#267) is NOT in the table above — it was
-> committed but never applied.** `jobs/scoring_job.py` has been emitting the
-> event into a void. Applying is a manual step outside CI; landing the JSON is
-> not landing the alert. Apply it and add its live id here.
+Five alert policies + the uptime check + the budget are live and bound to the
+email channel. The budget also emails the billing-account admins by default.
 
-### ⚠ Log-based policies were inert until 2026-07-15 — read this before adding one
+> ⚠ **`scoring_partial_failure_alert.json` (#267) is NOT in the table above — it
+> was committed but never applied.** `jobs/scoring_job.py:471` has been emitting
+> the event into a void. **Applying is a manual step outside CI; landing the JSON
+> is not landing the alert.** Apply it (recipe above), add its row here, then
+> remove it from `_KNOWN_UNAPPLIED` in
+> `tests/unit/test_monitoring_policies_applied.py` — the test will tell you.
+> Tracked under "Blocked / waiting on" in `STATUS.md`.
+
+### Log-based policies were inert until 2026-07-15 — read this before adding one
+
+> ✅ **Fixed and verified in prod 2026-07-15.** Job logs now carry
+> `jsonPayload.event` (`scoring_job_complete`, `job_cli_exit`, …) and
+> `textPayload` is empty — nothing falls through unparsed. `scoring_runtime_creep`
+> (#171) is genuinely unblocked. `scoring_partial_failure` (#267) still cannot
+> fire, but now only because its policy was never applied (above) — the JSON
+> blocker is gone.
+
 
 Both `conditionMatchedLog` policies filter on **`jsonPayload.event="…"`**. That
 field only exists if the process emits **JSON** to stdout. `configure_logging()`
@@ -94,13 +112,20 @@ Cloud Run and local runs stay human-readable). Pinned by
 `tests/unit/test_jobs_json_logging.py`.
 
 **Confirm the pipe is alive before trusting any log-based alert** — this
-returned nothing at all before the fix:
+returned nothing at all before the fix, and returns event names now:
 
 ```bash
-gcloud logging read \
-  'resource.type="cloud_run_job" AND jsonPayload.event!=""' \
-  --project=nextera-portfolio --limit=5 --format='value(jsonPayload.event)'
+gcloud logging read 'resource.type="cloud_run_job" AND jsonPayload.event:*' \
+  --project=nextera-portfolio --limit=5 --freshness=2h \
+  --format='value(jsonPayload.event)'
 ```
+
+Use the `jsonPayload.event:*` **existence** form, not `jsonPayload.event!=""`.
+Both work when pasted into a plain shell, but the `!=""` form carries embedded
+double quotes that get mangled the moment the command is nested inside another
+quoted context (CI step, Makefile, another shell). `:*` has no inner quotes.
+`--freshness` matters too: the default look-back can silently miss a recent
+job run and read as "still broken."
 
 A new log-based policy also **requires** `alertStrategy.notificationRateLimit`
 (both existing ones use `3600s`); without it the policy is rejected.
