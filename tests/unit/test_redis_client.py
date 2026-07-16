@@ -1,6 +1,7 @@
 """Unit tests for data/redis_client.py — dual-mode Redis client."""
 
 import json
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -265,3 +266,87 @@ class TestPersist:
 
         with patch("data.redis_client.redis_set", return_value=True):
             assert rc.persist("gridpulse:x", {"a": 1}) is None
+
+
+class TestRedisGetStrict:
+    """#313 — absence and failure must be different answers.
+
+    ``redis_get`` collapses "no client / command error / corrupt payload /
+    key absent" into one ``None``; a stateful window phase that read that
+    ``None`` as "no history" destructively re-pinned four regions' vintage
+    first-sights in prod. The strict variant is the fix's foundation: it may
+    return ``None`` ONLY when Redis affirmatively reports the key absent.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore_client_state(self):
+        import data.redis_client as rc
+
+        saved = (rc._redis_client, rc._redis_last_attempt)
+        yield
+        rc._redis_client, rc._redis_last_attempt = saved
+
+    def test_parses_json_like_the_soft_variant(self):
+        import data.redis_client as rc
+
+        mock_client = MagicMock()
+        payload = {"records": [{"ts": "2026-07-16T03:00:00+00:00", "d": 8825.0}]}
+        mock_client.get.return_value = json.dumps(payload)
+        rc._redis_client = mock_client
+
+        assert rc.redis_get_strict("gridpulse:vintage:BPAT") == payload
+
+    def test_affirmative_absence_returns_none(self):
+        """The ONLY path allowed to return None."""
+        import data.redis_client as rc
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = None
+        rc._redis_client = mock_client
+
+        assert rc.redis_get_strict("gridpulse:vintage:NEW") is None
+
+    def test_no_client_raises_instead_of_none(self):
+        import data.redis_client as rc
+
+        rc._redis_client = None
+        rc._redis_last_attempt = time.monotonic()  # inside backoff → _get_redis None
+
+        with pytest.raises(rc.RedisReadError):
+            rc.redis_get_strict("gridpulse:vintage:BPAT")
+
+    def test_command_error_raises(self):
+        import data.redis_client as rc
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = Exception("Connection lost")
+        rc._redis_client = mock_client
+
+        with pytest.raises(rc.RedisReadError, match="read failed"):
+            rc.redis_get_strict("gridpulse:vintage:BPAT")
+
+    def test_unparseable_payload_raises_not_none(self):
+        """A value that exists but can't be parsed must never read as absent —
+        the caller would overwrite whatever it was."""
+        import data.redis_client as rc
+
+        mock_client = MagicMock()
+        mock_client.get.return_value = "not-valid-json{{"
+        rc._redis_client = mock_client
+
+        with pytest.raises(rc.RedisReadError, match="unparseable"):
+            rc.redis_get_strict("gridpulse:vintage:BPAT")
+
+
+class TestRedisConfigured:
+    def test_true_when_host_set(self, monkeypatch):
+        import data.redis_client as rc
+
+        monkeypatch.setenv("REDIS_HOST", "10.0.0.5")
+        assert rc.redis_configured() is True
+
+    def test_false_when_unset(self, monkeypatch):
+        import data.redis_client as rc
+
+        monkeypatch.delenv("REDIS_HOST", raising=False)
+        assert rc.redis_configured() is False

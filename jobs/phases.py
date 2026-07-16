@@ -1510,8 +1510,32 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
     Capture only — reads the demand frame, writes its own key, changes no
     forecast behavior. Like drift, a failure here MUST NOT block the run: this
     is a measurement, not a critical path.
+
+    ## The #313 defense — never rebuild first-sight history from an ambiguous read
+
+    On 2026-07-16 prod re-pinned four regions' windows: an unexplained **nil**
+    read (no error logged, no eviction, no TTL expiry, single execution) made
+    the naive path treat 720 hours of accumulated ``first_seen_d`` as "no
+    history" and overwrite them with current values — the one silent failure
+    this recorder exists to prevent. Three rules follow:
+
+    1. History is read with ``redis_get_strict`` (+1 retry): an infrastructure
+       failure fails the phase; it never masquerades as an empty past.
+    2. A ``vintage_seeded:{region}`` tombstone outlives the data key. Window
+       absent while the tombstone survives ⇒ the #313 anomaly, not a first run
+       ⇒ **refuse to write** and log ``vintage_window_missing_but_seeded`` at
+       error level. Capture resumes next tick; one lost tick beats 720 lost
+       first-sights.
+    3. Writes go through ``persist`` (#268), so a dropped write fails the
+       phase instead of silently diverging from what we logged.
     """
-    from data.redis_client import redis_get, redis_key, redis_set
+    from data.redis_client import (
+        RedisReadError,
+        persist,
+        redis_configured,
+        redis_get_strict,
+        redis_key,
+    )
     from data.vintage import (
         deserialize_records,
         serialize_records,
@@ -1521,25 +1545,84 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
 
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
         return PhaseResult(region=region, ok=True, details={"skipped": "no_demand"})
+    if not redis_configured():
+        # Dev / offline: nothing to protect and nowhere to write.
+        return PhaseResult(region=region, ok=True, details={"skipped": "redis_not_configured"})
+
+    data_key = redis_key(f"vintage:{region}")
+    seed_key = redis_key(f"vintage_seeded:{region}")
+
+    def _strict_read(key: str):
+        # One retry with a short pause: the observed anomaly is transient
+        # (the same region read fine the next tick), and 0.5s is cheap
+        # insurance on a 720-hour window.
+        try:
+            return redis_get_strict(key)
+        except RedisReadError:
+            time.sleep(0.5)
+            return redis_get_strict(key)
 
     try:
-        existing_payload = redis_get(redis_key(f"vintage:{region}"))
-        existing = (
-            deserialize_records(existing_payload.get("records"))
-            if isinstance(existing_payload, dict)
-            else []
+        existing_payload = _strict_read(data_key)
+        tombstone = _strict_read(seed_key) if existing_payload is None else None
+    except RedisReadError as exc:
+        log.warning("vintage_history_read_failed", region=region, error=str(exc))
+        return PhaseResult(region=region, ok=False, error=f"history read failed: {exc}")
+
+    if existing_payload is None and tombstone is not None:
+        # The #313 signature: the window key is gone but the tombstone —
+        # written only after successful seeds/updates — survives. Rebuilding
+        # now would re-pin first_seen_d for the whole window. Refuse, loudly.
+        log.error(
+            "vintage_window_missing_but_seeded",
+            region=region,
+            tombstone=str(tombstone),
         )
+        return PhaseResult(
+            region=region,
+            ok=False,
+            error="window absent but tombstone present — refusing to re-pin",
+        )
+
+    if existing_payload is not None and not (
+        isinstance(existing_payload, dict) and existing_payload.get("records")
+    ):
+        # A payload we can read but not use (wrong shape, no records) is a
+        # failure too — this phase never writes a record-less payload, so
+        # overwriting it would destroy something another writer produced.
+        log.error(
+            "vintage_payload_unusable", region=region, payload_type=type(existing_payload).__name__
+        )
+        return PhaseResult(
+            region=region, ok=False, error="existing payload unusable — refusing to overwrite"
+        )
+
+    first_seed = existing_payload is None
+
+    try:
+        existing = deserialize_records(existing_payload.get("records")) if existing_payload else []
 
         records = update_vintage_records(existing, demand_df)
         if not records:
             return PhaseResult(region=region, ok=True, details={"skipped": "no_usable_readings"})
 
         stats = summarize(records, region=region)
-        redis_set(
-            redis_key(f"vintage:{region}"),
+        persist(
+            data_key,
             {"region": region, "records": serialize_records(records), **stats},
             ttl=REDIS_TTL,
         )
+        # Tombstone AFTER the data write, refreshed on every success so its
+        # 7-day TTL only lapses when capture has been dead for a week anyway.
+        persist(
+            seed_key,
+            {"last_write": datetime.now(UTC).isoformat(), "n_records": stats["n_records"]},
+            ttl=REDIS_TTL * 7,
+        )
+        if first_seed:
+            # Loud by design: any future re-seed of an established region is
+            # the #313 corruption becoming visible in one log query.
+            log.info("vintage_window_seeded", region=region, n_records=stats["n_records"])
 
         # The shadow signal. Answers two things currently unknown fleet-wide:
         # how often the anchor's seed is a day-ahead placeholder rather than a

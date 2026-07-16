@@ -5,10 +5,16 @@ When REDIS_HOST is set, reads pre-computed data from Redis (v2 pipeline).
 When REDIS_HOST is empty or Redis is unreachable, returns None so
 callbacks fall through to the existing v1 compute path.
 
-The read path never raises — all errors return None with a warning log. The
-write path has two flavours: ``redis_set`` swallows failures and returns False,
-while ``persist`` raises ``RedisWriteError`` so a caller that must know its write
-landed (the scoring-job phases) can surface a dropped write (#268).
+Both paths have two flavours, split along the same line (#268 / #313):
+
+* **Fail-soft** — ``redis_get`` returns None on any error, ``redis_set``
+  returns False. For the web tier, where a Redis blip should degrade to the
+  warming state, never crash a callback.
+* **Fail-loud** — ``redis_get_strict`` raises :class:`RedisReadError` so that
+  *absence* and *failure* are different answers; ``persist`` raises
+  :class:`RedisWriteError` on a dropped write. For stateful read-modify-write
+  consumers (the scoring-job window phases), where mistaking an outage for
+  "no history" destructively rebuilds state — the #313 vintage re-pin.
 """
 
 import json
@@ -111,6 +117,56 @@ def redis_get(key: str) -> dict | list | None:
     except Exception as exc:
         logger.warning("Redis read error for %s: %s", key, exc)
         return None
+
+
+class RedisReadError(RuntimeError):
+    """A Redis read failed for infrastructure reasons — client unavailable,
+    connection/command error, or an unparseable payload. Distinct from a key
+    that is genuinely absent (a nil reply on a healthy connection).
+
+    The read-side twin of :class:`RedisWriteError` (#268). Exists because of
+    #313: ``redis_get`` collapses failure and absence into one ``None``, and a
+    stateful consumer that mistakes an outage for "no history" destructively
+    rebuilds its window — prod re-pinned four regions' vintage first-sight
+    records exactly this way on 2026-07-16.
+    """
+
+
+def redis_get_strict(key: str) -> dict | list | None:
+    """Read a JSON value, refusing to conflate failure with absence (#313).
+
+    Returns the parsed object, or ``None`` **only** when Redis affirmatively
+    reports the key absent. Every other outcome — no client, command error,
+    unparseable payload — raises :class:`RedisReadError`. Callers whose next
+    action differs between "the key is not there" and "I could not find out"
+    (window phases doing read-modify-write) must use this instead of
+    :func:`redis_get`.
+    """
+    client = _get_redis()
+    if client is None:
+        raise RedisReadError(f"redis unavailable for read of {key}")
+    try:
+        raw = client.get(key)
+    except Exception as exc:
+        raise RedisReadError(f"read failed for {key}: {exc}") from exc
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        # A value that exists but cannot be parsed is a failure, not an
+        # absence — overwriting it would destroy whatever it was.
+        raise RedisReadError(f"unparseable payload at {key}: {exc}") from exc
+
+
+def redis_configured() -> bool:
+    """True when this environment points at a Redis endpoint.
+
+    Lets job phases distinguish "dev, no Redis — skip quietly" from
+    "production Redis errored — protect state and fail the phase" without
+    poking at private client state.
+    """
+    return bool(os.getenv("REDIS_HOST", ""))
 
 
 def redis_set(key: str, value: dict | list, ttl: int = 86400) -> bool:
