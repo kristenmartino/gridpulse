@@ -268,3 +268,58 @@ class TestLogFields:
         ).as_log_fields()
         assert "displayed_mape" not in fields
         assert fields["skipped"] == "no_records"
+
+
+class TestIndependenceContract:
+    """The checker must stay independent of the code it checks (#217 trap).
+
+    reconcile.py's whole value rests on re-implementing windowing and
+    aggregation rather than importing the producer's — a checker that reuses
+    ``compute_drift_payload``/``_within_window``/``filter_low_actuals`` would
+    agree with the panel *by construction*, hiding the very bug class it exists
+    to catch, and **every other test here would still pass** (the numbers would
+    match). Nothing but this test guards that property, so a well-meaning future
+    "DRY up the duplication" refactor could silently re-couple them. This pins
+    the allowed surface at the import boundary (cf. the ``_FORBID_V1`` guard in
+    the #220 Models-tab tests).
+    """
+
+    #: The ONLY names reconcile.py may borrow from the serving path: leaf math +
+    #: parsing. Aggregation/windowing/filtering are deliberately re-implemented.
+    ALLOWED_FROM_DRIFT = {"_normalize_ts", "absolute_pct_error", "deserialize_records"}
+
+    def _drift_imports(self) -> set[str]:
+        import ast
+        from pathlib import Path
+
+        source = Path(__file__).resolve().parents[2] / "reconcile.py"
+        tree = ast.parse(source.read_text(), filename=str(source))
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "models.drift":
+                names.update(alias.name for alias in node.names)
+            # A bare ``import models.drift`` would let any attribute be reached
+            # at call sites, bypassing this allowlist — forbid it outright.
+            if isinstance(node, ast.Import):
+                assert all(alias.name != "models.drift" for alias in node.names), (
+                    "reconcile.py must not `import models.drift` wholesale — use named leaf imports"
+                )
+        return names
+
+    def test_only_leaf_helpers_borrowed_from_producer(self):
+        borrowed = self._drift_imports()
+        extra = borrowed - self.ALLOWED_FROM_DRIFT
+        assert not extra, (
+            f"reconcile.py imports {sorted(extra)} from models.drift — the checker "
+            "must re-implement aggregation/windowing/filtering itself, not reuse the "
+            "code it checks (#217 circular-verdict trap)."
+        )
+
+    def test_aggregation_functions_never_imported(self):
+        """Name the specific producer functions whose reuse would re-couple."""
+        forbidden = {
+            "compute_drift_payload",
+            "_within_window",
+            "filter_low_actuals",
+        }
+        assert not (self._drift_imports() & forbidden)
