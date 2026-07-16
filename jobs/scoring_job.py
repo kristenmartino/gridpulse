@@ -153,6 +153,16 @@ def _score_region(region: str) -> dict:
         **(drift_res.details if drift_res.ok else {"error": drift_res.error}),
     }
 
+    # #309: record what EIA first said about each hour before the next fetch
+    # revises it away. The demand frame here is the same one the anchor is built
+    # from, so first_seen_d IS the value the forecast used. Isolated like drift
+    # — capture is a measurement, never a critical path.
+    vintage_res = phases.write_vintage_records(region, region_data.demand_df)
+    summary["phases"]["vintage"] = {
+        "ok": vintage_res.ok,
+        **(vintage_res.details if vintage_res.ok else {"error": vintage_res.error}),
+    }
+
     # #227: horizon-matched drift (24h/48h/72h) — snapshots the same
     # about-to-be-overwritten forecast + resolves matured snapshots, graded
     # against each horizon's own band. Isolated like the 1h phase above.

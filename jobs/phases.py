@@ -1496,6 +1496,72 @@ def write_drift_metrics(
         return PhaseResult(region=region, ok=False, error=str(exc))
 
 
+def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
+    """Record what EIA first said about each hour, at ``gridpulse:vintage:{region}``.
+
+    #309. The forecast anchors on the newest EIA reading, EIA revises it, and
+    ``corr(revision, settled error) = 0.88`` — but we cannot study that, because
+    ``gcs_store`` overwrites ``{region}/latest.parquet`` hourly and nothing keeps
+    what EIA *first* said. This phase is the recorder: it pins ``first_seen_d``
+    (the value the anchor actually used) against ``last_d`` (settled), so the
+    revision question becomes answerable from history instead of from a live
+    probe and a hypothesis.
+
+    Capture only — reads the demand frame, writes its own key, changes no
+    forecast behavior. Like drift, a failure here MUST NOT block the run: this
+    is a measurement, not a critical path.
+    """
+    from data.redis_client import redis_get, redis_key, redis_set
+    from data.vintage import (
+        deserialize_records,
+        serialize_records,
+        summarize,
+        update_vintage_records,
+    )
+
+    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+        return PhaseResult(region=region, ok=True, details={"skipped": "no_demand"})
+
+    try:
+        existing_payload = redis_get(redis_key(f"vintage:{region}"))
+        existing = (
+            deserialize_records(existing_payload.get("records"))
+            if isinstance(existing_payload, dict)
+            else []
+        )
+
+        records = update_vintage_records(existing, demand_df)
+        if not records:
+            return PhaseResult(region=region, ok=True, details={"skipped": "no_usable_readings"})
+
+        stats = summarize(records, region=region)
+        redis_set(
+            redis_key(f"vintage:{region}"),
+            {"region": region, "records": serialize_records(records), **stats},
+            ttl=REDIS_TTL,
+        )
+
+        # The shadow signal. Answers two things currently unknown fleet-wide:
+        # how often the anchor's seed is a day-ahead placeholder rather than a
+        # measurement (12/43 BAs at the newest hour, observed once by hand), and
+        # how far readings move afterwards. Flat scalars → queryable
+        # jsonPayload.* since #306.
+        log.info("demand_vintage", **stats)
+
+        return PhaseResult(
+            region=region,
+            ok=True,
+            details={
+                "n_records": stats["n_records"],
+                "n_placeholder": stats["n_placeholder"],
+                "n_revised": stats["n_revised"],
+            },
+        )
+    except Exception as exc:
+        log.warning("vintage_write_failed", region=region, error=str(exc))
+        return PhaseResult(region=region, ok=False, error=str(exc))
+
+
 def write_horizon_drift_metrics(
     region: str,
     forecast_payload: dict[str, Any] | None,
