@@ -129,6 +129,24 @@ def _score_region(region: str) -> dict:
         "weather_rows": len(region_data.weather_df),
     }
 
+    # #309: vintage capture MUST run on the RAW frame — it records what EIA
+    # actually said, and the quality guard below would erase exactly the
+    # artifact values the study exists to measure. Order is load-bearing.
+    vintage_res = phases.write_vintage_records(region, region_data.demand_df)
+    summary["phases"]["vintage"] = {
+        "ok": vintage_res.ok,
+        **(vintage_res.details if vintage_res.ok else {"error": vintage_res.error}),
+    }
+
+    # #309: NaN-coerce implausible trailing readings ONCE, so every downstream
+    # consumer — actuals payload (tiles), drift scoring, the forecast anchor —
+    # sees the same cleaned frame. Never fatal.
+    guard_res = phases.apply_demand_quality_guard(region_data)
+    summary["phases"]["quality_guard"] = {
+        "ok": guard_res.ok,
+        **(guard_res.details if guard_res.ok else {"error": guard_res.error}),
+    }
+
     # #121 part 1: snapshot the about-to-be-overwritten forecast key
     # BEFORE write_actuals_and_weather + predict_and_write_forecast run.
     # The drift phase later in this function compares this previous
@@ -153,15 +171,7 @@ def _score_region(region: str) -> dict:
         **(drift_res.details if drift_res.ok else {"error": drift_res.error}),
     }
 
-    # #309: record what EIA first said about each hour before the next fetch
-    # revises it away. The demand frame here is the same one the anchor is built
-    # from, so first_seen_d IS the value the forecast used. Isolated like drift
-    # — capture is a measurement, never a critical path.
-    vintage_res = phases.write_vintage_records(region, region_data.demand_df)
-    summary["phases"]["vintage"] = {
-        "ok": vintage_res.ok,
-        **(vintage_res.details if vintage_res.ok else {"error": vintage_res.error}),
-    }
+    # (vintage capture moved above the quality guard — it must see the raw frame)
 
     # #227: horizon-matched drift (24h/48h/72h) — snapshots the same
     # about-to-be-overwritten forecast + resolves matured snapshots, graded

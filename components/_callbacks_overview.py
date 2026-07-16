@@ -278,7 +278,10 @@ def _build_overview_title(region: str) -> html.Div:
     return build_page_title(region_name, subtitle)
 
 
-def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
+def _build_overview_metrics_items(
+    demand_df: pd.DataFrame | None,
+    artifact_exclusions: list[dict] | None = None,
+) -> list[dict]:
     """Compose the 5-up MetricsBar cells (Now / 7d Peak / 7d Low / Average / 24h Trend)."""
     placeholder_labels = ["Now", "7d Peak", "7d Low", "Average", "24h Trend"]
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
@@ -365,6 +368,27 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
     # lag. Make that explicit.
     now_subtext = f"as of {now_ts.strftime('%H:%M UTC')}" if now_ts is not None else None
 
+    # #309: the scoring job's quality guard excluded implausible trailing
+    # readings (EIA partials — the LADWP "NOW 730 MW" class). The series here
+    # is already cleaned, so the value above is the last REAL reading; this
+    # discloses that newer-but-implausible readings exist.
+    now_help = "Most recent actual demand reading (EIA-930)."
+    exclusions = artifact_exclusions or []
+    if exclusions:
+        n_exc = len(exclusions)
+        plural = "s" if n_exc != 1 else ""
+        now_subtext = (
+            f"{now_subtext} · {n_exc} newer reading{plural} excluded"
+            if now_subtext
+            else f"{n_exc} newer reading{plural} excluded"
+        )
+        newest = exclusions[-1]
+        now_help = (
+            f"Most recent PLAUSIBLE demand reading (EIA-930). Excluded: "
+            f"{newest.get('mw'):,.0f} MW at {str(newest.get('ts'))[11:16]} UTC — "
+            f"{newest.get('reason')}. EIA typically corrects these within the hour."
+        )
+
     # Trend anchor subtext — if the 24h-ago row was off-target by more
     # than ~5 minutes (publishing gap absorbed by the ±30min tolerance),
     # surface the actual anchor time so users can see the comparison
@@ -382,7 +406,7 @@ def _build_overview_metrics_items(demand_df: pd.DataFrame | None) -> list[dict]:
             "unit": "MW",
             "hero": True,
             "subtext": now_subtext,
-            "help": "Most recent actual demand reading (EIA-930).",
+            "help": now_help,
         },
         {
             "label": "7d Peak",
@@ -661,6 +685,7 @@ def _build_overview_insight(
     region: str,
     demand_df: pd.DataFrame | None,
     persona_id: str,
+    artifact_exclusions: list[dict] | None = None,
 ) -> html.Div:
     """3-sentence narrative paragraph with semantic-color delta spans."""
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
@@ -784,6 +809,14 @@ def _build_overview_insight(
         ". ",
         forecast_clause,
     ]
+    # #309: name the exclusion in prose — the tiles above already computed on
+    # the cleaned series, so without this sentence the exclusion is invisible.
+    for exc in (artifact_exclusions or [])[-1:]:
+        body.append(
+            f" Latest EIA reading ({exc.get('mw'):,.0f} MW at "
+            f"{str(exc.get('ts'))[11:16]} UTC) excluded: {exc.get('reason')} — "
+            f"an EIA reporting artifact, not demand."
+        )
     # Persona influences eyebrow only — keeps the card tonally consistent
     eyebrow_map = {
         "grid_ops": "Operating summary",
@@ -2606,14 +2639,21 @@ def register_overview_callbacks(app):
             demand_df = None
             if demand_json:
                 demand_df = pd.read_json(io.StringIO(demand_json))
-            # weather_json + freshness_data reserved for future inline drivers panel
-            del weather_json, freshness_data
+            # weather_json reserved for a future inline drivers panel
+            del weather_json
+            artifact_exclusions = (
+                (freshness_data or {}).get("artifact_excluded") or []
+                if isinstance(freshness_data, dict)
+                else []
+            )
 
             # 1. Title block (region name + subtitle)
             title = _build_overview_title(region)
 
             # 2. MetricsBar (5-up KPI row)
-            metrics_bar = build_metrics_bar(_build_overview_metrics_items(demand_df))
+            metrics_bar = build_metrics_bar(
+                _build_overview_metrics_items(demand_df, artifact_exclusions)
+            )
 
             # 3. Hero forecast chart (actual + dashed forecast + confidence band)
             chart = _build_overview_hero_chart(region, demand_df)
@@ -2622,7 +2662,7 @@ def register_overview_callbacks(app):
             model_card = _build_overview_model_card(region)
 
             # 5. InsightCard
-            insight = _build_overview_insight(region, demand_df, persona_id)
+            insight = _build_overview_insight(region, demand_df, persona_id, artifact_exclusions)
 
             return (title, metrics_bar, chart, model_card, insight)
         except Exception as exc:

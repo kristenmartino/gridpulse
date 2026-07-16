@@ -218,6 +218,10 @@ def _load_data_from_redis(region):
         demand_status = "fresh" if age_h <= FRESHNESS_DEMAND_LAG_ALLOWANCE_HOURS else "stale"
     freshness["demand"] = demand_status or "stale"
     freshness["weather"] = _freshness_from_payload(cached_weather, now) or freshness["demand"]
+    # #309: readings the scoring job's quality guard excluded from the series
+    # (already NaN in demand_mw above) — threaded to the Overview so the NOW
+    # tile and operating summary can DISCLOSE the exclusion, not just skip it.
+    freshness["artifact_excluded"] = cached_actuals.get("artifact_excluded") or []
 
     cached_alerts = redis_get(redis_key(f"alerts:{region}"))
     if isinstance(cached_alerts, dict):

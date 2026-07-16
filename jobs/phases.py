@@ -122,6 +122,42 @@ class RegionData:
     demand_df: pd.DataFrame
     weather_df: pd.DataFrame
     featured_df: pd.DataFrame | None = None
+    #: Readings the #309 quality guard NaN-coerced out of ``demand_df``
+    #: (``[{"ts", "mw", "reason"}]``) — stamped onto the actuals payload so
+    #: the tiles and /grid/summary can disclose the exclusion.
+    artifact_exclusions: list[dict[str, Any]] = field(default_factory=list)
+
+
+def apply_demand_quality_guard(data: RegionData) -> PhaseResult:
+    """NaN-coerce implausible trailing readings out of ``data.demand_df`` (#309).
+
+    Runs ONCE per region, AFTER vintage capture (which must record the raw
+    values — it is the study of exactly these artifacts) and BEFORE every
+    consumer of the frame: the actuals payload (tiles), drift (stops scoring
+    forecasts against 730-MW partials), and feature engineering (the anchor —
+    ``_resolve_forecast_start`` then anchors on the last real hour).
+
+    Never fatal: on any error the raw frame stands and the run proceeds — a
+    broken guard must degrade to today's behavior, not take out the tick.
+    """
+    from data.quality import coerce_demand_artifacts
+
+    try:
+        cleaned, exclusions = coerce_demand_artifacts(data.demand_df)
+        if exclusions:
+            data.demand_df = cleaned
+            data.artifact_exclusions = exclusions
+            log.info(
+                "demand_artifacts_excluded",
+                region=data.region,
+                n=len(exclusions),
+                newest=exclusions[-1]["ts"],
+                reasons=[e["reason"] for e in exclusions],
+            )
+        return PhaseResult(region=data.region, ok=True, details={"excluded": len(exclusions)})
+    except Exception as exc:
+        log.warning("demand_quality_guard_failed", region=data.region, error=str(exc))
+        return PhaseResult(region=data.region, ok=False, error=str(exc))
 
 
 # ── Region ordering ──────────────────────────────────────────
@@ -245,6 +281,10 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
             "scored_at": scored_at,
             "timestamps": _ts_list(demand_df["timestamp"]),
             "demand_mw": demand_df["demand_mw"].tolist(),
+            # #309: readings the quality guard excluded this tick — the series
+            # above is already cleaned (NaN at excluded hours); this field is
+            # the disclosure the tiles and /grid/summary render.
+            "artifact_excluded": data.artifact_exclusions,
         }
         persist(redis_key(f"actuals:{region}"), actuals_payload, ttl=REDIS_TTL)
 

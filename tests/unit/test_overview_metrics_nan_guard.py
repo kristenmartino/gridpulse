@@ -106,3 +106,60 @@ class TestNowMetricNaNGuard:
         items = _build_overview_metrics_items(df)
         now = next(i for i in items if i["label"] == "Now")
         assert now["value"] == "5,000"
+
+
+class TestArtifactExclusionDisclosure:
+    """#309 PR 2 — when the scoring job excluded readings, the tiles must SAY so.
+
+    The series arrives pre-cleaned (NaN at excluded hours), so the values
+    render correctly with or without this; the disclosure is the part only
+    these pins protect — silently-right numbers are how the last three
+    display bugs shipped.
+    """
+
+    def _df(self):
+        ts = pd.date_range("2026-07-16 00:00", periods=30, freq="h", tz="UTC")
+        mw = [3300.0] * 29 + [float("nan")]  # cleaned tail
+        return pd.DataFrame({"timestamp": ts, "demand_mw": mw})
+
+    def _exclusions(self):
+        return [
+            {
+                "ts": "2026-07-17T05:00:00+00:00",
+                "mw": 730.0,
+                "reason": "79% single-hour drop to 22% of the daily median",
+            }
+        ]
+
+    def test_now_tile_discloses_exclusion(self):
+        from components.callbacks import _build_overview_metrics_items
+
+        items = _build_overview_metrics_items(self._df(), self._exclusions())
+        now = next(i for i in items if i["label"] == "Now")
+
+        assert now["value"] == "3,300"  # last real reading, not the artifact
+        assert "1 newer reading excluded" in (now.get("subtext") or "")
+        assert "730" in (now.get("help") or "")
+        assert "PLAUSIBLE" in (now.get("help") or "")
+
+    def test_no_exclusions_renders_exactly_as_before(self):
+        from components.callbacks import _build_overview_metrics_items
+
+        baseline = _build_overview_metrics_items(self._df())
+        with_empty = _build_overview_metrics_items(self._df(), [])
+        assert baseline == with_empty
+
+    def test_summary_sentence_names_the_exclusion(self):
+        from components._callbacks_overview import _build_overview_insight
+
+        card = _build_overview_insight("LDWP", self._df(), "grid_ops", self._exclusions())
+        text = str(card)
+        assert "730" in text
+        assert "excluded" in text
+        assert "artifact" in text
+
+    def test_summary_without_exclusions_has_no_artifact_prose(self):
+        from components._callbacks_overview import _build_overview_insight
+
+        card = _build_overview_insight("LDWP", self._df(), "grid_ops", [])
+        assert "excluded" not in str(card)
