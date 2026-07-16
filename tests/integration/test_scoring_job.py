@@ -366,41 +366,169 @@ class TestVintageCaptureIsWired:
         )
         assert scoring_job.run() == 0
 
-    def test_writes_the_key_and_captures_a_revision_across_two_ticks(
-        self, fake_redis, monkeypatch
-    ) -> None:
-        """The end-to-end shape, on a *recent* frame.
 
-        The happy-path fixture is 2024 data, and the vintage window is
-        wall-clock relative, so it correctly records nothing there. This drives
-        the phase directly with the real AZPS case: 1157 first seen, revised to
-        7815 four minutes later.
-        """
-        from datetime import UTC, datetime, timedelta
+def _vintage_frame(d: float) -> pd.DataFrame:
+    from datetime import UTC, datetime, timedelta
 
+    hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+    return pd.DataFrame({"timestamp": [hour], "demand_mw": [d], "forecast_mw": [7911.0]})
+
+
+def _wire_vintage_redis(monkeypatch, store: dict, *, fail_reads: int = 0, configured: bool = True):
+    """Route the vintage phase's strict-read/persist through an in-memory dict.
+
+    ``fail_reads`` injects that many RedisReadErrors before reads succeed —
+    the #313 anomaly, reproducible. Returns a counters dict.
+    """
+    import data.redis_client as rc
+
+    calls = {"reads": 0, "writes": 0}
+
+    def _strict(key):
+        calls["reads"] += 1
+        if calls["reads"] <= fail_reads:
+            raise rc.RedisReadError("injected transient failure")
+        return store.get(key)
+
+    def _persist(key, value, ttl=86400):
+        calls["writes"] += 1
+        store[key] = value
+
+    monkeypatch.setattr(rc, "redis_configured", lambda: configured)
+    monkeypatch.setattr(rc, "redis_get_strict", _strict)
+    monkeypatch.setattr(rc, "persist", _persist)
+    monkeypatch.setattr("jobs.phases.time.sleep", lambda s: None)  # skip retry pause
+    return calls
+
+
+class TestVintageResetDefense:
+    """#313 — prod re-pinned four regions' first-sight windows via unexplained
+    nil reads (no error logged, no eviction, no TTL expiry, single execution).
+    The trigger is unidentified; the defense must make the corruption
+    impossible anyway: never rebuild history from an ambiguous read, and make
+    every legitimate seed loud.
+    """
+
+    DATA = "gridpulse:vintage:AZPS"
+    SEED = "gridpulse:vintage_seeded:AZPS"
+
+    def test_two_ticks_capture_a_revision_end_to_end(self, monkeypatch):
+        """The end-to-end shape on a recent frame: AZPS 1157 first seen,
+        revised to 7815 four minutes later (the real prod case)."""
         from jobs import phases
 
-        store = fake_redis
-        monkeypatch.setattr(
-            "data.redis_client.redis_get", lambda key: store.get(key), raising=False
-        )
+        store: dict = {}
+        _wire_vintage_redis(monkeypatch, store)
 
-        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+        assert phases.write_vintage_records("AZPS", _vintage_frame(1157.0)).ok
+        assert store[self.DATA]["records"][0]["d"] == 1157.0
+        assert self.SEED in store, "seeding must write the tombstone"
 
-        def _frame(d: float) -> pd.DataFrame:
-            return pd.DataFrame({"timestamp": [hour], "demand_mw": [d], "forecast_mw": [7911.0]})
-
-        assert phases.write_vintage_records("AZPS", _frame(1157.0)).ok
-        payload = store["gridpulse:vintage:AZPS"]
-        assert payload["records"][0]["d"] == 1157.0
-
-        assert phases.write_vintage_records("AZPS", _frame(7815.0)).ok
-        row = store["gridpulse:vintage:AZPS"]["records"][0]
-
+        assert phases.write_vintage_records("AZPS", _vintage_frame(7815.0)).ok
+        row = store[self.DATA]["records"][0]
         assert row["d"] == 1157.0, "first_seen_d was overwritten — the study is dead"
         assert row["ld"] == 7815.0
         assert row["n"] == 1
-        assert store["gridpulse:vintage:AZPS"]["mean_revision_pct"] == pytest.approx(85.2, abs=0.1)
+        assert store[self.DATA]["mean_revision_pct"] == pytest.approx(85.2, abs=0.1)
+
+    def test_window_absent_with_tombstone_refuses_to_repin(self, monkeypatch):
+        """THE #313 test. Data key gone, tombstone alive → this is the anomaly,
+        not a first run. Writing here re-pins 720 hours of first-sight history;
+        the phase must refuse and fail loudly instead."""
+        from jobs import phases
+
+        store: dict = {self.SEED: {"last_write": "2026-07-16T11:00:00+00:00", "n_records": 719}}
+        calls = _wire_vintage_redis(monkeypatch, store)
+
+        result = phases.write_vintage_records("AZPS", _vintage_frame(8000.0))
+
+        assert result.ok is False
+        assert "refusing to re-pin" in (result.error or "")
+        assert self.DATA not in store, "the defense wrote anyway — corruption shipped"
+        assert calls["writes"] == 0
+
+    def test_read_failure_never_writes(self, monkeypatch):
+        """An infrastructure failure must fail the phase, not masquerade as an
+        empty past. Both read attempts fail → no write of any kind."""
+        from jobs import phases
+
+        store: dict = {}
+        calls = _wire_vintage_redis(monkeypatch, store, fail_reads=99)
+
+        result = phases.write_vintage_records("AZPS", _vintage_frame(8000.0))
+
+        assert result.ok is False
+        assert "history read failed" in (result.error or "")
+        assert calls["writes"] == 0
+        assert store == {}
+
+    def test_transient_read_failure_retries_and_preserves_first_seen(self, monkeypatch):
+        """One failed read then success → the accumulated window survives."""
+        from jobs import phases
+
+        store: dict = {}
+        _wire_vintage_redis(monkeypatch, store)
+        assert phases.write_vintage_records("AZPS", _vintage_frame(1157.0)).ok
+
+        _wire_vintage_redis(monkeypatch, store, fail_reads=1)
+        assert phases.write_vintage_records("AZPS", _vintage_frame(7815.0)).ok
+        assert store[self.DATA]["records"][0]["d"] == 1157.0
+
+    def test_true_first_run_seeds_and_plants_tombstone(self, monkeypatch):
+        """Data absent AND tombstone absent = genuine first run: proceed."""
+        from jobs import phases
+
+        store: dict = {}
+        _wire_vintage_redis(monkeypatch, store)
+
+        result = phases.write_vintage_records("AZPS", _vintage_frame(8000.0))
+
+        assert result.ok is True
+        assert self.DATA in store
+        assert store[self.SEED]["n_records"] == 1
+
+    def test_unusable_payload_refuses_to_overwrite(self, monkeypatch):
+        """A readable-but-record-less payload is a failure, not a blank slate —
+        this phase never writes one, so overwriting would destroy something."""
+        from jobs import phases
+
+        store: dict = {self.DATA: {"region": "AZPS"}}  # no records key
+        calls = _wire_vintage_redis(monkeypatch, store)
+
+        result = phases.write_vintage_records("AZPS", _vintage_frame(8000.0))
+
+        assert result.ok is False
+        assert store[self.DATA] == {"region": "AZPS"}, "unusable payload was clobbered"
+        assert calls["writes"] == 0
+
+    def test_unconfigured_redis_skips_quietly_without_reads(self, monkeypatch):
+        """Dev/offline: nothing to protect, nowhere to write, no noise."""
+        from jobs import phases
+
+        calls = _wire_vintage_redis(monkeypatch, {}, configured=False)
+
+        result = phases.write_vintage_records("AZPS", _vintage_frame(8000.0))
+
+        assert result.ok is True
+        assert result.details.get("skipped") == "redis_not_configured"
+        assert calls["reads"] == 0
+
+    def test_dropped_write_fails_the_phase(self, monkeypatch):
+        """persist (#268) raising must surface as a failed phase — the silent
+        redis_set bool this phase previously ignored."""
+        import data.redis_client as rc
+        from jobs import phases
+
+        store: dict = {}
+        _wire_vintage_redis(monkeypatch, store)
+
+        def _exploding_persist(key, value, ttl=86400):
+            raise rc.RedisWriteError("write dropped")
+
+        monkeypatch.setattr(rc, "persist", _exploding_persist)
+
+        result = phases.write_vintage_records("AZPS", _vintage_frame(8000.0))
+        assert result.ok is False
 
 
 class TestScoringPartialFailureSemantics:
