@@ -37,13 +37,18 @@ def synthetic_region_frames():
     """Build 30 days of synthetic demand + weather + generation-by-fuel."""
     ts = pd.date_range("2024-01-01", periods=30 * 24, freq="h", tz="UTC")
     n = len(ts)
+    demand_mw = 40_000 + 5000 * np.sin(2 * np.pi * np.arange(n) / 24) + np.random.normal(0, 200, n)
     demand = pd.DataFrame(
         {
             "timestamp": ts,
-            "demand_mw": 40_000
-            + 5000 * np.sin(2 * np.pi * np.arange(n) / 24)
-            + np.random.normal(0, 200, n),
+            "demand_mw": demand_mw,
             "region": "ERCOT",
+            # ``_parse_demand_records`` ALWAYS emits forecast_mw (EIA's DF
+            # series), all-NaN when the BA published none — see
+            # tests/unit/test_eia_client.py::…forecast_mw is None. Omitting it
+            # here made the fixture claim a schema the real client never
+            # returns, which would hide a consumer that needs it (#309).
+            "forecast_mw": demand_mw + np.random.normal(0, 400, n),
         }
     )
     weather = pd.DataFrame(
@@ -300,6 +305,102 @@ class TestScoringJob:
         # last_scored still gets written with the failure summary.
         assert fake_redis["gridpulse:meta:last_scored"]["regions_scored"] == 0
         assert "ERCOT" in fake_redis["gridpulse:meta:last_scored"]["regions_failed"]
+
+
+class TestVintageCaptureIsWired:
+    """#309 — the recorder must actually receive the frame the anchor is built
+    from, and that frame must still carry ``forecast_mw``.
+
+    Both halves fail *silently* if broken: a phase that never runs, or a frame
+    that lost ``forecast_mw`` somewhere upstream, would leave the study quietly
+    reading "no placeholders anywhere" — indistinguishable from a real finding
+    of zero. That is the #131/#220 family, so it gets a test rather than trust.
+    """
+
+    def test_phase_receives_the_same_demand_frame_as_the_anchor(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ) -> None:
+        from jobs import phases, scoring_job
+
+        seen: dict[str, pd.DataFrame] = {}
+        real = phases.write_vintage_records
+
+        def _spy(region: str, demand_df):
+            seen[region] = demand_df
+            return real(region, demand_df)
+
+        monkeypatch.setattr(phases, "write_vintage_records", _spy)
+        scoring_job.run()
+
+        assert "ERCOT" in seen, "write_vintage_records was never called by the scoring run"
+        frame = seen["ERCOT"]
+        assert "forecast_mw" in frame.columns, (
+            "the demand frame reaching the vintage phase has no forecast_mw — the "
+            "D == DF placeholder fingerprint would silently never fire in prod"
+        )
+        assert "demand_mw" in frame.columns
+
+    def test_a_failing_capture_never_breaks_the_run(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ) -> None:
+        """Capture is a measurement, not a critical path (the drift contract)."""
+        from jobs import phases, scoring_job
+
+        monkeypatch.setattr(
+            phases,
+            "write_vintage_records",
+            lambda region, demand_df: (_ for _ in ()).throw(RuntimeError("redis exploded")),
+        )
+        with pytest.raises(RuntimeError):
+            # Guard the guard: prove the injected failure is reachable at all,
+            # so the assertion below can't pass because the phase was skipped.
+            phases.write_vintage_records("ERCOT", None)
+
+        # The run itself must still survive it via the phase's own try/except.
+        monkeypatch.setattr(
+            phases,
+            "write_vintage_records",
+            lambda region, demand_df: phases.PhaseResult(
+                region=region, ok=False, error="redis exploded"
+            ),
+        )
+        assert scoring_job.run() == 0
+
+    def test_writes_the_key_and_captures_a_revision_across_two_ticks(
+        self, fake_redis, monkeypatch
+    ) -> None:
+        """The end-to-end shape, on a *recent* frame.
+
+        The happy-path fixture is 2024 data, and the vintage window is
+        wall-clock relative, so it correctly records nothing there. This drives
+        the phase directly with the real AZPS case: 1157 first seen, revised to
+        7815 four minutes later.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from jobs import phases
+
+        store = fake_redis
+        monkeypatch.setattr(
+            "data.redis_client.redis_get", lambda key: store.get(key), raising=False
+        )
+
+        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+
+        def _frame(d: float) -> pd.DataFrame:
+            return pd.DataFrame({"timestamp": [hour], "demand_mw": [d], "forecast_mw": [7911.0]})
+
+        assert phases.write_vintage_records("AZPS", _frame(1157.0)).ok
+        payload = store["gridpulse:vintage:AZPS"]
+        assert payload["records"][0]["d"] == 1157.0
+
+        assert phases.write_vintage_records("AZPS", _frame(7815.0)).ok
+        row = store["gridpulse:vintage:AZPS"]["records"][0]
+
+        assert row["d"] == 1157.0, "first_seen_d was overwritten — the study is dead"
+        assert row["ld"] == 7815.0
+        assert row["n"] == 1
+        assert store["gridpulse:vintage:AZPS"]["mean_revision_pct"] == pytest.approx(85.2, abs=0.1)
 
 
 class TestScoringPartialFailureSemantics:
