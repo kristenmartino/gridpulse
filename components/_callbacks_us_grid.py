@@ -47,6 +47,16 @@ from config import (
     REGION_NAMES,
     UNRELIABLE_CAPACITY,
 )
+from data.quality import (
+    # Promoted to data/quality.py (#309) so the forecast anchor and the region
+    # tiles share the exact detector these stress surfaces pioneered (#225).
+    # Aliased because every render site + the API + the tests consume these
+    # names from this module.
+    is_implausible_demand_artifact as _is_implausible_demand_artifact,
+)
+from data.quality import (
+    is_real_positive as _is_real_positive,
+)
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -98,6 +108,10 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
             "current_mw": current_mw,
             "prev_mw": prev_mw,
             "today_mw": demand[-24:],
+            # #309: exclusions the scoring job's guard stamped on the payload —
+            # the series above is already cleaned, so read-time detection sees
+            # nothing; this carries the disclosure forward (/grid/summary).
+            "artifact_excluded": (actuals or {}).get("artifact_excluded") or [],
             "interchange": interchange,
         }
     return out
@@ -145,23 +159,6 @@ def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
     return build_page_title(title="US Grid", subtitle=subtitle, subtitle_tooltip=tooltip)
 
 
-def _is_real_positive(value) -> bool:
-    """Strict guard for downstream arithmetic: True only when ``value`` is
-    a finite (non-NaN, non-inf) strictly positive number. Used everywhere
-    that sums or divides by a region's ``current_mw``.
-
-    Rejects strings outright (no silent coercion) and normalizes numpy
-    bool returns to Python ``bool`` so callers can use ``is True / is False``.
-    """
-    if value is None or isinstance(value, (str, bytes)):
-        return False
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return False
-    return bool(np.isfinite(f) and f > 0)
-
-
 def _simultaneous_national_peak_mw(populated: dict[str, dict]) -> float:
     """True national peak: the max over the last 24h of the cross-BA demand SUM.
 
@@ -203,70 +200,10 @@ def _simultaneous_national_peak_mw(populated: dict[str, dict]) -> float:
 # excluded from stress rankings.
 
 
-# --- #225 demand-plausibility thresholds ---
-#: A reading below this fraction of the 24h median is a near-zero glitch
-#: (NaN-as-tiny, dropped point). Mirrors drift.LOW_ACTUAL_FRACTION (#142).
-_ARTIFACT_NEAR_ZERO_FRACTION = 0.10
-#: A single-hour drop TO below this fraction of the previous real reading is
-#: physically implausible for aggregate BA demand (a >60% one-hour collapse);
-#: paired with the median check below it flags a dropped/partial EIA point —
-#: the #225 "APS −90.7%" case — without clipping a gradual overnight trough
-#: (real troughs descend over many hours, so no single step halves the load).
-_ARTIFACT_STEP_DROP_FRACTION = 0.40
-#: The single-step-drop signal only fires when the reading is also this far
-#: below the day's median — so a sharp *return from a spike* to a normal level
-#: is not mistaken for an artifact.
-_ARTIFACT_STEP_LOW_FRACTION = 0.60
-
-
-def _is_implausible_demand_artifact(
-    current_mw: float, today_mw: list, prev_mw: float | None = None
-) -> bool:
-    """Check if a BA's latest demand is an implausible artifact vs. recent history.
-
-    Two independent signals (either fires):
-
-    1. **Near-zero glitch** — ``current_mw`` below 10% of the rolling 24h
-       median (NaN-as-tiny, dropped point). Follows the region-relative
-       low-actual filter from ``models/drift.py`` (#142).
-    2. **Single-step collapse** — a >60% one-hour drop from the previous real
-       reading that also lands well below the day's median. Aggregate demand
-       does not halve in an hour, so this is a dropped/partial EIA point (the
-       #225 "APS 0.6 GW / −90.7%" case). Both conditions are required so a
-       sharp *return from a spike* to a normal level is not flagged.
-
-    Args:
-        current_mw: The BA's latest demand reading, MW.
-        today_mw: The trailing 24h demand list (may contain NaN / zero).
-        prev_mw: The previous real reading, MW — enables the step-collapse
-            signal. Optional; when absent only signal (1) applies.
-
-    Returns:
-        True if ``current_mw`` should be excluded from stress calculations.
-    """
-    if not _is_real_positive(current_mw):
-        return True  # Already filtered out by _is_real_positive, but be explicit
-    if not today_mw:
-        return False  # No history available; assume current is real
-
-    # Extract positive values from 24h history
-    positive_history = [float(v) for v in today_mw if _is_real_positive(v)]
-    if not positive_history:
-        return False  # All history is suspect; can't establish scale, assume current is real
-
-    median_24h = float(np.median(positive_history))
-    if median_24h <= 0:
-        return False  # Degenerate history; can't establish scale, assume current is real
-
-    # (1) near-zero glitch
-    if current_mw < _ARTIFACT_NEAR_ZERO_FRACTION * median_24h:
-        return True
-    # (2) single-step collapse (needs a prior real reading)
-    return bool(
-        _is_real_positive(prev_mw)
-        and current_mw < _ARTIFACT_STEP_DROP_FRACTION * float(prev_mw)
-        and current_mw < _ARTIFACT_STEP_LOW_FRACTION * median_24h
-    )
+# The #225 demand-plausibility detector and its thresholds now live in
+# data/quality.py / config.py (imported above). #309 added a third signal
+# (day-ahead ratio) that these read-time surfaces get for free wherever the
+# caller can supply ``day_ahead_mw``.
 
 
 def _capacity_hover_suffix(region: str) -> str:

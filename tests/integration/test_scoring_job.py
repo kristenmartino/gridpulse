@@ -531,6 +531,82 @@ class TestVintageResetDefense:
         assert result.ok is False
 
 
+class TestQualityGuardOrdering:
+    """#309 PR 2 — the guard's ordering invariant, end to end.
+
+    Vintage capture must see the RAW frame (it is the study of the artifacts);
+    everything downstream — the actuals payload, drift, the anchor — must see
+    the CLEANED frame. If the order ever flips, the vintage study silently
+    loses its subject matter, which no unit test of either phase can notice.
+    """
+
+    def _run_with_partial_tail(self, monkeypatch, fake_redis):
+        """Standard happy-path patches + an LDWP-style partial in the last row."""
+        import data.eia_client as eia
+        from jobs import phases, scoring_job
+
+        seen: dict = {"vintage_demand": None, "order": []}
+
+        real_vintage = phases.write_vintage_records
+
+        def _vintage_spy(region, demand_df):
+            seen["vintage_demand"] = demand_df["demand_mw"].tolist()
+            seen["order"].append("vintage")
+            return real_vintage(region, demand_df)
+
+        real_guard = phases.apply_demand_quality_guard
+
+        def _guard_spy(data):
+            seen["order"].append("guard")
+            return real_guard(data)
+
+        monkeypatch.setattr(phases, "write_vintage_records", _vintage_spy)
+        monkeypatch.setattr(phases, "apply_demand_quality_guard", _guard_spy)
+
+        original_fetch = eia.fetch_demand
+
+        def _partial_tail(region, **kwargs):
+            df = original_fetch(region, **kwargs)
+            df = df.copy()
+            df.iloc[-1, df.columns.get_loc("demand_mw")] = 800.0  # ~2% of ~40k
+            return df
+
+        monkeypatch.setattr(eia, "fetch_demand", _partial_tail)
+        scoring_job.run()
+        return seen
+
+    def test_vintage_sees_raw_payload_sees_cleaned(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ):
+        seen = self._run_with_partial_tail(monkeypatch, fake_redis)
+
+        # (a) ordering: vintage strictly before the guard
+        assert seen["order"][:2] == ["vintage", "guard"], seen["order"]
+
+        # (b) vintage captured the RAW partial
+        assert seen["vintage_demand"] is not None
+        assert seen["vintage_demand"][-1] == 800.0, "vintage saw a coerced frame — study corrupted"
+
+        # (c) the actuals payload is CLEANED and DISCLOSES the exclusion
+        payload = fake_redis["gridpulse:actuals:ERCOT"]
+        assert np.isnan(payload["demand_mw"][-1]), "partial reached the tiles"
+        exclusions = payload["artifact_excluded"]
+        assert len(exclusions) == 1
+        assert exclusions[0]["mw"] == 800.0
+        assert exclusions[0]["reason"]
+
+    def test_clean_tail_stamps_empty_disclosure(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ):
+        """No artifacts → the field exists and is empty (never absent, so the
+        web tier's .get() contract is uniform post-migration)."""
+        from jobs import scoring_job
+
+        scoring_job.run()
+        payload = fake_redis["gridpulse:actuals:ERCOT"]
+        assert payload["artifact_excluded"] == []
+
+
 class TestScoringPartialFailureSemantics:
     """#267 — a run's exit code + freshness meta must reflect FORECAST outcomes,
     not 'any phase ran'. no_model (untrained) is expected, not a failure; a real

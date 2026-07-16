@@ -391,7 +391,11 @@ def grid_summary():
             d["current_mw"], d.get("today_mw") or [], d.get("prev_mw")
         )
     }
-    artifact_excluded = sorted(set(populated) - set(plausible))
+    # #309: since the scoring job pre-cleans the payload series, read-time
+    # detection alone would go blind to exclusions that already happened —
+    # merge in the verdicts the guard stamped on each payload.
+    stamped = {r for r, d in populated.items() if d.get("artifact_excluded")}
+    artifact_excluded = sorted((set(populated) - set(plausible)) | stamped)
     if not plausible:
         return _warming_response(
             "Regional demand in cache looks like publishing artifacts — "

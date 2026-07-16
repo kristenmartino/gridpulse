@@ -542,6 +542,30 @@ PEAK_DERIVED_CAPACITY: frozenset[str] = frozenset(
 UNRELIABLE_CAPACITY: frozenset[str] = IS_IMPORT_DOMINATED | PEAK_DERIVED_CAPACITY
 
 
+# --- Demand-reading plausibility (#225, promoted repo-wide by #309) ---------
+# Consumed by data/quality.py — the shared detector behind the US-Grid stress
+# surfaces, /grid/summary, the region-page tiles, and the forecast anchor.
+# Every value traces to a measured case; see data/quality.py's module docstring.
+
+#: A reading below this fraction of the trailing-24h median is a near-zero
+#: glitch (NaN-as-tiny, dropped point). Mirrors drift.LOW_ACTUAL_FRACTION (#142).
+DEMAND_ARTIFACT_NEAR_ZERO_FRACTION = 0.10
+#: A single-hour drop TO below this fraction of the previous real reading is
+#: physically implausible for aggregate BA demand (a >60% one-hour collapse);
+#: paired with the median check it flags a dropped/partial EIA point — the
+#: #225 "APS −90.7%" case — without clipping a gradual overnight trough.
+DEMAND_ARTIFACT_STEP_DROP_FRACTION = 0.40
+#: The single-step-drop signal only fires when the reading is also this far
+#: below the day's median — so a sharp return-from-a-spike is not flagged.
+DEMAND_ARTIFACT_STEP_LOW_FRACTION = 0.60
+#: A reading below this fraction of the BA's OWN day-ahead forecast (EIA DF)
+#: is a partial (#309). Low side only — PSCO legitimately runs 118-121% of its
+#: day-ahead, and the D==DF placeholder stub gives ratio exactly 1.0, so
+#: neither can fire. Load-bearing for stuck partials (IID 339, AZPS 1959)
+#: that evade both signals above.
+DEMAND_ARTIFACT_DAY_AHEAD_FRACTION = 0.5
+
+
 # ---------------------------------------------------------------------------
 # NOAA State → Balancing Authority Mapping
 # Multiple states map to each BA; alerts for any state trigger for that BA.
