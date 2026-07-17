@@ -711,11 +711,19 @@ def _provenance_note(region: str) -> list[str]:
     the vintage study, never generated. Silent for clean/unknown/missing.
     """
     from components._callbacks_shared import _read_vintage_summary
+    from config import FEED_LIMITED_MIN_REVISION_PCT
 
     summary = _read_vintage_summary(region) or {}
     cls = summary.get("revision_class")
     rev = summary.get("mean_fresh_revision_pct")
     if not isinstance(rev, (int, float)):
+        return []
+    # Same magnitude floor as the Feed-limited pills: the first live fleet
+    # classification (2026-07-17) put half the fleet in churn/bulk at trivial
+    # magnitudes (AVA 0.9%, AECI 0.2%, ERCOT 1.8%) — frequency-based classes
+    # are honest, but a "revises 2%" note on thirty regions is noise, and
+    # callouts stay credible only while they are rare.
+    if float(rev) < FEED_LIMITED_MIN_REVISION_PCT:
         return []
     if cls == "broken":
         return [

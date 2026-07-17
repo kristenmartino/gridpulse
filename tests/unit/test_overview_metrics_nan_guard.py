@@ -236,3 +236,32 @@ class TestProvenanceDataNote:
             None,
         ):
             assert "Data note" not in self._insight_text(summary, monkeypatch)
+
+
+class TestDataNoteMagnitudeFloor:
+    """The note shares the pills' 10% floor — measured on the first live
+    fleet classification, where half the fleet classified churn/bulk at
+    trivial magnitudes (AVA 0.9%, AECI 0.2%). Frequency classes are honest;
+    thirty 'revises 2%' notes are noise."""
+
+    def _text(self, cls, rev, monkeypatch):
+        import components._callbacks_shared as shared
+        from components._callbacks_overview import _build_overview_insight
+
+        monkeypatch.setattr(
+            shared,
+            "_read_vintage_summary",
+            lambda region: {"revision_class": cls, "mean_fresh_revision_pct": rev},
+        )
+        ts = pd.date_range("2026-07-17 00:00", periods=30, freq="h", tz="UTC")
+        df = pd.DataFrame({"timestamp": ts, "demand_mw": [3300.0] * 30})
+        return str(_build_overview_insight("AVA", df, "grid_ops", []))
+
+    def test_trivial_churn_is_silent(self, monkeypatch):
+        assert "Data note" not in self._text("churn", 0.87, monkeypatch)
+
+    def test_trivial_bulk_is_silent(self, monkeypatch):
+        assert "Data note" not in self._text("bulk", 0.92, monkeypatch)
+
+    def test_material_revision_still_speaks(self, monkeypatch):
+        assert "Data note" in self._text("bulk", 18.0, monkeypatch)
