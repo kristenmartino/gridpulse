@@ -1454,7 +1454,7 @@ def write_drift_metrics(
     Failures here MUST NOT block the broader scoring run — drift is a
     secondary signal, not a critical path.
     """
-    from data.redis_client import redis_get, redis_key, redis_set
+    from data.redis_client import RedisReadError, redis_key, redis_set
     from models.drift import build_records_from_actuals, compute_drift_payload
 
     if previous_forecast is None:
@@ -1484,7 +1484,14 @@ def write_drift_metrics(
                 details={"skipped": "no_matchable_actual_hour"},
             )
 
-        existing = redis_get(redis_key(f"drift:{region}"))
+        try:
+            existing = _read_window_strict(redis_key(f"drift:{region}"))
+        except RedisReadError as exc:
+            # #313: a nil-read-during-outage must not rebuild the window —
+            # post-#318 these records carry re-graded history that a fresh
+            # window cannot recompute. One skipped tick beats 720 lost records.
+            log.warning("drift_history_read_failed", region=region, error=str(exc))
+            return PhaseResult(region=region, ok=False, error=f"history read failed: {exc}")
         existing_payload = existing if isinstance(existing, dict) else None
 
         # Settled-grade drift (#304 endgame): the freshly fetched, guard-
@@ -1527,6 +1534,26 @@ def write_drift_metrics(
         return PhaseResult(region=region, ok=False, error=str(exc))
 
 
+def _read_window_strict(key: str) -> Any:
+    """Read a stateful rolling-window payload, refusing to conflate failure
+    with absence (#313).
+
+    One retry with a short pause (the observed anomaly was transient — the
+    same region read fine the next tick), then :class:`RedisReadError`
+    propagates to the caller, which must FAIL its phase rather than rebuild:
+    a window rebuilt from a nil-read-during-outage silently discards up to
+    720 records of history. Genuinely-absent keys return ``None`` — the
+    legitimate first-run path.
+    """
+    from data.redis_client import RedisReadError, redis_get_strict
+
+    try:
+        return redis_get_strict(key)
+    except RedisReadError:
+        time.sleep(0.5)
+        return redis_get_strict(key)
+
+
 def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
     """Record what EIA first said about each hour, at ``gridpulse:vintage:{region}``.
 
@@ -1564,7 +1591,6 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
         RedisReadError,
         persist,
         redis_configured,
-        redis_get_strict,
         redis_key,
     )
     from data.vintage import (
@@ -1584,19 +1610,9 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
     data_key = redis_key(f"vintage:{region}")
     seed_key = redis_key(f"vintage_seeded:{region}")
 
-    def _strict_read(key: str):
-        # One retry with a short pause: the observed anomaly is transient
-        # (the same region read fine the next tick), and 0.5s is cheap
-        # insurance on a 720-hour window.
-        try:
-            return redis_get_strict(key)
-        except RedisReadError:
-            time.sleep(0.5)
-            return redis_get_strict(key)
-
     try:
-        existing_payload = _strict_read(data_key)
-        tombstone = _strict_read(seed_key) if existing_payload is None else None
+        existing_payload = _read_window_strict(data_key)
+        tombstone = _read_window_strict(seed_key) if existing_payload is None else None
     except RedisReadError as exc:
         log.warning("vintage_history_read_failed", region=region, error=str(exc))
         return PhaseResult(region=region, ok=False, error=f"history read failed: {exc}")
@@ -1706,7 +1722,7 @@ def write_horizon_drift_metrics(
     Runs even when ``forecast_payload`` is None so pending snapshots still
     resolve. Non-critical: an error here never blocks the scoring run.
     """
-    from data.redis_client import redis_get, redis_key, redis_set
+    from data.redis_client import RedisReadError, redis_key, redis_set
     from models.drift import compute_horizon_drift_payload
 
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
@@ -1722,7 +1738,11 @@ def write_horizon_drift_metrics(
             if np.isfinite(row["demand_mw"]) and float(row["demand_mw"]) > 0
         }
 
-        existing = redis_get(redis_key(f"drift_horizon:{region}"))
+        try:
+            existing = _read_window_strict(redis_key(f"drift_horizon:{region}"))
+        except RedisReadError as exc:
+            log.warning("horizon_drift_history_read_failed", region=region, error=str(exc))
+            return PhaseResult(region=region, ok=False, error=f"history read failed: {exc}")
         existing_payload = existing if isinstance(existing, dict) else None
         payload = compute_horizon_drift_payload(region, existing_payload, forecast_payload, actuals)
         redis_set(redis_key(f"drift_horizon:{region}"), payload, ttl=REDIS_TTL)

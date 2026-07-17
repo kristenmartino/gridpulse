@@ -797,6 +797,8 @@ class TestSettledGradeDrift:
     def _wire(self, monkeypatch, store: dict):
         import data.redis_client as rc
 
+        # The window read is strict since #313's drift hardening.
+        monkeypatch.setattr(rc, "redis_get_strict", lambda key: store.get(key))
         monkeypatch.setattr(rc, "redis_get", lambda key: store.get(key))
         monkeypatch.setattr(
             rc, "redis_set", lambda key, value, ttl=86400: store.__setitem__(key, value) or True
@@ -860,3 +862,74 @@ class TestSettledGradeDrift:
         block = store["gridpulse:drift:LDWP"]["models"]["ensemble"]
         rec_h1 = next(r for r in block["records"] if r["ts"].startswith(h1.isoformat()[:13]))
         assert rec_h1["a"] == 950.0
+
+
+class TestDriftWindowStrictReads:
+    """#313 defense-in-depth — the drift windows get the vintage treatment.
+
+    Post-#318 these records carry re-graded history a fresh window cannot
+    recompute, so a nil-read-during-outage must FAIL the phase, never rebuild.
+    """
+
+    def _wire_failing_reads(self, monkeypatch, store: dict):
+        import data.redis_client as rc
+
+        def _explode(key):
+            raise rc.RedisReadError("injected outage")
+
+        monkeypatch.setattr(rc, "redis_get_strict", _explode)
+        monkeypatch.setattr(rc, "redis_get", lambda key: store.get(key))
+        monkeypatch.setattr(
+            rc, "redis_set", lambda key, value, ttl=86400: store.__setitem__(key, value) or True
+        )
+        monkeypatch.setattr("jobs.phases.time.sleep", lambda s: None)
+
+    def _frame(self):
+        from datetime import UTC, datetime, timedelta
+
+        h = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+        return h, pd.DataFrame({"timestamp": [h], "demand_mw": [4000.0]})
+
+    def test_drift_read_failure_fails_phase_without_writing(self, monkeypatch):
+        from jobs import phases
+
+        store: dict = {}
+        self._wire_failing_reads(monkeypatch, store)
+        h, frame = self._frame()
+        forecast = {"region": "LDWP", "forecasts": [{"timestamp": h.isoformat(), "ensemble": 4100.0}]}
+
+        result = phases.write_drift_metrics("LDWP", forecast, frame)
+
+        assert result.ok is False
+        assert "history read failed" in (result.error or "")
+        assert "gridpulse:drift:LDWP" not in store, "window rebuilt during an outage"
+
+    def test_horizon_drift_read_failure_fails_phase_without_writing(self, monkeypatch):
+        from jobs import phases
+
+        store: dict = {}
+        self._wire_failing_reads(monkeypatch, store)
+        h, frame = self._frame()
+
+        result = phases.write_horizon_drift_metrics("LDWP", None, frame)
+
+        assert result.ok is False
+        assert "gridpulse:drift_horizon:LDWP" not in store
+
+    def test_genuinely_absent_window_still_seeds(self, monkeypatch):
+        """None from a healthy read = first run — the legitimate rebuild."""
+        import data.redis_client as rc
+
+        from jobs import phases
+
+        store: dict = {}
+        monkeypatch.setattr(rc, "redis_get_strict", lambda key: store.get(key))
+        monkeypatch.setattr(rc, "redis_get", lambda key: store.get(key))
+        monkeypatch.setattr(
+            rc, "redis_set", lambda key, value, ttl=86400: store.__setitem__(key, value) or True
+        )
+        h, frame = self._frame()
+        forecast = {"region": "LDWP", "forecasts": [{"timestamp": h.isoformat(), "ensemble": 4100.0}]}
+
+        assert phases.write_drift_metrics("LDWP", forecast, frame).ok
+        assert "gridpulse:drift:LDWP" in store
