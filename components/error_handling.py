@@ -460,11 +460,15 @@ def widget_confidence_bar(
     }
 
     badges = []
-    for source, status in freshness.items():
-        if source == "timestamp":
+    # Allow-list, not iterate-all: the freshness dict has grown metadata keys
+    # (artifact_excluded #315, latest_data) that are not sources and were
+    # leaking into the header as "Artifact_Excluded · just now" chips. Mirrors
+    # the explicit source sets in update_fallback_banner / update_header_freshness.
+    for source in ("demand", "weather", "alerts"):
+        if source not in freshness:
             continue
-        label = source_labels.get(source, source.title())
-        conf = data_confidence_level(status, age_seconds)
+        label = source_labels[source]
+        conf = data_confidence_level(freshness[source], age_seconds)
         badges.append(confidence_badge(label, conf, age_text))
 
     return html.Div(

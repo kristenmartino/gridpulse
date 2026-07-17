@@ -772,7 +772,27 @@ def _guard_max_ok(entry) -> int | None:
 # helpers / caches that ``app.py`` and tests import via
 # ``from components.callbacks import _MODEL_CACHE`` etc.
 
+
+def _read_vintage_summary(region: str) -> dict | None:
+    """Fail-soft read of ``gridpulse:vintage_summary:{region}`` (#319).
+
+    The compact per-region revision-class verdict + evidence scalars the
+    scoring job derives from the vintage study — never the 65KB records
+    payload. Consumers: the drift panel's Feed-limited attribution and the
+    Overview data note. Returns None on any miss/malformation; callers must
+    treat that as "no attribution", never as a class.
+    """
+    from data.redis_client import redis_get, redis_key
+
+    try:
+        payload = redis_get(redis_key(f"vintage_summary:{region}"))
+        return payload if isinstance(payload, dict) else None
+    except Exception:  # pragma: no cover — a display helper never raises
+        return None
+
+
 __all__ = [
+    "_read_vintage_summary",
     # Caches + lock
     "_cache_lock",
     "_CACHE_VERSION",

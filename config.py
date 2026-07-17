@@ -777,6 +777,31 @@ LONG_HORIZON_GUARD_DRIFT_MIN_LEN: int = 360  # drift check only on ≥15-day ser
 LONG_HORIZON_GUARD_DRIFT_LINEARITY_R2: float = 0.95
 
 
+# --- Feed-limited attribution (#309 arc / PR 3) --------------------------
+# The drift panel's Rollback pill prescribes "disable this model" (H2). For
+# regions whose EIA feed is measurably unreliable, that misattributes input
+# damage to the model: on LDWP (70% measured revisions) the anchor-free model
+# scores 12.4% while anchor-fed models score 26-56% -- the anchor is the
+# liability, not the model. These constants gate when a confirmed Rollback
+# verdict renders as "Feed-limited" (warning) instead. They soften verdicts,
+# never create them; grades and bands are untouched.
+
+#: Models whose forecasts seed from the newest demand reading (demand_lag_1h
+#: + 20 sibling autoregressive features; SARIMAX via the #226 Kalman append;
+#: the ensemble blends both). Prophet is deliberately absent -- it is a curve
+#: fit with no autoregressive anchor (#299), so its error on a broken feed is
+#: genuine model-vs-region error and must keep its honest grade.
+ANCHOR_FED_MODELS: frozenset[str] = frozenset({"xgboost", "arima", "ensemble"})
+#: Vintage revision classes that imply material feed interference for
+#: anchor-fed models (see data/vintage.py::classify_region).
+FEED_LIMITED_CLASSES: frozenset[str] = frozenset({"broken", "bulk", "churn"})
+#: Magnitude floor: "churn" is defined by revision FREQUENCY, and a BA that
+#: revises hourly by 1% must not launder a real model failure into a feed
+#: excuse. 10% ~= the measured threshold where anchor damage dominates
+#: (BPAT 15-30%, LDWP 70%; clean fleet <2%).
+FEED_LIMITED_MIN_REVISION_PCT = 10.0
+
+
 def mape_grade(mape: float, horizon: str = "48h") -> str:
     """Return a governance grade for the given MAPE and forecast horizon.
 

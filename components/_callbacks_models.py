@@ -56,8 +56,14 @@ from components._callbacks_shared import (
     COLORS,
     _empty_figure,
     _layout,
+    _read_vintage_summary,
 )
-from config import mape_grade
+from config import (
+    ANCHOR_FED_MODELS,
+    FEED_LIMITED_CLASSES,
+    FEED_LIMITED_MIN_REVISION_PCT,
+    mape_grade,
+)
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -455,6 +461,19 @@ def _build_drift_panel(region: str | None) -> html.Div:
     horizon_payload = redis_get(redis_key(f"drift_horizon:{region}"))
     horizon_reporting = isinstance(horizon_payload, dict) and bool(horizon_payload.get("models"))
 
+    # Feed-limited attribution (#309 arc / PR 3): when the region's EIA feed is
+    # measurably unreliable, a confirmed Rollback on an ANCHOR-FED model
+    # attributes input damage, not model failure. Softens verdicts only —
+    # missing/unknown/clean class or sub-floor magnitude → today's behavior.
+    vintage_summary = _read_vintage_summary(region)
+    _cls = (vintage_summary or {}).get("revision_class")
+    _rev = (vintage_summary or {}).get("mean_fresh_revision_pct")
+    feed_limited_region = (
+        _cls in FEED_LIMITED_CLASSES
+        and isinstance(_rev, (int, float))
+        and float(_rev) >= FEED_LIMITED_MIN_REVISION_PCT
+    )
+
     # Render in the same order as the leaderboard so the eye can
     # diff across panels without re-anchoring.
     display_order = ("prophet", "arima", "xgboost", "ensemble")
@@ -467,6 +486,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
     rows: list[html.Tr] = []
     degraded_names: list[str] = []  # off band at BOTH 1h and 24h — confirmed
+    feed_limited_names: list[str] = []  # confirmed rollback, attributed to the feed
     off_band_healthy: list[str] = []  # above 1h band, healthy on matured 24h scores
     off_band_pending: list[str] = []  # above 1h band, 24h grade maturing (feed alive)
     off_band_unverified: list[str] = []  # above 1h band, horizon feed absent — fail closed
@@ -524,7 +544,22 @@ def _build_drift_panel(region: str | None) -> html.Div:
                 # Only confirm "Rollback" when the model is also off band at
                 # 24h-ahead (its horizon-matched grade, #227).
                 day_grade = _day_ahead_grade(horizon_payload, key)
-                if day_grade == "rollback":
+                if day_grade == "rollback" and feed_limited_region and key in ANCHOR_FED_MODELS:
+                    # The verdict stands (off band at both leads) but the
+                    # attribution changes: this model anchors its forecast on
+                    # readings the vintage study measures as unreliable.
+                    # Prophet never takes this branch (#299 — no AR anchor;
+                    # its error on the same feed is genuine).
+                    status_label = "Feed-limited"
+                    status_tone = "warning"
+                    chip_title = (
+                        f"Error dominated by input quality — this region's EIA "
+                        f"feed revises {float(_rev):.0f}% on average "
+                        f"({_cls}), and this model anchors its forecast on "
+                        f"those readings. See the operating summary."
+                    )
+                    feed_limited_names.append(display)
+                elif day_grade == "rollback":
                     status_label = "Rollback"
                     status_tone = "negative"
                     chip_title = (
@@ -618,6 +653,12 @@ def _build_drift_panel(region: str | None) -> html.Div:
     # CONFIRMED rollback (off band at both 1h and 24h) or on an off-band model
     # whose confirming feed is absent (fail closed); 1h-only excursions with a
     # live feed get neutral, explanatory copy instead of crying wolf (#217).
+    feed_limited_clause = (
+        f"{', '.join(feed_limited_names)} feed-limited (EIA feed revises "
+        f"~{float(_rev):.0f}% — input quality, not model health)"
+        if feed_limited_names
+        else ""
+    )
     if degraded_names or off_band_unverified:
         alarm_parts = []
         if degraded_names:
@@ -629,7 +670,16 @@ def _build_drift_panel(region: str | None) -> html.Div:
                 f"{', '.join(off_band_unverified)} off band at 1h with the "
                 f"horizon-drift feed not reporting"
             )
+        if feed_limited_clause:
+            alarm_parts.append(feed_limited_clause)
         headline_note = "; ".join(alarm_parts) + " — investigate."
+    elif feed_limited_names and not (off_band_healthy or off_band_pending):
+        headline_note = (
+            feed_limited_clause[0].upper()
+            + feed_limited_clause[1:]
+            + " — see the operating summary; grades are honest, but the feed "
+            + "bounds what any anchored model can do here."
+        )
     elif off_band_healthy or off_band_pending:
         parts = []
         if off_band_healthy:
@@ -638,6 +688,8 @@ def _build_drift_panel(region: str | None) -> html.Div:
             )
         if off_band_pending:
             parts.append(f"{', '.join(off_band_pending)} 24h grade still resolving")
+        if feed_limited_clause:
+            parts.append(feed_limited_clause)
         headline_note = (
             "No model in confirmed rollback. Above the 1h nowcast band: "
             + "; ".join(parts)

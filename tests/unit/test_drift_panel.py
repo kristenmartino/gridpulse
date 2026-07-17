@@ -93,15 +93,29 @@ def _horizon_payload(**grades_24h: str | None) -> dict:
     return {"region": "PJM", "horizons": ["24h", "48h", "72h"], "models": models}
 
 
-def _redis_router(drift: dict | None, horizon: dict | None = None):
-    """side_effect routing the two Redis keys the panel reads."""
+def _redis_router(
+    drift: dict | None, horizon: dict | None = None, vintage_summary: dict | None = None
+):
+    """side_effect routing the three Redis keys the panel reads."""
 
     def route(key: str):
         if "drift_horizon" in key:
             return horizon
+        if "vintage_summary" in key:
+            return vintage_summary
         return drift
 
     return route
+
+
+def _vintage_summary(revision_class: str, mean_fresh_revision_pct: float | None = 70.0) -> dict:
+    """A compact #319 summary payload — the fields the attribution reads."""
+    return {
+        "region": "LDWP",
+        "revision_class": revision_class,
+        "mean_fresh_revision_pct": mean_fresh_revision_pct,
+        "n_fresh": 48,
+    }
 
 
 def _holdout_metrics(
@@ -631,3 +645,111 @@ class TestPanelStructure:
         assert result.className == "gp-models-drift-panel"
         # Warming variant has a distinguishing id for CSS / test targeting.
         assert result.id == "drift-panel-warming"
+
+
+class TestFeedLimitedAttribution:
+    """PR 3 — a confirmed Rollback on an anchor-fed model in a measurably
+    unreliable feed renders as Feed-limited (warning), never Rollback (red).
+
+    The rule softens verdicts only: missing summary, unknown/clean class, or
+    sub-floor magnitude → exactly today's behavior. Prophet is exempt (#299 —
+    no autoregressive anchor; its error on the same feed is genuine).
+    """
+
+    def _panel(self, *, vintage_summary=None, models=("xgboost",)):
+        from unittest.mock import patch
+
+        kwargs = {m: _drift_model(26.0) for m in models}
+        drift = _drift_payload(region="LDWP", **kwargs)
+        horizon = _horizon_payload(**{m: "rollback" for m in models})
+        with (
+            patch(
+                "components._callbacks_models.redis_get",
+                side_effect=_redis_router(drift, horizon, vintage_summary),
+            ),
+            patch(
+                "components._callbacks_models._read_vintage_summary",
+                return_value=vintage_summary,
+            ),
+            patch(
+                "models.model_service.get_model_metrics",
+                return_value=_holdout_metrics(**{m: 8.5 for m in models}),
+            ),
+        ):
+            from components._callbacks_models import _build_drift_panel
+
+            return _build_drift_panel("LDWP")
+
+    def test_broken_feed_anchor_fed_model_is_feed_limited(self):
+        result = self._panel(vintage_summary=_vintage_summary("broken", 70.0))
+        assert _find_status_chips(result) == ["Feed-limited"]
+        text = _find_all_text(result)
+        assert "feed-limited" in text.lower()
+        assert "70" in text  # the measured evidence rides the surface
+
+    def test_prophet_is_exempt_from_attribution(self):
+        """Same broken feed — Prophet keeps its honest Rollback (#299)."""
+        result = self._panel(vintage_summary=_vintage_summary("broken", 70.0), models=("prophet",))
+        assert _find_status_chips(result) == ["Rollback"]
+
+    def test_churn_class_qualifies_at_magnitude(self):
+        result = self._panel(vintage_summary=_vintage_summary("churn", 15.0))
+        assert _find_status_chips(result) == ["Feed-limited"]
+
+    def test_low_magnitude_churn_stays_rollback(self):
+        """A 1%-hourly-revising BA must not launder a real model failure."""
+        result = self._panel(vintage_summary=_vintage_summary("churn", 1.0))
+        assert _find_status_chips(result) == ["Rollback"]
+
+    def test_unknown_class_stays_rollback(self):
+        result = self._panel(vintage_summary=_vintage_summary("unknown", 70.0))
+        assert _find_status_chips(result) == ["Rollback"]
+
+    def test_clean_class_stays_rollback(self):
+        result = self._panel(vintage_summary=_vintage_summary("clean", 70.0))
+        assert _find_status_chips(result) == ["Rollback"]
+
+    def test_missing_summary_stays_rollback(self):
+        """Missing data is not attribution."""
+        result = self._panel(vintage_summary=None)
+        assert _find_status_chips(result) == ["Rollback"]
+
+    def test_headline_names_the_feed_not_investigate_when_only_feed_limited(self):
+        result = self._panel(vintage_summary=_vintage_summary("broken", 70.0))
+        text = _find_all_text(result).lower()
+        assert "feed-limited" in text
+        assert "investigate" not in text, (
+            "an entirely feed-limited panel must read informational, not alarming"
+        )
+
+    def test_headline_keeps_investigate_when_genuine_rollback_remains(self):
+        """Prophet genuinely off + xgboost feed-limited: both clauses."""
+        from unittest.mock import patch
+
+        drift = _drift_payload(
+            region="LDWP", xgboost=_drift_model(26.0), prophet=_drift_model(12.4)
+        )
+        horizon = _horizon_payload(xgboost="rollback", prophet="rollback")
+        summary = _vintage_summary("broken", 70.0)
+        with (
+            patch(
+                "components._callbacks_models.redis_get",
+                side_effect=_redis_router(drift, horizon, summary),
+            ),
+            patch(
+                "components._callbacks_models._read_vintage_summary",
+                return_value=summary,
+            ),
+            patch(
+                "models.model_service.get_model_metrics",
+                return_value=_holdout_metrics(xgboost=8.5, prophet=9.0),
+            ),
+        ):
+            from components._callbacks_models import _build_drift_panel
+
+            result = _build_drift_panel("LDWP")
+        chips = _find_status_chips(result)
+        assert "Feed-limited" in chips and "Rollback" in chips
+        text = _find_all_text(result).lower()
+        assert "investigate" in text
+        assert "feed-limited" in text
