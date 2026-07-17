@@ -430,3 +430,40 @@ class TestSprint5Layout:
         with open("components/layout.py") as f:
             src = f.read()
         assert 'id="dashboard-header"' in src
+
+
+class TestHeaderChipAllowList:
+    """PR 3 — the first pin on WHICH chips render. The freshness dict grew
+    metadata keys (artifact_excluded #315, latest_data) that leaked into the
+    header as "Artifact_Excluded · just now" chips."""
+
+    def test_only_real_sources_render(self):
+        from components.error_handling import widget_confidence_bar
+
+        freshness = {
+            "demand": "fresh",
+            "weather": "fresh",
+            "alerts": "fresh",
+            "timestamp": "2026-07-17T14:00:00+00:00",
+            "artifact_excluded": [{"ts": "t", "mw": 730.0, "reason": "r"}],
+            "latest_data": "2026-07-17T13:00:00+00:00",
+        }
+        bar = widget_confidence_bar(freshness, age_seconds=30)
+        labels = []
+
+        def walk(node):
+            children = getattr(node, "children", None)
+            if isinstance(children, str):
+                labels.append(children)
+            elif isinstance(children, (list, tuple)):
+                for c in children:
+                    walk(c)
+            elif children is not None:
+                walk(children)
+
+        walk(bar)
+        text = " ".join(labels)
+        for expected in ("Demand", "Weather", "Alerts"):
+            assert expected in text
+        assert "Artifact_Excluded" not in text
+        assert "Latest_Data" not in text

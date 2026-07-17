@@ -195,3 +195,44 @@ class TestExclusionWireFromFreshnessStore:
         assert _exclusions_from_freshness("not json{") == []
         assert _exclusions_from_freshness('{"artifact_excluded": "corrupt"}') == []
         assert _exclusions_from_freshness('"just a string"') == []
+
+
+class TestProvenanceDataNote:
+    """PR 3 — one measured, class-conditional sentence; silence elsewhere."""
+
+    def _insight_text(self, summary, monkeypatch):
+        import components._callbacks_shared as shared
+        from components._callbacks_overview import _build_overview_insight
+
+        monkeypatch.setattr(shared, "_read_vintage_summary", lambda region: summary)
+        ts = pd.date_range("2026-07-17 00:00", periods=30, freq="h", tz="UTC")
+        df = pd.DataFrame({"timestamp": ts, "demand_mw": [3300.0] * 30})
+        return str(_build_overview_insight("LDWP", df, "grid_ops", []))
+
+    def test_broken_class_note(self, monkeypatch):
+        text = self._insight_text(
+            {"revision_class": "broken", "mean_fresh_revision_pct": 70.3}, monkeypatch
+        )
+        assert "Data note" in text
+        assert "70%" in text
+        assert "firm up over the following day" in text
+
+    def test_bulk_class_note(self, monkeypatch):
+        text = self._insight_text(
+            {"revision_class": "bulk", "mean_fresh_revision_pct": 18.0}, monkeypatch
+        )
+        assert "next-morning resubmission" in text
+
+    def test_churn_class_note(self, monkeypatch):
+        text = self._insight_text(
+            {"revision_class": "churn", "mean_fresh_revision_pct": 15.0}, monkeypatch
+        )
+        assert "as metering completes" in text
+
+    def test_clean_unknown_and_missing_are_silent(self, monkeypatch):
+        for summary in (
+            {"revision_class": "clean", "mean_fresh_revision_pct": 1.0},
+            {"revision_class": "unknown", "mean_fresh_revision_pct": 50.0},
+            None,
+        ):
+            assert "Data note" not in self._insight_text(summary, monkeypatch)

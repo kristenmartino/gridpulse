@@ -704,6 +704,39 @@ def _build_overview_model_card(region: str) -> html.Div:
     )
 
 
+def _provenance_note(region: str) -> list[str]:
+    """One class-conditional sentence from ``gridpulse:vintage_summary`` (#319).
+
+    Copy is deterministic and auditable: every number is a measured field from
+    the vintage study, never generated. Silent for clean/unknown/missing.
+    """
+    from components._callbacks_shared import _read_vintage_summary
+
+    summary = _read_vintage_summary(region) or {}
+    cls = summary.get("revision_class")
+    rev = summary.get("mean_fresh_revision_pct")
+    if not isinstance(rev, (int, float)):
+        return []
+    if cls == "broken":
+        return [
+            f" Data note: this region's EIA feed publishes provisional readings "
+            f"that revise {float(rev):.0f}% on average before settling — intraday "
+            f"figures and live accuracy firm up over the following day."
+        ]
+    if cls == "bulk":
+        return [
+            f" Data note: same-day EIA values for this region are provisional "
+            f"until the next-morning resubmission (measured revisions "
+            f"{float(rev):.0f}%)."
+        ]
+    if cls == "churn":
+        return [
+            f" Data note: EIA readings here typically revise {float(rev):.0f}% "
+            f"shortly after publication as metering completes."
+        ]
+    return []
+
+
 def _build_overview_insight(
     region: str,
     demand_df: pd.DataFrame | None,
@@ -840,6 +873,11 @@ def _build_overview_insight(
             f"{str(exc.get('ts'))[11:16]} UTC) excluded: {exc.get('reason')} — "
             f"an EIA reporting artifact, not demand."
         )
+
+    # PR 3: the per-class data note, from the vintage study's measured
+    # verdict. clean/unknown/missing → silence — callouts stay rare, which is
+    # what keeps them credible.
+    body.extend(_provenance_note(region))
     # Persona influences eyebrow only — keeps the card tonally consistent
     eyebrow_map = {
         "grid_ops": "Operating summary",
