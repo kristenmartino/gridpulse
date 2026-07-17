@@ -147,6 +147,16 @@ def _score_region(region: str) -> dict:
         **(guard_res.details if guard_res.ok else {"error": guard_res.error}),
     }
 
+    # ADR-009: for broken-feed regions, fork a conditioned frame whose
+    # trailing hours anchor on the BA's own day-ahead forecast. Runs AFTER
+    # the guard (it conditions the guard-cleaned real frame) and never
+    # touches data.demand_df — actuals/drift/alerts stay real. Flag-dark.
+    conditioning_res = phases.condition_anchor_frame(region_data)
+    summary["phases"]["anchor_conditioning"] = {
+        "ok": conditioning_res.ok,
+        **(conditioning_res.details if conditioning_res.ok else {"error": conditioning_res.error}),
+    }
+
     # #121 part 1: snapshot the about-to-be-overwritten forecast key
     # BEFORE write_actuals_and_weather + predict_and_write_forecast run.
     # The drift phase later in this function compares this previous

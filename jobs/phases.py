@@ -126,6 +126,19 @@ class RegionData:
     #: (``[{"ts", "mw", "reason"}]``) — stamped onto the actuals payload so
     #: the tiles and /grid/summary can disclose the exclusion.
     artifact_exclusions: list[dict[str, Any]] = field(default_factory=list)
+    #: The anchor-conditioned frame (ADR-009), populated only for broken-class
+    #: regions when the ``anchor_conditioning`` flag is on. THE FORK IS
+    #: LOAD-BEARING: actuals/tiles, drift, alerts, weather-correlation, and
+    #: diagnostics keep reading the real ``demand_df``; only the
+    #: feature/forecast path prefers this frame. Never mutate ``demand_df``.
+    conditioned_demand_df: pd.DataFrame | None = None
+
+    @property
+    def anchor_frame(self) -> pd.DataFrame:
+        """The frame the FORECAST path anchors on — conditioned when present."""
+        return (
+            self.conditioned_demand_df if self.conditioned_demand_df is not None else self.demand_df
+        )
 
 
 def apply_demand_quality_guard(data: RegionData) -> PhaseResult:
@@ -241,7 +254,10 @@ def engineer_region_features(data: RegionData) -> pd.DataFrame | None:
     from data.preprocessing import merge_demand_weather
 
     try:
-        merged = merge_demand_weather(data.demand_df, data.weather_df)
+        # ADR-009 seam: features (and therefore every AR anchor + SARIMAX's
+        # gap-actuals, which read ``featured``) build from the anchor frame —
+        # conditioned when present, the real frame otherwise.
+        merged = merge_demand_weather(data.anchor_frame, data.weather_df)
         featured = engineer_features(merged).dropna(subset=["demand_mw"])
         if len(featured) < 168:
             log.warning(
@@ -1218,7 +1234,10 @@ def predict_and_write_forecast(
         # between actuals end and forecast start. When there's no
         # publishing-lag gap, this is a no-op:
         # ``last_real_demand == featured.timestamp.max()``.
-        forecast_start = _resolve_forecast_start(featured, data.demand_df)
+        # ADR-009 seam 2 (SARIMAX consistency): forecast_start must resolve
+        # from the SAME frame the features anchored on, or substituted hours
+        # land outside the Kalman gap window and get re-forecast.
+        forecast_start = _resolve_forecast_start(featured, data.anchor_frame)
 
         # Pass the raw weather DataFrame so the future-feature builder can
         # overlay actual Open-Meteo forecast values (next ~16 days) onto
@@ -1531,6 +1550,80 @@ def write_drift_metrics(
         )
     except Exception as exc:
         log.warning("drift_write_failed", region=region, error=str(exc))
+        return PhaseResult(region=region, ok=False, error=str(exc))
+
+
+def condition_anchor_frame(data: RegionData) -> PhaseResult:
+    """ADR-009: substitute the BA's own day-ahead forecast for the trailing
+    unsettled hours of BROKEN-feed regions, on a fork of the frame.
+
+    The study (docs/ANCHOR_CONDITIONING_STUDY.md, from real vintage data):
+    broken-class anchors average 58.2% wrong where the hour-matched DF runs
+    14.5% (90% win rate). Churn and bulk classes measured AGAINST
+    substitution and are never conditioned; clean/unknown untouched by
+    policy. Flag-dark via ``anchor_conditioning`` (byte-identical no-op off).
+
+    The revision class comes from ``vintage_summary:{region}`` — written
+    earlier THIS tick (scoring_job ordering), fail-soft read: missing or
+    non-qualifying class → no conditioning.
+
+    Never fatal; never touches ``data.demand_df`` (the fork invariant).
+    """
+    from config import (
+        ANCHOR_CONDITIONING_CLASSES,
+        ANCHOR_CONDITIONING_TRAILING_HOURS,
+        feature_enabled,
+    )
+    from data.redis_client import redis_get, redis_key
+
+    region = data.region
+    try:
+        if not feature_enabled("anchor_conditioning"):
+            return PhaseResult(region=region, ok=True, details={"skipped": "flag_off"})
+
+        summary = redis_get(redis_key(f"vintage_summary:{region}"))
+        cls = (summary or {}).get("revision_class") if isinstance(summary, dict) else None
+        if cls not in ANCHOR_CONDITIONING_CLASSES:
+            return PhaseResult(
+                region=region, ok=True, details={"skipped": f"class_{cls or 'unknown'}"}
+            )
+
+        df = data.demand_df
+        if df is None or df.empty or "forecast_mw" not in df.columns:
+            return PhaseResult(region=region, ok=True, details={"skipped": "no_frame_or_df"})
+
+        conditioned = df.copy()
+        n = len(conditioned)
+        start = max(0, n - ANCHOR_CONDITIONING_TRAILING_HOURS)
+        demand_col = conditioned.columns.get_loc("demand_mw")
+        substituted = 0
+        deltas: list[float] = []
+        for i in range(start, n):
+            df_mw = conditioned["forecast_mw"].iloc[i]
+            if df_mw is None or not np.isfinite(df_mw) or df_mw <= 0:
+                continue
+            prior = conditioned["demand_mw"].iloc[i]
+            conditioned.iloc[i, demand_col] = float(df_mw)
+            substituted += 1
+            if prior is not None and np.isfinite(prior) and prior > 0:
+                deltas.append(abs(float(df_mw) - float(prior)))
+
+        if not substituted:
+            return PhaseResult(region=region, ok=True, details={"skipped": "no_df_values"})
+
+        data.conditioned_demand_df = conditioned
+        log.info(
+            "anchor_conditioned",
+            region=region,
+            revision_class=cls,
+            n_substituted=substituted,
+            mean_abs_delta_mw=round(float(np.mean(deltas)), 1) if deltas else 0.0,
+        )
+        return PhaseResult(
+            region=region, ok=True, details={"conditioned": substituted, "class": cls}
+        )
+    except Exception as exc:
+        log.warning("anchor_conditioning_failed", region=region, error=str(exc))
         return PhaseResult(region=region, ok=False, error=str(exc))
 
 
