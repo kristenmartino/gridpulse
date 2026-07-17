@@ -1455,11 +1455,7 @@ def write_drift_metrics(
     secondary signal, not a critical path.
     """
     from data.redis_client import redis_get, redis_key, redis_set
-    from models.drift import (
-        build_records_from_actuals,
-        compute_drift_payload,
-        probe_actual_revisions,
-    )
+    from models.drift import build_records_from_actuals, compute_drift_payload
 
     if previous_forecast is None:
         return PhaseResult(region=region, ok=True, details={"skipped": "no_previous_forecast"})
@@ -1491,21 +1487,16 @@ def write_drift_metrics(
         existing = redis_get(redis_key(f"drift:{region}"))
         existing_payload = existing if isinstance(existing, dict) else None
 
-        # #304 probe (observability only): the stored records' actuals are the
-        # PRELIMINARY values EIA had published when each record was created;
-        # ``actuals`` here is the current fetch, where those hours have since
-        # settled. If the two differ materially, the live drift MAPE measures
-        # prediction-vs-preliminary rather than forecast skill — the leading
-        # hypothesis for BPAT reporting 11.7% while its served forecast
-        # measures 0.58% against settled data. Never allowed to fail the phase.
-        try:
-            revisions = probe_actual_revisions(existing_payload, actuals)
-            for model_name, stats in revisions.items():
-                log.info("drift_actual_revision_probe", region=region, model=model_name, **stats)
-        except Exception as exc:  # pragma: no cover — probe must never break drift
-            log.warning("drift_actual_revision_probe_failed", region=region, error=str(exc))
+        # Settled-grade drift (#304 endgame): the freshly fetched, guard-
+        # cleaned frame covers every stored record's target hour — re-grade
+        # history against EIA's current view so the displayed metric
+        # converges to prediction-vs-settled as revisions land.
+        payload = compute_drift_payload(region, existing_payload, new_records, actuals=actuals)
 
-        payload = compute_drift_payload(region, existing_payload, new_records)
+        # Ephemeral — the caller's log line, never persisted.
+        regrade_stats = payload.pop("_regrade_stats", None) or {}
+        if regrade_stats.get("n_regraded"):
+            log.info("drift_regraded", region=region, **regrade_stats)
 
         redis_set(redis_key(f"drift:{region}"), payload, ttl=REDIS_TTL)
 

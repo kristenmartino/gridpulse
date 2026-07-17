@@ -678,12 +678,14 @@ def _build_drift_panel(region: str | None) -> html.Div:
             html.Div(
                 (
                     "Live columns are 1-hour-ahead nowcast error averaged over the "
-                    "trailing window; Holdout is the training job's 168-hour "
-                    "recursive multi-step score — different forecast leads, shown "
-                    "together for context, not directly comparable. Source: "
-                    "``gridpulse:drift:{region}`` written hourly by the scoring "
-                    "job (#121 part 1); holdout from each trained pickle's "
-                    "``meta.json``."
+                    "trailing window, scored against EIA's current view — "
+                    "revisions are incorporated as they land, so recent hours for "
+                    "high-revision BAs firm up over the following day. Holdout is "
+                    "the training job's 168-hour recursive multi-step score — "
+                    "different forecast leads, shown together for context, not "
+                    "directly comparable. Source: ``gridpulse:drift:{region}`` "
+                    "written hourly by the scoring job (#121 part 1); holdout "
+                    "from each trained pickle's ``meta.json``."
                 ),
                 className="gp-panel__caption",
             ),
