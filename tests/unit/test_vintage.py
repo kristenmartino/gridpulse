@@ -442,3 +442,57 @@ class TestVintageSummaryKey:
         assert "n_fresh" in summary
         # and the heavyweight key still carries the full records
         assert "records" in store["gridpulse:vintage:AZPS"]
+
+
+class TestVintageGcsMirror:
+    """Anchor-redesign PR A — the replay study's data access + flush durability.
+
+    Best-effort by contract: the mirror must never affect the phase's
+    ok-flag (unlike the persist-strict Redis writes)."""
+
+    def _wire(self, monkeypatch, store: dict, mirror_calls: list):
+        import data.gcs_store as gcs
+        import data.redis_client as rc
+
+        monkeypatch.setattr(rc, "redis_configured", lambda: True)
+        monkeypatch.setattr(rc, "redis_get_strict", lambda key: store.get(key))
+        monkeypatch.setattr(
+            rc, "persist", lambda key, value, ttl=86400: store.__setitem__(key, value)
+        )
+        monkeypatch.setattr(
+            gcs, "write_parquet", lambda df, dt, region: mirror_calls.append((df, dt, region))
+        )
+
+    def _frame(self):
+        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+        return pd.DataFrame({"timestamp": [hour], "demand_mw": [1157.0], "forecast_mw": [7911.0]})
+
+    def test_mirror_receives_the_serialized_window(self, monkeypatch):
+        from jobs import phases
+
+        store: dict = {}
+        calls: list = []
+        self._wire(monkeypatch, store, calls)
+
+        assert phases.write_vintage_records("AZPS", self._frame()).ok
+        assert len(calls) == 1
+        df, data_type, region = calls[0]
+        assert data_type == "vintage" and region == "AZPS"
+        assert list(df["d"]) == [1157.0]  # first_seen_d rides the mirror
+        assert "ld" in df.columns and "at" in df.columns
+
+    def test_mirror_failure_never_affects_the_phase(self, monkeypatch):
+        import data.gcs_store as gcs
+        from jobs import phases
+
+        store: dict = {}
+        self._wire(monkeypatch, store, [])
+        monkeypatch.setattr(
+            gcs,
+            "write_parquet",
+            lambda df, dt, region: (_ for _ in ()).throw(RuntimeError("gcs down")),
+        )
+
+        result = phases.write_vintage_records("AZPS", self._frame())
+        assert result.ok is True, "a best-effort mirror failure must not fail capture"
+        assert "gridpulse:vintage:AZPS" in store  # the Redis truth still landed

@@ -1690,6 +1690,21 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
         # jsonPayload.* since #306.
         log.info("demand_vintage", **stats)
 
+        # GCS mirror (anchor-redesign PR A): best-effort durability + LOCAL
+        # replay access — prod Redis is VPC-only, so the anchor-conditioning
+        # study reads this parquet instead. Fire-and-forget by design (daemon
+        # thread, never raises, never touches this phase's ok-flag): the Redis
+        # key remains the source of truth; the mirror closes #312's
+        # acknowledged "a Redis flush loses the study" fragility. Single-slot
+        # latest.parquet is sufficient by explicit decision — the window
+        # itself encodes first-sight-vs-settled per hour.
+        try:
+            from data.gcs_store import write_parquet
+
+            write_parquet(pd.DataFrame(serialize_records(records)), "vintage", region)
+        except Exception as exc:  # pragma: no cover — mirror must never bite
+            log.warning("vintage_gcs_mirror_failed", region=region, error=str(exc))
+
         return PhaseResult(
             region=region,
             ok=True,
