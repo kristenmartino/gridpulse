@@ -896,7 +896,10 @@ class TestDriftWindowStrictReads:
         store: dict = {}
         self._wire_failing_reads(monkeypatch, store)
         h, frame = self._frame()
-        forecast = {"region": "LDWP", "forecasts": [{"timestamp": h.isoformat(), "ensemble": 4100.0}]}
+        forecast = {
+            "region": "LDWP",
+            "forecasts": [{"timestamp": h.isoformat(), "ensemble": 4100.0}],
+        }
 
         result = phases.write_drift_metrics("LDWP", forecast, frame)
 
@@ -919,7 +922,6 @@ class TestDriftWindowStrictReads:
     def test_genuinely_absent_window_still_seeds(self, monkeypatch):
         """None from a healthy read = first run — the legitimate rebuild."""
         import data.redis_client as rc
-
         from jobs import phases
 
         store: dict = {}
@@ -929,7 +931,10 @@ class TestDriftWindowStrictReads:
             rc, "redis_set", lambda key, value, ttl=86400: store.__setitem__(key, value) or True
         )
         h, frame = self._frame()
-        forecast = {"region": "LDWP", "forecasts": [{"timestamp": h.isoformat(), "ensemble": 4100.0}]}
+        forecast = {
+            "region": "LDWP",
+            "forecasts": [{"timestamp": h.isoformat(), "ensemble": 4100.0}],
+        }
 
         assert phases.write_drift_metrics("LDWP", forecast, frame).ok
         assert "gridpulse:drift:LDWP" in store
