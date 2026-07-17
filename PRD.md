@@ -219,6 +219,7 @@ These items are intentionally not first-class priorities right now:
 | ADR-006 | Multi-view shell instead of one flat dashboard | Supports different operational questions without forking the product into separate tools |
 | ADR-007 | Scenario engine must avoid input mutation | Safer callback behavior and more predictable state handling |
 | ADR-008 | Climatology fallback for days 17-30 of the forecast horizon, labeled visibly | Open-Meteo's free `/forecast` endpoint covers 16 days; atmospheric chaos limits NWP skill past ~14 days regardless; the operational user value is in days 1-7, not 17-30 |
+| ADR-009 | Class-conditional anchor conditioning: broken-feed BAs anchor on their own day-ahead forecast | EIA's newest reading averages 58.2% wrong on broken-class feeds vs the hour-matched DF's 14.5% (90% win rate, measured via the vintage instrument); churn/bulk classes measured AGAINST substitution and ship unchanged |
 
 ### ADR-004 detail — Ensemble weighting exponent (2026-07-04)
 
@@ -307,6 +308,54 @@ Users seeing demand changes past day 16 can correctly interpret them as seasonal
 Heavy conditional climatology (S2S or teleconnection-conditioned) remains deferred until/unless GridPulse has paying customers with specific extended-range accuracy requirements.
 
 ---
+
+
+### ADR-009 detail — Class-conditional anchor conditioning (2026-07-17)
+
+**Context.** The forecast seeds `demand_lag_1h` + 20 sibling autoregressive
+features (and SARIMAX's Kalman origin, #226) from EIA's newest published
+demand reading. A week of direct measurement (#309 → #312 vintage instrument)
+established that EIA's newest hour is *never* a measurement — it cycles
+stub → partial → settled, mandated by Form EIA-930's 60-minute deadline and
+"submit best estimates, resubmit within 3 days" rule — and that for a small
+class of BAs the published partials are catastrophically wrong (LDWP 69%
+mean fresh-hour revision, IID 53%, AZPS). The result on the settled-grade
+meter: anchor-fed models at 26–56% live error where anchor-free Prophet ran
+12.4%. The anchor was the liability, but only for that class.
+
+**Decision.** A per-tick, data-driven policy keyed on the vintage
+classifier's `revision_class`: **`broken` regions substitute the BA's own
+hour-matched day-ahead forecast (`forecast_mw`, already on every frame) for
+the trailing unsettled hours — on a forked frame consumed only by the
+feature/forecast path.** Every other class keeps the unmodified anchor. The
+fork invariant is structural: tiles, drift, alerts, and diagnostics always
+read real data.
+
+**Evidence** (`docs/ANCHOR_CONDITIONING_STUDY.md`, run against real vintage
+records): broken-class anchors averaged **58.2%** wrong vs the DF's
+**14.5%** (90.1% win rate, 103 fresh hours). Tier-2 end-to-end replay with
+production pickles agreed on every sign: LDWP 16.4→14.3 MAPE, IID
+28.2→26.7, and the counterexample validated — PSCO *worsens* 14.8→17.7
+under substitution.
+
+**Alternatives considered.**
+- *Skip-to-stale (drop unsettled hours):* measured worse — a persistence
+  proxy scored DF-anchoring 6.55% vs 7.72% for skipping (9/12 BAs), because
+  demand ramps faster than readings settle. The #315 guard's NaN answer
+  remains only the artifact backstop, not the anchor policy.
+- *Condition `churn` too:* the plan's original policy, **refuted by the
+  study** — the class mixes BPAT (~14% revisions) with mild churners, and at
+  class level DF loses (3.20% vs 4.92%). Ships unchanged.
+- *Condition `bulk`:* refuted by design and by replay — PSCO runs 118–121%
+  of its own DF; substitution measurably hurts.
+- *Static per-region config sets:* rejected for the live classifier —
+  feeds change, and the policy self-corrects as classifications do.
+- *Cron offsets / fetch reordering:* refuted earlier in the arc — the
+  publication lifecycle has no universally good fetch time.
+
+**Update trail.** Shipped dark in PR C (#324), flipped in PR D on the
+study's verdict; post-flip verification is the settled-grade drift meter
+(#318) — the same instrument arc that made the study possible.
 
 ## 11. Roadmap Direction
 

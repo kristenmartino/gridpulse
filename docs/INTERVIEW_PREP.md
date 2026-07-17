@@ -16,6 +16,43 @@
 
 ## Seed stories identified from this week's work
 
+### The anchor arc — a week of measurement replacing six wrong hypotheses (2026-07-11 → 07-17)
+
+**S.** A user screenshot showed LADWP's dashboard reading "NOW 730 MW,
+demand 78% below average" — and the Models tab showing 459% forecast error
+with every model flagged for rollback. The forecasting looked broken.
+
+**T.** Find the real cause and fix it — in a system where the previous four
+serious bugs had all been in the *measurement layer*, not the models.
+
+**A.** Six times, a confident hypothesis died on contact with data: my own
+published #296-style mechanism theory, the "revision-robust anchor is the
+biggest lever" issue framing (I wrote it; direct EIA measurement refuted
+it), the day-ahead-placeholder theory (refuted by my own proxy — which was
+itself then refuted by the user's "are we fetching too soon?" question), a
+scheduler-offset fix (the full settle-curve measurement showed no good fetch
+time exists), and finally my planned churn-class policy (the study's
+class-level data killed it). The response each time was the same: build the
+instrument before the fix. Vintage capture recorded what EIA first said;
+when an adversarial review caught the instrument corrupting itself, the
+defense (strict reads + a tombstone) turned an unexplained production ghost
+into a countable event whose 30-millisecond clustering identified a
+cold-start init race nobody had hypothesized. Settled-grade drift made the
+displayed numbers true; the classifier segmented the fleet; the study — the
+replay the original issue had declared impossible — ran against the
+instrument's own records and produced the final policy: condition exactly
+one class, where the win was 58%→14%, and ship everything else untouched
+because the data said so.
+
+**R.** Ten merged PRs in six days. The dashboard stopped lying everywhere
+(LADWP: 459% → ~50% *true* error → falling further as conditioning lands),
+every threshold in the system traces to a measured number, and the
+attribution pills built mid-arc became the progress meter for the fix that
+ended it. The capstone lesson, in one line: when a system measures itself
+wrongly, every downstream conclusion is folklore — instrument first, and
+let the instrument refute you as many times as it takes.
+
+
 ### 1. "Tell me about a trade-off you made."
 **The big-bang Redis flip (PR [#114](https://github.com/kristenmartino/gridpulse/pull/114)).**
 
