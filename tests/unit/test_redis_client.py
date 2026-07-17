@@ -350,3 +350,126 @@ class TestRedisConfigured:
 
         monkeypatch.delenv("REDIS_HOST", raising=False)
         assert rc.redis_configured() is False
+
+
+class TestInitRace:
+    """#313 trigger — the cold-start thundering herd.
+
+    51 scoring threads race ``_get_redis`` at container start. Pre-fix, the
+    first thread set ``_redis_last_attempt`` and spent ~1s connecting over
+    the VPC; every thread arriving in that window took the silent
+    backoff-None — indistinguishable from "Redis is down", no log line —
+    which is what destructively re-pinned four regions' vintage windows on
+    2026-07-16 (caught live by the #314 tripwire: three failures within
+    30ms at 09:00:52Z, CAISO succeeding 1.5s later). Post-fix, concurrent
+    callers must WAIT for the in-flight connect and receive the client.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_globals(self):
+        import data.redis_client as rc
+
+        saved = (rc._redis_client, rc._redis_last_attempt)
+        rc._redis_client = None
+        rc._redis_last_attempt = 0.0
+        yield
+        rc._redis_client, rc._redis_last_attempt = saved
+
+    def test_concurrent_caller_waits_for_inflight_connect(self, monkeypatch):
+        import sys
+        import threading
+        import types
+
+        import data.redis_client as rc
+
+        monkeypatch.setenv("REDIS_HOST", "10.0.0.5")
+
+        connect_started = threading.Event()
+        release_connect = threading.Event()
+
+        class SlowRedis:
+            def __init__(self, **kwargs):
+                pass
+
+            def ping(self):
+                connect_started.set()
+                assert release_connect.wait(5), "test deadlock"
+
+        fake = types.ModuleType("redis")
+        fake.Redis = SlowRedis
+        monkeypatch.setitem(sys.modules, "redis", fake)
+
+        results: dict = {}
+
+        def winner():
+            results["winner"] = rc._get_redis()
+
+        def racer():
+            assert connect_started.wait(5)
+            # Arrives while the winner's connect is in flight — pre-fix this
+            # returned the silent backoff-None.
+            results["racer"] = rc._get_redis()
+
+        t1 = threading.Thread(target=winner)
+        t2 = threading.Thread(target=racer)
+        t1.start()
+        t2.start()
+        assert connect_started.wait(5)
+        release_connect.set()
+        t1.join(5)
+        t2.join(5)
+
+        assert results["winner"] is not None
+        assert results["racer"] is not None, (
+            "concurrent caller got silent None during an in-flight connect — "
+            "the #313 init race is back"
+        )
+
+    def test_backoff_after_genuine_failure_still_applies(self, monkeypatch):
+        """The lock must not defeat #268's backoff: after a FAILED connect,
+        immediate retries still get a fast None instead of hammering."""
+        import sys
+        import types
+
+        import data.redis_client as rc
+
+        monkeypatch.setenv("REDIS_HOST", "10.0.0.5")
+        calls = {"n": 0}
+
+        class FailingRedis:
+            def __init__(self, **kwargs):
+                pass
+
+            def ping(self):
+                calls["n"] += 1
+                raise ConnectionError("down")
+
+        fake = types.ModuleType("redis")
+        fake.Redis = FailingRedis
+        monkeypatch.setitem(sys.modules, "redis", fake)
+
+        assert rc._get_redis() is None  # attempt 1: real connect failure
+        assert rc._get_redis() is None  # inside backoff window
+        assert calls["n"] == 1, "backoff did not suppress the re-probe"
+
+    def test_successful_connect_clears_the_attempt_stamp(self, monkeypatch):
+        import sys
+        import types
+
+        import data.redis_client as rc
+
+        monkeypatch.setenv("REDIS_HOST", "10.0.0.5")
+
+        class OkRedis:
+            def __init__(self, **kwargs):
+                pass
+
+            def ping(self):
+                return True
+
+        fake = types.ModuleType("redis")
+        fake.Redis = OkRedis
+        monkeypatch.setitem(sys.modules, "redis", fake)
+
+        assert rc._get_redis() is not None
+        assert rc._redis_last_attempt == 0.0

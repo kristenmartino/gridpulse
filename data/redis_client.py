@@ -20,6 +20,7 @@ Both paths have two flavours, split along the same line (#268 / #313):
 import json
 import logging
 import os
+import threading
 import time
 
 logger = logging.getLogger(__name__)
@@ -32,49 +33,70 @@ _redis_client = None
 #: once per ``_REDIS_RETRY_INTERVAL_S`` so it self-heals mid-run.
 _redis_last_attempt = 0.0
 _REDIS_RETRY_INTERVAL_S = 30.0
+#: Serializes the FIRST connect so concurrent callers wait (~1s) for the
+#: winner instead of taking the silent backoff-None. Before #313's trigger
+#: fix, a scoring container's 51 worker threads raced this init at cold
+#: start: the first thread set ``_redis_last_attempt`` and spent ~1s
+#: connecting over the VPC, and every thread arriving inside that window got
+#: a silent ``None`` — indistinguishable from "Redis is down", with no log.
+#: That None is what destructively re-pinned four regions' vintage windows
+#: on 2026-07-16 (caught live by the #314 tripwire at 09:00:52.85-.88Z on
+#: 2026-07-17: three failures 30ms apart, CAISO succeeding 1.5s later).
+_redis_init_lock = threading.Lock()
 
 
 def _get_redis():
     """Lazy-init a Redis connection. Returns client or None.
 
-    A healthy client is cached and reused. A failed/absent connection is
-    re-probed at most once per ``_REDIS_RETRY_INTERVAL_S`` (backoff), so a
-    transient blip recovers within the same process instead of pinning Redis
-    off for its lifetime (#268 / P2-03).
+    A healthy client is cached and reused. The first connect is serialized
+    behind ``_redis_init_lock`` — concurrent callers block briefly for the
+    winner's result rather than being told "no Redis" while a connect is in
+    flight (#313). A genuinely FAILED attempt is re-probed at most once per
+    ``_REDIS_RETRY_INTERVAL_S`` (backoff), so a transient blip recovers
+    within the same process instead of pinning Redis off for its lifetime
+    (#268 / P2-03).
     """
     global _redis_client, _redis_last_attempt
 
     if _redis_client is not None:
         return _redis_client
 
-    now = time.monotonic()
-    if _redis_last_attempt and (now - _redis_last_attempt) < _REDIS_RETRY_INTERVAL_S:
-        return None  # recent failed attempt — back off rather than re-probe every call
-    _redis_last_attempt = now
+    with _redis_init_lock:
+        # Double-checked: the winner may have connected while we waited.
+        if _redis_client is not None:
+            return _redis_client
 
-    host = os.getenv("REDIS_HOST", "")
-    if not host:
-        logger.debug("REDIS_HOST not set — v1 compute mode")
-        return None
+        now = time.monotonic()
+        if _redis_last_attempt and (now - _redis_last_attempt) < _REDIS_RETRY_INTERVAL_S:
+            return None  # recent FAILED attempt — back off rather than re-probe every call
+        _redis_last_attempt = now
 
-    port = int(os.getenv("REDIS_PORT", "6379"))
-    try:
-        import redis
+        host = os.getenv("REDIS_HOST", "")
+        if not host:
+            logger.debug("REDIS_HOST not set — v1 compute mode")
+            return None
 
-        client = redis.Redis(
-            host=host,
-            port=port,
-            decode_responses=True,
-            socket_connect_timeout=2,
-            socket_timeout=2,
-        )
-        client.ping()
-        _redis_client = client
-        logger.info("Redis connected: %s:%s", host, port)
-        return _redis_client
-    except Exception as exc:
-        logger.warning("Redis unavailable (%s:%s): %s — falling back to v1", host, port, exc)
-        return None
+        port = int(os.getenv("REDIS_PORT", "6379"))
+        try:
+            import redis
+
+            client = redis.Redis(
+                host=host,
+                port=port,
+                decode_responses=True,
+                socket_connect_timeout=2,
+                socket_timeout=2,
+            )
+            client.ping()
+            _redis_client = client
+            # A SUCCESSFUL connect clears the attempt stamp so an unrelated
+            # later re-init (tests, client reset) is not backoff-blocked.
+            _redis_last_attempt = 0.0
+            logger.info("Redis connected: %s:%s", host, port)
+            return _redis_client
+        except Exception as exc:
+            logger.warning("Redis unavailable (%s:%s): %s — falling back to v1", host, port, exc)
+            return None
 
 
 def redis_key(suffix: str) -> str:
