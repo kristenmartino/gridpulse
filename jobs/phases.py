@@ -1568,6 +1568,7 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
         redis_key,
     )
     from data.vintage import (
+        classify_region,
         deserialize_records,
         serialize_records,
         summarize,
@@ -1643,6 +1644,17 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
             {"region": region, "records": serialize_records(records), **stats},
             ttl=REDIS_TTL,
         )
+        # PR 3 groundwork: a ~250B summary the WEB TIER may read — the compact
+        # stats + the revision-class verdict, without the 65KB records array.
+        # Consumed by the provenance callouts; classification is heuristic v1
+        # (see data/vintage.py constants) and hedges to "unknown".
+        classification = classify_region(records)
+        persist(
+            redis_key(f"vintage_summary:{region}"),
+            {"region": region, **stats, **classification},
+            ttl=REDIS_TTL,
+        )
+        stats = {**stats, **classification}
         # Tombstone AFTER the data write, refreshed on every success so its
         # 7-day TTL only lapses when capture has been dead for a week anyway.
         persist(

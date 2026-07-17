@@ -313,3 +313,100 @@ def summarize(records: list[VintageRecord], *, region: str) -> dict[str, Any]:
         out["newest_hour"] = newest.timestamp
         out["newest_was_placeholder"] = newest.was_placeholder
     return out
+
+
+# ── Revision-class heuristic (v1, provisional) ──────────────────────────────
+# Thresholds live here, not config.py: these are instrument-internal study
+# parameters expected to be re-tuned as the vintage table matures, not
+# governance thresholds. Every cut below traces to measured prod behavior
+# (2026-07-15..17): PNM/PJM revise ~never; BPAT revises ~every fresh hour at
+# 15-30%; PSCO/FPL take daily-file bulk rewrites of dozens of deep-history
+# hours; LDWP/AZPS/IID publish fresh values that revise 60-80%.
+
+#: A record captured within this many hours of its target hour saw the value
+#: "fresh" — its revision measures what the anchor/tiles experienced. Records
+#: captured later (the first tick's ~700-hour backfill) were born settled.
+FRESH_CAPTURE_LAG_HOURS = 3
+#: Minimum fresh-captured records before classifying at all.
+CLASS_MIN_FRESH = 24
+#: broken: fresh readings routinely revise beyond this (gross partials).
+CLASS_BROKEN_MEAN_REVISION_PCT = 25.0
+#: churn: at least this fraction of fresh-captured records revised.
+CLASS_CHURN_REVISED_FRACTION = 0.5
+#: bulk: at least this many BACKFILLED (born-settled) records later revised —
+#: the daily-file deep-history rewrite signature.
+CLASS_BULK_BACKFILLED_REVISIONS = 5
+#: clean: fresh revisions rarer than this fraction AND small.
+CLASS_CLEAN_REVISED_FRACTION = 0.1
+CLASS_CLEAN_MEAN_REVISION_PCT = 2.0
+
+
+def _capture_lag_hours(record: VintageRecord) -> float | None:
+    """Hours between the target hour and when we first saw it."""
+    target = canonical_hour(record.timestamp)
+    captured = canonical_hour(record.captured_at)
+    if target is None or captured is None:
+        return None
+    delta = datetime.fromisoformat(captured) - datetime.fromisoformat(target)
+    return delta.total_seconds() / 3600.0
+
+
+def classify_region(records: list[VintageRecord]) -> dict[str, Any]:
+    """Derive the region's revision class from its vintage window.
+
+    Returns ``{"revision_class": ..., **evidence}`` where the class is one of
+    ``clean | churn | bulk | broken | unknown`` and the evidence fields are the
+    flat scalars the verdict rests on — auditable in logs and reusable by the
+    provenance callouts without re-deriving.
+
+    Precedence (a region can exhibit several signatures — LDWP is broken AND
+    bulk): **broken > bulk > churn > clean**, because the labels drive
+    user-facing copy and the most consequential caveat must win.
+
+    Heuristic v1, deliberately conservative: with fewer than
+    ``CLASS_MIN_FRESH`` fresh-captured records the answer is ``unknown`` —
+    a callout that hedges correctly beats one that classifies wrongly.
+    """
+    fresh: list[VintageRecord] = []
+    backfilled_revised = 0
+    for r in records:
+        lag = _capture_lag_hours(r)
+        if lag is None:
+            continue
+        if lag <= FRESH_CAPTURE_LAG_HOURS:
+            fresh.append(r)
+        elif r.n_updates > 0:
+            backfilled_revised += 1
+
+    evidence: dict[str, Any] = {
+        "n_fresh": len(fresh),
+        "n_backfilled_revised": backfilled_revised,
+    }
+
+    fresh_revised = [r for r in fresh if r.n_updates > 0]
+    if fresh:
+        evidence["fresh_revised_fraction"] = round(len(fresh_revised) / len(fresh), 4)
+    revisions = [r.revision_pct for r in fresh_revised if r.revision_pct is not None]
+    if revisions:
+        evidence["mean_fresh_revision_pct"] = round(float(np.mean(revisions)), 4)
+
+    if len(fresh) < CLASS_MIN_FRESH:
+        return {"revision_class": "unknown", **evidence}
+
+    mean_rev = evidence.get("mean_fresh_revision_pct", 0.0)
+    revised_fraction = evidence.get("fresh_revised_fraction", 0.0)
+
+    if revisions and mean_rev >= CLASS_BROKEN_MEAN_REVISION_PCT:
+        cls = "broken"
+    elif backfilled_revised >= CLASS_BULK_BACKFILLED_REVISIONS:
+        cls = "bulk"
+    elif revised_fraction >= CLASS_CHURN_REVISED_FRACTION:
+        cls = "churn"
+    elif (
+        revised_fraction <= CLASS_CLEAN_REVISED_FRACTION
+        and mean_rev <= CLASS_CLEAN_MEAN_REVISION_PCT
+    ):
+        cls = "clean"
+    else:
+        cls = "unknown"
+    return {"revision_class": cls, **evidence}

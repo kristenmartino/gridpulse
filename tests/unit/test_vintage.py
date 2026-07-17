@@ -26,6 +26,7 @@ import pytest
 from data.vintage import (
     VintageRecord,
     canonical_hour,
+    classify_region,
     deserialize_records,
     serialize_records,
     summarize,
@@ -332,3 +333,112 @@ class TestSummarize:
         assert fields["n_records"] == 0
         assert "mean_revision_pct" not in fields
         assert "newest_hour" not in fields
+
+
+class TestClassifyRegion:
+    """Revision-class heuristic v1 — each class is a named, measured BA.
+
+    Precedence broken > bulk > churn > clean: LDWP is broken AND bulk, and the
+    most consequential caveat must drive the user-facing copy.
+    """
+
+    def _rec(self, hours_ago: int, *, lag_h: float, first: float, last: float, n: int):
+        target = NOW - timedelta(hours=hours_ago)
+        return VintageRecord(
+            timestamp=target.isoformat(),
+            first_seen_d=first,
+            first_seen_df=float("nan"),
+            captured_at=(target + timedelta(hours=lag_h)).isoformat(),
+            last_d=last,
+            n_updates=n,
+        )
+
+    def _fresh(self, n_hours: int, *, revise_every: int = 1, rev_pct: float = 0.0):
+        out = []
+        for h in range(1, n_hours + 1):
+            revised = rev_pct > 0 and h % revise_every == 0
+            first = 4000.0 * (1 - rev_pct / 100.0) if revised else 4000.0
+            out.append(self._rec(h, lag_h=1.0, first=first, last=4000.0, n=1 if revised else 0))
+        return out
+
+    def _backfilled(self, n_hours: int, *, n_revised: int = 0):
+        out = []
+        for h in range(48, 48 + n_hours):
+            revised = h - 48 < n_revised
+            out.append(
+                self._rec(
+                    h,
+                    lag_h=200.0,
+                    first=4000.0,
+                    last=4100.0 if revised else 4000.0,
+                    n=1 if revised else 0,
+                )
+            )
+        return out
+
+    def test_pnm_class_clean(self):
+        verdict = classify_region(self._fresh(48) + self._backfilled(200))
+        assert verdict["revision_class"] == "clean"
+        assert verdict["n_fresh"] == 48
+
+    def test_bpat_class_churn(self):
+        """Every fresh hour revises ~15% — churn, not broken."""
+        verdict = classify_region(self._fresh(48, rev_pct=15.0) + self._backfilled(200))
+        assert verdict["revision_class"] == "churn"
+        assert verdict["mean_fresh_revision_pct"] == pytest.approx(15.0, abs=0.1)
+
+    def test_ldwp_class_broken_wins_over_bulk(self):
+        """Fresh revisions at 70% AND deep-history rewrites: broken must win."""
+        records = self._fresh(48, rev_pct=70.0) + self._backfilled(200, n_revised=25)
+        verdict = classify_region(records)
+        assert verdict["revision_class"] == "broken"
+        assert verdict["n_backfilled_revised"] == 25
+
+    def test_psco_class_bulk(self):
+        """Fresh hours stable; the daily file rewrote 23 settled hours."""
+        records = self._fresh(48) + self._backfilled(200, n_revised=23)
+        verdict = classify_region(records)
+        assert verdict["revision_class"] == "bulk"
+
+    def test_insufficient_fresh_is_unknown(self):
+        """A day-old deployment must hedge, whatever the backfill says."""
+        records = self._fresh(10, rev_pct=70.0) + self._backfilled(600, n_revised=40)
+        assert classify_region(records)["revision_class"] == "unknown"
+
+    def test_ambiguous_middle_is_unknown(self):
+        """Revised sometimes, moderately — neither clean nor churn: hedge."""
+        verdict = classify_region(
+            self._fresh(48, revise_every=4, rev_pct=8.0) + self._backfilled(200)
+        )
+        assert verdict["revision_class"] == "unknown"
+
+    def test_evidence_fields_are_flat_scalars(self):
+        verdict = classify_region(self._fresh(48, rev_pct=15.0))
+        assert all(isinstance(v, str | int | float) for v in verdict.values())
+
+
+class TestVintageSummaryKey:
+    """The compact web-readable key the provenance callouts consume."""
+
+    def test_summary_key_written_without_records(self, monkeypatch):
+        import data.redis_client as rc
+        from jobs import phases
+
+        store: dict = {}
+        monkeypatch.setattr(rc, "redis_configured", lambda: True)
+        monkeypatch.setattr(rc, "redis_get_strict", lambda key: store.get(key))
+        monkeypatch.setattr(
+            rc, "persist", lambda key, value, ttl=86400: store.__setitem__(key, value)
+        )
+
+        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+        frame = pd.DataFrame({"timestamp": [hour], "demand_mw": [1157.0], "forecast_mw": [7911.0]})
+        assert phases.write_vintage_records("AZPS", frame).ok
+
+        summary = store["gridpulse:vintage_summary:AZPS"]
+        assert "records" not in summary, "the summary key must stay ~250B — no records array"
+        assert summary["revision_class"] == "unknown"  # one fresh hour: hedge
+        assert summary["n_records"] == 1
+        assert "n_fresh" in summary
+        # and the heavyweight key still carries the full records
+        assert "records" in store["gridpulse:vintage:AZPS"]
