@@ -56,6 +56,7 @@ helpers directly through the same namespace.
 from __future__ import annotations
 
 import io
+import json
 
 import dash_bootstrap_components as dbc
 import numpy as np
@@ -276,6 +277,28 @@ def _build_overview_title(region: str) -> html.Div:
     region_name = REGION_NAMES.get(region, region)
     subtitle = f"Demand forecast and grid intelligence · {region}"
     return build_page_title(region_name, subtitle)
+
+
+def _exclusions_from_freshness(freshness_data) -> list[dict]:
+    """Extract the #309 artifact-exclusion records from the freshness store.
+
+    The data-freshness-store holds a JSON STRING (``json.dumps(freshness)`` in
+    ``load_data`` — same contract ``update_fallback_banner`` parses), not a
+    dict. The first cut of this wire checked ``isinstance(dict)`` and silently
+    dropped the disclosure in prod while every builder-level render pin stayed
+    green — the classic unpinned-wire gap. Tolerant of both formats and of
+    malformed payloads; never raises.
+    """
+    if not freshness_data:
+        return []
+    try:
+        parsed = json.loads(freshness_data) if isinstance(freshness_data, str) else freshness_data
+        if isinstance(parsed, dict):
+            exclusions = parsed.get("artifact_excluded") or []
+            return exclusions if isinstance(exclusions, list) else []
+    except (TypeError, ValueError):
+        pass
+    return []
 
 
 def _build_overview_metrics_items(
@@ -2641,11 +2664,7 @@ def register_overview_callbacks(app):
                 demand_df = pd.read_json(io.StringIO(demand_json))
             # weather_json reserved for a future inline drivers panel
             del weather_json
-            artifact_exclusions = (
-                (freshness_data or {}).get("artifact_excluded") or []
-                if isinstance(freshness_data, dict)
-                else []
-            )
+            artifact_exclusions = _exclusions_from_freshness(freshness_data)
 
             # 1. Title block (region name + subtitle)
             title = _build_overview_title(region)

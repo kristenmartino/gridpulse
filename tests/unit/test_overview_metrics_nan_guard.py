@@ -163,3 +163,35 @@ class TestArtifactExclusionDisclosure:
 
         card = _build_overview_insight("LDWP", self._df(), "grid_ops", [])
         assert "excluded" not in str(card)
+
+
+class TestExclusionWireFromFreshnessStore:
+    """#309 follow-up — the wire the render pins missed.
+
+    The data-freshness-store holds a JSON STRING; the first cut checked
+    isinstance(dict) and silently dropped the disclosure in prod while every
+    builder-level pin stayed green. These pins feed the wire the REAL store
+    format so that gap cannot reopen.
+    """
+
+    def test_parses_the_real_store_format_a_json_string(self):
+        import json
+
+        from components._callbacks_overview import _exclusions_from_freshness
+
+        payload = json.dumps(
+            {
+                "demand": "fresh",
+                "artifact_excluded": [{"ts": "t", "mw": 730.0, "reason": "r"}],
+            }
+        )
+        assert _exclusions_from_freshness(payload) == [{"ts": "t", "mw": 730.0, "reason": "r"}]
+
+    def test_tolerates_dict_and_junk(self):
+        from components._callbacks_overview import _exclusions_from_freshness
+
+        assert _exclusions_from_freshness({"artifact_excluded": [{"mw": 1}]}) == [{"mw": 1}]
+        assert _exclusions_from_freshness(None) == []
+        assert _exclusions_from_freshness("not json{") == []
+        assert _exclusions_from_freshness('{"artifact_excluded": "corrupt"}') == []
+        assert _exclusions_from_freshness('"just a string"') == []
