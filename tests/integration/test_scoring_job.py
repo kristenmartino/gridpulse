@@ -938,3 +938,102 @@ class TestDriftWindowStrictReads:
 
         assert phases.write_drift_metrics("LDWP", forecast, frame).ok
         assert "gridpulse:drift:LDWP" in store
+
+
+class TestAnchorConditioning:
+    """ADR-009 — broken-feed regions anchor on their own day-ahead forecast.
+
+    The study's verdict (docs/ANCHOR_CONDITIONING_STUDY.md): broken-class
+    anchors average 58.2% wrong vs DF's 14.5%. Only ``broken`` conditions;
+    churn/bulk measured AGAINST substitution; the fork never touches the
+    real frame the tiles/drift/alerts read.
+    """
+
+    def _region_data(self, monkeypatch, *, revision_class, flag_on=True):
+        import data.redis_client as rc
+        from jobs import phases
+
+        monkeypatch.setattr(
+            "config.FEATURE_FLAGS",
+            {**__import__("config").FEATURE_FLAGS, "anchor_conditioning": flag_on},
+        )
+        summary = (
+            {"revision_class": revision_class, "mean_fresh_revision_pct": 60.0}
+            if revision_class
+            else None
+        )
+        monkeypatch.setattr(rc, "redis_get", lambda key: summary)
+
+        from datetime import UTC, datetime, timedelta
+
+        hours = [
+            datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=h)
+            for h in range(29, -1, -1)
+        ]
+        frame = pd.DataFrame(
+            {
+                "timestamp": hours,
+                "demand_mw": [3300.0] * 28 + [900.0, 850.0],  # trailing partials
+                "forecast_mw": [3400.0] * 30,
+                "region": "LDWP",
+            }
+        )
+        return phases.RegionData(region="LDWP", demand_df=frame, weather_df=pd.DataFrame())
+
+    def test_broken_class_conditions_the_fork_only(self, monkeypatch):
+        from jobs import phases
+
+        data = self._region_data(monkeypatch, revision_class="broken")
+        res = phases.condition_anchor_frame(data)
+
+        assert res.ok and res.details.get("conditioned") == 3
+        # the fork carries DF at the trailing hours
+        assert list(data.conditioned_demand_df["demand_mw"].tail(3)) == [3400.0] * 3
+        # THE INVARIANT: the real frame is untouched
+        assert list(data.demand_df["demand_mw"].tail(2)) == [900.0, 850.0]
+        # and the anchor_frame property prefers the fork
+        assert data.anchor_frame is data.conditioned_demand_df
+
+    def test_non_qualifying_classes_do_not_condition(self, monkeypatch):
+        from jobs import phases
+
+        for cls in ("churn", "bulk", "clean", "unknown", None):
+            data = self._region_data(monkeypatch, revision_class=cls)
+            res = phases.condition_anchor_frame(data)
+            assert res.ok
+            assert data.conditioned_demand_df is None, f"{cls} conditioned — study says no"
+            assert data.anchor_frame is data.demand_df
+
+    def test_flag_off_is_a_noop_even_for_broken(self, monkeypatch):
+        from jobs import phases
+
+        data = self._region_data(monkeypatch, revision_class="broken", flag_on=False)
+        res = phases.condition_anchor_frame(data)
+        assert res.ok and res.details.get("skipped") == "flag_off"
+        assert data.conditioned_demand_df is None
+
+    def test_missing_df_values_left_alone(self, monkeypatch):
+        from jobs import phases
+
+        data = self._region_data(monkeypatch, revision_class="broken")
+        data.demand_df.loc[data.demand_df.index[-1], "forecast_mw"] = float("nan")
+        res = phases.condition_anchor_frame(data)
+
+        assert res.ok and res.details.get("conditioned") == 2
+        # the NaN-DF hour keeps its (bad, real) value rather than a fabrication
+        assert data.conditioned_demand_df["demand_mw"].iloc[-1] == 850.0
+
+    def test_failure_never_fatal(self, monkeypatch):
+        import data.redis_client as rc
+        from jobs import phases
+
+        monkeypatch.setattr(
+            "config.FEATURE_FLAGS",
+            {**__import__("config").FEATURE_FLAGS, "anchor_conditioning": True},
+        )
+        monkeypatch.setattr(
+            rc, "redis_get", lambda key: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+        data = phases.RegionData(region="LDWP", demand_df=pd.DataFrame(), weather_df=pd.DataFrame())
+        res = phases.condition_anchor_frame(data)
+        assert res.ok is False  # reported, not raised

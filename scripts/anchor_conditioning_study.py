@@ -200,8 +200,9 @@ def tier2(regions: tuple[str, ...], horizon: int = 24) -> pd.DataFrame:
         engineer_features,
         recursive_autoregressive_forecast,
     )
+    from data.preprocessing import merge_demand_weather
     from data.weather_client import fetch_weather
-    from jobs.phases import _build_future_feature_frame, merge_demand_weather
+    from jobs.phases import _build_future_feature_frame
     from models.persistence import load_model
     from models.xgboost_model import predict_xgboost
 

@@ -777,6 +777,25 @@ LONG_HORIZON_GUARD_DRIFT_MIN_LEN: int = 360  # drift check only on ≥15-day ser
 LONG_HORIZON_GUARD_DRIFT_LINEARITY_R2: float = 0.95
 
 
+# --- Anchor conditioning (#309 endgame / ADR-009) -------------------------
+# For broken-feed regions, the forecast's autoregressive anchor substitutes
+# the BA's own day-ahead forecast (the frame's forecast_mw) for the trailing
+# unsettled hours. Verdict from scripts/anchor_conditioning_study.py against
+# real vintage data (docs/ANCHOR_CONDITIONING_STUDY.md): broken-class anchors
+# average 58.2% wrong vs DF's 14.5% (90% win rate); churn and bulk classes
+# measured AGAINST substitution and ship unchanged. Ships dark behind the
+# feature flag; per-region decisions are data-driven via vintage_summary.
+
+#: Only this revision class is conditioned. The study refuted broader sets:
+#: churn's class-level anchors are fine (3.2% mean; BPAT is the outlier
+#: within it), and bulk's DF is worse than its same-day readings (PSCO runs
+#: 118-121% of its own day-ahead).
+ANCHOR_CONDITIONING_CLASSES: frozenset[str] = frozenset({"broken"})
+#: Trailing hours eligible for substitution — covers the measured settle
+#: horizon (partials persist ~1h, multi-bounce on LDWP). The anchor-hour
+#: effect dominates (tier-2 replay tested exactly that hour).
+ANCHOR_CONDITIONING_TRAILING_HOURS = 3
+
 # --- Feed-limited attribution (#309 arc / PR 3) --------------------------
 # The drift panel's Rollback pill prescribes "disable this model" (H2). For
 # regions whose EIA feed is measurably unreliable, that misattributes input
@@ -954,6 +973,9 @@ FEATURE_FLAGS: dict[str, bool] = {
     # fallback to recent-28d wherever the artifact isn't backfilled yet (the
     # nightly training job builds ≤10/run; full 51-BA coverage ~2026-07-15).
     "weather_normal_tail": True,
+    # #309 endgame: broken-class anchor substitution (ADR-009). Dark until
+    # the shadow logs agree with docs/ANCHOR_CONDITIONING_STUDY.md.
+    "anchor_conditioning": False,
 }
 
 
