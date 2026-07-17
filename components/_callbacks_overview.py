@@ -711,7 +711,6 @@ def _provenance_note(region: str) -> list[str]:
     the vintage study, never generated. Silent for clean/unknown/missing.
     """
     from components._callbacks_shared import _read_vintage_summary
-
     from config import FEED_LIMITED_MIN_REVISION_PCT
 
     summary = _read_vintage_summary(region) or {}
