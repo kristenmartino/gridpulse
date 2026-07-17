@@ -215,6 +215,7 @@ Note: The legacy modules (Historical Demand, Demand Forecast, Backtest, Generati
 - **ADR-006**: Full multi-tab architecture — overview → forecast/history → validate → grid/generation → weather/risk → simulator
 - **ADR-007**: Scenario engine copies features, never mutates — pure function, safe for concurrent callbacks
 - **ADR-008**: Climatology fallback for forecast horizon beyond Open-Meteo's 16-day coverage — operationally honest about extended-range uncertainty rather than fabricating signal; visibly labeled on the Forecast tab. Full rationale: PRD.md §10.
+- **ADR-009**: Class-conditional anchor conditioning — broken-feed BAs anchor on their own day-ahead forecast (`forecast_mw`) for trailing unsettled hours, on a forked frame; policy driven live by the vintage classifier. Evidence: docs/ANCHOR_CONDITIONING_STUDY.md. Full rationale: PRD.md §10.
 
 ### Module Map
 ```text

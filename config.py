@@ -973,9 +973,15 @@ FEATURE_FLAGS: dict[str, bool] = {
     # fallback to recent-28d wherever the artifact isn't backfilled yet (the
     # nightly training job builds ≤10/run; full 51-BA coverage ~2026-07-15).
     "weather_normal_tail": True,
-    # #309 endgame: broken-class anchor substitution (ADR-009). Dark until
-    # the shadow logs agree with docs/ANCHOR_CONDITIONING_STUDY.md.
-    "anchor_conditioning": False,
+    # #309 endgame: broken-class anchor substitution (ADR-009). Flipped ON
+    # 2026-07-17 on the study's verdict (docs/ANCHOR_CONDITIONING_STUDY.md):
+    # two independent tiers on real vintage data, the PSCO counterexample
+    # validated end-to-end, blast radius ~4 broken-class BAs whose forecasts
+    # were the fleet's worst. The settled-grade drift meter is the post-flip
+    # verification -- LDWP/IID live error converging toward ~14% over the
+    # following week is the success signal; Feed-limited pills clearing
+    # themselves is the visible one.
+    "anchor_conditioning": True,
 }
 
 
