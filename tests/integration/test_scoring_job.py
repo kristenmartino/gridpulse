@@ -782,3 +782,81 @@ class TestScoringPartialFailureSemantics:
         regions = captured["gate_status"]["regions"]
         assert regions["PJM"] == {"acceptable": True, "best_mape": 3.0}  # updated
         assert regions["CPLW"] == {"acceptable": False, "best_mape": 30.0}  # preserved
+
+
+class TestSettledGradeDrift:
+    """#304 endgame — the drift metric self-corrects as EIA revisions land.
+
+    Two real ticks through write_drift_metrics: tick 1 scores a prediction
+    against an LDWP-class partial (342% error on the books); tick 2's fetched
+    frame carries the settled value for that hour, and the stored record must
+    re-grade — the displayed aggregate collapses to the real error without
+    any consumer change.
+    """
+
+    def _wire(self, monkeypatch, store: dict):
+        import data.redis_client as rc
+
+        monkeypatch.setattr(rc, "redis_get", lambda key: store.get(key))
+        monkeypatch.setattr(
+            rc, "redis_set", lambda key, value, ttl=86400: store.__setitem__(key, value) or True
+        )
+
+    def _forecast(self, ts) -> dict:
+        return {
+            "region": "LDWP",
+            "forecasts": [{"timestamp": ts.isoformat(), "ensemble": 4200.0}],
+        }
+
+    def _frame(self, hours: dict) -> pd.DataFrame:
+        ts = sorted(hours)
+        return pd.DataFrame({"timestamp": ts, "demand_mw": [hours[t] for t in ts]})
+
+    def test_partial_scored_then_regraded_to_settled(self, monkeypatch):
+        from datetime import UTC, datetime, timedelta
+
+        from jobs import phases
+
+        store: dict = {}
+        self._wire(monkeypatch, store)
+        h1 = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=2)
+        h2 = h1 + timedelta(hours=1)
+
+        # Tick 1: hour h1's actual arrives as a partial (950 vs true ~4840).
+        res = phases.write_drift_metrics("LDWP", self._forecast(h1), self._frame({h1: 950.0}))
+        assert res.ok
+        block = store["gridpulse:drift:LDWP"]["models"]["ensemble"]
+        assert block["records"][-1]["a"] == 950.0
+        assert block["records"][-1]["e"] == pytest.approx(342.1, abs=0.5)
+
+        # Tick 2: the fresh frame now carries h1's settled value.
+        res = phases.write_drift_metrics(
+            "LDWP", self._forecast(h2), self._frame({h1: 4840.0, h2: 4790.0})
+        )
+        assert res.ok
+        block = store["gridpulse:drift:LDWP"]["models"]["ensemble"]
+        rec_h1 = next(r for r in block["records"] if r["ts"].startswith(h1.isoformat()[:13]))
+        assert rec_h1["a"] == 4840.0, "stored record was not re-graded against the settled value"
+        assert rec_h1["e"] == pytest.approx(13.22, abs=0.05)
+        # And the payload must never leak the ephemeral stats bag.
+        assert "_regrade_stats" not in store["gridpulse:drift:LDWP"]
+
+    def test_guard_excluded_hour_keeps_prior_value(self, monkeypatch):
+        """If the fresh frame has NO value for a stored hour (guard-coerced
+        NaN is dropped from the actuals map), the record must keep its prior
+        actual — absence is unknown, never agreement."""
+        from datetime import UTC, datetime, timedelta
+
+        from jobs import phases
+
+        store: dict = {}
+        self._wire(monkeypatch, store)
+        h1 = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=2)
+        h2 = h1 + timedelta(hours=1)
+
+        phases.write_drift_metrics("LDWP", self._forecast(h1), self._frame({h1: 950.0}))
+        # Tick 2's frame carries h2 only — h1 became NaN (guard) and is absent.
+        phases.write_drift_metrics("LDWP", self._forecast(h2), self._frame({h2: 4790.0}))
+        block = store["gridpulse:drift:LDWP"]["models"]["ensemble"]
+        rec_h1 = next(r for r in block["records"] if r["ts"].startswith(h1.isoformat()[:13]))
+        assert rec_h1["a"] == 950.0

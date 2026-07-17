@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import numpy as np
 import pytest
 
 from models.drift import (
@@ -624,3 +625,150 @@ class TestSmapeSerialization:
         restored = deserialize_records(rows)
         assert len(restored) == 1
         assert restored[0].smape == pytest.approx(symmetric_pct_error(100.0, 105.0), abs=1e-6)
+
+
+class TestRegradeRecords:
+    """Settled-grade drift (#304 endgame): stored records re-score against
+    EIA's current view each tick.
+
+    Fixtures use the real prod relationships the retired revision probe
+    measured: LDWP records scored against partials (panel 147.91 vs settled
+    53.22), AZPS 338.67 vs 15.64, PNM 2.06 vs 1.82.
+    """
+
+    def _rec(self, ts: str, predicted: float, actual: float) -> DriftRecord:
+        return DriftRecord(
+            timestamp=ts,
+            predicted=predicted,
+            actual=actual,
+            abs_pct_error=abs(predicted - actual) / actual * 100.0,
+        )
+
+    def test_updates_actual_error_and_smape(self):
+        """The LDWP case: prediction 4200 scored against partial 967 (334%
+        error) re-grades against settled 4840 -> 13.2%."""
+        from models.drift import regrade_records
+
+        rec = self._rec("2026-07-17T05:00:00+00:00", 4200.0, 967.0)
+        old_smape = rec.smape
+
+        regraded, stats = regrade_records([rec], {"2026-07-17T05:00:00+00:00": 4840.0})
+
+        r = regraded[0]
+        assert r.actual == 4840.0
+        assert r.abs_pct_error == pytest.approx(13.22, abs=0.01)
+        assert np.isfinite(r.smape) and r.smape != old_smape, "sMAPE not refreshed"
+        assert r.predicted == 4200.0 and r.timestamp == rec.timestamp
+        assert stats["n_regraded"] == 1
+        assert stats["mean_abs_shift_pct"] == pytest.approx(80.02, abs=0.05)
+
+    def test_absent_hours_skipped_never_agreement(self):
+        """A guard-excluded partial or fetch gap keeps the prior value —
+        absence from the fresh frame is unknown, not confirmation."""
+        from models.drift import regrade_records
+
+        rec = self._rec("2026-07-17T05:00:00+00:00", 4200.0, 967.0)
+        regraded, stats = regrade_records([rec], {"2026-07-17T06:00:00+00:00": 4840.0})
+
+        assert regraded[0].actual == 967.0
+        assert stats["n_regraded"] == 0
+
+    def test_serializer_equal_values_do_not_churn(self):
+        """No rebuild when the value is identical after 2dp rounding — every
+        tick would otherwise rewrite every record from float noise."""
+        from models.drift import regrade_records
+
+        rec = self._rec("2026-07-17T05:00:00+00:00", 4200.0, 4840.0)
+        regraded, stats = regrade_records([rec], {"2026-07-17T05:00:00+00:00": 4840.004})
+
+        assert regraded[0] is rec
+        assert stats["n_regraded"] == 0
+
+    def test_unusable_new_values_skipped(self):
+        from models.drift import regrade_records
+
+        rec = self._rec("2026-07-17T05:00:00+00:00", 4200.0, 967.0)
+        for bad in (0.0, -5.0, float("nan")):
+            regraded, stats = regrade_records([rec], {"2026-07-17T05:00:00+00:00": bad})
+            assert regraded[0].actual == 967.0
+            assert stats["n_regraded"] == 0
+
+    def test_z_suffix_timestamps_join(self):
+        """Records serialized with Z-suffix history must still match the
+        actuals map's +00:00 form (same normalization as the retired probe)."""
+        from models.drift import regrade_records
+
+        rec = self._rec("2026-07-17T05:00:00Z", 4200.0, 967.0)
+        regraded, stats = regrade_records([rec], {"2026-07-17T05:00:00+00:00": 4840.0})
+        assert stats["n_regraded"] == 1
+        assert regraded[0].actual == 4840.0
+
+
+class TestPayloadRegrade:
+    """compute_drift_payload(actuals=...) — the rolling stats self-correct."""
+
+    def _payload_with_partial_history(self):
+        """A stored window where every record was scored against an LDWP-class
+        partial: predictions ~4200, partial actuals ~950 -> ~342% each."""
+        now = datetime.now(UTC)
+        records = [
+            DriftRecord(
+                timestamp=(now - timedelta(hours=h)).isoformat(),
+                predicted=4200.0,
+                actual=950.0,
+                abs_pct_error=abs(4200.0 - 950.0) / 950.0 * 100.0,
+            )
+            for h in range(1, 49)
+        ]
+        payload = {
+            "region": "LDWP",
+            "models": {"ensemble": {"records": serialize_records(records)}},
+        }
+        settled = {(now - timedelta(hours=h)).isoformat(): 4840.0 for h in range(1, 49)}
+        return payload, settled, now
+
+    def test_rolling_stats_land_on_the_settled_side(self):
+        payload, settled, now = self._payload_with_partial_history()
+
+        out = compute_drift_payload("LDWP", payload, {}, actuals=settled)
+
+        block = out["models"]["ensemble"]
+        assert block["rolling_mape_7d"] == pytest.approx(13.22, abs=0.05), (
+            "regraded window should score prediction-vs-settled, not vs the partials"
+        )
+        stats = out["_regrade_stats"]
+        assert stats["n_regraded"] == 48
+
+    def test_regraded_records_exit_the_low_actual_exclusion(self):
+        """A 950-actual record in a 4840-median window was low-actual-excluded;
+        once re-graded to the real value it must re-enter the mean."""
+        payload, settled, now = self._payload_with_partial_history()
+
+        before = compute_drift_payload("LDWP", payload, {})
+        after = compute_drift_payload("LDWP", payload, {}, actuals=settled)
+
+        assert after["models"]["ensemble"]["n_7d"] >= before["models"]["ensemble"]["n_7d"]
+        assert after["models"]["ensemble"]["n_low_actual_excluded_7d"] == 0
+
+    def test_no_actuals_means_no_regrade(self):
+        """Back-compat: callers without the actuals param get today's behavior."""
+        payload, settled, now = self._payload_with_partial_history()
+        out = compute_drift_payload("LDWP", payload, {})
+        assert out["models"]["ensemble"]["rolling_mape_7d"] == pytest.approx(342.1, abs=0.5)
+        assert out["_regrade_stats"] == {"n_regraded": 0}
+
+    def test_horizon_payload_regrades_existing_records(self):
+        from models.drift import compute_horizon_drift_payload
+
+        now = datetime.now(UTC)
+        ts = (now - timedelta(hours=2)).isoformat()
+        record = DriftRecord(timestamp=ts, predicted=4200.0, actual=950.0, abs_pct_error=342.1)
+        existing = {
+            "models": {"ensemble": {"24h": {"records": serialize_records([record])}}},
+            "pending": [],
+        }
+        out = compute_horizon_drift_payload(
+            "LDWP", existing, None, {ts: 4840.0}, now_iso=now.isoformat()
+        )
+        block = out["models"]["ensemble"]["24h"]
+        assert block["rolling_mape_7d"] == pytest.approx(13.22, abs=0.05)

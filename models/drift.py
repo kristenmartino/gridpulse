@@ -76,6 +76,10 @@ class DriftRecord:
 
     timestamp: str  # ISO-8601 UTC, the *target* hour the prediction was for
     predicted: float
+    #: EIA's CURRENT view of the target hour — re-graded as revisions land
+    #: (settled-grade drift, the #304 endgame). The tick-time preliminary
+    #: value this field used to freeze lives in ``gridpulse:vintage``
+    #: (``first_seen_d``, #312), which owns that contract now.
     actual: float
     abs_pct_error: float  # |actual - predicted| / |actual| * 100, NaN-safe
     smape: float = float("nan")  # 200*|a-p|/(|a|+|p|); auto-filled below
@@ -397,76 +401,69 @@ def merge_and_trim(
     return ordered
 
 
-def probe_actual_revisions(
-    existing_payload: dict[str, Any] | None,
+def regrade_records(
+    records: list[DriftRecord],
     actuals: dict[str, float],
-    *,
-    revision_threshold_pct: float = 1.0,
-) -> dict[str, dict[str, Any]]:
-    """Diff each stored drift record's actual against today's settled value (#304).
+) -> tuple[list[DriftRecord], dict[str, Any]]:
+    """Re-grade stored records against EIA's current view (#304 endgame).
 
-    A ``DriftRecord.actual`` is the value EIA had published **at the tick
-    that created it** (preliminary). ``actuals`` is the freshly-fetched
-    window, where those same hours have since been **revised/settled**. If
-    EIA revises materially, the live drift MAPE measures
-    prediction-vs-preliminary rather than forecast skill — which would show
-    up as error that is flat across every lead (the BPAT signature: live 1h
-    11.9% ≈ 24h 12.8% ≈ 72h 12.3%, while the served forecast measures 0.58%
-    against settled data).
+    Each ``DriftRecord.actual`` was captured at the tick that created it — a
+    *preliminary* EIA value, for high-revision BAs 15-70% wrong and later
+    revised. This function rebuilds any record whose target hour appears in
+    ``actuals`` (the just-fetched, guard-cleaned demand frame) with a
+    materially different value, recomputing ``abs_pct_error`` and sMAPE — so
+    the rolling metrics converge to prediction-vs-settled as revisions land.
 
-    Pure observability: reads only, mutates nothing, and is caller-guarded
-    so it can never fail the drift phase.
+    Semantics that are load-bearing:
 
-    Args:
-        existing_payload: The ``gridpulse:drift:{region}`` payload *before*
-            this tick's write (its records carry the preliminary actuals).
-        actuals: ``{timestamp_iso -> settled_mw}`` from the current fetch.
-        revision_threshold_pct: |revision| above which an hour counts as
-            revised (default 1%).
+    * **Hours absent from ``actuals`` are skipped, never treated as
+      agreement** — a guard-excluded partial (#309) or a fetch gap keeps the
+      prior value until a plausible revision lands.
+    * "Materially different" means different after the serializer's own 2dp
+      rounding — otherwise every tick would rebuild every record from float
+      noise and the payload would churn without information.
+    * The tick-time preliminary value is NOT lost: ``gridpulse:vintage``
+      (``first_seen_d``, #312) is the instrument of record for what the
+      pipeline originally saw. This function is why the retired revision
+      probe is no longer needed.
 
-    Returns:
-        ``{model_name -> stats}``, where stats carries ``n_compared``,
-        ``n_revised``, ``mean_abs_revision_pct``, ``max_abs_revision_pct``,
-        ``stored_mape`` (what the panel reports) and ``settled_mape`` (the
-        same predictions rescored against settled actuals). A large
-        stored-vs-settled gap is the smoking gun. Empty dict when there is
-        nothing to compare.
+    Returns ``(regraded, stats)`` where stats carries ``n_regraded`` and the
+    mean/max absolute shift (as % of the new actual) — the observability that
+    replaces the probe's per-tick log line.
     """
-    if not existing_payload or not actuals:
-        return {}
-    settled = {_normalize_ts(k): v for k, v in actuals.items()}
-    out: dict[str, dict[str, Any]] = {}
-
-    for model_name, block in (existing_payload.get("models") or {}).items():
-        if not isinstance(block, dict):
+    regraded: list[DriftRecord] = []
+    shifts: list[float] = []
+    for r in records:
+        new_actual = actuals.get(_normalize_ts(r.timestamp))
+        if (
+            new_actual is None
+            or not np.isfinite(new_actual)
+            or new_actual <= 0
+            or round(float(new_actual), 2) == round(r.actual, 2)
+        ):
+            regraded.append(r)
             continue
-        records = deserialize_records(block.get("records"))
-        revisions: list[float] = []
-        stored_errs: list[float] = []
-        settled_errs: list[float] = []
-        for r in records:
-            now_actual = settled.get(r.timestamp)
-            if now_actual is None or not np.isfinite(now_actual) or now_actual <= 0:
-                continue
-            if not np.isfinite(r.actual) or r.actual <= 0:
-                continue
-            revisions.append(abs(now_actual - r.actual) / now_actual * 100.0)
-            if np.isfinite(r.abs_pct_error):
-                stored_errs.append(r.abs_pct_error)
-            rescored = absolute_pct_error(r.predicted, now_actual)
-            if rescored is not None:
-                settled_errs.append(rescored)
-        if not revisions:
+        err = absolute_pct_error(r.predicted, float(new_actual))
+        if err is None:
+            regraded.append(r)
             continue
-        out[model_name] = {
-            "n_compared": len(revisions),
-            "n_revised": int(sum(1 for v in revisions if v > revision_threshold_pct)),
-            "mean_abs_revision_pct": round(float(np.mean(revisions)), 4),
-            "max_abs_revision_pct": round(float(np.max(revisions)), 4),
-            "stored_mape": round(float(np.mean(stored_errs)), 4) if stored_errs else None,
-            "settled_mape": round(float(np.mean(settled_errs)), 4) if settled_errs else None,
-        }
-    return out
+        shifts.append(abs(float(new_actual) - r.actual) / float(new_actual) * 100.0)
+        regraded.append(
+            DriftRecord(
+                timestamp=r.timestamp,
+                predicted=r.predicted,
+                actual=float(new_actual),
+                abs_pct_error=err,
+                # NaN sentinel -> __post_init__ recomputes sMAPE from the
+                # new pair; carrying the old sMAPE would silently desync it.
+                smape=float("nan"),
+            )
+        )
+    stats: dict[str, Any] = {"n_regraded": len(shifts)}
+    if shifts:
+        stats["mean_abs_shift_pct"] = round(float(np.mean(shifts)), 4)
+        stats["max_abs_shift_pct"] = round(float(np.max(shifts)), 4)
+    return regraded, stats
 
 
 def serialize_records(records: list[DriftRecord]) -> list[dict[str, Any]]:
@@ -519,6 +516,7 @@ def compute_drift_payload(
     existing_payload: dict[str, Any] | None,
     new_records: dict[str, DriftRecord],
     *,
+    actuals: dict[str, float] | None = None,
     max_records: int = DEFAULT_MAX_RECORDS,
     now_iso: str | None = None,
 ) -> dict[str, Any]:
@@ -541,8 +539,18 @@ def compute_drift_payload(
     all_model_names = set(existing_models.keys()) | set(new_records.keys())
 
     models_out: dict[str, Any] = {}
+    regrade_stats: dict[str, Any] = {"n_regraded": 0}
     for model_name in sorted(all_model_names):
         prior = deserialize_records(existing_models.get(model_name, {}).get("records"))
+        if actuals:
+            # Settled-grade drift: re-score history against EIA's current
+            # view before merging this tick's record, so every rolling stat
+            # below reflects revisions as they land.
+            prior, stats = regrade_records(prior, actuals)
+            regrade_stats["n_regraded"] += stats["n_regraded"]
+            for k in ("mean_abs_shift_pct", "max_abs_shift_pct"):
+                if k in stats:
+                    regrade_stats[k] = max(regrade_stats.get(k, 0.0), stats[k])
         new_rec = new_records.get(model_name)
         merged = merge_and_trim(prior, new_rec, max_records=max_records)
 
@@ -578,11 +586,14 @@ def compute_drift_payload(
             "records": serialize_records(merged),
         }
 
-    return {
+    payload = {
         "region": region,
         "last_updated_at": now_iso or datetime.now(UTC).isoformat(),
         "models": models_out,
     }
+    # Ephemeral observability for the caller's log line — not persisted.
+    payload["_regrade_stats"] = regrade_stats
+    return payload
 
 
 # Convenience helper kept here so ``jobs/phases.py`` can stay thin and
@@ -796,6 +807,10 @@ def compute_horizon_drift_payload(
         block_by_horizon: dict[str, Any] = {}
         for horizon in horizons:
             prior = deserialize_records((existing_hz.get(horizon) or {}).get("records"))
+            # Settled-grade drift: horizon records were scored against the
+            # actual as first published for their target hour — re-score
+            # against the current view so revisions land here too.
+            prior, _ = regrade_records(prior, actuals)
             merged = prior
             for record in resolved_by_key.get((model_name, horizon), []):
                 merged = merge_and_trim(merged, record, max_records=max_records)
