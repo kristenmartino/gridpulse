@@ -19,24 +19,28 @@ follow-up commit.
 
 ## Active focus + open question
 
-**2026-07-18 — The overnight dive: retrains are a fit lottery; diagnosis
-shipped, acceptance gate next.** LADWP's live XGBoost forecast dove to
-1,302 MW overnight (partial-band territory) off provably clean inputs.
-`scripts/forecast_dive_diagnosis.py` (the ablation ladder) reproduced the
-live curve within 4.3% with the exact serving pickle and named the
-mechanism: **per-training-day fit instability in the recursive serve
-regime** — 18/67 persisted LDWP vintages (27%) dive on a fixed replay
-window, in multi-day runs (worst: Jul 6–10, troughs 461–928 MW), and the
+**2026-07-18 — The overnight dive: fit lottery named (#326), the ADR-010
+serve-path gate shipped.** LADWP's live XGBoost forecast dove to 1,302 MW
+overnight off provably clean inputs. The ablation ladder
+(`scripts/forecast_dive_diagnosis.py`, PR #327) reproduced the live curve
+within 4.3% with the exact serving pickle and named the mechanism:
+**per-training-day fit instability in the recursive serve regime** — 18/67
+persisted LDWP vintages (27%) dive on a fixed replay window, and the
 published holdout carries **zero signal** (it never runs the deployed
-pickle through the serve path). Exonerated by the ladder: serve-frame
-construction, weather values, anchor conditioning (ADR-009 — its numbers
-were clean), train/serve AR semantics, training-data contamination.
-Evidence: `docs/FORECAST_DIVE_DIAGNOSIS.md`. Next: **persist-time
-acceptance gate** (replay the candidate pickle through the real serve path
-at train time; refuse the `latest.json` repoint on a degenerate curve) +
-close the holdout blindness + training-frame quality guard as hygiene.
-Today's 06:00Z draw is sane, so prod self-healed — the gate is what stops
-the next bad draw.
+pickle through the serve path). Exonerated: serve-frame construction,
+weather values, anchor conditioning (ADR-009 — its numbers were clean),
+train/serve AR semantics, training-data contamination. The fix is the
+**ADR-010 serve-path acceptance gate**: the training job replays each
+candidate through the real serve path from 3 anchors (offset anchors
+judged vs settled truth, live anchor vs the trailing week); a rejected
+candidate persists as forensics but never repoints `latest.json`.
+Calibrated on real vintages at their own training moments — rejects
+0708/0710/0715/0717, accepts 0711/0716/0718 + PNM control; under the gate
+the 1,302 MW night never happens. Flag `model_serve_gate` ON; first live
+exercise is the next 04:00Z training run (verdicts land in meta
+`extra["serve_gate"]` + `model_gate_passed|rejected` logs). Remaining from
+the arc: training-frame quality guard as hygiene (PR 3 of the plan);
+fit-variance tuning itself stays parked with draft PR #229.
 
 **2026-07-11 — Forecast honesty: #283 shipped end-to-end, audit critical tier
 closed, #296 SARIMAX degeneracy found + fixed.** The #283 seasonal-forecasting

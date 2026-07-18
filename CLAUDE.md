@@ -216,6 +216,7 @@ Note: The legacy modules (Historical Demand, Demand Forecast, Backtest, Generati
 - **ADR-007**: Scenario engine copies features, never mutates — pure function, safe for concurrent callbacks
 - **ADR-008**: Climatology fallback for forecast horizon beyond Open-Meteo's 16-day coverage — operationally honest about extended-range uncertainty rather than fabricating signal; visibly labeled on the Forecast tab. Full rationale: PRD.md §10.
 - **ADR-009**: Class-conditional anchor conditioning — broken-feed BAs anchor on their own day-ahead forecast (`forecast_mw`) for trailing unsettled hours, on a forked frame; policy driven live by the vintage classifier. Evidence: docs/ANCHOR_CONDITIONING_STUDY.md. Full rationale: PRD.md §10.
+- **ADR-010**: Serve-path acceptance gate — daily retrains are a fit lottery (~27% of persisted LDWP vintages dive in the recursive serve regime; the holdout is blind to it), so the training job replays each candidate through the real serve path and a rejected candidate never repoints `latest.json`. Evidence: docs/FORECAST_DIVE_DIAGNOSIS.md. Full rationale: PRD.md §10.
 
 ### Module Map
 ```text

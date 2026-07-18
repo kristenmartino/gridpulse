@@ -220,6 +220,7 @@ These items are intentionally not first-class priorities right now:
 | ADR-007 | Scenario engine must avoid input mutation | Safer callback behavior and more predictable state handling |
 | ADR-008 | Climatology fallback for days 17-30 of the forecast horizon, labeled visibly | Open-Meteo's free `/forecast` endpoint covers 16 days; atmospheric chaos limits NWP skill past ~14 days regardless; the operational user value is in days 1-7, not 17-30 |
 | ADR-009 | Class-conditional anchor conditioning: broken-feed BAs anchor on their own day-ahead forecast | EIA's newest reading averages 58.2% wrong on broken-class feeds vs the hour-matched DF's 14.5% (90% win rate, measured via the vintage instrument); churn/bulk classes measured AGAINST substitution and ship unchanged |
+| ADR-010 | Serve-path acceptance gate: a retrained model must replay sanely through the real serve path before `latest.json` repoints to it | Daily retrains are a measured fit lottery (~27% of persisted LDWP vintages produce degenerate recursive forecasts) and the published holdout is provably blind to it; stale-but-sane beats fresh-but-insane, the same principle as the data-fallback policy |
 
 ### ADR-004 detail — Ensemble weighting exponent (2026-07-04)
 
@@ -356,6 +357,59 @@ under substitution.
 **Update trail.** Shipped dark in PR C (#324), flipped in PR D on the
 study's verdict; post-flip verification is the settled-grade drift meter
 (#318) — the same instrument arc that made the study possible.
+
+### ADR-010 detail — Serve-path acceptance gate (2026-07-18)
+
+**Context.** The night anchor conditioning went live, LDWP's forecast dove
+to 1,302 MW overnight off provably clean inputs. The diagnosis study
+(`docs/FORECAST_DIVE_DIAGNOSIS.md`, #326) exonerated every input and named
+the mechanism: **each daily retrain is an independent draw, and ~27% of the
+67 persisted LDWP XGBoost vintages produce recursive forecasts that
+collapse overnight demand into a phantom regime** — condition-dependent
+(the same pickle dives on one frame and not another), expressed only in
+the recursive serve regime, and invisible to the published holdout, which
+scores a *freshly retrained* model on a sliced historical frame and never
+runs the deployed candidate through `_build_future_feature_frame` + the
+recursion.
+
+**Decision.** At persist time the training job replays the **actual
+candidate pickle** through the **real serve path** from three anchors
+stepped 24 h apart (`jobs/phases.py::serve_path_gate`). Offset anchors
+replay into known history and are judged against settled truth (median APE
++ trough-vs-truth); the live anchor — the frame about to serve — is judged
+against the trailing week (5th-percentile trough floor, mean-level band).
+A live-anchor failure rejects outright; one offset dive pocket is
+tolerated; a pattern of failures rejects. **A rejected candidate is still
+persisted (the forensic record the diagnosis depended on) but never
+repoints `latest.json`** — yesterday's accepted model keeps serving.
+Stale-but-sane over fresh-but-insane, the same principle as the
+stale-real-data-over-fake fallback policy. Fail-open on gate errors and
+thin bootstrap history: an availability guard must not freeze rollout on
+its own bug.
+
+**Evidence.** Calibrated by replaying real vintages at their own training
+moments: the gate rejects 0708/0710/0717 (live-anchor trough ratios
+0.27–0.49) and 0715 (two transient dive pockets), passes 0711/0716/0718
+and the PNM control. Under this rule the counterfactual timeline never
+serves the 1,302 MW dive — 0716, proven sane on the Jul-18 frame, would
+have kept serving.
+
+**Alternatives considered.**
+- *Harden the holdout instead:* refuted by the study — the holdout's
+  blindness is model-identity (it scores a different model), not frame
+  construction (rung 2 measured the frames identical). Only replaying the
+  candidate itself closes it.
+- *Reject on any anchor failure:* refuted by calibration — the lottery is
+  a spectrum and many sane fits carry one transient pocket; rejecting all
+  of them streaks rejections into stale pointers.
+- *Fix the fit variance at the source (seeds, regularization):* the right
+  long-term lever, but tuning work (draft PR #229's territory) — the gate
+  is the safety property that makes tuning experiments safe to run at all.
+
+**Update trail.** Shipped ON (flag `model_serve_gate`) in the PR that
+closed #326; per-candidate verdicts land in each model's meta
+(`extra["serve_gate"]`) and in `model_gate_passed` / `model_gate_rejected`
+logs.
 
 ## 11. Roadmap Direction
 

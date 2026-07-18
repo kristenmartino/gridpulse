@@ -996,6 +996,175 @@ def _predict_xgboost_with_recursive_autoregressive(
     return np.concatenate([np.asarray(recursive_preds, dtype=float), clim_preds])
 
 
+def _gate_decision(judged: list[dict[str, Any]]) -> bool:
+    """The #326 decision rule over judged gate anchors.
+
+    A live-anchor failure (no ``truth_median_ape`` — the frame about to
+    serve) rejects outright; otherwise up to
+    ``MODEL_GATE_MAX_OFFSET_FAILURES`` offset-anchor dive pockets are
+    tolerated, and a pattern of failures rejects.
+    """
+    from config import MODEL_GATE_MAX_OFFSET_FAILURES
+
+    live_ok = all(v["ok"] for v in judged if "truth_median_ape" not in v)
+    n_failures = sum(1 for v in judged if not v["ok"])
+    return live_ok and n_failures <= MODEL_GATE_MAX_OFFSET_FAILURES
+
+
+def serve_path_gate(
+    model_dict: Any,
+    featured: pd.DataFrame,
+    weather_df: pd.DataFrame | None,
+    region: str,
+) -> dict[str, Any]:
+    """Judge a candidate XGBoost by replaying it through the real serve path.
+
+    Daily retrains are a fit lottery (#326): ~27% of persisted LDWP vintages
+    produce recursive forecasts that collapse overnight demand into a
+    phantom regime, the failure is condition-dependent, and the published
+    holdout carries zero signal — it scores a freshly retrained model on a
+    sliced historical frame and never runs the candidate through
+    ``_build_future_feature_frame`` + the recursion. This gate does exactly
+    that, at persist time, from ``MODEL_GATE_PROBE_ANCHORS`` anchors stepped
+    ``MODEL_GATE_PROBE_STEP_HOURS`` apart (multiple anchors because a single
+    window measurably undercounts divers).
+
+    Two judgment modes, chosen per anchor by what exists:
+
+    * **Offset anchors** replay into known history, so they are judged
+      against settled truth — median APE (median, not mean: a stray
+      artifact row in the unguarded training frame must not fail an honest
+      replay) plus replay-trough vs truth-trough. Calibration forced this:
+      judging offsets by the trailing-week band false-rejected an honest
+      model whose replay tracked a genuine demand dip at 5% MAPE (0715).
+    * **The live anchor** has no truth yet — its replay is judged against
+      the trailing week: trough vs the 5th-percentile floor and mean within
+      the ``MODEL_GATE_LEVEL_RATIO_*`` band. Divers measured 0.27–0.49 on
+      the trough ratio at their own training moments; sane fits >= 0.90.
+
+    Decision rule: a live-anchor failure rejects outright (that exact frame
+    serves next); otherwise one offset-anchor dive pocket is tolerated
+    (``MODEL_GATE_MAX_OFFSET_FAILURES`` — the lottery is a spectrum and
+    rejecting every pocket would streak rejections into stale pointers),
+    while a pattern of failing anchors rejects.
+
+    Fail-open by design: a gate that errors (or lacks history) must not
+    freeze model rollout on a harness bug, so exceptions log
+    ``model_gate_error`` and count as pass. Refusals are the caller's job —
+    the verdict's ``passed`` drives ``save_model(update_latest=...)``, so a
+    rejected candidate is still persisted (the forensic record the #326
+    study depended on) but ``latest.json`` keeps pointing at yesterday's
+    accepted model.
+
+    Returns a JSON-serializable verdict:
+    ``{"passed": bool, "anchors": [...], "skipped"?: str}``.
+    """
+    from config import (
+        MODEL_GATE_LEVEL_RATIO_MAX,
+        MODEL_GATE_LEVEL_RATIO_MIN,
+        MODEL_GATE_PROBE_ANCHORS,
+        MODEL_GATE_PROBE_HORIZON_HOURS,
+        MODEL_GATE_PROBE_STEP_HOURS,
+        MODEL_GATE_TROUGH_FRACTION,
+        MODEL_GATE_TRUTH_MEDIAN_APE_MAX,
+        feature_enabled,
+    )
+    from data.feature_engineering import recursive_autoregressive_forecast
+    from models.xgboost_model import predict_xgboost
+
+    if not feature_enabled("model_serve_gate"):
+        return {"passed": True, "skipped": "flag_off", "anchors": []}
+
+    horizon = MODEL_GATE_PROBE_HORIZON_HOURS
+    ts = pd.to_datetime(featured["timestamp"], utc=True)
+    frame_end = ts.max()
+    anchors = [
+        frame_end - pd.Timedelta(hours=MODEL_GATE_PROBE_STEP_HOURS * i)
+        for i in range(MODEL_GATE_PROBE_ANCHORS)
+    ]
+
+    verdicts: list[dict[str, Any]] = []
+    for anchor in anchors:
+        try:
+            seed = featured[ts <= anchor]
+            if len(seed) < 168:
+                continue
+            recent = seed["demand_mw"].tail(168).astype(float)
+            ref_trough = float(recent.quantile(0.05))
+            ref_mean = float(recent.mean())
+            if not (np.isfinite(ref_trough) and ref_trough > 0 and ref_mean > 0):
+                continue
+            future = _build_future_feature_frame(
+                seed,
+                horizon,
+                weather_df=weather_df,
+                start_ts=anchor + pd.Timedelta(hours=1),
+            )
+            preds = np.asarray(
+                recursive_autoregressive_forecast(
+                    model_dict,
+                    seed["demand_mw"].tolist(),
+                    future.iloc[:horizon],
+                    predict_xgboost,
+                ),
+                dtype=float,
+            )
+            if preds.size == 0:
+                continue
+            trough_ratio = float(preds.min()) / ref_trough
+            level_ratio = float(preds.mean()) / ref_mean
+            entry: dict[str, Any] = {
+                "anchor": anchor.isoformat(),
+                "trough_ratio": round(trough_ratio, 3),
+                "level_ratio": round(level_ratio, 3),
+            }
+
+            truth = featured[(ts > anchor)].head(horizon)["demand_mw"].astype(float).to_numpy()
+            n = min(len(truth), len(preds))
+            real = truth[:n] > 0
+            if int(real.sum()) >= 12:
+                # Offset anchor — judge against settled truth.
+                t = truth[:n][real]
+                p = preds[:n][real]
+                median_ape = float(np.median(np.abs(p - t) / t)) * 100.0
+                truth_trough_ratio = float(p.min()) / float(t.min())
+                anchor_ok = (
+                    median_ape <= MODEL_GATE_TRUTH_MEDIAN_APE_MAX
+                    and truth_trough_ratio >= MODEL_GATE_TROUGH_FRACTION
+                )
+                entry["truth_median_ape"] = round(median_ape, 2)
+                entry["truth_trough_ratio"] = round(truth_trough_ratio, 3)
+            else:
+                # Live anchor — no truth exists yet; the trailing week is
+                # the only reference.
+                anchor_ok = (
+                    trough_ratio >= MODEL_GATE_TROUGH_FRACTION
+                    and MODEL_GATE_LEVEL_RATIO_MIN <= level_ratio <= MODEL_GATE_LEVEL_RATIO_MAX
+                )
+            entry["ok"] = anchor_ok
+            verdicts.append(entry)
+        except Exception as e:
+            log.warning(
+                "model_gate_error",
+                region=region,
+                anchor=str(anchor),
+                error=str(e),
+            )
+            verdicts.append({"anchor": anchor.isoformat(), "error": str(e)})
+
+    judged = [v for v in verdicts if "ok" in v]
+    if not judged:
+        return {"passed": True, "skipped": "insufficient_history", "anchors": verdicts}
+
+    result = {"passed": _gate_decision(judged), "anchors": verdicts}
+    passed = result["passed"]
+    if passed:
+        log.info("model_gate_passed", region=region, model="xgboost", anchors=verdicts)
+    else:
+        log.warning("model_gate_rejected", region=region, model="xgboost", anchors=verdicts)
+    return result
+
+
 def _gap_forward_frame(
     featured: pd.DataFrame,
     future_df: pd.DataFrame,

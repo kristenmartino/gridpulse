@@ -402,11 +402,15 @@ def save_model(
     train_rows: int,
     mape: float | None = None,
     extra: dict[str, Any] | None = None,
+    update_latest: bool = True,
 ) -> str | None:
     """Pickle ``model_obj`` and upload it plus metadata to GCS.
 
     Returns the assigned version string, or ``None`` if GCS is disabled or
-    the upload failed. The ``latest.json`` pointer is updated on success.
+    the upload failed. The ``latest.json`` pointer is updated on success —
+    unless ``update_latest`` is False (the #326 serve-path gate rejecting a
+    candidate): the artifact is still persisted as the forensic record, but
+    the pointer keeps serving the previously accepted version.
     """
     client = _get_client()
     if client is None:
@@ -463,7 +467,8 @@ def save_model(
         return None
 
     _store_in_local(region, model_name, version, model_bytes)
-    _write_latest(region, model_name, version)
+    if update_latest:
+        _write_latest(region, model_name, version)
 
     log.info(
         "model_saved",
@@ -472,6 +477,7 @@ def save_model(
         version=version,
         size_bytes=len(model_bytes),
         mape=mape,
+        latest_updated=update_latest,
     )
     return version
 
