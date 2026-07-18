@@ -339,3 +339,67 @@ class TestServeGateWiring:
         assert training_job._train_xgboost(region_data) == "v-test"
         assert calls["update_latest"] is True
         assert calls["extra"]["serve_gate"] == verdict
+
+
+class TestTrainingQualityGuard:
+    """#309/#326 hygiene: the artifact guard runs on the training frame, so
+    gross partials never become training targets, holdout ground truth, or
+    the ADR-010 gate's reference/truth rows."""
+
+    def test_trailing_artifact_never_reaches_training_targets(
+        self,
+        fake_redis,
+        patch_single_region,
+        monkeypatch,
+        synthetic_frames,
+    ) -> None:
+        """A trailing near-zero partial (signal 1 — no forecast_mw needed,
+        mirroring the GCS-fallback degradation path) must be absent from the
+        frame handed to train_xgboost. This one assertion proves both the
+        wiring and the ordering: a guard placed after feature engineering
+        could not have removed the row."""
+        demand_df, weather_df = synthetic_frames
+        artifact_ts = demand_df["timestamp"].iloc[-1]
+        demand_df = demand_df.copy()
+        demand_df.loc[demand_df.index[-1], "demand_mw"] = 400.0  # ~1% of level
+
+        import data.eia_client as eia
+        import data.weather_client as weather
+        import jobs.phases as phases
+
+        monkeypatch.setattr(eia, "fetch_demand", lambda region, **kw: demand_df.copy())
+        monkeypatch.setattr(weather, "fetch_weather", lambda region, **kw: weather_df.copy())
+        monkeypatch.setattr(phases, "_has_eia_key", lambda: True)
+
+        import models.arima_model as arima_mod
+        import models.prophet_model as prophet_mod
+        import models.xgboost_model as xgb_mod
+
+        captured: dict = {}
+
+        def _fake_train_xgboost(df, n_splits=3):
+            captured["train_df"] = df.copy()
+            return {"model": {"booster": "fake"}, "cv_scores": [5.0]}
+
+        monkeypatch.setattr(xgb_mod, "train_xgboost", _fake_train_xgboost)
+        monkeypatch.setattr(prophet_mod, "train_prophet", lambda df: {"type": "prophet"})
+        monkeypatch.setattr(arima_mod, "train_arima", lambda df, **kwargs: {"type": "sarimax"})
+        monkeypatch.setattr("jobs.training_job.save_model", lambda *a, **k: "v-guard-test")
+        monkeypatch.setattr(
+            phases,
+            "write_backtests",
+            lambda data: phases.PhaseResult(region=data.region, ok=True, details={}),
+        )
+
+        from jobs import training_job
+
+        assert training_job.run() == 0  # the guard is never fatal
+
+        train_df = captured["train_df"]
+        train_ts = pd.to_datetime(train_df["timestamp"], utc=True)
+        assert artifact_ts not in set(train_ts), (
+            "the guard-coerced artifact hour reached the training frame"
+        )
+        assert float(train_df["demand_mw"].min()) > 1000.0, (
+            "a partial-band demand value survived into training targets"
+        )
