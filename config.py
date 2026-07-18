@@ -796,6 +796,57 @@ ANCHOR_CONDITIONING_CLASSES: frozenset[str] = frozenset({"broken"})
 #: effect dominates (tier-2 replay tested exactly that hour).
 ANCHOR_CONDITIONING_TRAILING_HOURS = 3
 
+# --- Model serve-path acceptance gate (#326) ------------------------------
+# Daily retrains are a fit lottery: ~27% of persisted LDWP XGBoost vintages
+# produce recursive forecasts that collapse overnight demand into a phantom
+# regime, and the published holdout carries zero signal about it (it never
+# runs the deployed pickle through the serve path). The gate replays each
+# CANDIDATE pickle through the real serve path at persist time and refuses
+# the latest.json repoint when the curve is degenerate — yesterday's
+# accepted model keeps serving. Stale-but-sane over fresh-but-insane, the
+# same principle as the data-fallback policy. Evidence:
+# docs/FORECAST_DIVE_DIAGNOSIS.md.
+
+#: Probe anchors: the frame end plus stepped-back anchors — diving is
+#: condition-dependent (the 0717 pickle dove on the Jul-18 frame but not
+#: the Jul-16 window), so a single window undercounts.
+MODEL_GATE_PROBE_ANCHORS = 3
+MODEL_GATE_PROBE_STEP_HOURS = 24
+#: Replay horizon per anchor — measured dives bottom out inside 24h; 48h
+#: adds margin at negligible cost (~single-row predicts).
+MODEL_GATE_PROBE_HORIZON_HOURS = 48
+#: LIVE anchor (no truth yet): reject when the replay trough undercuts this
+#: fraction of the trailing week's 5th-percentile demand (a quantile, not
+#: the min — robust to unguarded artifacts in the training frame).
+#: Calibrated on real vintages at their own training moments: divers'
+#: live-anchor ratios 0.27-0.49, sane fits >= 0.90. Offset anchors also
+#: apply it to the replay trough vs TRUTH's trough.
+MODEL_GATE_TROUGH_FRACTION = 0.75
+#: LIVE anchor: reject when the replay mean leaves these bounds relative to
+#: the trailing week's mean. Divers measured 0.59-0.66 at their live
+#: anchors; the ceiling is a sanity bound (the #296 growth-degeneracy
+#: lesson). Offset anchors are judged on truth instead — calibration showed
+#: the trailing-week band false-rejects an honest model when real demand
+#: genuinely dips below the prior week (0715: replay tracked truth at 5%
+#: MAPE while undercutting the band).
+MODEL_GATE_LEVEL_RATIO_MIN = 0.75
+MODEL_GATE_LEVEL_RATIO_MAX = 2.0
+#: OFFSET anchors (truth known): reject when the replay's MEDIAN absolute
+#: percentage error vs settled truth exceeds this. Median, not mean — a
+#: stray artifact row in the unguarded training frame must not fail an
+#: honest replay. Divers measured 38-59%; sane fits 2.9-10%.
+MODEL_GATE_TRUTH_MEDIAN_APE_MAX = 25.0
+#: Offset-anchor failures tolerated before rejection. Calibration showed
+#: the lottery is a spectrum: many fits carry a single transient dive
+#: pocket (median APE < 5% but a few-hour plunge to ~0.5-0.66 of truth's
+#: trough) on one probe anchor. One pocket is tolerated — rejecting every
+#: pocket would streak rejections and pin stale models — but a live-anchor
+#: failure (the exact frame about to serve) or a pattern of >= 2 failing
+#: anchors rejects. Counterfactual replay of Jul 15-18: this rule blocks
+#: 0708/0710/0715/0717, accepts 0716 (proven sane on the Jul-18 frame),
+#: and the live 1,302 MW dive never happens.
+MODEL_GATE_MAX_OFFSET_FAILURES = 1
+
 # --- Feed-limited attribution (#309 arc / PR 3) --------------------------
 # The drift panel's Rollback pill prescribes "disable this model" (H2). For
 # regions whose EIA feed is measurably unreliable, that misattributes input
@@ -982,6 +1033,9 @@ FEATURE_FLAGS: dict[str, bool] = {
     # following week is the success signal; Feed-limited pills clearing
     # themselves is the visible one.
     "anchor_conditioning": True,
+    # #326: replay each candidate XGBoost through the real serve path at
+    # persist time; refuse the latest.json repoint on a degenerate curve.
+    "model_serve_gate": True,
 }
 
 

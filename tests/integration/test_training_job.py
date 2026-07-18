@@ -124,7 +124,14 @@ class TestTrainingJob:
         saved_versions: dict[tuple[str, str], str] = {}
 
         def _save_model(
-            region, model_name, model_obj, data_hash, train_rows, mape=None, extra=None
+            region,
+            model_name,
+            model_obj,
+            data_hash,
+            train_rows,
+            mape=None,
+            extra=None,
+            update_latest=True,
         ):
             version = f"v-{region}-{model_name}"
             saved_versions[(region, model_name)] = version
@@ -266,3 +273,69 @@ class TestTrainingJob:
         exit_code = training_job.run()
         assert exit_code == 1
         assert "ERCOT" in fake_redis["gridpulse:meta:last_trained"]["regions_failed"]
+
+
+class TestServeGateWiring:
+    """#326: the serve-path gate's verdict drives ``save_model(update_latest=…)``.
+
+    A rejected candidate is still persisted (the forensic record the dive
+    study depended on) but must never repoint ``latest.json``.
+    """
+
+    @pytest.fixture
+    def region_data(self, synthetic_frames):
+        import jobs.phases as phases
+
+        demand_df, weather_df = synthetic_frames
+        rd = phases.RegionData(region="ERCOT", demand_df=demand_df, weather_df=weather_df)
+        rd.featured_df = demand_df.copy()  # content irrelevant — the gate is patched
+        return rd
+
+    def _wire(self, monkeypatch, verdict: dict) -> dict:
+        import jobs.phases as phases
+        import models.xgboost_model as xgb_mod
+
+        monkeypatch.setattr(
+            xgb_mod,
+            "train_xgboost",
+            lambda df, n_splits=3: {"model": {"booster": "fake"}, "cv_scores": [5.0]},
+        )
+        monkeypatch.setattr(phases, "serve_path_gate", lambda *a, **kw: verdict)
+
+        calls: dict = {}
+
+        def _save_model(
+            region,
+            model_name,
+            model_obj,
+            data_hash,
+            train_rows,
+            mape=None,
+            extra=None,
+            update_latest=True,
+        ):
+            calls.update(extra=extra, update_latest=update_latest)
+            return "v-test"
+
+        monkeypatch.setattr("jobs.training_job.save_model", _save_model)
+        return calls
+
+    def test_rejected_candidate_persists_but_never_repoints(self, monkeypatch, region_data):
+        verdict = {"passed": False, "anchors": [{"ok": False, "trough_ratio": 0.3}]}
+        calls = self._wire(monkeypatch, verdict)
+
+        from jobs import training_job
+
+        assert training_job._train_xgboost(region_data) == "v-test"
+        assert calls["update_latest"] is False
+        assert calls["extra"]["serve_gate"] == verdict
+
+    def test_accepted_candidate_repoints_latest(self, monkeypatch, region_data):
+        verdict = {"passed": True, "anchors": [{"ok": True}]}
+        calls = self._wire(monkeypatch, verdict)
+
+        from jobs import training_job
+
+        assert training_job._train_xgboost(region_data) == "v-test"
+        assert calls["update_latest"] is True
+        assert calls["extra"]["serve_gate"] == verdict

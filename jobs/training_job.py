@@ -374,6 +374,15 @@ def _train_xgboost(
     if holdout_metrics is not None:
         extra["holdout_metrics"] = holdout_metrics
 
+    # #326 serve-path acceptance gate: the holdout above scores a DIFFERENT
+    # model on a different frame and is provably blind to the fit lottery.
+    # Replay the actual candidate through the real serve path; a rejected
+    # candidate is persisted (forensics) but never repoints latest.json.
+    gate = phases.serve_path_gate(
+        model_dict, region_data.featured_df, region_data.weather_df, region
+    )
+    extra["serve_gate"] = gate
+
     return save_model(
         region=region,
         model_name="xgboost",
@@ -382,6 +391,7 @@ def _train_xgboost(
         train_rows=len(region_data.featured_df),
         mape=saved_mape,
         extra=extra,
+        update_latest=bool(gate.get("passed", True)),
     )
 
 

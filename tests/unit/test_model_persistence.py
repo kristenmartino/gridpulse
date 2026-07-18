@@ -1076,3 +1076,76 @@ def test_pickle_highest_protocol_roundtrip_shapes() -> None:
     for obj in (xgb_like, prophet_like, arima_like):
         data = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
         assert pickle.loads(data) == obj
+
+
+# ---------------------------------------------------------------------------
+# #326 serve-path gate: update_latest=False
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateLatestGate:
+    """A gate-rejected candidate persists as a forensic artifact but must
+    never repoint ``latest.json``."""
+
+    def test_rejected_save_persists_artifact_but_not_pointer(self, tmp_path) -> None:
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        store: dict[str, bytes] = {}
+        fake_client = _make_fake_client(store)
+
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=fake_client),
+        ):
+            version = mp.save_model(
+                region="ERCOT",
+                model_name="xgboost",
+                model_obj={"model": "m"},
+                data_hash="abc",
+                train_rows=10,
+                mape=5.0,
+                update_latest=False,
+            )
+            assert version is not None
+            assert f"cache/models/ERCOT/xgboost/{version}.pkl" in store
+            assert f"cache/models/ERCOT/xgboost/{version}.meta.json" in store
+            assert "cache/models/latest.json" not in store
+
+    def test_pointer_lands_on_the_accepted_save_only(self, tmp_path) -> None:
+        """Rejected draw, then an accepted one — latest.json exists only
+        after the accepted save and points at it."""
+        import models.persistence as mp
+
+        _reset_persistence_state(str(tmp_path / "cache"))
+        store: dict[str, bytes] = {}
+        fake_client = _make_fake_client(store)
+
+        with (
+            patch.object(mp, "GCS_ENABLED", True),
+            patch.object(mp, "GCS_BUCKET_NAME", "test-bucket"),
+            patch.object(mp, "GCS_PATH_PREFIX", "cache"),
+            patch.object(mp, "_get_client", return_value=fake_client),
+        ):
+            mp.save_model(
+                region="ERCOT",
+                model_name="xgboost",
+                model_obj={"model": "rejected"},
+                data_hash="a",
+                train_rows=10,
+                update_latest=False,
+            )
+            assert "cache/models/latest.json" not in store
+
+            accepted = mp.save_model(
+                region="ERCOT",
+                model_name="xgboost",
+                model_obj={"model": "accepted"},
+                data_hash="b",
+                train_rows=10,
+                update_latest=True,
+            )
+            pointer = json.loads(store["cache/models/latest.json"].decode("utf-8"))
+            assert pointer["ERCOT"]["xgboost"] == accepted
