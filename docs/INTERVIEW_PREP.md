@@ -427,6 +427,52 @@ it changed the fix, and it turned a stakeholder's domain instinct into the
 actual causal story: the model was converting three weeks of regional weather
 into a permanent climate trend.*
 
+### 15. "Tell me about a hard bug where every obvious suspect was innocent."
+**A forecast collapsed to one-third of reality off provably clean inputs — the defect was a lottery, and the fix was a gate, not a patch.**
+
+Situation: The night a major data-quality fix went live, the Los Angeles
+forecast dove to 1,302 MW overnight — deep in the range of EIA's known-bad
+provisional readings and half of any real trough. Every obvious suspect had
+just been engineered away: the artifact guard was excluding bad readings,
+the anchor was conditioned on clean day-ahead data, and I could *prove*
+from guard logs that the input frame was settled hour-by-hour. Weather was
+verified normal. The model's holdout score said 8.8%; live error said 24%.
+
+Task: Name the real mechanism with evidence — the failure had survived
+every input-side fix, so guessing again would just burn another cycle.
+
+Action: I built an ablation-ladder study against the production model
+store: reproduce the live curve from mirrored data (matched within 4.3%
+with the exact serving pickle), then vary one dimension per rung.
+Teacher-forced predictions on real rows: 0.5% error — the model was sharp.
+Serve-style frame vs holdout-style frame: identical — construction was
+innocent. Then the decisive rung: replaying **all 67 persisted model
+vintages** over one fixed window. Eighteen of them — 27% — collapsed, in
+multi-day runs, while their neighbors were fine. Each daily retrain was an
+independent draw, some draws degenerate only in the recursive serve regime,
+and the published holdout was structurally blind: it scores a *freshly
+retrained* model on sliced historical rows, never the deployed pickle
+through the serving path. I then calibrated a persist-time acceptance gate
+by replaying real vintages at their own training moments — which exposed
+that a naive threshold would false-reject an honest model during a genuine
+demand dip, so offset anchors judge against settled truth and only the
+live anchor uses a statistical band.
+
+Result: The gate ships in the training job: every candidate model must
+replay sanely through the real serve path before the pointer moves; a bad
+draw is persisted for forensics but never serves. Calibration showed the
+counterfactual plainly — under the gate, the model that served the 1,302 MW
+night would have been rejected and its sane predecessor kept serving; the
+incident never happens. The published holdout's blind spot is closed by
+construction, because the gate evaluates the exact artifact that will serve.
+
+**Lesson to convey**: *When every input is provably clean and the output is
+still wrong, stop debugging inputs — the defect can live in the artifact
+itself, and it can be nondeterministic across retrains. "Which pickle?" is
+a real diagnostic axis. And a validation metric that never touches the
+deployed artifact on the serving path isn't a safety property; the gate
+that replays the real thing is.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

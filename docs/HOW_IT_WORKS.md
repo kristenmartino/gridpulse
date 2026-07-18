@@ -182,6 +182,21 @@ unmodified anchor because the same study showed substitution would not help
 (churn) or would actively hurt (bulk). Tiles, drift, and alerts always read
 the real, unconditioned data.
 
+**The serve-path acceptance gate (ADR-010).** Retraining daily means
+drawing a new model daily, and the draws are not all good: replaying every
+persisted LDWP XGBoost vintage showed **~27% produce recursive forecasts
+that collapse overnight demand** into a phantom regime — a failure the
+published holdout cannot see, because it scores a freshly retrained model
+on sliced historical rows rather than running the deployed candidate
+through the future-frame + recursion path production actually uses
+(`docs/FORECAST_DIVE_DIAGNOSIS.md`). So before the training job repoints
+`latest.json`, it replays the candidate pickle through the **real serve
+path** from three anchors: offset anchors are scored against settled truth,
+the live anchor against the trailing week's floor and level. A candidate
+that fails is still persisted (forensics) but the pointer stays on
+yesterday's accepted model — stale-but-sane over fresh-but-insane, the same
+principle the data layer applies when an API degrades.
+
 **Forecast horizon and the day-16 boundary.** The scoring job produces a **30-day** demand forecast at hourly granularity (`FORECAST_HORIZON_HOURS = 720`). Open-Meteo's free `/forecast` endpoint covers the first **16 days** (384 hours) with actual weather forecast values. For the remaining days 17-30, the future-feature builder drives the weather inputs from a per-BA **(day_of_year, hour) weather-normal** — a trailing ~10-year ERA5 "normal weather year" built nightly by the training job (#283), with a **seam anomaly-blend** so the current weather regime decays into the normal over ~5 days past the boundary, and the autoregressive demand features kept on recent data so the tail stays anchored to *current* load levels. Where a BA's normal artifact isn't backfilled yet, the builder falls back to the #281 **recent-28-day (hour, dow) climatology** (`CLIMATOLOGY_WINDOW_DAYS = 28`). The Forecast tab renders a visible day-16 divider on the 30-day chart with labels ("← Open-Meteo forecast" / "climatology baseline →") so users can correctly interpret the regime split — the demand forecast past day 16 reflects seasonal/diurnal patterns, not forward-looking signal. The decision and alternatives considered are documented in ADR-008 (PRD.md §10). Atmospheric chaos limits deterministic NWP skill to ~10-14 days regardless of model, so climatology is the right answer past Open-Meteo's coverage rather than a cost-driven hack.
 
 **Long-horizon sanity guard (#296).** SARIMAX total integration is capped at **d + D ≤ 1** (seasonal D=1 carries the daily cycle; d is pinned to 0) — a doubly-integrated fit extrapolates the training window's local weather trend as a permanent linear trend, which decayed SC/PSCO/PJM through 0 MW and grew BPAT ~2× across the 30-day view. Defense is layered: the training job runs a fit-time 720h check (degenerate structures refit with the safe default), and the scoring job validates **every served series (each model + the ensemble)** at 24h/168h/720h against a band around the trailing month's real demand (floor 0.5× recent min, ceiling 1.6× recent max, plus a sustained-drift check on ≥15-day slices; `config.LONG_HORIZON_GUARD_*`). A flagged series gets a `horizon_guard` entry in the forecast payload — the Forecast tab then **withholds that model at flagged horizons and says why** ("failed the long-horizon sanity guard") instead of drawing a degenerate line.
