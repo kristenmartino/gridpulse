@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-14
+# Status — updated 2026-07-18
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,25 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-07-18 — The overnight dive: retrains are a fit lottery; diagnosis
+shipped, acceptance gate next.** LADWP's live XGBoost forecast dove to
+1,302 MW overnight (partial-band territory) off provably clean inputs.
+`scripts/forecast_dive_diagnosis.py` (the ablation ladder) reproduced the
+live curve within 4.3% with the exact serving pickle and named the
+mechanism: **per-training-day fit instability in the recursive serve
+regime** — 18/67 persisted LDWP vintages (27%) dive on a fixed replay
+window, in multi-day runs (worst: Jul 6–10, troughs 461–928 MW), and the
+published holdout carries **zero signal** (it never runs the deployed
+pickle through the serve path). Exonerated by the ladder: serve-frame
+construction, weather values, anchor conditioning (ADR-009 — its numbers
+were clean), train/serve AR semantics, training-data contamination.
+Evidence: `docs/FORECAST_DIVE_DIAGNOSIS.md`. Next: **persist-time
+acceptance gate** (replay the candidate pickle through the real serve path
+at train time; refuse the `latest.json` repoint on a degenerate curve) +
+close the holdout blindness + training-frame quality guard as hygiene.
+Today's 06:00Z draw is sane, so prod self-healed — the gate is what stops
+the next bad draw.
 
 **2026-07-11 — Forecast honesty: #283 shipped end-to-end, audit critical tier
 closed, #296 SARIMAX degeneracy found + fixed.** The #283 seasonal-forecasting
