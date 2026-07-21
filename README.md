@@ -1,6 +1,6 @@
 # GridPulse — Energy Intelligence Platform
 
-**[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)**
+**[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)** · [About the platform](https://gridpulse.kristenmartino.ai/about)
 
 Weather-aware energy intelligence. GridPulse combines real grid data (EIA), meteorological signals (Open-Meteo), multiple forecasting models, model validation, generation context, and scenario analysis in one decision-ready platform.
 

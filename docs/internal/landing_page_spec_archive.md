@@ -3,7 +3,21 @@ _Spec authored 2026-04-09. Archived to `docs/internal/` 2026-05-06._
 
 ## Status
 
-**Not implemented and not planned.** This wireframe specs an enterprise-B2B-SaaS marketing landing page (hero / social proof / value pillars / module grid / "Request a demo" CTA) that doesn't fit a portfolio-stage project. Audience for the GridPulse repo is overwhelmingly recruiting / technical evaluation — those reviewers evaluate the live dashboard + the GitHub repo + the test suite, not a separate marketing page.
+**Partially implemented 2026-07-21** — the portfolio-neutral subset of this
+spec now ships at [`/about`](https://gridpulse.kristenmartino.ai/about)
+(`web/landing.html`, served by `landing.py`; the dashboard keeps `/`). The
+reopen condition (commercial positioning, per the market-entry plan) fired.
+The postmortem's exclusions below **held**: no demo/contact CTAs, no
+social-proof strip, no "Solutions" nav, no suite-vision copy — and they are
+now enforced as posture-pin tests in `tests/unit/test_landing.py`. Flipping
+any of them post-BSC-process is a deliberate edit there.
+
+_Original archive note (2026-05-06):_ this wireframe specs an
+enterprise-B2B-SaaS marketing landing page (hero / social proof / value
+pillars / module grid / "Request a demo" CTA) that doesn't fit a
+portfolio-stage project. Audience for the GridPulse repo is overwhelmingly
+recruiting / technical evaluation — those reviewers evaluate the live
+dashboard + the GitHub repo + the test suite, not a separate marketing page.
 
 Substantive copy from this spec that DOES belong on portfolio surfaces was migrated:
 

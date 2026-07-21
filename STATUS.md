@@ -19,6 +19,21 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-21 — Marketing landing page shipped at `/about`
+(portfolio-neutral, BSC-safe).** The archived landing spec's reopen clause
+fired via the market-entry plan; the neutral subset now ships as a
+self-contained static page (`web/landing.html` + `landing.py` blueprint;
+dashboard keeps `/`, zero blast radius). Copy is canonical-framing only
+(CLAUDE.md category/tagline, the five real tab names per GP-P2-03), every
+number traces to CANONICAL_FACTS (4.8% median per-BA served-ensemble
+holdout), the hero is a real headless-Chrome capture of the live ERCOT
+Overview, and the "Built in the open" section replaces social proof with
+the ADR trail + committed studies. The BSC guardrails (no demo/contact/
+pricing CTAs, no "beats" claims) are enforced as posture-pin tests in
+`tests/unit/test_landing.py` — flipping them post-process is a deliberate
+edit there. Promotion to the front door, benchmark copy, and module
+subpages stay parked.
+
 **2026-07-18 — The overnight dive: fit lottery named (#326), the ADR-010
 serve-path gate shipped.** LADWP's live XGBoost forecast dove to 1,302 MW
 overnight off provably clean inputs. The ablation ladder

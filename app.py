@@ -147,6 +147,12 @@ from api import api_v1  # noqa: E402
 
 server.register_blueprint(api_v1)
 
+# Marketing landing page at /about — static, portfolio-neutral, decoupled
+# from Dash (see landing.py for the placement + cache rationale).
+from landing import landing_bp  # noqa: E402
+
+server.register_blueprint(landing_bp)
+
 
 # Per-IP rate limit on the Dash callback route (#253). ``/_dash-update-component``
 # drives CPU-heavy Plotly figure generation against a small pool of request
