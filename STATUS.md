@@ -19,6 +19,23 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-21 — Weather-model A/B study: verdict ADOPT for the NBM
+composite (+0.92 sMAPE pts), adoption tracked in #332.** The data-source
+research's top candidate, measured the project's way:
+`scripts/weather_model_ab_study.py` replayed 8 BAs × 11 anchors × 168h
+through the real serve path with lead-honest forecast vintages (Open-Meteo
+Previous Runs API). Two findings: (1) **best_match ≡ gfs_seamless for
+CONUS** — production already consumes GFS+HRRR, so arm B's ~zero delta
+(+0.04) became the harness noise floor; (2) **NBM is decisively better
+weather** (temperature RMSE −16% at day-1, −25-27% at days 3-7, bias
+~zero vs the control's cold bias) and it feeds through to demand: **mean
++0.921 sMAPE pts paired**, AZPS +3.70 and SEC +1.88 (the tail BAs the
+research said nothing external could reach — better weather reached
+them), worst BA MISO −0.33 (inside the veto; the multi-point follow-up
+targets exactly MISO). Evidence: `docs/WEATHER_MODEL_AB.md`. Next:
+adoption PR per #332 (NBM composite behind a dark flag, both jobs
+together, ADR-011); the multi-point/population-weighted study follows.
+
 **2026-07-21 — Marketing landing page shipped at `/about`
 (portfolio-neutral, BSC-safe).** The archived landing spec's reopen clause
 fired via the market-entry plan; the neutral subset now ships as a
