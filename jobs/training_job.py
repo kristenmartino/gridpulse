@@ -21,6 +21,7 @@ import sys
 import time
 
 import numpy as np
+import pandas as pd
 import structlog
 
 from config import PRECOMPUTE_DEFAULT_REGION
@@ -569,10 +570,34 @@ def _train_region(region: str, force: bool = False) -> dict:
         summary["elapsed_s"] = round(time.time() - t0, 2)
         return summary
 
+    # #309/#326 hygiene: the same artifact guard scoring applies — gross
+    # partials must not become training targets, holdout ground truth, or
+    # the ADR-010 gate's reference/truth rows. No vintage write here (the
+    # hourly scoring job owns the instrument) and no anchor conditioning
+    # (ADR-009 is serving-only).
+    phases.apply_demand_quality_guard(region_data)
+
     if phases.engineer_region_features(region_data) is None:
         summary["error"] = "feature_engineering_failed"
         summary["elapsed_s"] = round(time.time() - t0, 2)
         return summary
+
+    # The guard NaN-coerces demand_mw, but ``engineer_features`` imputes
+    # demand_mw with the exogenous columns (the 2026-05-29 outage defense),
+    # which would resurrect each artifact hour as a ffill'd fabricated
+    # target. Drop the excluded hours from the training frame outright —
+    # a missing hour is honest; a ffill'd target is fiction.
+    if region_data.artifact_exclusions and region_data.featured_df is not None:
+        excluded = {pd.Timestamp(e["ts"]) for e in region_data.artifact_exclusions}
+        featured_ts = pd.to_datetime(region_data.featured_df["timestamp"], utc=True)
+        keep = ~featured_ts.isin(excluded)
+        if (~keep).any():
+            region_data.featured_df = region_data.featured_df[keep].reset_index(drop=True)
+            log.info(
+                "training_artifact_rows_dropped",
+                region=region,
+                n=int((~keep).sum()),
+            )
 
     # Resume short-circuit: bail out if every model is already up to
     # date on the current data. Saves the entire training cost when a

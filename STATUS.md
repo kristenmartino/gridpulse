@@ -53,9 +53,13 @@ Calibrated on real vintages at their own training moments — rejects
 0708/0710/0715/0717, accepts 0711/0716/0718 + PNM control; under the gate
 the 1,302 MW night never happens. Flag `model_serve_gate` ON; first live
 exercise is the next 04:00Z training run (verdicts land in meta
-`extra["serve_gate"]` + `model_gate_passed|rejected` logs). Remaining from
-the arc: training-frame quality guard as hygiene (PR 3 of the plan);
-fit-variance tuning itself stays parked with draft PR #229.
+`extra["serve_gate"]` + `model_gate_passed|rejected` logs). The arc's
+hygiene close-out also landed: the training job now runs the artifact
+guard AND drops excluded hours from the training frame — test-first
+caught that `engineer_features` imputes `demand_mw` (the 2026-05-29
+outage defense), which would have resurrected guard-NaN'd artifacts as
+ffill'd fabricated targets. Fit-variance tuning itself stays parked with
+draft PR #229.
 
 **2026-07-11 — Forecast honesty: #283 shipped end-to-end, audit critical tier
 closed, #296 SARIMAX degeneracy found + fixed.** The #283 seasonal-forecasting

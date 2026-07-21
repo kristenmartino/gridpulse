@@ -175,7 +175,11 @@ data-quality layers before the anchor forms: the **#315 artifact guard**
 (gross partials NaN-coerced, disclosed on the tiles) and, for BAs the vintage
 classifier marks **`broken`**, **anchor conditioning** — the trailing
 unsettled hours are substituted with the BA's own hour-matched day-ahead
-forecast on a forked frame that only the feature/forecast path reads.
+forecast on a forked frame that only the feature/forecast path reads. The
+same artifact guard also runs in the **training job** (#326 arc hygiene),
+where the excluded hours are additionally dropped from the training frame —
+so partials never become training targets, holdout ground truth, or the
+ADR-010 gate's reference/truth rows.
 Measured basis: broken-class anchors averaged 58.2% wrong vs the day-ahead's
 14.5% (`docs/ANCHOR_CONDITIONING_STUDY.md`); every other class keeps its
 unmodified anchor because the same study showed substitution would not help
