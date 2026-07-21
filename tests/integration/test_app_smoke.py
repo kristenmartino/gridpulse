@@ -124,3 +124,14 @@ class TestAppSmoke:
             f"components.callbacks is missing these registrars: {missing}. "
             "Likely an import was dropped from the re-export shim."
         )
+
+
+class TestLandingRouteRegistered:
+    def test_about_route_on_the_real_server(self):
+        """The landing blueprint is registered on the production Flask
+        server — and the Dash index still owns /."""
+        from app import server
+
+        rules = {r.rule for r in server.url_map.iter_rules()}
+        assert "/about" in rules
+        assert "/" in rules  # Dash index untouched

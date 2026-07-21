@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>About GridPulse — Energy Intelligence Platform</title>
+
+  <link rel="canonical" href="https://gridpulse.kristenmartino.ai/about">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+  <link rel="preconnect" href="https://www.googletagmanager.com">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-97LE6K3X9N');
+  </script>
+
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
+
+  <meta name="description" content="GridPulse unifies weather-aware demand forecasting, forecast confidence, grid visibility, and scenario-based decision support across 51 US balancing authorities.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://gridpulse.kristenmartino.ai/about">
+  <meta property="og:title" content="About GridPulse — Energy Intelligence Platform">
+  <meta property="og:description" content="See demand sooner. Decide with confidence. Weather-aware forecasting, model validation, and grid visibility for 51 US balancing authorities — built in the open.">
+  <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="About GridPulse — Energy Intelligence Platform">
+  <meta name="twitter:description" content="See demand sooner. Decide with confidence. Weather-aware forecasting, model validation, and grid visibility for 51 US balancing authorities — built in the open.">
+  <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+
+  <style>
+    /* Design tokens — curated subset of assets/custom.css :root (the
+       dashboard's design system). Values duplicated deliberately: this page
+       must stay decoupled from app chrome CSS. Keep in sync by value. */
+    :root {
+      --bg-base: #0a0a0b;
+      --bg-raised: #111113;
+      --bg-hover: #18181b;
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-default: rgba(255, 255, 255, 0.12);
+      --border-strong: rgba(255, 255, 255, 0.18);
+      --text-primary: #e4e4e7;
+      --text-secondary: #a1a1aa;
+      --text-tertiary: #71717a;
+      --accent-base: #3b82f6;
+      --accent-hover: #5b9aff;
+      --accent-dim: rgba(59, 130, 246, 0.15);
+      --accent-ring: rgba(59, 130, 246, 0.30);
+      --forecast: #f97316;
+      --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-display: 'Sora', 'Inter', sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 12px;
+      --radius-full: 9999px;
+      --content-max: 72rem;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent-base); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    a:focus-visible, button:focus-visible {
+      outline: 2px solid var(--accent-ring);
+      outline-offset: 2px;
+      border-radius: var(--radius-md);
+    }
+
+    .wrap {
+      max-width: var(--content-max);
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      background: rgba(10, 10, 11, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .site-header .wrap {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .wordmark {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 19px;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+    .wordmark:hover { color: var(--text-primary); }
+    .wordmark svg { display: block; border-radius: 6px; }
+    .wordmark .pulse { color: var(--accent-base); }
+    .header-cta {
+      font-size: 14px;
+      font-weight: 500;
+      padding: 8px 16px;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-md);
+      color: var(--text-primary);
+      transition: border-color 0.15s ease, background 0.15s ease;
+      white-space: nowrap;
+    }
+    .header-cta:hover {
+      border-color: var(--accent-base);
+      background: var(--accent-dim);
+      color: var(--text-primary);
+    }
+
+    /* ── Hero ───────────────────────────────────────────── */
+    .hero {
+      position: relative;
+      padding: 88px 0 72px;
+      overflow: hidden;
+    }
+    .hero::before {
+      content: "";
+      position: absolute;
+      top: -240px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 900px;
+      height: 520px;
+      background: radial-gradient(ellipse at center, var(--accent-dim), transparent 65%);
+      pointer-events: none;
+    }
+    .hero .wrap {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
+      gap: 56px;
+      align-items: center;
+    }
+    .eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent-base);
+      margin-bottom: 16px;
+    }
+    h1 {
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: clamp(32px, 4.4vw, 46px);
+      line-height: 1.12;
+      letter-spacing: -0.025em;
+      margin-bottom: 20px;
+    }
+    .subhead {
+      color: var(--text-secondary);
+      font-size: 17px;
+      margin-bottom: 28px;
+      max-width: 46ch;
+    }
+    .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 32px; }
+    .btn-primary {
+      display: inline-block;
+      background: var(--accent-base);
+      color: #fff;
+      font-weight: 600;
+      font-size: 15px;
+      padding: 12px 22px;
+      border-radius: var(--radius-lg);
+      transition: background 0.15s ease;
+    }
+    .btn-primary:hover { background: var(--accent-hover); color: #fff; }
+    .btn-secondary {
+      display: inline-block;
+      color: var(--text-primary);
+      font-weight: 500;
+      font-size: 15px;
+      padding: 12px 22px;
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-lg);
+      transition: border-color 0.15s ease;
+    }
+    .btn-secondary:hover { border-color: var(--border-strong); color: var(--text-primary); }
+
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
+      font-size: 13px;
+      color: var(--text-secondary);
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-full);
+      padding: 6px 14px;
+      white-space: nowrap;
+    }
+    .chip strong { color: var(--text-primary); font-weight: 600; }
+
+    .hero-visual { min-width: 0; }
+    .shot {
+      border: 1px solid var(--border-default);
+      border-radius: var(--radius-xl);
+      overflow: hidden;
+      background: var(--bg-raised);
+      box-shadow: 0 0 80px rgba(59, 130, 246, 0.10);
+    }
+    .shot img { display: block; width: 100%; height: auto; }
+    .shot-caption {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--text-tertiary);
+      text-align: center;
+    }
+
+    /* ── Sections ───────────────────────────────────────── */
+    section { padding: 64px 0; border-top: 1px solid var(--border-subtle); }
+    .section-eyebrow {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--text-tertiary);
+      margin-bottom: 10px;
+    }
+    h2 {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 26px;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+    .section-lede {
+      color: var(--text-secondary);
+      max-width: 62ch;
+      margin-bottom: 36px;
+    }
+
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+
+    .card {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 22px;
+      transition: border-color 0.15s ease;
+    }
+    .card:hover { border-color: var(--border-default); }
+    .card h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+    .card p { font-size: 14px; color: var(--text-secondary); }
+    .card .card-link { display: inline-block; margin-top: 12px; font-size: 13px; font-weight: 500; }
+
+    /* Modules table-like list */
+    .module {
+      display: grid;
+      grid-template-columns: 9rem minmax(0, 20rem) minmax(0, 1fr);
+      gap: 20px;
+      padding: 18px 4px;
+      border-bottom: 1px solid var(--border-subtle);
+      align-items: baseline;
+    }
+    .module:last-child { border-bottom: none; }
+    .module-name {
+      font-family: var(--font-display);
+      font-weight: 600;
+      font-size: 15px;
+    }
+    .module-q { color: var(--text-primary); font-size: 14px; font-weight: 500; }
+    .module-what { color: var(--text-secondary); font-size: 14px; }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 40px 0 48px;
+      color: var(--text-tertiary);
+      font-size: 13px;
+    }
+    footer .wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px 32px;
+      justify-content: space-between;
+      align-items: center;
+    }
+    footer nav { display: flex; flex-wrap: wrap; gap: 20px; }
+    footer a { color: var(--text-secondary); }
+    footer a:hover { color: var(--text-primary); }
+
+    /* ── Responsive ─────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .hero { padding: 56px 0 48px; }
+      .hero .wrap { grid-template-columns: 1fr; gap: 40px; }
+      .grid-4 { grid-template-columns: repeat(2, 1fr); }
+      .module { grid-template-columns: 1fr; gap: 4px; padding: 16px 4px; }
+    }
+    @media (max-width: 560px) {
+      .grid-4, .grid-2 { grid-template-columns: 1fr; }
+      section { padding: 48px 0; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="wordmark" href="/about" aria-label="GridPulse — About">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="6" fill="#0a0a0b"/>
+          <path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16"
+                stroke="#3b82f6" stroke-width="2.25"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <span>Grid<span class="pulse">Pulse</span></span>
+      </a>
+      <a class="header-cta" href="/">Open the live platform &rarr;</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- ── Hero ── -->
+    <div class="hero">
+      <div class="wrap">
+        <div>
+          <p class="eyebrow">Energy Intelligence Platform</p>
+          <h1>See demand sooner. Decide with confidence.</h1>
+          <p class="subhead">
+            GridPulse unifies weather-aware demand forecasting, forecast
+            confidence, grid visibility, and scenario-based decision support
+            for 51 US balancing authorities — in one live, decision-ready
+            platform.
+          </p>
+          <div class="cta-row">
+            <a class="btn-primary" href="/">Explore the live platform</a>
+            <a class="btn-secondary" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/HOW_IT_WORKS.md">Read how it works</a>
+          </div>
+          <div class="chips" aria-label="Platform facts">
+            <span class="chip"><strong>51</strong> balancing authorities &middot; ~100% of lower-48 demand</span>
+            <span class="chip"><strong>3 models + ensemble</strong> &middot; retrained daily, gated before serving</span>
+            <span class="chip">Scored <strong>hourly</strong> against live EIA data</span>
+            <span class="chip"><strong>4.8%</strong> median per-BA holdout error (served ensemble, 168&nbsp;h recursive)</span>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <div class="shot">
+            <img src="/assets/landing-dashboard.png" width="1280" height="900"
+                 alt="The live GridPulse Overview for Texas (ERCOT): current demand, 7-day KPIs, actuals with the forward forecast segment, and real holdout metrics">
+          </div>
+          <p class="shot-caption">The live dashboard — real EIA demand, weather-aware forecasts, honest holdout metrics.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Value pillars ── -->
+    <section aria-labelledby="pillars">
+      <div class="wrap">
+        <p class="section-eyebrow">Why it exists</p>
+        <h2 id="pillars">From fragmented monitoring to a unified operating view</h2>
+        <p class="section-lede">
+          Energy teams juggle demand feeds, weather models, forecast
+          spreadsheets, and tribal knowledge. GridPulse organizes all of it
+          around four decisions.
+        </p>
+        <div class="grid-4">
+          <div class="card">
+            <h3>Forecast with context</h3>
+            <p>Demand, weather, and time-series patterns unified in a forecasting experience built for real operating conditions.</p>
+          </div>
+          <div class="card">
+            <h3>See confidence, not just output</h3>
+            <p>Model reliability, forecast uncertainty, and recent live performance — visible before you act on a number.</p>
+          </div>
+          <div class="card">
+            <h3>Surface risk earlier</h3>
+            <p>Anomalies, severe conditions, and forecast instability tracked in one operational view.</p>
+          </div>
+          <div class="card">
+            <h3>Plan through scenarios</h3>
+            <p>Test assumptions and understand how changing conditions alter expected demand and decision windows.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Modules ── -->
+    <section aria-labelledby="modules">
+      <div class="wrap">
+        <p class="section-eyebrow">The platform</p>
+        <h2 id="modules">Five views, five operating questions</h2>
+        <p class="section-lede">
+          Every screen answers a question an operator, analyst, or trader
+          actually asks — and four role-based personas reconfigure the
+          defaults for each decision-making context.
+        </p>
+        <div role="list">
+          <div class="module" role="listitem">
+            <span class="module-name">Overview</span>
+            <span class="module-q">What changed, and what matters now?</span>
+            <span class="module-what">Mission-control summary, key KPIs, role-aware briefing.</span>
+          </div>
+          <div class="module" role="listitem">
+            <span class="module-name">US Grid</span>
+            <span class="module-q">Which balancing authorities are stressed?</span>
+            <span class="module-what">51-BA cards, map, and polygon views with utilization and capacity context.</span>
+          </div>
+          <div class="module" role="listitem">
+            <span class="module-name">Forecast</span>
+            <span class="module-q">What will happen?</span>
+            <span class="module-what">Forward predictions from Prophet, SARIMAX, XGBoost, and the ensemble — with confidence bands.</span>
+          </div>
+          <div class="module" role="listitem">
+            <span class="module-name">Risk</span>
+            <span class="module-q">Where is operating risk rising?</span>
+            <span class="module-what">Severe-weather signals, anomalies, stress indicators, degraded conditions.</span>
+          </div>
+          <div class="module" role="listitem">
+            <span class="module-name">Models</span>
+            <span class="module-q">How trustworthy is the forecast?</span>
+            <span class="module-what">Per-model holdout metrics, live drift, residuals, SHAP feature importance.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Built in the open ── -->
+    <section aria-labelledby="open">
+      <div class="wrap">
+        <p class="section-eyebrow">Built in the open</p>
+        <h2 id="open">Every number is reproducible. Every decision is documented.</h2>
+        <p class="section-lede">
+          GridPulse treats honesty as an engineering requirement: accuracy is
+          measured the way production actually forecasts, data-quality
+          exclusions are disclosed on the page, and the architecture decisions
+          — including the mistakes — are public.
+        </p>
+        <div class="grid-2">
+          <div class="card">
+            <h3>The decision record</h3>
+            <p>Ten architecture decision records cover everything from the ensemble weighting to why a freshly retrained model must replay sanely through the real serve path before it may serve.</p>
+            <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/PRD.md">ADR trail in PRD.md &rarr;</a>
+          </div>
+          <div class="card">
+            <h3>Accuracy, measured honestly</h3>
+            <p>Holdout backtests use the recursive multi-step protocol production serves — roughly 2&times; harder on the models than the teacher-forced numbers dashboards usually quote. All 51 BAs, published.</p>
+            <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BACKTEST_RESULTS.md">Backtest results &rarr;</a>
+          </div>
+          <div class="card">
+            <h3>Data provenance, disclosed</h3>
+            <p>EIA publishes provisional readings that can revise heavily before settling. GridPulse measures each feed's revision behavior, classifies it live, and discloses exclusions in plain language on the dashboard.</p>
+            <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/ANCHOR_CONDITIONING_STUDY.md">The anchor-conditioning study &rarr;</a>
+          </div>
+          <div class="card">
+            <h3>Failure analysis, published</h3>
+            <p>When a forecast collapsed off provably clean inputs, the diagnosis — an ablation study across 67 model vintages — shipped to the repo, and its fix became a permanent acceptance gate.</p>
+            <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/FORECAST_DIVE_DIAGNOSIS.md">The forecast-dive diagnosis &rarr;</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <nav aria-label="Footer">
+        <a href="/">Live platform</a>
+        <a href="https://github.com/kristenmartino/gridpulse">GitHub</a>
+        <a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/HOW_IT_WORKS.md">How it works</a>
+        <a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/CANONICAL_FACTS.md">Canonical facts</a>
+      </nav>
+      <p>
+        Data: EIA &middot; Open-Meteo &middot; NOAA &nbsp;&nbsp;|&nbsp;&nbsp;
+        Built by Kristen Martino
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

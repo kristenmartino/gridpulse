@@ -102,7 +102,9 @@ holdout column populated for all 51 BAs since
 holdout-NaN crash. Per-BA holdout metrics are produced every daily training
 run, persisted to each model's GCS `meta.json`, and surfaced live in the
 Models tab via Redis `model_metrics`. Full per-BA, per-model table:
-[`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md).)
+[`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md). Also cited on the
+`/about` landing page (`web/landing.html` — the "4.8% median per-BA" chip);
+update it when this table regenerates.)
 
 Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`.
