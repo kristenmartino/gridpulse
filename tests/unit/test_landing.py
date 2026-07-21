@@ -72,6 +72,19 @@ class TestLandingContent:
         for tab in ("Overview", "US Grid", "Forecast", "Risk", "Models"):
             assert tab in body
 
+    def test_external_links_new_tab_internal_links_same_tab(self, body) -> None:
+        """External GitHub links must not navigate visitors away from the
+        page (target=_blank + rel=noopener); the product CTAs into ``/``
+        stay same-tab."""
+        import re
+
+        external = re.findall(r'<a [^>]*href="https://github\.com[^"]*"[^>]*>', body)
+        assert external, "expected external GitHub links on the page"
+        for tag in external:
+            assert 'target="_blank"' in tag and 'rel="noopener"' in tag, tag
+        assert re.search(r'<a class="btn-primary" href="/">', body)
+        assert 'href="/" target' not in body
+
     def test_posture_pins_no_commercial_language(self, body) -> None:
         """The BSC-era guardrail as a test: portfolio-neutral, nothing
         commercial, no combat claims (market-entry plan rule; archived
