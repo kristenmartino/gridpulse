@@ -19,6 +19,19 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-21 — ADR-011 NBM-composite weather built, shipped DARK; flip PR
+is next.** The A/B study's ADOPT verdict (#332) implemented as the exact
+measured arm: `_composite_nbm` overlays NBM onto the base fetch for
+future hours only, `NBM_FORCE_FILL_VARS` (radiation ×3, pressure, 120 m
+wind) always keep base per the rung-0 evidence, NBM nulls keep base (the
+11.5-day tail — ADR-008 untouched), enrichment-only + fail-open
+(`weather_nbm_failed` → base frame). Flag `nbm_weather` ships False.
+Live-verified in dev: `weather_nbm_composited` n_overlaid=2871 per BA,
+~260 future hours moved (mean Δ1.8–1.9 °F, max 12.4 °F), radiation
+byte-identical, schema unchanged. After the deploy: the flip PR closes
+#332; post-flip watch = composited logs 51/51, gate green at 04:00 Z,
+AZPS/SEC live sMAPE descending (+3.70/+1.88 were their measured deltas).
+
 **2026-07-21 — Weather-model A/B study: verdict ADOPT for the NBM
 composite (+0.92 sMAPE pts), adoption tracked in #332.** The data-source
 research's top candidate, measured the project's way:

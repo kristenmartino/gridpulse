@@ -217,6 +217,7 @@ Note: The legacy modules (Historical Demand, Demand Forecast, Backtest, Generati
 - **ADR-008**: Climatology fallback for forecast horizon beyond Open-Meteo's 16-day coverage — operationally honest about extended-range uncertainty rather than fabricating signal; visibly labeled on the Forecast tab. Full rationale: PRD.md §10.
 - **ADR-009**: Class-conditional anchor conditioning — broken-feed BAs anchor on their own day-ahead forecast (`forecast_mw`) for trailing unsettled hours, on a forked frame; policy driven live by the vintage classifier. Evidence: docs/ANCHOR_CONDITIONING_STUDY.md. Full rationale: PRD.md §10.
 - **ADR-010**: Serve-path acceptance gate — daily retrains are a fit lottery (~27% of persisted LDWP vintages dive in the recursive serve regime; the holdout is blind to it), so the training job replays each candidate through the real serve path and a rejected candidate never repoints `latest.json`. Evidence: docs/FORECAST_DIVE_DIAGNOSIS.md. Full rationale: PRD.md §10.
+- **ADR-011**: NBM-composite forecast weather — NOAA's National Blend of Models overlaid on the base fetch for future hours only, base-filled where NBM lacks variables (`NBM_FORCE_FILL_VARS`); enrichment-only, fail-open, flag `nbm_weather`. Measured +0.921 sMAPE pts through the real serve path. Evidence: docs/WEATHER_MODEL_AB.md. Full rationale: PRD.md §10.
 
 ### Module Map
 ```text
