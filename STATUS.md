@@ -19,6 +19,24 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-22 — ADR-012 multi-point weather built, shipped DARK; flip PR
+next.** The study's ADOPT verdict implemented as the measured arm,
+weights-free: `assets/multipoint_coordinates.json` (36 BAs × up to 12
+footprint cells, generated offline; the 15 compact BAs omitted → single
+point), `data/weather_aggregate.py` (circular mean / mode /
+**renormalizing nanmean** — a deliberate divergence from the study's
+`nansum`, which counted a null point as zero and would have dragged
+values toward zero in production), and multi-point fetchers that **fail
+open at every seam** to the untouched single-point path (the #161
+lesson). NBM composites **per point** before aggregation — its
+null-keeps-base rule is per-cell, so aggregate-then-overlay would be
+wrong. Flag `multipoint_weather` ships False. Live dev verification:
+MISO 12 points → NBM per-point (34,452 = 12 × 2,871) → aggregated, 0
+nulls, schema identical, 1.64 °F mean delta vs single-point; GVL
+(compact, absent) exactly 0.00 °F. Three mutations killed (null-drop
+reverted, flag removed, archive retry removed). Next: deploy, shadow
+verification, then the flip PR closes #336.
+
 **2026-07-22 — Multi-point weather study: ADOPT, and it's simpler than the
 literature said.** Research rank 2 (MISO's fix — the one BA that LOST
 −0.33 in the NBM study). `scripts/multipoint_weather_study.py` retrains a

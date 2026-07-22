@@ -222,6 +222,7 @@ These items are intentionally not first-class priorities right now:
 | ADR-009 | Class-conditional anchor conditioning: broken-feed BAs anchor on their own day-ahead forecast | EIA's newest reading averages 58.2% wrong on broken-class feeds vs the hour-matched DF's 14.5% (90% win rate, measured via the vintage instrument); churn/bulk classes measured AGAINST substitution and ship unchanged |
 | ADR-010 | Serve-path acceptance gate: a retrained model must replay sanely through the real serve path before `latest.json` repoints to it | Daily retrains are a measured fit lottery (~27% of persisted LDWP vintages produce degenerate recursive forecasts) and the published holdout is provably blind to it; stale-but-sane beats fresh-but-insane, the same principle as the data-fallback policy |
 | ADR-011 | NBM-composite forecast weather: NOAA's National Blend of Models overlaid on the base fetch for future hours, base-filled for the variables NBM lacks | The weather-model A/B study measured NBM temperatures 16–27% more accurate with ~zero bias, worth +0.921 sMAPE pts of demand accuracy through the real serve path (AZPS +3.70, SEC +1.88); the composite ships the exact configuration the study measured |
+| ADR-012 | Multi-point weather: sample each BA's footprint at up to 12 static cells and aggregate (unweighted), instead of one representative point | The multi-point study measured +1.14 sMAPE pts (MISO +1.77, PJM +1.41, SPP +1.45; compact BAs ~0, GVL control exactly 0.000) — and measured population *weighting* as adding nothing, so production carries coordinates only and needs no runtime census data |
 
 ### ADR-004 detail — Ensemble weighting exponent (2026-07-04)
 
@@ -463,6 +464,73 @@ tests; flipped in a follow-up PR once the deploy verified. Post-flip
 verification: `weather_nbm_composited` on 51/51 regions, the ADR-010 gate
 green on the next training, and AZPS/SEC live sMAPE descending — the
 study's prediction made visible on the drift meters.
+
+### ADR-012 detail — Multi-point weather aggregation (2026-07-22)
+
+**Context.** Every BA drew weather from ONE representative lat/lon
+(`config.REGION_COORDINATES`) — for MISO that is a single point in rural
+Illinois standing in for fifteen states. The load-forecasting literature
+(Hong/Wang/White 2015; Sobhani et al. 2019) established that multiple
+stations plus population weighting beat single-point at utility-*zonal*
+scale, but it was unmeasured at BA scale; and MISO was the one BA that
+got slightly *worse* under ADR-011, implicating its weather sampling
+rather than its weather model.
+
+**Decision.** Sample each BA's footprint at up to **12 static cells** and
+aggregate, **unweighted**. Cells are chosen offline (census county
+centroids inside the BA polygon, grid-snapped to the 0.25° ERA5 cell,
+top-K by population) and committed as `assets/multipoint_coordinates.json`
+— 36 BAs; the 15 compact single-metro BAs are omitted and keep their
+single point. The census download and matplotlib point-in-polygon live in
+`scripts/generate_multipoint_coords.py`; **the production import path
+carries no new dependency and does no census work at runtime.**
+Aggregation (`data/weather_aggregate.py`): circular mean for
+`wind_direction_10m`, mode for the ordinal `weather_code`, renormalizing
+`nanmean` for the other 15.
+
+**Evidence** (`docs/MULTIPOINT_WEATHER_STUDY.md`): retrain-per-arm over 5
+large BAs × 10 rolled windows, paired with a fixed seed so the
+fit-lottery cancels — **mean +1.14 sMAPE pts**, 90% of paired windows,
+no BA worse; MISO **+1.77**, SPP +1.45, PJM +1.41, ERCOT +0.79, SOCO
++0.31, and the GVL control (one county, falls back to single-point)
+exactly **0.000**. The per-BA gradient tracks geographic spread, which is
+the hypothesis made visible.
+
+**Alternatives considered.**
+- *Population-weighted aggregation:* the study's own arm C — **rejected
+  by its own evidence** (C−B ≈ 0). The gain is spatial averaging, not
+  load-weighting; at BA-aggregate scale the demand series has already
+  integrated the load distribution. Dropping weights removed the entire
+  runtime census dependency.
+- *Loop the single-point pipeline K times:* rejected on cost — K separate
+  calls ≈ 44k requests/day against a 10k/day tier. Open-Meteo accepts
+  comma-separated coordinates and returns a list in one call, so
+  multi-point costs 3 calls/BA/run regardless of K.
+- *Aggregate first, then overlay NBM:* rejected on correctness — ADR-011's
+  "any NBM null keeps base" rule is per-cell, so a point whose NBM is
+  null must contribute its own base to the average; overlaying after
+  aggregation would overwrite the hour from only the finite points, and
+  is a configuration ADR-011 never measured. NBM composites **per point**,
+  then aggregates.
+- *Porting the study's aggregation verbatim:* rejected — its plain branch
+  used `nansum`, counting a null point as zero. Harmless offline
+  (land-only centroids, ERA5) but in production a cell over water or
+  outside CONUS would drag every value toward zero: a silent coverage
+  collapse of the #161 flavor. Production renormalizes.
+
+**Safety.** The change lives in the function whose single-point
+predecessor took down forecasts fleet-wide (#161), so it **fails open at
+every seam**: a missing point-set, an HTTP error, or a wrong-shape
+response all fall back to the untouched single-point path, whose own
+`RequestException` still drives the stale → GCS → empty chain; a
+multi-point archive failure retries *single-point* archive before
+degrading to forecast-only, because #161 was precisely about losing deep
+history. Flag off is byte-identical: `aggregate_weather` is never called.
+
+**Update trail.** Shipped DARK (flag `multipoint_weather`); flipped in a
+follow-up PR after deploy + shadow verification. Post-flip: the ADR-010
+serve gate green at the next training, and MISO/PJM/SPP live sMAPE
+descending toward the predicted +1.4–1.8.
 
 ## 11. Roadmap Direction
 
