@@ -18,6 +18,7 @@ Key design decisions:
 API docs: https://open-meteo.com/en/docs
 """
 
+import numpy as np
 import pandas as pd
 import requests
 import structlog
@@ -45,12 +46,19 @@ ARCHIVE_LAG_DAYS = 5
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 
-def _fetch_forecast_endpoint(region: str, past_days: int, forecast_days: int) -> pd.DataFrame:
+def _fetch_forecast_endpoint(
+    region: str, past_days: int, forecast_days: int, model: str | None = None
+) -> pd.DataFrame:
     """Lean GET against Open-Meteo's /forecast endpoint (recent + future).
 
     No cache / GCS / fallback of its own — ``fetch_weather`` owns those
     once for the combined result. Raises ``requests.RequestException`` on
     HTTP failure so the caller can run the existing fallback chain.
+
+    ``model`` selects a specific Open-Meteo model (ADR-011: NBM) instead
+    of the default ``best_match`` blend. Models with shorter horizons
+    (NBM: ~11.5 days) return null rows beyond their coverage rather than
+    erroring — the composite's per-value fill handles the tail.
     """
     coords = REGION_COORDINATES[region]
     params = {
@@ -63,9 +71,61 @@ def _fetch_forecast_endpoint(region: str, past_days: int, forecast_days: int) ->
         "wind_speed_unit": "mph",
         "timezone": "UTC",
     }
+    if model:
+        params["models"] = model
     resp = requests.get(f"{OPEN_METEO_BASE_URL}/forecast", params=params, timeout=REQUEST_TIMEOUT)
     resp.raise_for_status()
     return _parse_weather_response(resp.json())
+
+
+def _composite_nbm(
+    base_df: pd.DataFrame, nbm_df: pd.DataFrame, now: pd.Timestamp
+) -> tuple[pd.DataFrame, int, int]:
+    """Overlay NBM values onto the base frame — the measured ADR-011 arm.
+
+    Three rules, each tied to the study configuration
+    (docs/WEATHER_MODEL_AB.md):
+
+    * **Future hours only** (``ts > now``): the study conditioned future
+      weather; recent-past rows stay base (and the ERA5 stitch replaces
+      most of them anyway).
+    * **``NBM_FORCE_FILL_VARS`` always keep base** — the measured arm was
+      base-filled for radiation/DNI/diffuse/pressure/120m-wind; live NBM's
+      patchy radiation is an unmeasured configuration.
+    * **Any NBM null keeps base** — covers NBM's ~11.5-day horizon tail
+      inside the 16-day frame and any patchy field.
+
+    Returns ``(composited copy, n_values_overlaid, n_values_base_kept)``
+    where the counts cover the future-hour region of NBM-eligible columns.
+    """
+    from config import NBM_FORCE_FILL_VARS
+
+    out = base_df.copy()
+    ts = pd.to_datetime(out["timestamp"], utc=True)
+    future = ts > now
+    if not future.any() or nbm_df is None or nbm_df.empty:
+        return out, 0, 0
+
+    nbm = nbm_df.copy()
+    nbm["timestamp"] = pd.to_datetime(nbm["timestamp"], utc=True)
+    nbm = nbm.set_index("timestamp")
+
+    overlaid = 0
+    kept = 0
+    eligible = [v for v in WEATHER_VARIABLES if v not in NBM_FORCE_FILL_VARS]
+    nbm_aligned = nbm.reindex(ts[future])
+    for var in eligible:
+        if var not in nbm_aligned.columns:
+            kept += int(future.sum())
+            continue
+        vals = pd.to_numeric(nbm_aligned[var], errors="coerce").to_numpy()
+        mask = np.isfinite(vals)
+        col = out.loc[future, var].to_numpy(dtype=float).copy()
+        col[mask] = vals[mask]
+        out.loc[future, var] = col
+        overlaid += int(mask.sum())
+        kept += int((~mask).sum())
+    return out, overlaid, kept
 
 
 def _fetch_archive_endpoint(region: str, start_date: str, end_date: str) -> pd.DataFrame:
@@ -201,6 +261,29 @@ def fetch_weather(
 
     if forecast_df.empty:
         return _fallback("empty_forecast_response")
+
+    # 1b. ADR-011 (#332): NBM-composite enrichment — flag-gated, fail-open.
+    #     Any failure (HTTP or composite bug) serves the base frame
+    #     unchanged; the base fetch's fallback chain above is untouched.
+    #     Prod jobs run in fresh containers, so the 24h SQLite cache can
+    #     never serve a pre-flip frame across a flag flip (dev-only nuance).
+    from config import NBM_MODEL, feature_enabled
+
+    if feature_enabled("nbm_weather"):
+        try:
+            nbm_df = _fetch_forecast_endpoint(
+                region, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
+            )
+            now_ts = pd.Timestamp.now(tz="UTC").floor("h")
+            forecast_df, n_overlaid, n_kept = _composite_nbm(forecast_df, nbm_df, now_ts)
+            log.info(
+                "weather_nbm_composited",
+                region=region,
+                n_overlaid=n_overlaid,
+                n_base_kept=n_kept,
+            )
+        except Exception as e:
+            log.warning("weather_nbm_failed", region=region, error=str(e))
 
     # 2. Archive endpoint (deep history). Enrichment only — on failure we
     #    keep the forecast-only result rather than dropping to fallback.

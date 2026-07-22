@@ -102,6 +102,31 @@ OPEN_METEO_PARAMS = "&temperature_unit=fahrenheit&wind_speed_unit=mph"
 OPEN_METEO_FORECAST_DAYS = 16
 OPEN_METEO_FORECAST_HOURS = OPEN_METEO_FORECAST_DAYS * 24  # 384
 
+# --- NBM-composite forecast weather (ADR-011, #332) -----------------------
+# The weather-model A/B study (docs/WEATHER_MODEL_AB.md) measured NOAA's
+# National Blend of Models at 16-27% lower temperature RMSE than the
+# serving best_match source with ~zero bias, worth +0.921 sMAPE pts of
+# demand accuracy paired across the 8-BA sample (AZPS +3.70, SEC +1.88).
+# The composite overlays NBM values onto the base fetch for FUTURE hours
+# only — the studied configuration.
+
+#: Open-Meteo model id for the NBM arm.
+NBM_MODEL = "ncep_nbm_conus"
+#: Variables that ALWAYS keep the base-fetch value, even where live NBM
+#: reports something — the study's rung-0 audit measured these as absent
+#: from NBM on the previous-runs archive, so the measured (ADOPT) arm was
+#: base-filled for them. Live NBM serves patchy radiation; shipping it
+#: would ship an unmeasured configuration. Evidence fidelity wins.
+NBM_FORCE_FILL_VARS: frozenset[str] = frozenset(
+    {
+        "shortwave_radiation",
+        "direct_normal_irradiance",
+        "diffuse_radiation",
+        "surface_pressure",
+        "wind_speed_120m",
+    }
+)
+
 # Weather-normal artifact for the days-17-30 forecast tail (#283 Phase 1).
 # A per-(day_of_year, hour) average over a trailing multi-year ERA5 window — a
 # "normal weather year" — used to drive the demand model past Open-Meteo's ~16d
@@ -1036,6 +1061,10 @@ FEATURE_FLAGS: dict[str, bool] = {
     # #326: replay each candidate XGBoost through the real serve path at
     # persist time; refuse the latest.json repoint on a degenerate curve.
     "model_serve_gate": True,
+    # ADR-011 (#332): NBM-composite forecast weather. Ships DARK; flipped
+    # in a follow-up PR once the deploy is verified (the ADR-009 pattern).
+    # Rollback = flip off — the composite is enrichment-only.
+    "nbm_weather": False,
 }
 
 

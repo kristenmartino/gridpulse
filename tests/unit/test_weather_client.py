@@ -7,6 +7,7 @@ with full fallback chain verification. All HTTP, cache, and GCS calls are mocked
 
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 import pytest
 import requests
@@ -640,3 +641,143 @@ class TestFetchWeatherStitchOrchestration:
         pd.testing.assert_frame_equal(result, stale)
         assert mock_cache.get.call_count == 2
         assert mock_cache.get.call_args_list[1][1] == {"allow_stale": True}
+
+
+# ---------------------------------------------------------------------------
+# ADR-011 (#332): NBM-composite forecast weather
+# ---------------------------------------------------------------------------
+
+
+class TestNbmComposite:
+    """The composite's three measured-arm fidelity rules (pure function)."""
+
+    NOW = pd.Timestamp("2026-07-21T12:00:00Z")
+
+    def _frames(self, nbm_value: float = 60.0):
+        ts = pd.date_range(self.NOW - pd.Timedelta(hours=2), periods=6, freq="h")
+        base = pd.DataFrame({"timestamp": ts})
+        nbm = pd.DataFrame({"timestamp": ts})
+        for var in WEATHER_VARIABLES:
+            base[var] = 50.0
+            nbm[var] = nbm_value
+        return base, nbm
+
+    def test_overlay_is_future_hours_only(self):
+        from data.weather_client import _composite_nbm
+
+        base, nbm = self._frames()
+        out, n_overlaid, _ = _composite_nbm(base, nbm, self.NOW)
+
+        ts = pd.to_datetime(out["timestamp"], utc=True)
+        assert (out.loc[ts <= self.NOW, "temperature_2m"] == 50.0).all(), (
+            "a past/now row was overlaid — the study conditioned future weather only"
+        )
+        assert (out.loc[ts > self.NOW, "temperature_2m"] == 60.0).all()
+        assert n_overlaid > 0
+
+    def test_force_fill_vars_always_keep_base(self):
+        """Live NBM serves patchy radiation, but the MEASURED (ADOPT) arm
+        was base-filled for these — evidence fidelity wins."""
+        from config import NBM_FORCE_FILL_VARS
+        from data.weather_client import _composite_nbm
+
+        base, nbm = self._frames()
+        out, _, _ = _composite_nbm(base, nbm, self.NOW)
+
+        for var in NBM_FORCE_FILL_VARS:
+            assert (out[var] == 50.0).all(), f"{var} must stay base everywhere"
+
+    def test_nbm_nulls_keep_base(self):
+        """NBM's ~11.5-day horizon returns nulls inside the 16-day frame —
+        every null must keep the base value."""
+        from data.weather_client import _composite_nbm
+
+        base, nbm = self._frames()
+        nbm["temperature_2m"] = np.nan
+        out, _, n_kept = _composite_nbm(base, nbm, self.NOW)
+
+        assert (out["temperature_2m"] == 50.0).all()
+        assert n_kept > 0
+
+    def test_empty_nbm_frame_is_a_noop(self):
+        from data.weather_client import _composite_nbm
+
+        base, _ = self._frames()
+        out, n_overlaid, n_kept = _composite_nbm(base, pd.DataFrame(), self.NOW)
+
+        pd.testing.assert_frame_equal(out, base)
+        assert (n_overlaid, n_kept) == (0, 0)
+
+
+class TestFetchWeatherNbmFlag:
+    """Flag wiring: dark by default, enrichment-only when on, fail-open."""
+
+    def _response_for(self, temp: float) -> dict:
+        now = pd.Timestamp.now(tz="UTC").floor("h")
+        times = [(now + pd.Timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M") for h in (-1, 1, 2)]
+        hourly: dict = {"time": times}
+        for var in WEATHER_VARIABLES:
+            hourly[var] = [temp] * 3
+        return {"hourly": hourly}
+
+    def _run(self, monkeypatch, flag: bool, nbm_raises: bool = False):
+        import config as cfg
+        from data.weather_client import fetch_weather
+
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "nbm_weather", flag)
+
+        calls: list[dict] = []
+
+        def _fake_get(url, params=None, timeout=None):
+            calls.append({"url": url, "params": params or {}})
+            if (params or {}).get("models"):
+                if nbm_raises:
+                    raise requests.ConnectionError("nbm down")
+                resp = MagicMock()
+                resp.json.return_value = self._response_for(60.0)
+                resp.raise_for_status = MagicMock()
+                return resp
+            if "archive" in url:
+                raise requests.ConnectionError("archive down")  # forecast-only path
+            resp = MagicMock()
+            resp.json.return_value = self._response_for(50.0)
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        with (
+            patch("data.weather_client.get_cache", return_value=mock_cache),
+            patch("data.weather_client.requests.get", side_effect=_fake_get),
+            patch("data.gcs_store.write_parquet"),
+        ):
+            df = fetch_weather("ERCOT", use_cache=False)
+        return df, calls
+
+    def test_flag_off_no_nbm_request_and_base_values(self, monkeypatch):
+        df, calls = self._run(monkeypatch, flag=False)
+
+        assert not any(c["params"].get("models") for c in calls), (
+            "dark flag must mean zero NBM requests"
+        )
+        assert (df["temperature_2m"] == 50.0).all()
+
+    def test_flag_on_composites_future_hours(self, monkeypatch):
+        from config import NBM_MODEL
+
+        df, calls = self._run(monkeypatch, flag=True)
+
+        nbm_calls = [c for c in calls if c["params"].get("models") == NBM_MODEL]
+        assert len(nbm_calls) == 1
+        ts = pd.to_datetime(df["timestamp"], utc=True)
+        now = pd.Timestamp.now(tz="UTC").floor("h")
+        assert (df.loc[ts > now, "temperature_2m"] == 60.0).all()
+        assert (df.loc[ts <= now, "temperature_2m"] == 50.0).all()
+
+    def test_nbm_failure_serves_base_unchanged(self, monkeypatch):
+        """Enrichment-only: an NBM outage must degrade to today's behavior,
+        never to the fallback chain and never fatally."""
+        df, calls = self._run(monkeypatch, flag=True, nbm_raises=True)
+
+        assert any(c["params"].get("models") for c in calls)  # it tried
+        assert (df["temperature_2m"] == 50.0).all()

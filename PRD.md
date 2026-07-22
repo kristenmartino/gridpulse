@@ -221,6 +221,7 @@ These items are intentionally not first-class priorities right now:
 | ADR-008 | Climatology fallback for days 17-30 of the forecast horizon, labeled visibly | Open-Meteo's free `/forecast` endpoint covers 16 days; atmospheric chaos limits NWP skill past ~14 days regardless; the operational user value is in days 1-7, not 17-30 |
 | ADR-009 | Class-conditional anchor conditioning: broken-feed BAs anchor on their own day-ahead forecast | EIA's newest reading averages 58.2% wrong on broken-class feeds vs the hour-matched DF's 14.5% (90% win rate, measured via the vintage instrument); churn/bulk classes measured AGAINST substitution and ship unchanged |
 | ADR-010 | Serve-path acceptance gate: a retrained model must replay sanely through the real serve path before `latest.json` repoints to it | Daily retrains are a measured fit lottery (~27% of persisted LDWP vintages produce degenerate recursive forecasts) and the published holdout is provably blind to it; stale-but-sane beats fresh-but-insane, the same principle as the data-fallback policy |
+| ADR-011 | NBM-composite forecast weather: NOAA's National Blend of Models overlaid on the base fetch for future hours, base-filled for the variables NBM lacks | The weather-model A/B study measured NBM temperatures 16–27% more accurate with ~zero bias, worth +0.921 sMAPE pts of demand accuracy through the real serve path (AZPS +3.70, SEC +1.88); the composite ships the exact configuration the study measured |
 
 ### ADR-004 detail — Ensemble weighting exponent (2026-07-04)
 
@@ -410,6 +411,58 @@ have kept serving.
 closed #326; per-candidate verdicts land in each model's meta
 (`extra["serve_gate"]`) and in `model_gate_passed` / `model_gate_rejected`
 logs.
+
+### ADR-011 detail — NBM-composite forecast weather (2026-07-21)
+
+**Context.** The data-source research ranked higher-resolution NOAA
+weather the top external accuracy candidate but could not quantify the
+demand impact. The weather-model A/B study
+(`docs/WEATHER_MODEL_AB.md`, #332) measured it through the real serve
+path: lead-honest forecast vintages (Open-Meteo Previous Runs API),
+current prod pickles, paired replays over 8 BAs × 11 anchors × 168 h. It
+also discovered that `best_match` already resolves to the GFS+HRRR blend
+for CONUS — production was already consuming HRRR, making that arm a
+measured noise floor (+0.04 pts) rather than an upgrade.
+
+**Decision.** Overlay **NBM** (`ncep_nbm_conus`, same vendor, same
+endpoint, one extra request per region) onto the base fetch for **future
+hours only**, keeping base values for (a) the five variables the studied
+arm base-filled (`NBM_FORCE_FILL_VARS`: radiation ×3, surface pressure,
+120 m wind — live NBM serves patchy radiation, but shipping it would ship
+an unmeasured configuration), (b) any NBM null (its ~11.5-day horizon
+inside the 16-day frame — ADR-008's boundary is untouched), and (c) all
+past hours (the study conditioned future weather only). The composite is
+**enrichment-only and fail-open**: any NBM failure logs
+`weather_nbm_failed` and serves the base frame; the base fetch's
+stale-cache → GCS fallback chain is untouched. One client-level change
+means scoring and training switch together (train/serve consistency by
+construction).
+
+**Evidence.** Tier 1: NBM temperature RMSE 2.69 vs 3.22 °F at day-1,
+25–27% better at days 3–7, bias ~zero vs the control's −0.4..−1.9 °F cold
+bias. Tier 2 (decisive): mean **+0.921 sMAPE pts** paired; AZPS **+3.70**
+and SEC **+1.88** — tail BAs the research's negative finding said no
+external source could reach; worst BA MISO −0.33, inside the −0.5 veto
+(and the multi-point aggregation follow-up targets exactly MISO's
+single-point weakness).
+
+**Alternatives considered.**
+- *Raw NBM swap (`models=` only):* rejected — NBM lacks
+  radiation/DNI/diffuse/pressure/120 m-wind; a naive swap starves
+  `shortwave_radiation`, a top SHAP feature fleet-wide.
+- *Per-value-only fill (trust live NBM radiation where present):*
+  rejected on evidence fidelity — the measured arm base-filled those
+  variables; live NBM radiation is patchy and unmeasured.
+- *Switching to the `/v1/gfs` endpoint:* dissolved by measurement —
+  `best_match` is already the seamless GFS+HRRR blend for CONUS.
+- *NODD/Herbie self-fetch:* the licensing escape hatch if the project
+  commercializes (#256 track), not an accuracy decision.
+
+**Update trail.** Shipped DARK (flag `nbm_weather`) with the composite +
+tests; flipped in a follow-up PR once the deploy verified. Post-flip
+verification: `weather_nbm_composited` on 51/51 regions, the ADR-010 gate
+green on the next training, and AZPS/SEC live sMAPE descending — the
+study's prediction made visible on the drift meters.
 
 ## 11. Roadmap Direction
 
