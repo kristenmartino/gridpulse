@@ -306,12 +306,21 @@ class TestFetchWeather:
         pd.testing.assert_frame_equal(result, gcs_df)
 
     @patch("data.weather_client.get_cache")
-    def test_calls_both_endpoints_with_correct_params(self, mock_get_cache, mock_weather_response):
+    def test_calls_both_endpoints_with_correct_params(
+        self, mock_get_cache, mock_weather_response, monkeypatch
+    ):
         """fetch_weather now hits TWO endpoints (#161): /forecast for
         recent+future, archive for deep history. Verify each is called
         with the right params — coords/units shared, forecast uses a
-        short past_days + forecast_days, archive uses start/end dates."""
+        short past_days + forecast_days, archive uses start/end dates.
+
+        The ADR-011 NBM enrichment is pinned OFF here — this test is
+        about the BASE endpoint pair; the composite's extra call is
+        covered by TestFetchWeatherNbmFlag."""
+        import config as cfg
         from data.weather_client import ARCHIVE_LAG_DAYS, fetch_weather
+
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "nbm_weather", False)
 
         mock_cache = MagicMock()
         mock_cache.get.return_value = None
