@@ -790,3 +790,180 @@ class TestFetchWeatherNbmFlag:
 
         assert any(c["params"].get("models") for c in calls)  # it tried
         assert (df["temperature_2m"] == 50.0).all()
+
+
+# ---------------------------------------------------------------------------
+# ADR-012 (#336): multi-point weather aggregation
+# ---------------------------------------------------------------------------
+
+
+class TestMultipointWeather:
+    """The multi-point path must FAIL OPEN to today's single-point behavior
+    at every seam — #161 (a silent weather-coverage collapse here took down
+    forecasts fleet-wide) is the lesson these tests encode."""
+
+    COORDS = [[41.0, -89.0], [41.75, -87.75], [44.75, -93.25]]
+
+    def _response(self, temp: float, n_points: int | None = None):
+        """Single-point dict, or a list of per-point dicts when n_points."""
+        now = pd.Timestamp.now(tz="UTC").floor("h")
+        times = [(now + pd.Timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M") for h in (-1, 1, 2)]
+
+        def _one(t: float) -> dict:
+            hourly: dict = {"time": times}
+            for var in WEATHER_VARIABLES:
+                hourly[var] = [t] * 3
+            return {"hourly": hourly}
+
+        if n_points is None:
+            return _one(temp)
+        # each point a different temperature: temp, temp+10, temp+20 ...
+        return [_one(temp + 10 * i) for i in range(n_points)]
+
+    def _run(
+        self,
+        monkeypatch,
+        *,
+        flag: bool = True,
+        coords: list | None = None,
+        multi_forecast_raises: bool = False,
+        multi_archive_raises: bool = False,
+        single_forecast_raises: bool = False,
+        wrong_shape: bool = False,
+        nbm: bool = False,
+    ):
+        import config as cfg
+        import data.weather_client as wc
+
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "multipoint_weather", flag)
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "nbm_weather", nbm)
+        monkeypatch.setattr(
+            wc, "_load_multipoint_coords", lambda: {"ERCOT": coords} if coords else {}
+        )
+
+        calls: list[dict] = []
+
+        def _fake_get(url, params=None, timeout=None):
+            p = params or {}
+            calls.append({"url": url, "params": p})
+            is_multi = "," in str(p.get("latitude", ""))
+            is_archive = "archive" in url
+            if is_multi:
+                if is_archive and multi_archive_raises:
+                    raise requests.ConnectionError("multi archive down")
+                if not is_archive and multi_forecast_raises:
+                    raise requests.ConnectionError("multi forecast down")
+                n = 1 if wrong_shape else len(coords)
+                payload = self._response(50.0, n_points=n)
+            else:
+                if not is_archive and single_forecast_raises:
+                    raise requests.ConnectionError("single forecast down")
+                payload = self._response(50.0)
+            resp = MagicMock()
+            resp.json.return_value = payload
+            resp.raise_for_status = MagicMock()
+            return resp
+
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None
+        with (
+            patch("data.weather_client.get_cache", return_value=mock_cache),
+            patch("data.weather_client.requests.get", side_effect=_fake_get),
+            patch("data.gcs_store.read_parquet", return_value=None),
+            patch("data.gcs_store.write_parquet"),
+        ):
+            df = wc.fetch_weather("ERCOT", use_cache=False)
+        return df, calls, mock_cache
+
+    # -- dark state -------------------------------------------------------
+
+    def test_flag_off_makes_no_multipoint_request(self, monkeypatch):
+        """Dark ⇒ byte-identical to today: no comma-joined coordinates."""
+        _df, calls, _ = self._run(monkeypatch, flag=False, coords=self.COORDS)
+        assert calls, "expected HTTP calls"
+        assert not any("," in str(c["params"].get("latitude", "")) for c in calls)
+
+    def test_flag_off_never_aggregates(self, monkeypatch):
+        import data.weather_aggregate as agg
+
+        spy = MagicMock(side_effect=agg.aggregate_weather)
+        monkeypatch.setattr(agg, "aggregate_weather", spy)
+        self._run(monkeypatch, flag=False, coords=self.COORDS)
+        spy.assert_not_called()
+
+    # -- happy path -------------------------------------------------------
+
+    def test_multipoint_uses_one_call_per_endpoint(self, monkeypatch):
+        """K points must cost ONE request per endpoint, not K — K separate
+        calls would blow the free tier at 51 BAs hourly."""
+        _df, calls, _ = self._run(monkeypatch, coords=self.COORDS)
+        multi = [c for c in calls if "," in str(c["params"].get("latitude", ""))]
+        assert len(multi) == 2  # forecast + archive
+        assert len(multi[0]["params"]["latitude"].split(",")) == len(self.COORDS)
+
+    def test_multipoint_aggregates_the_points(self, monkeypatch):
+        """Per-point temps 50/60/70 → aggregate 60, proving the K frames
+        were averaged rather than the first one returned."""
+        df, _calls, _ = self._run(monkeypatch, coords=self.COORDS)
+        assert float(df["temperature_2m"].iloc[-1]) == pytest.approx(60.0)
+
+    # -- fail-open seams (the heart of this) ------------------------------
+
+    def test_missing_pointset_falls_back_to_single(self, monkeypatch):
+        """A compact BA absent from the artifact is a NORMAL case."""
+        _df, calls, _ = self._run(monkeypatch, coords=None)
+        assert not any("," in str(c["params"].get("latitude", "")) for c in calls)
+
+    def test_multipoint_error_retries_single_never_the_fallback_chain(self, monkeypatch):
+        """Multi fails, single succeeds ⇒ a normal fresh frame. The stale
+        cache must NOT be consulted — that would mean we'd wrongly entered
+        the #161 degradation path."""
+        df, calls, mock_cache = self._run(
+            monkeypatch, coords=self.COORDS, multi_forecast_raises=True
+        )
+        assert any("," not in str(c["params"].get("latitude", "")) for c in calls)
+        assert float(df["temperature_2m"].iloc[-1]) == pytest.approx(50.0)
+        assert not any(kwargs.get("allow_stale") for _args, kwargs in mock_cache.get.call_args_list)
+
+    def test_wrong_shape_response_falls_back_to_single(self, monkeypatch):
+        """A list of the wrong length (API change, partial response) must
+        degrade, never silently aggregate mismatched points."""
+        df, calls, mock_cache = self._run(monkeypatch, coords=self.COORDS, wrong_shape=True)
+        assert any("," not in str(c["params"].get("latitude", "")) for c in calls)
+        assert not any(kwargs.get("allow_stale") for _args, kwargs in mock_cache.get.call_args_list)
+        assert not df.empty
+
+    def test_both_paths_failing_still_reaches_the_fallback_chain(self, monkeypatch):
+        """Multi AND single forecast down ⇒ the #161 stale→GCS→empty chain
+        is still reachable (it must not be shadowed by multi-point)."""
+        df, _calls, mock_cache = self._run(
+            monkeypatch,
+            coords=self.COORDS,
+            multi_forecast_raises=True,
+            single_forecast_raises=True,
+        )
+        assert any(kwargs.get("allow_stale") for _args, kwargs in mock_cache.get.call_args_list), (
+            "the stale-cache fallback was never attempted"
+        )
+        assert df.empty  # no stale, no GCS → empty frame, as today
+
+    def test_multipoint_archive_failure_retries_single_archive(self, monkeypatch):
+        """#161 was about losing DEEP HISTORY — a multi-archive hiccup must
+        retry single-point archive, not skip to forecast-only."""
+        _df, calls, _ = self._run(monkeypatch, coords=self.COORDS, multi_archive_raises=True)
+        archive_singles = [
+            c
+            for c in calls
+            if "archive" in c["url"] and "," not in str(c["params"].get("latitude", ""))
+        ]
+        assert archive_singles, "single-point archive was never retried"
+
+    # -- NBM (ADR-011) composition ---------------------------------------
+
+    def test_nbm_composites_per_point_before_aggregating(self, monkeypatch):
+        """Both flags on: the NBM call must also be multi-point, so each
+        point's base is composited with ITS OWN NBM before averaging."""
+        _df, calls, _ = self._run(monkeypatch, coords=self.COORDS, nbm=True)
+        nbm_calls = [c for c in calls if c["params"].get("models")]
+        assert len(nbm_calls) == 1
+        assert "," in nbm_calls[0]["params"]["latitude"]
