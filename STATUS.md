@@ -19,6 +19,25 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-22 — Multi-point weather study: ADOPT, and it's simpler than the
+literature said.** Research rank 2 (MISO's fix — the one BA that LOST
+−0.33 in the NBM study). `scripts/multipoint_weather_study.py` retrains a
+fresh model per weather arm (no GCS needed) over 5 large BAs × 10 rolled
+windows: aggregating ~12 footprint points beats the single representative
+point by **mean +1.23 sMAPE pts** (88% of paired windows), largest where
+spread is worst — **MISO +1.93**, PJM +1.66, SPP +1.63 — smallest on
+compact SOCO/ERCOT, and the GVL control reads **exactly 0.000** (the
+falsification gate passed). **Key finding: population weighting adds
+nothing** (C−B ≈ 0) — the gain is pure spatial averaging, so a production
+adoption can drop the census/population machinery entirely and
+simple-average N footprint points (contradicts the literature's zonal
+weighting>averaging claim — at BA-aggregate scale the demand already
+integrated the load distribution). Evidence: `docs/MULTIPOINT_WEATHER_STUDY.md`.
+Next: adoption PR (config point-sets + multi-point fetch + circular-mean/
+weighted-mode aggregation, dark→flip, ADR-012) — a bigger lift than NBM
+(changes the weather representation in BOTH jobs), gated on this verdict;
+tracked in a new issue.
+
 **2026-07-22 — ADR-011 flipped ON: the fleet forecasts on NBM-composite
 weather.** Flag `nbm_weather` → True (PR B of the #332 arc; the issue —
 briefly auto-closed by a close-keyword quote-trap in PR A's body, the
