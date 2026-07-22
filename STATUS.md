@@ -19,6 +19,15 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-22 — ADR-011 flipped ON: the fleet forecasts on NBM-composite
+weather.** Flag `nbm_weather` → True (PR B of the #332 arc; the issue —
+briefly auto-closed by a close-keyword quote-trap in PR A's body, the
+documented CLAUDE.md hazard, reopened via API — closes properly with this
+PR). Post-flip watch: `weather_nbm_composited` on 51/51 in the next
+scoring tick; ADR-010 gate green at the next 04:00 Z training (the first
+NBM-fed training frames); AZPS/SEC live sMAPE descending over the week —
+their measured deltas were +3.70/+1.88 pts. Rollback = flip off.
+
 **2026-07-21 — ADR-011 NBM-composite weather built, shipped DARK; flip PR
 is next.** The A/B study's ADOPT verdict (#332) implemented as the exact
 measured arm: `_composite_nbm` overlays NBM onto the base fetch for
