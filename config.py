@@ -1061,10 +1061,12 @@ FEATURE_FLAGS: dict[str, bool] = {
     # #326: replay each candidate XGBoost through the real serve path at
     # persist time; refuse the latest.json repoint on a degenerate curve.
     "model_serve_gate": True,
-    # ADR-011 (#332): NBM-composite forecast weather. Ships DARK; flipped
-    # in a follow-up PR once the deploy is verified (the ADR-009 pattern).
-    # Rollback = flip off — the composite is enrichment-only.
-    "nbm_weather": False,
+    # ADR-011 (#332): NBM-composite forecast weather. Shipped dark in PR A,
+    # flipped ON 2026-07-22 after the deploy verified. Measured basis:
+    # +0.921 sMAPE pts paired through the real serve path (AZPS +3.70,
+    # SEC +1.88 — docs/WEATHER_MODEL_AB.md). Rollback = flip off — the
+    # composite is enrichment-only, base behavior is byte-identical.
+    "nbm_weather": True,
 }
 
 
