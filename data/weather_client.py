@@ -152,6 +152,159 @@ def _fetch_archive_endpoint(region: str, start_date: str, end_date: str) -> pd.D
     return _parse_weather_response(resp.json())
 
 
+# ── ADR-012 (#336): multi-point coordinates + fetch ──────────
+#
+# Every helper below is best-effort by construction: anything unexpected
+# returns None so ``fetch_weather`` runs its UNCHANGED single-point path.
+# "Multi-point off or broken" must equal today's behavior — the #161
+# lesson (a silent coverage collapse here took down forecasts fleet-wide).
+
+_MULTIPOINT_COORDS: dict[str, list[list[float]]] | None = None
+
+
+def _load_multipoint_coords() -> dict[str, list[list[float]]]:
+    """Lazy-load the committed coordinate artifact; ``{}`` on any problem.
+
+    Generated offline by ``scripts/generate_multipoint_coords.py`` — the
+    census download and matplotlib point-in-polygon live there, keeping
+    the production import path dependency-free. A missing or corrupt
+    artifact degrades every BA to single-point rather than raising.
+    """
+    global _MULTIPOINT_COORDS
+    if _MULTIPOINT_COORDS is not None:
+        return _MULTIPOINT_COORDS
+
+    import json
+    from pathlib import Path
+
+    path = Path(__file__).parent.parent / "assets" / "multipoint_coordinates.json"
+    try:
+        payload = json.loads(path.read_text())
+        coords = payload.get("coordinates", {})
+        _MULTIPOINT_COORDS = coords if isinstance(coords, dict) else {}
+    except Exception as exc:
+        log.warning("multipoint_coords_load_failed", error=str(exc))
+        _MULTIPOINT_COORDS = {}
+    return _MULTIPOINT_COORDS
+
+
+def _multipoint_coords(region: str) -> list[list[float]] | None:
+    """The BA's footprint cells, or None when it should stay single-point.
+
+    Compact BAs are absent from the artifact by design (the study's own
+    fallback), so ``None`` is a normal, expected answer.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("multipoint_weather"):
+        return None
+    coords = _load_multipoint_coords().get(region)
+    return coords if coords else None
+
+
+def _parse_weather_response_multi(payload: object) -> list[pd.DataFrame]:
+    """Parse a multi-point response into per-point frames, in submitted
+    order. Open-Meteo returns a LIST for multiple coordinates and a plain
+    dict for one — handle both."""
+    elements = payload if isinstance(payload, list) else [payload]
+    return [_parse_weather_response(el) for el in elements]
+
+
+def _fetch_forecast_endpoint_multi(
+    coords: list[list[float]],
+    past_days: int,
+    forecast_days: int,
+    model: str | None = None,
+) -> list[pd.DataFrame]:
+    """One /forecast call covering every coordinate (not one call each —
+    K separate calls would blow the free tier at 51 BAs hourly)."""
+    params = {
+        "latitude": ",".join(f"{lat:.4f}" for lat, _ in coords),
+        "longitude": ",".join(f"{lon:.4f}" for _, lon in coords),
+        "hourly": ",".join(WEATHER_VARIABLES),
+        "past_days": past_days,
+        "forecast_days": forecast_days,
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit": "mph",
+        "timezone": "UTC",
+    }
+    if model:
+        params["models"] = model
+    resp = requests.get(f"{OPEN_METEO_BASE_URL}/forecast", params=params, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return _parse_weather_response_multi(resp.json())
+
+
+def _fetch_archive_endpoint_multi(
+    coords: list[list[float]], start_date: str, end_date: str
+) -> list[pd.DataFrame]:
+    """One archive (ERA5) call covering every coordinate."""
+    params = {
+        "latitude": ",".join(f"{lat:.4f}" for lat, _ in coords),
+        "longitude": ",".join(f"{lon:.4f}" for _, lon in coords),
+        "hourly": ",".join(WEATHER_VARIABLES),
+        "start_date": start_date,
+        "end_date": end_date,
+        "temperature_unit": "fahrenheit",
+        "wind_speed_unit": "mph",
+        "timezone": "UTC",
+    }
+    resp = requests.get(ARCHIVE_URL, params=params, timeout=REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    return _parse_weather_response_multi(resp.json())
+
+
+def _frames_ok(frames: list[pd.DataFrame] | None, expected: int, region: str, what: str) -> bool:
+    """Shape guard — wrong count or an empty frame means fail open."""
+    if frames is None or len(frames) != expected or any(f is None or f.empty for f in frames):
+        log.warning(
+            "weather_multipoint_shape_mismatch",
+            region=region,
+            endpoint=what,
+            got=0 if frames is None else len(frames),
+            expected=expected,
+        )
+        return False
+    return True
+
+
+def _try_multipoint_forecast(
+    coords: list[list[float]], past_days: int, forecast_days: int, region: str
+) -> list[pd.DataFrame] | None:
+    """Best-effort multi-point /forecast. NEVER raises — any trouble
+    returns None so the caller runs the untouched single-point path (whose
+    own RequestException still drives the #161 fallback chain)."""
+    try:
+        frames = _fetch_forecast_endpoint_multi(coords, past_days, forecast_days)
+    except Exception as e:
+        log.warning("weather_multipoint_forecast_failed", region=region, error=str(e))
+        return None
+    return frames if _frames_ok(frames, len(coords), region, "forecast") else None
+
+
+def _try_multipoint_archive(
+    coords: list[list[float]], start_date: str, end_date: str, region: str
+) -> pd.DataFrame | None:
+    """Best-effort multi-point archive, already aggregated. None on any
+    trouble so the caller retries the single-point archive — dropping
+    straight to forecast-only would re-introduce the #161 loss of deep
+    history."""
+    from data.weather_aggregate import aggregate_weather
+
+    try:
+        frames = _fetch_archive_endpoint_multi(coords, start_date, end_date)
+    except Exception as e:
+        log.warning("weather_multipoint_archive_failed", region=region, error=str(e))
+        return None
+    if not _frames_ok(frames, len(coords), region, "archive"):
+        return None
+    try:
+        return aggregate_weather(frames)
+    except Exception as e:
+        log.warning("weather_multipoint_aggregate_failed", region=region, error=str(e))
+        return None
+
+
 def _stitch_weather(
     archive_df: pd.DataFrame | None,
     forecast_df: pd.DataFrame,
@@ -227,7 +380,15 @@ def fetch_weather(
     if region not in REGION_COORDINATES:
         raise ValueError(f"Unknown region: {region}. Valid: {list(REGION_COORDINATES.keys())}")
 
+    # ADR-012: the multi-point intent (flag on AND this BA has footprint
+    # cells) is known before any fetch, so it can key the cache. Prod runs
+    # fresh containers per job so a flag flip can't serve a stale frame,
+    # but dev keeps cache.db across toggles — the suffix stops a
+    # single-point frame being served as multi-point (or vice versa).
+    mp_coords = _multipoint_coords(region)
     cache_key = f"weather_{region}_past{past_days}_fc{forecast_days}"
+    if mp_coords:
+        cache_key += "_mp"
     cache = get_cache()
 
     if use_cache:
@@ -254,13 +415,29 @@ def fetch_weather(
 
     # 1. Forecast endpoint (recent + future). Short past_days — just enough
     #    to overlap the archive boundary; deep history comes from archive.
-    try:
-        forecast_df = _fetch_forecast_endpoint(region, ARCHIVE_LAG_DAYS + 2, forecast_days)
-    except requests.RequestException as e:
-        return _fallback(str(e))
+    #
+    #    ADR-012: try multi-point first. ``_try_multipoint_forecast`` never
+    #    raises — on ANY trouble it returns None and the single-point path
+    #    below runs exactly as it does today, including its
+    #    RequestException → _fallback (stale → GCS → empty) chain. So the
+    #    worst case of multi-point is one wasted request, never a worse
+    #    outcome than today.
+    forecast_frames: list[pd.DataFrame] | None = None
+    if mp_coords:
+        forecast_frames = _try_multipoint_forecast(
+            mp_coords, ARCHIVE_LAG_DAYS + 2, forecast_days, region
+        )
+    mp_active = forecast_frames is not None
 
-    if forecast_df.empty:
-        return _fallback("empty_forecast_response")
+    if not mp_active:
+        try:
+            forecast_df = _fetch_forecast_endpoint(region, ARCHIVE_LAG_DAYS + 2, forecast_days)
+        except requests.RequestException as e:
+            return _fallback(str(e))
+
+        if forecast_df.empty:
+            return _fallback("empty_forecast_response")
+        forecast_frames = [forecast_df]
 
     # 1b. ADR-011 (#332): NBM-composite enrichment — flag-gated, fail-open.
     #     Any failure (HTTP or composite bug) serves the base frame
@@ -271,19 +448,64 @@ def fetch_weather(
 
     if feature_enabled("nbm_weather"):
         try:
-            nbm_df = _fetch_forecast_endpoint(
-                region, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
-            )
             now_ts = pd.Timestamp.now(tz="UTC").floor("h")
-            forecast_df, n_overlaid, n_kept = _composite_nbm(forecast_df, nbm_df, now_ts)
-            log.info(
-                "weather_nbm_composited",
-                region=region,
-                n_overlaid=n_overlaid,
-                n_base_kept=n_kept,
-            )
+            if mp_active:
+                # ADR-012 × ADR-011: composite PER POINT, then aggregate.
+                # Aggregate-then-overlay would be wrong — _composite_nbm's
+                # "any NBM null keeps base" rule is per-cell, so a point
+                # whose NBM is null at some future hour (NBM's ~11.5-day
+                # CONUS horizon, or a border cell) must contribute ITS OWN
+                # base to the average; overlaying after aggregation would
+                # instead overwrite the hour from only the finite points.
+                # It is also the only configuration ADR-011 measured.
+                nbm_frames = _fetch_forecast_endpoint_multi(
+                    mp_coords, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
+                )
+                if _frames_ok(nbm_frames, len(forecast_frames), region, "nbm"):
+                    composited = [
+                        _composite_nbm(base, nbm, now_ts)
+                        for base, nbm in zip(forecast_frames, nbm_frames, strict=True)
+                    ]
+                    forecast_frames = [c for c, _, _ in composited]
+                    log.info(
+                        "weather_nbm_composited",
+                        region=region,
+                        points=len(composited),
+                        n_overlaid=sum(o for _, o, _ in composited),
+                        n_base_kept=sum(k for _, _, k in composited),
+                    )
+                # shape mismatch → keep the base frames (fail open)
+            else:
+                nbm_df = _fetch_forecast_endpoint(
+                    region, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
+                )
+                forecast_frames[0], n_overlaid, n_kept = _composite_nbm(
+                    forecast_frames[0], nbm_df, now_ts
+                )
+                log.info(
+                    "weather_nbm_composited",
+                    region=region,
+                    n_overlaid=n_overlaid,
+                    n_base_kept=n_kept,
+                )
         except Exception as e:
             log.warning("weather_nbm_failed", region=region, error=str(e))
+
+    # ADR-012: collapse K → 1 right after the forecast fetch, so the stitch,
+    # empty-guard, cache and GCS write below are untouched. When multi-point
+    # is off, aggregate_weather is never called and this is the identical
+    # single frame.
+    if mp_active:
+        from data.weather_aggregate import aggregate_weather
+
+        try:
+            forecast_df = aggregate_weather(forecast_frames)
+            log.info("weather_multipoint_aggregated", region=region, points=len(forecast_frames))
+        except Exception as e:
+            log.warning("weather_multipoint_aggregate_failed", region=region, error=str(e))
+            forecast_df = forecast_frames[0]
+    else:
+        forecast_df = forecast_frames[0]
 
     # 2. Archive endpoint (deep history). Enrichment only — on failure we
     #    keep the forecast-only result rather than dropping to fallback.
@@ -293,15 +515,22 @@ def fetch_weather(
     boundary = pd.Timestamp(today - timedelta(days=ARCHIVE_LAG_DAYS), tz="UTC") + pd.Timedelta(
         hours=23
     )
+    archive_start = (today - timedelta(days=past_days)).isoformat()
+    archive_end = (today - timedelta(days=ARCHIVE_LAG_DAYS)).isoformat()
+
     archive_df: pd.DataFrame | None = None
-    try:
-        archive_df = _fetch_archive_endpoint(
-            region,
-            (today - timedelta(days=past_days)).isoformat(),
-            (today - timedelta(days=ARCHIVE_LAG_DAYS)).isoformat(),
-        )
-    except requests.RequestException as e:
-        log.warning("weather_archive_failed_forecast_only", region=region, error=str(e))
+    if mp_active:
+        # Already aggregated; None on any multi-point trouble.
+        archive_df = _try_multipoint_archive(mp_coords, archive_start, archive_end, region)
+
+    if archive_df is None:
+        # Not attempted, or multi-point failed. Retry SINGLE-POINT before
+        # degrading: #161 was precisely about losing deep history, so a
+        # multi-point hiccup must not skip straight to forecast-only.
+        try:
+            archive_df = _fetch_archive_endpoint(region, archive_start, archive_end)
+        except requests.RequestException as e:
+            log.warning("weather_archive_failed_forecast_only", region=region, error=str(e))
 
     # 3. Stitch. Never return empty when forecast had data.
     df = _stitch_weather(archive_df, forecast_df, boundary)

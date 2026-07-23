@@ -127,6 +127,19 @@ NBM_FORCE_FILL_VARS: frozenset[str] = frozenset(
     }
 )
 
+# --- Multi-point weather aggregation (ADR-012, #336) ----------------------
+# Every BA drew weather from ONE representative lat/lon; for geographically
+# huge BAs that poorly represents the load-weighted weather. The study
+# (docs/MULTIPOINT_WEATHER_STUDY.md) measured aggregating ~12 footprint
+# points at +1.14 sMAPE pts (MISO +1.77, PJM +1.41, SPP +1.45; compact BAs
+# ~0) — and measured population WEIGHTING as adding nothing (C-B ~ 0), so
+# production carries coordinates only and needs no census data at runtime.
+#
+# These two are used by scripts/generate_multipoint_coords.py ONLY — the
+# runtime reads the generated assets/multipoint_coordinates.json.
+MULTIPOINT_K = 12
+MULTIPOINT_MIN_CELLS = 3
+
 # Weather-normal artifact for the days-17-30 forecast tail (#283 Phase 1).
 # A per-(day_of_year, hour) average over a trailing multi-year ERA5 window — a
 # "normal weather year" — used to drive the demand model past Open-Meteo's ~16d
@@ -1067,6 +1080,11 @@ FEATURE_FLAGS: dict[str, bool] = {
     # SEC +1.88 — docs/WEATHER_MODEL_AB.md). Rollback = flip off — the
     # composite is enrichment-only, base behavior is byte-identical.
     "nbm_weather": True,
+    # ADR-012 (#336): multi-point weather aggregation. Ships DARK; flipped
+    # in a follow-up PR once the deploy + shadow logs verify. Rollback =
+    # flip off (the multi-point path is fail-open to single-point, so off
+    # is byte-identical to the pre-ADR-012 behavior).
+    "multipoint_weather": False,
 }
 
 
