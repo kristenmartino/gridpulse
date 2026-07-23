@@ -64,7 +64,7 @@
 | Demand | EIA API v2 `/electricity/rto/region-data/` | Hourly per BA |
 | Generation by fuel | EIA API v2 `/electricity/rto/fuel-type-data/` | Hourly per BA |
 | Interchange | EIA API v2 `/electricity/rto/interchange-data/` | Hourly tie-line flows |
-| Weather | Open-Meteo (no API key) | 17 vars, historical + forecast; future hours are the **NBM composite** since ADR-011 (2026-07-22): `ncep_nbm_conus` overlaid on `best_match`, base-filled for radiation ×3 / surface pressure / 120 m wind + NBM's ~11.5-day tail |
+| Weather | Open-Meteo (no API key) | 17 vars, historical + forecast; future hours are the **NBM composite** since ADR-011 (2026-07-22): `ncep_nbm_conus` overlaid on `best_match`, base-filled for radiation ×3 / surface pressure / 120 m wind + NBM's ~11.5-day tail. Sampled **multi-point** since ADR-012 (2026-07-23): 36 BAs aggregate up to 12 footprint cells (`assets/multipoint_coordinates.json`, unweighted); the 15 compact BAs stay single-point |
 | Severe weather alerts | NOAA NWS | State-scoped |
 | Capacity (most BAs) | EIA-860M Feb 2026 | Sum nameplate-MW filtered to `Operating` |
 | Capacity (7 peak-derived BAs) | Peak demand × 1.15 (V3.η) | SOCO, DUK, CPLE, PSCO, FMPP, HST, CPLW — in-territory generation runs below served load, so the plate is a peak-based estimate (`capacity_source = peak_estimate` in the API); excluded from utilization/top-stress (#254). NOT a reserve margin. **SPA is import-dominated but its 2,559 MW is a true nameplate** (federal dam fleet), so it stays `nameplate`. |

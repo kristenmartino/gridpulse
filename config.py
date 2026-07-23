@@ -1080,11 +1080,15 @@ FEATURE_FLAGS: dict[str, bool] = {
     # SEC +1.88 — docs/WEATHER_MODEL_AB.md). Rollback = flip off — the
     # composite is enrichment-only, base behavior is byte-identical.
     "nbm_weather": True,
-    # ADR-012 (#336): multi-point weather aggregation. Ships DARK; flipped
-    # in a follow-up PR once the deploy + shadow logs verify. Rollback =
-    # flip off (the multi-point path is fail-open to single-point, so off
-    # is byte-identical to the pre-ADR-012 behavior).
-    "multipoint_weather": False,
+    # ADR-012 (#336): multi-point weather aggregation. Shipped dark in
+    # PR A, flipped ON 2026-07-23 after the deploy verified. Measured
+    # basis: +1.14 sMAPE pts (MISO +1.77, PJM +1.41, SPP +1.45 — the
+    # geographically-spread BAs a single sample point served worst;
+    # docs/MULTIPOINT_WEATHER_STUDY.md). 36 BAs carry footprint cells;
+    # the 15 compact ones stay single-point by omission. Rollback = flip
+    # off (the path is fail-open to single-point, so off is
+    # byte-identical to the pre-ADR-012 behavior).
+    "multipoint_weather": True,
 }
 
 
