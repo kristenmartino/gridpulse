@@ -14,6 +14,26 @@ import requests
 
 from config import WEATHER_VARIABLES
 
+
+@pytest.fixture(autouse=True)
+def _base_weather_flags(monkeypatch):
+    """Default every test in this module to the BASE single-point, no-NBM
+    fetch, because that is what most of them are about (parsing, the
+    two-endpoint stitch, the #161 fallback chain).
+
+    The enrichment layers are opt-in: ``TestFetchWeatherNbmFlag``
+    (ADR-011) and ``TestMultipointWeather`` (ADR-012) set their own flag
+    inside the test body, which runs after this fixture and so wins.
+    Without this, flipping either flag ON in config silently rewrites
+    what the legacy tests are measuring (a 3rd HTTP call, an aggregated
+    frame) — which is exactly what happened at both flips.
+    """
+    import config as cfg
+
+    monkeypatch.setitem(cfg.FEATURE_FLAGS, "nbm_weather", False)
+    monkeypatch.setitem(cfg.FEATURE_FLAGS, "multipoint_weather", False)
+
+
 # ---------------------------------------------------------------------------
 # _parse_weather_response tests
 # ---------------------------------------------------------------------------

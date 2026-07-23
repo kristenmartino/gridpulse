@@ -19,6 +19,17 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-23 — ADR-012 flipped ON: 36 BAs now forecast on aggregated
+footprint weather.** Flag `multipoint_weather` → True (PR B of the #336
+arc; the issue — auto-closed early by a close-keyword written in PR A's
+prose, the documented CLAUDE.md trap and its *second* occurrence this
+session after #332, reopened via API — closes properly with this PR).
+Post-flip watch: `weather_multipoint_aggregated` on the 36 multi-point
+BAs (the 15 compact ones correctly silent), zero
+`weather_multipoint_shape_mismatch`, ADR-010 serve gate green at the next
+04:00 Z training, and MISO/PJM/SPP live sMAPE descending toward the
+predicted +1.4–1.8. Rollback = flip off (byte-identical).
+
 **2026-07-22 — ADR-012 multi-point weather built, shipped DARK; flip PR
 next.** The study's ADOPT verdict implemented as the measured arm,
 weights-free: `assets/multipoint_coordinates.json` (36 BAs × up to 12
