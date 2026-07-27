@@ -473,6 +473,49 @@ a real diagnostic axis. And a validation metric that never touches the
 deployed artifact on the serving path isn't a safety property; the gate
 that replays the real thing is.*
 
+### 16. "Tell me about a bug that hid because it failed *safely*."
+**A feature that shipped green — tests, mutations, four CI checks — had never once executed in production, because "no measurement" and "measurement not available yet" were the same value.**
+
+Situation: We publish a benchmark scoring our forecast against each grid
+operator's own day-ahead forecast. One claim needed care: that our 48-hour
+comparison hands the operators *more* lead time than their own documented
+maximum of 41 hours. Rather than assert it, I made the label conditional —
+granted per scoring tick only while the measured lead actually exceeded 41h,
+lapsing on its own if the upstream publishing lag ever grew. It shipped with
+unit tests, three assert-applied mutations, and green CI.
+
+Task: Write the public methodology document — which meant describing, in
+precise language, what the code actually did rather than what it intended.
+
+Action: I read the implementation instead of its docstring. The helper that
+measures the lead read `previous_forecast["forecast"]`, but the Redis payload
+stores rows under `forecasts` — `forecast` is the *API's* reshaped name, and
+I had mirrored the shape I'd most recently looked at. So it returned an empty
+dict every tick, for every one of 51 regions. Empty is a legitimate state — a
+region whose forecast hasn't been written yet — so the payload fell back to
+the nominal label and nothing logged a problem. Following that thread turned
+up a second defect: the helper measured row index H−1, while the drift
+pipeline defines the 24h target as row 0 + 24h. The reported lead described
+the hour *before* the one actually scored, understating every lead by exactly
+an hour. Both defects failed conservative — the label withheld rather than
+wrongly granted, the lead understated rather than overstated — which is
+exactly why nothing looked broken.
+
+Result: Both fixed, with five producer-level tests including a cross-module
+invariant asserting the reported lead describes the same target hour the
+drift snapshot actually grades, and both original bugs reproduced as
+assert-applied mutations. Re-running the probe moved the measured leads from
+22.8–23.0h to **23.80–23.95h**, and the conservative arm from 46.80h to
+**47.80h** — the claim holds by a wider margin than we had published.
+
+**Lesson to convey**: *The tests covered the consumer — inject a dict, assert
+the label behaves. Nothing covered the producer, whose failure mode was a
+legal-looking empty value. Test what produces the data, not only what reads
+it. And notice when one payload has two names at two layers: a string key is
+a join with no type system behind it. Fail-safe defaults are good
+engineering, and they are also camouflage — a feature that never fires looks
+identical to a feature with nothing to say.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

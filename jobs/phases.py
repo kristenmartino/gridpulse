@@ -2050,6 +2050,13 @@ def write_horizon_drift_metrics(
 # ── Phase: public forecast benchmark (E0) ────────────────────
 
 
+#: Nominal horizon → hours, for the two leads the benchmark scores. MUST
+#: agree with ``models.drift._HORIZON_HOURS``, which decides which hour a
+#: "24h" snapshot actually targets; pinned by a test rather than imported so
+#: a divergence fails CI loudly instead of degrading to "no observation".
+_BENCHMARK_LEAD_HOURS: dict[str, int] = {"24h": 24, "48h": 48}
+
+
 def _observed_lead_hours(
     previous_forecast: dict[str, Any] | None,
 ) -> dict[str, float]:
@@ -2057,29 +2064,46 @@ def _observed_lead_hours(
 
     ``_resolve_forecast_start`` anchors row 0 at the last *real* demand
     hour, so with EIA's publishing lag a "24h" row is not 24h ahead —
-    measured at 22.8–23.0h across the fleet
+    measured at 23.8–24.0h across the fleet
     (``docs/BENCHMARK_PROVENANCE.md``). Computing it from the forecast
     payload the phase already reads avoids adding ``made_at`` to the live
     drift record schema, which would churn four models × three horizons ×
     51 regions to serve one field.
+
+    Two things here are load-bearing, and both were wrong in the first cut:
+
+    * **The rows live under ``forecasts``.** That is the Redis payload's
+      key; only the API reshapes it to ``forecast``. Reading the API's name
+      off the Redis payload silently produced *no* observation, which left
+      ``lead_basis`` on ``"nominal"`` and withheld the conservative label
+      fleet-wide.
+    * **The horizon is measured from row 0 + H, not from row index H−1** —
+      exactly how ``models.drift.snapshot_horizon_predictions`` picks the
+      target hour it later scores. Indexing instead measured the hour
+      *before* the one the benchmark grades, understating every lead by an
+      hour.
     """
     if not isinstance(previous_forecast, dict):
         return {}
-    rows = previous_forecast.get("forecast") or previous_forecast.get("rows") or []
+    rows = (
+        previous_forecast.get("forecasts")
+        or previous_forecast.get("forecast")
+        or previous_forecast.get("rows")
+        or []
+    )
     scored_at = previous_forecast.get("scored_at")
     if not rows or not scored_at:
         return {}
     try:
         made = pd.Timestamp(scored_at)
-        out: dict[str, float] = {}
-        for label, idx in (("24h", 23), ("48h", 47)):
-            if len(rows) <= idx:
-                continue
-            ts = rows[idx].get("timestamp") or rows[idx].get("ts")
-            if ts is None:
-                continue
-            out[label] = (pd.Timestamp(ts) - made).total_seconds() / 3600.0
-        return out
+        origin_ts = rows[0].get("timestamp") or rows[0].get("ts")
+        if origin_ts is None:
+            return {}
+        origin = pd.Timestamp(origin_ts)
+        return {
+            label: (origin + pd.Timedelta(hours=hours) - made).total_seconds() / 3600.0
+            for label, hours in _BENCHMARK_LEAD_HOURS.items()
+        }
     except Exception:  # pragma: no cover — observation only, never fatal
         return {}
 

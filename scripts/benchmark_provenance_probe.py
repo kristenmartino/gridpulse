@@ -195,8 +195,13 @@ def probe_realized_lead() -> pd.DataFrame:
                 payload = json.load(fh)
             scored_at = pd.Timestamp(payload["scored_at"])
             forecast = payload["forecast"]
-            lead_24 = (pd.Timestamp(forecast[23]["timestamp"]) - scored_at).total_seconds() / 3600
-            lead_48 = (pd.Timestamp(forecast[47]["timestamp"]) - scored_at).total_seconds() / 3600
+            # Measured from row 0 + H, exactly how
+            # ``models.drift.snapshot_horizon_predictions`` picks the hour the
+            # benchmark later grades. The first cut read ``rows[H-1]``, which
+            # is the hour BEFORE that one — understating every lead by 1h.
+            origin = pd.Timestamp(forecast[0]["timestamp"])
+            lead_24 = (origin + pd.Timedelta(hours=24) - scored_at).total_seconds() / 3600
+            lead_48 = (origin + pd.Timedelta(hours=48) - scored_at).total_seconds() / 3600
         except Exception as exc:  # pragma: no cover — network probe
             print(f"  {region}: lead probe failed ({exc})")
             continue
@@ -284,12 +289,13 @@ def main() -> int:
         conservative_ok = lo48 > OFFICIAL_DOCUMENTED_LEAD_H[1]
         report.append(
             f"\n**Reading.** A nominal-24h record is a realized "
-            f"**{lo24:.2f}–{hi24:.2f}h** lead — shorter than the label, and "
-            "shorter than the operators' documented "
+            f"**{lo24:.2f}–{hi24:.2f}h** lead — shorter than its label, and "
+            "sitting *inside* the operators' documented "
             f"{OFFICIAL_DOCUMENTED_LEAD_H[0]:.0f}–"
-            f"{OFFICIAL_DOCUMENTED_LEAD_H[1]:.0f}h day-ahead window, i.e. "
-            "marginally in our favour. No *N hours ahead* claim should be "
-            "published without this caveat.\n\n"
+            f"{OFFICIAL_DOCUMENTED_LEAD_H[1]:.0f}h day-ahead window rather "
+            "than beyond it, so on a typical hour they had at least as much "
+            "lead as we did. No *N hours ahead* claim should be published "
+            "without this caveat.\n\n"
             f"The nominal-48h arm carries a minimum realized "
             f"**{lo48:.2f}h** — "
             + (

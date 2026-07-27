@@ -19,6 +19,30 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-27 — E0-4 methodology published, and writing it found two live
+bugs in the lead instrument.** [`docs/BENCHMARK_METHODOLOGY.md`](docs/BENCHMARK_METHODOLOGY.md)
+states the rules — sources, the single-truth discipline, the five hour-drop
+rules and their bias direction, the exclusion tests, the dual official arm,
+lead-time handling, metrics, windows, fleet aggregation, what the benchmark
+is *not*, six known limits, and a rule that any future change to the scoring
+rules must state which direction it moves our own number. Numbers stay in
+the generated artifacts so the doc can't go stale.
+
+Writing it forced a read of the code rather than the code's docstrings, and
+`_observed_lead_hours` was wrong twice: it read the **API's** key
+(`forecast`) off the **Redis** payload (`forecasts`), so it returned `{}`
+every tick — the conservative label was being withheld fleet-wide and
+`lead_basis` never left `"nominal"` — and it measured row index H−1 instead
+of row 0 + H, the hour the drift snapshot actually targets, understating
+every lead by exactly 1h. Both failed conservative, which is why nothing
+looked broken. **The consumer was well tested and the producer was not**: a
+producer returning `{}` is indistinguishable from a BA with no forecast yet.
+Fixed, pinned by five producer tests including a cross-module invariant
+against `snapshot_horizon_predictions`, and both original bugs reproduced as
+assert-applied mutations. Corrected leads: nominal-24h realized
+**23.80–23.95h**, nominal-48h **47.80–47.95h** (probe re-run, artifact
+regenerated) — the conservative claim holds by a wider margin than reported.
+
 **2026-07-27 — E0 measurement pass: both provenance gates measured, both
 pass; publication unblocked** (PR
 [#341](https://github.com/kristenmartino/gridpulse/pull/341),
@@ -28,10 +52,10 @@ pass; publication unblocked** (PR
 *Gate 1 — does EIA revise DF after we bank it?* Yes, unevenly, and it
 changes nothing material. PJM/MISO/ERCOT/CAISO/GVL/SPP/NYISO revise
 **0%**; SOCO 24.2%; PSEI 26.4% (max Δ 34%); fleet 6.78%. Largest verdict
-shift is **1.42 pts** (PSEI 47.16% as-issued → 45.74% as-revised) — no
+shift is **1.43 pts** (PSEI 47.15% as-issued → 45.71% as-revised) — no
 conclusion flips. *Gate 2 — what lead do we actually forecast at?* A
-nominal-24h record is a realized **22.80–22.95h**, so no "24 hours ahead"
-claim ships unqualified; the nominal-48h arm's minimum **46.80h exceeds
+nominal-24h record is a realized **23.80–23.95h**, so no "24 hours ahead"
+claim ships unqualified; the nominal-48h arm's minimum **47.80h exceeds
 the operators' documented 41h maximum**, so publishing it as the
 *conservative* comparison is measurement-supported rather than assumed.
 
