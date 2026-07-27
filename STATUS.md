@@ -24,9 +24,23 @@ bugs in the lead instrument.** [`docs/BENCHMARK_METHODOLOGY.md`](docs/BENCHMARK_
 states the rules — sources, the single-truth discipline, the five hour-drop
 rules and their bias direction, the exclusion tests, the dual official arm,
 lead-time handling, metrics, windows, fleet aggregation, what the benchmark
-is *not*, six known limits, and a rule that any future change to the scoring
-rules must state which direction it moves our own number. Numbers stay in
-the generated artifacts so the doc can't go stale.
+is *not*, eight known limits, and a rule that any future change to the
+scoring rules must state which direction it moves our own number. Numbers
+stay in the generated artifacts so the doc can't go stale.
+
+A 12-agent adversarial review of the draft confirmed **33 defects**, and the
+two worst were mine repeating a number without checking its provenance: the
+"median 649 / min 500 **paired** hours" sizing is actually *officially
+scoreable* hours — the count before the `no_gridpulse` join — an error that
+originated in `MIN_PAIRED_HOURS`'s own comment in #340 and was fixed in both
+places; and a SOCO example meant to teach "always name your metric" itself
+compared *their* median APE over 30d against *our* mean sMAPE over 7d, four
+axes apart, using a 5.82% figure no artifact carries. Also added: the two
+limits that cut in our favour — the headline arm is **not lead-matched**
+(our ~23.9h vs their documented 17–41h, midpoint ~29h), and `no_gridpulse`
+conditions the hour set on *our* availability, dropping hours the operator
+did forecast. And §10's "ours is comparatively flat" is now labelled a
+hypothesis: no committed artifact publishes our spread yet.
 
 Writing it forced a read of the code rather than the code's docstrings, and
 `_observed_lead_hours` was wrong twice: it read the **API's** key
@@ -70,9 +84,11 @@ cannot see revision *before* our first capture, so the phrasing is always
 "the earliest day-ahead forecast we observed." **Next: E0-4 methodology
 doc, then E0-3 public page + `/api/v1/benchmark`** — every claim they
 need now has a measurement and a script behind it. Caution the
-measurement surfaced: per-BA verdicts move with metric and window (SOCO
-1.84% median APE / 30d vs 5.82% mean sMAPE / 7d), so the public page must
-carry metric, window and `n` on every row.
+measurement surfaced: per-BA figures move with metric, window AND arm —
+SOCO's *own* forecast reads 1.84% median APE / 30d, while an indicative run
+of *our* ensemble on the drift instrument read 5.82% mean sMAPE / 7d; four
+axes differ, so the two were never comparable. The public page must carry
+metric, window, `n` and arm on every row.
 
 **2026-07-27 — E0 benchmark engine landed (PR 1 of the arc); two
 provenance limits found by design review must be closed before anything

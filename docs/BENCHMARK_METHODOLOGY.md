@@ -7,7 +7,7 @@ This file is the *rules*. The numbers live in the generated artifacts —
 [`BENCHMARK_PROVENANCE.md`](BENCHMARK_PROVENANCE.md) — and in the live
 `gridpulse:benchmark:{ba}` payload, so the numbers can move without this
 document going stale. Implementation: [`models/benchmark.py`](../models/benchmark.py)
-(pure, 41 unit tests) and the `write_benchmark_metrics` phase in
+(pure, 44 unit tests) and the `write_benchmark_metrics` phase in
 [`jobs/phases.py`](../jobs/phases.py).
 
 ---
@@ -21,7 +21,7 @@ same settled truth, whose number was closer?
 
 | | |
 |---|---|
-| **Official arm** | The BA's own day-ahead forecast for the target hour |
+| **Official arm** | The earliest day-ahead forecast we observed the BA publish for the target hour (§12.1) |
 | **GridPulse arm** | Our served ensemble's forecast for that same hour |
 | **Truth** | EIA's settled value for that hour — the *same* value grades both |
 
@@ -47,10 +47,12 @@ Two properties of this wiring matter:
   `actual` is ignored; the benchmark re-grades every prediction against the
   vintage `last_d` itself. Both arms are therefore scored by one yardstick,
   computed in one place — neither inherits its own pipeline's notion of truth.
-- **The prediction is read from a record written before the outcome was
-  known.** Nothing here re-runs a model over history, so there is no way for
-  a later retrain, a later feature, or hindsight of any kind to leak into our
-  side of the comparison.
+- **The prediction value is fixed before the outcome is known.** It is
+  snapshotted at forecast time (`made_at`, with the target hour) and carried
+  unchanged into the record built once an actual exists — the record's
+  timestamp is later, the number is not. Nothing here re-runs a model over
+  history, so no later retrain, feature, or hindsight can reach our side of
+  the comparison.
 
 ## 3. One truth, one hour set
 
@@ -59,7 +61,10 @@ Two disciplines, both load-bearing:
 **Settled truth only.** EIA's first-published actual is preliminary and, on
 high-revision feeds, has been observed up to ~70% wrong. Scoring against it
 would grade both arms on a number EIA itself later withdrew. Only `last_d`
-counts.
+counts — EIA's latest value for the hour, refreshed on every tick. Note what
+that is *not*: no flag marks an hour final, so `last_d` is settled in
+practice (revisions stop) rather than by declaration, and a very recent hour
+may still move. Both arms move with it together.
 
 **The same hours, always.** An hour enters the comparison only if *both*
 arms have a value for it. A one-sided score would put a 30-day official
@@ -69,9 +74,10 @@ record against a partial GridPulse one and call the difference accuracy.
 
 Every candidate hour passes five tests, in this order. The per-reason counts
 ship in the payload as `excluded_hours`, because the drops are **not neutral
-across BAs** — a stub-heavy BA like MISO loses ~20% of its hours while a
-clean feed loses none, and a reader who cannot see that will reasonably
-assume the worst.
+across BAs** — MISO loses ~20% of its hours to stubs and ~10% more to hours
+with no published `DF` at all, while a clean feed loses a fraction of a
+percent, and a reader who cannot see that will reasonably assume the
+worst.
 
 | Rule | Dropped when | Why |
 |---|---|---|
@@ -116,11 +122,14 @@ reason listed in [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md).
 
 ## 6. Two official arms
 
-EIA revises the day-ahead forecast for some BAs after the fact — measured at
-0% for PJM, MISO, ERCOT, CAISO, GVL, SPP and NYISO, but 26.4% for PSEI and
-24.2% for SOCO. Picking one value to score would invite a fair objection
-either way, so the official side is scored **twice, on the same hours,
-against the same settled truth**:
+EIA revises the day-ahead forecast for some BAs after the fact. Across a
+**10-BA sample** chosen for a spread of feed behaviours — not the fleet —
+seven never revise (PJM, MISO, ERCOT, CAISO, GVL, SPP, NYISO), while PSEI
+revises 26.4%, SOCO 24.2% and FMPP 5.2%. FMPP is worth naming: revision
+makes its forecast *worse*, so revision is not a one-way advantage to the
+operator. Picking one value to score would invite a fair objection either
+way, so the official side is scored **twice, on the same hours, against the
+same settled truth**:
 
 - **`official`** — as-issued: the earliest day-ahead forecast we observed.
   The fair comparison, and the primary one.
@@ -134,8 +143,13 @@ BA's result, the payload says so rather than reporting only the favourable
 one. For every BA that does not revise, the two arms are identical by
 construction.
 
-Measured effect on any verdict so far: at most **1.43 points**, flipping
-nothing. See [`BENCHMARK_PROVENANCE.md`](BENCHMARK_PROVENANCE.md).
+Measured effect: no sampled operator's own accuracy moves by more than
+**1.43 points** between the two scorings. That probe scores only the official
+side, so it bounds the movement — it cannot by itself establish that no
+head-to-head verdict flips. Whether a flip occurs is decided per BA in the
+payload, which is why `winner_vs_revised` is published beside `winner` rather
+than asserted to agree with it. See
+[`BENCHMARK_PROVENANCE.md`](BENCHMARK_PROVENANCE.md).
 
 ## 7. Lead time
 
@@ -157,9 +171,18 @@ tick's own observed lead exceeds the operators' documented 41h maximum —
 the check runs per tick, so if EIA's publishing lag ever grew, the label
 would lapse on its own rather than persist as a stale assertion.
 
-**Rule:** no "*N* hours ahead" claim is published without the realized
-number attached. The realized figure is the shorter one, and it is the one
-to quote.
+**The 24h arm is not lead-matched, and the mismatch runs in our favour.**
+Our realized 23.80–23.95h sits *inside* their documented 17–41h window, whose
+midpoint is ~29h — so on a typical hour the operator forecast from further
+out than we did. This is the reason the 48h arm exists, and the reason §12
+lists it as a limit rather than leaving a reader to find it.
+
+**What the code enforces:** when a tick has no measurement, the block ships
+`observed_lead_h: null` and `lead_basis: "nominal"` — the *label* degrades,
+the block still publishes. So the rule is editorial and belongs to whoever
+writes the surface: **never quote a lead from a block whose `lead_basis` is
+`nominal`.** Where a realized number exists, it is the shorter one, and it is
+the one to quote.
 
 ## 8. Metrics
 
@@ -190,20 +213,35 @@ reports score every eligible hour, while the payload scores only hours where
 both arms have a value (§3). Same BA, same statistic, still not the same
 population.
 
-**Windows move verdicts too.** SOCO reads 1.84% median APE over 30 days and
-5.82% mean sMAPE over 7 — same BA, same pipeline. Which is why every
-published per-BA row must carry **metric, window and `n`**, and why a single
-number per BA, unqualified, is not a supportable format.
+**Only MAPE decides anything.** `winner`, `winner_vs_revised` and every
+fleet win/loss count compare mean MAPE. Median APE, MAE and WAPE are
+published for interpretation and feed no decision — a BA that loses on MAPE
+is reported as a loss even where WAPE would flatter it.
+
+**Everything moves a per-BA number.** SOCO reads 1.84% median APE over 30
+days on its *own* day-ahead forecast; an earlier indicative run of *our*
+ensemble on the separate drift instrument read 5.82% mean sMAPE over 7 days.
+Those two figures differ in arm, metric, statistic *and* window — four axes,
+which is exactly why neither belongs in a sentence with the other, and why
+the 5.82% figure appears in no artifact here. Every published per-BA row must
+carry **metric, window and `n`**, and name its arm. A single unqualified
+number per BA is not a supportable format.
 
 ## 9. Windows and sample size
 
 - **Vintage window** — 720 hours (30 days) per BA.
 - **Drift window** — 720 records per model per horizon, so the GridPulse arm
   spans a comparable ~30 days.
-- **Verdict window** — 30 days. A 30-day window yields a median of 649 paired
-  hours per BA (min 500); a 7-day window yields median 133 (min 46), which is
-  too thin to call a per-BA winner. 7-day numbers may be shown as a trend,
-  never as a verdict.
+- **Verdict window** — 30 days. Over 30 days a BA has a median of 649
+  *officially scoreable* hours (min 500, MISO) — the count after the four
+  vintage-side drops but **before** the `no_gridpulse` join, measured in
+  [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md). Paired hours are a
+  subset of that, bounded by how many of our snapshots have matured; the
+  per-lead `n` in the live payload is the only true paired count. The
+  equivalent 7-day figures (median 133, min 46 scoreable hours — measured
+  off-artifact, no committed script regenerates them) are too thin to call a
+  per-BA winner, so 7-day numbers may be shown as a trend, never as a
+  verdict.
 - **Minimum for a verdict** — 200 paired hours after §4.
 - **Time to a first verdict** — snapshots resolve at most 24 per horizon per
   day, so a newly scoreable BA needs **at least ~9 days** of ticks before a
@@ -218,12 +256,18 @@ number per BA, unqualified, is not a supportable format.
 - **ERCOT is reported separately**, not folded into the aggregate: its
   official forecast is the fleet's best at ~1.2%, and the argument there
   rests on quantiles rather than a point scorecard.
-- **Spread is reported for both arms** — min, max, and ratio. This is the
-  durable observation even in windows where the win count is close: the
-  operators' own day-ahead accuracy spans a measured **41×** across the
-  scoreable set, while ours is comparatively flat. Consistency across a fleet
-  is a different claim from winning a head-to-head, and it is the better
-  supported one.
+- **Spread is reported for both arms** — min, max, and ratio, as
+  `official_spread` and `gridpulse_spread`, both computed on **mean** MAPE.
+  Separately, the operators' own day-ahead accuracy spans a measured **41×**
+  across the scoreable set (1.15% to 47.21%) — that figure is a *median* APE
+  spread from
+  [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md), not the payload
+  field, and the two are not interchangeable (§8).
+
+  Consistency across a fleet is a different claim from winning a head-to-head,
+  and it is the more interesting one. It is also **not yet established**: no
+  committed artifact publishes our spread, so "ours is flatter than theirs" is
+  a hypothesis this benchmark exists to test, not a result it has returned.
 
 ## 11. What this is not
 
@@ -235,6 +279,8 @@ number per BA, unqualified, is not a supportable format.
   evidence about the published series, nothing more.
 - **Not horizon-complete.** Two leads (nominal 24h and 48h), not the whole
   curve.
+- **Not lead-matched.** The headline arm compares our ~23.9h forecast against
+  a submission made 17–41h out (§7, §12.4).
 - **Not fleet-complete.** 7 of 51 BAs are excluded, by published rule.
 - **Not peer-reviewed, and not a study.** It is a continuously recomputed
   measurement with published rules and reproducible scripts.
@@ -247,15 +293,31 @@ number per BA, unqualified, is not a supportable format.
    earliest day-ahead forecast we observed*, never *their day-ahead
    forecast*. Detecting it would need `DF` captured for hours that have no
    `D` yet — a separate instrument, not built.
-2. **The official lead is documented, not observed.** We cite EIA's own
-   instructions for 17–41h; we do not measure when a BA actually submitted.
+2. **The official lead is documented, not observed.** The 17–41h figure
+   comes from EIA's Form EIA-930 respondent instructions and lives in one
+   place in code (`models.benchmark.OFFICIAL_DOCUMENTED_LEAD_H`); we have not
+   measured when any BA actually submitted, and a BA that submits late would
+   look better here than it deserves.
 3. **Exclusions are not neutral**, and skew against us (§5). Stated rather
    than corrected for.
-4. **One model.** The GridPulse arm is the served ensemble. Nothing here is a
+4. **The headline arm is not lead-matched, in our favour.** Our realized
+   23.80–23.95h sits inside the operators' documented 17–41h window
+   (midpoint ~29h), so on a typical hour they forecast from further out than
+   we did — an advantage to us on the arm every win/loss count is taken from.
+   The 48h arm is the mitigation, not a cancellation: it is published beside
+   the headline, not instead of it.
+5. **The hour set is conditioned on our own availability.** `no_gridpulse`
+   (§4) drops an hour from *both* arms because *we* had no matured
+   prediction — the operator's forecast for that hour exists and goes
+   unscored. Our predictions come only from ticks that ran, and the frame
+   they were graded from passes a demand-quality guard the vintage record
+   does not. Neither effect is corrected for; both are why the drop counts
+   ship in the payload.
+6. **One model.** The GridPulse arm is the served ensemble. Nothing here is a
    per-model claim, and the arm changes when the ensemble changes.
-5. **Mean/median differ across artifacts** (§8) — a live footgun for anyone
+7. **Mean/median differ across artifacts** (§8) — a live footgun for anyone
    quoting across documents.
-6. **Both arms inherit EIA's settled values.** If a settled value is itself
+8. **Both arms inherit EIA's settled values.** If a settled value is itself
    wrong, both arms are graded against the same wrong number. Shared bias,
    not differential bias, but not zero.
 
@@ -272,9 +334,13 @@ python scripts/benchmark_provenance_probe.py --output docs/BENCHMARK_PROVENANCE.
 Both regenerate their committed artifact in place, so any figure quoted from
 them is a re-runnable measurement rather than a screenshot. The scoring rules
 themselves are pure functions in `models/benchmark.py`, covered by
-`tests/unit/test_benchmark.py` (41 tests, including assert-applied mutations
-on the stub predicates, the shared-hour-set rule, the dual official arm and
-the earned conservative label). Live per-BA output: `gridpulse:benchmark:{ba}`.
+`tests/unit/test_benchmark.py` (44 tests). Behaviours whose tests have been
+verified by assert-applied mutation — deliberately breaking the code and
+confirming a named test fails — are the stub predicates, the medians in the
+fleet rollup, the dual official arm, the earned conservative label, the
+observed-lead producer (both its payload key and its target-hour arithmetic),
+and the median-APE metric. That list is what has been checked, not a claim
+about the suite as a whole. Live per-BA output: `gridpulse:benchmark:{ba}`.
 
 ## 14. Changing this methodology
 

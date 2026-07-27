@@ -83,11 +83,14 @@ import numpy as np
 #: Fraction of hours a BA must publish a day-ahead forecast for to be
 #: scoreable at all.
 MIN_DF_COVERAGE = 0.80
-#: Minimum paired hours before a per-BA verdict is published. Measured
-#: sample sizes: 30-day windows give median 649 / min 500 paired hours per
-#: BA, while 7-day windows give median 133 / min 46 — too thin for a
-#: per-BA call, which is why verdicts use the 30-day window and the 7-day
-#: number is only ever shown as a trend.
+#: Minimum paired hours before a per-BA verdict is published. Sizing came
+#: from *officially scoreable* hours — the count after the vintage-side drops
+#: but BEFORE the ``no_gridpulse`` join, which is what
+#: ``docs/BENCHMARK_SCOREABILITY.md`` reports: median 649 / min 500 per BA
+#: over 30 days, against median 133 / min 46 over 7. Paired hours are a
+#: subset of those, so the 30-day window is the one that can carry a per-BA
+#: verdict and 7-day numbers are only ever a trend. The true paired count is
+#: the per-lead ``n`` in the payload.
 MIN_PAIRED_HOURS = 200
 
 #: Feed classes that cannot be scored fairly (see module docstring).
@@ -259,21 +262,24 @@ def pair_hours(
     MISO loses ~20% of its hours while a clean one loses none) and a reader
     who cannot see that will assume the worst.
 
-    Drop reasons, in order:
+    Drop reasons, in evaluation order (the order matters: each hour is
+    attributed to the FIRST rule it trips, so these counts are disjoint):
 
+    * ``no_df`` — the BA published no day-ahead forecast for the hour.
+      Checked first, because both stub predicates read as "not a stub" when
+      DF is simply absent.
+    * ``unsettled`` — no finite, positive settled actual yet.
     * ``unresolved_stub`` — settled value still equals the day-ahead
       forecast. The official arm would score exactly 0% by construction,
       *and* our arm would be graded against their forecast rather than
       reality. This is the sharper of the two stub predicates.
     * ``first_seen_placeholder`` — flagged ``D == DF`` at first sight.
       Dropped conservatively even when later corrected.
-    * ``unsettled`` — no finite, positive settled actual yet.
-    * ``no_df`` — the BA published no day-ahead forecast for the hour.
-      Checked independently of the stub predicates, which both read as
-      "not a stub" when DF is simply absent.
     * ``no_gridpulse`` — we have no matured prediction for the hour. Both
       arms are always scored on the SAME hour set; a one-sided score would
-      compare a 30-day official record against a 1-day GridPulse one.
+      compare a 30-day official record against a 1-day GridPulse one. Note
+      the cost: the operator's forecast for that hour exists and goes
+      unscored, so the sample is conditioned on OUR availability too.
     """
     out: list[PairedHour] = []
     drops = {
