@@ -2050,7 +2050,45 @@ def write_horizon_drift_metrics(
 # ── Phase: public forecast benchmark (E0) ────────────────────
 
 
-def write_benchmark_metrics(region: str) -> PhaseResult:
+def _observed_lead_hours(
+    previous_forecast: dict[str, Any] | None,
+) -> dict[str, float]:
+    """This tick's REALIZED lead per nominal horizon.
+
+    ``_resolve_forecast_start`` anchors row 0 at the last *real* demand
+    hour, so with EIA's publishing lag a "24h" row is not 24h ahead —
+    measured at 22.8–23.0h across the fleet
+    (``docs/BENCHMARK_PROVENANCE.md``). Computing it from the forecast
+    payload the phase already reads avoids adding ``made_at`` to the live
+    drift record schema, which would churn four models × three horizons ×
+    51 regions to serve one field.
+    """
+    if not isinstance(previous_forecast, dict):
+        return {}
+    rows = previous_forecast.get("forecast") or previous_forecast.get("rows") or []
+    scored_at = previous_forecast.get("scored_at")
+    if not rows or not scored_at:
+        return {}
+    try:
+        made = pd.Timestamp(scored_at)
+        out: dict[str, float] = {}
+        for label, idx in (("24h", 23), ("48h", 47)):
+            if len(rows) <= idx:
+                continue
+            ts = rows[idx].get("timestamp") or rows[idx].get("ts")
+            if ts is None:
+                continue
+            out[label] = (pd.Timestamp(ts) - made).total_seconds() / 3600.0
+        return out
+    except Exception:  # pragma: no cover — observation only, never fatal
+        return {}
+
+
+def write_benchmark_metrics(
+    region: str,
+    previous_forecast: dict[str, Any] | None = None,
+    demand_df: pd.DataFrame | None = None,
+) -> PhaseResult:
     """Score GridPulse against the BA's OWN day-ahead forecast (E0).
 
     The product competes with a free incumbent — EIA-930 publishes each BA's
@@ -2072,7 +2110,7 @@ def write_benchmark_metrics(region: str) -> PhaseResult:
         # the benchmark, never take down a scoring run for a measurement.
         from data.redis_client import redis_get, redis_key, redis_set
         from data.vintage import deserialize_records
-        from models.benchmark import compute_benchmark_payload
+        from models.benchmark import compute_benchmark_payload, revised_df_from_frame
 
         raw = redis_get(redis_key(f"vintage:{region}"))
         rows = raw.get("records") if isinstance(raw, dict) else None
@@ -2090,6 +2128,10 @@ def write_benchmark_metrics(region: str) -> PhaseResult:
             horizon if isinstance(horizon, dict) else None,
             summary.get("revision_class"),
             mean_revision_pct=summary.get("mean_fresh_revision_pct"),
+            # The live frame's forecast_mw IS EIA's post-revision DF, so the
+            # conservative official arm costs no extra capture.
+            revised_df_by_ts=revised_df_from_frame(demand_df),
+            observed_lead_h=_observed_lead_hours(previous_forecast),
         )
         redis_set(redis_key(f"benchmark:{region}"), payload, ttl=REDIS_TTL)
 

@@ -115,15 +115,34 @@ EXCLUSION_REASONS: dict[str, str] = {
 HEADLINE_LEAD = "24h"
 CONSERVATIVE_LEAD = "48h"
 
+#: EIA's documented day-ahead submission window (Form EIA-930
+#: instructions) — documented, not observed by us. The conservative arm may
+#: only be labelled as such while our realized lead exceeds the upper
+#: bound; measured at 46.80h minimum, so it currently does
+#: (docs/BENCHMARK_PROVENANCE.md).
+OFFICIAL_DOCUMENTED_LEAD_H = (17.0, 41.0)
+
 
 @dataclass(frozen=True)
 class PairedHour:
-    """One target hour where both forecasts and a settled actual exist."""
+    """One target hour where both forecasts and a settled actual exist.
+
+    Two official values, because the probe found EIA revises the day-ahead
+    forecast for some BAs (PSEI 26%, SOCO 24%; the big ISOs never):
+
+    * ``official`` — as-issued, the earliest DF we observed. The fair
+      comparison, and the primary.
+    * ``official_revised`` — EIA's current DF for the hour, which for a
+      revised BA carries hindsight. Scored as the *conservative* arm so no
+      reader can object that we graded a stale number. Equals ``official``
+      wherever the BA never revises.
+    """
 
     timestamp: str
-    actual: float  # settled truth — the SAME value scores both arms
+    actual: float  # settled truth — the SAME value scores every arm
     official: float
     gridpulse: float
+    official_revised: float
 
 
 # ── metrics ──────────────────────────────────────────────────
@@ -206,7 +225,9 @@ STUB_EPSILON_MW = 0.01
 
 
 def pair_hours(
-    vintage_records: list[Any], gridpulse_by_ts: dict[str, float]
+    vintage_records: list[Any],
+    gridpulse_by_ts: dict[str, float],
+    revised_df_by_ts: dict[str, float] | None = None,
 ) -> tuple[list[PairedHour], dict[str, int]]:
     """Join the two arms on target hour, dropping every unfair hour.
 
@@ -258,15 +279,50 @@ def pair_hours(
         if gp is None or not np.isfinite(gp):
             drops["no_gridpulse"] += 1
             continue
+        # Falls back to the as-issued value, so a BA that never revises
+        # (7 of 10 sampled) scores identically on both arms.
+        revised = (revised_df_by_ts or {}).get(_normalize_ts(r.timestamp))
+        if revised is None or not np.isfinite(revised):
+            revised = official
         out.append(
             PairedHour(
                 timestamp=str(r.timestamp),
                 actual=float(actual),
                 official=float(official),
                 gridpulse=float(gp),
+                official_revised=float(revised),
             )
         )
     return out, drops
+
+
+def revised_df_from_frame(demand_df: Any) -> dict[str, float]:
+    """EIA's CURRENT day-ahead forecast per hour, from the live demand frame.
+
+    ``forecast_mw`` on the freshly fetched frame *is* the post-revision DF,
+    so the conservative official arm needs no new capture — the value is
+    already in the frame the scoring job holds.
+    """
+    if demand_df is None or getattr(demand_df, "empty", True):
+        return {}
+    cols = getattr(demand_df, "columns", [])
+    if "forecast_mw" not in cols or "timestamp" not in cols:
+        return {}
+    out: dict[str, float] = {}
+    for ts, value in zip(demand_df["timestamp"], demand_df["forecast_mw"], strict=False):
+        try:
+            v = float(value)
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(v):
+            out[_normalize_ts(pd_ts_iso(ts))] = v
+    return out
+
+
+def pd_ts_iso(ts: Any) -> str:
+    """ISO-8601 for a pandas Timestamp or anything str()-able."""
+    iso = getattr(ts, "isoformat", None)
+    return iso() if callable(iso) else str(ts)
 
 
 def _normalize_ts(ts: Any) -> str:
@@ -311,12 +367,19 @@ def compute_benchmark_payload(
     *,
     model: str = "ensemble",
     mean_revision_pct: float | None = None,
+    revised_df_by_ts: dict[str, float] | None = None,
+    observed_lead_h: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     """Build ``gridpulse:benchmark:{region}`` for one tick.
 
     Always returns a payload — an excluded BA carries its reason rather than
     silently vanishing, because the exclusion list is part of what gets
     published.
+
+    ``revised_df_by_ts`` supplies EIA's current (post-revision) day-ahead
+    values so the conservative official arm can be scored; ``observed_lead_h``
+    carries this tick's measured lead per nominal horizon, which decides
+    whether the conservative label may be applied at all.
     """
     score = scoreability(vintage_records, revision_class)
     payload: dict[str, Any] = {
@@ -331,7 +394,9 @@ def compute_benchmark_payload(
 
     for lead in (HEADLINE_LEAD, CONSERVATIVE_LEAD):
         pairs, drops = pair_hours(
-            vintage_records, gridpulse_predictions(horizon_payload, model, lead)
+            vintage_records,
+            gridpulse_predictions(horizon_payload, model, lead),
+            revised_df_by_ts,
         )
         if len(pairs) < MIN_PAIRED_HOURS:
             payload["leads"][lead] = {
@@ -342,23 +407,44 @@ def compute_benchmark_payload(
             }
             continue
         official = score_arm(pairs, "official")
+        official_revised = score_arm(pairs, "official_revised")
         gridpulse = score_arm(pairs, "gridpulse")
-        payload["leads"][lead] = {
+
+        observed = (observed_lead_h or {}).get(lead)
+        block = {
             "scoreable": True,
             "n": len(pairs),
             "official": official,
+            # EIA revises DF for some BAs, so the conservative arm grades
+            # them on the value that carries hindsight. Identical to
+            # `official` wherever the BA never revises.
+            "official_revised": official_revised,
             "gridpulse": gridpulse,
             # Positive delta = GridPulse is more accurate on that metric.
             "delta_mape": round(official["mape"] - gridpulse["mape"], 3),
             "delta_wape": round(official["wape"] - gridpulse["wape"], 3),
+            "delta_mape_vs_revised": round(official_revised["mape"] - gridpulse["mape"], 3),
             "winner": "gridpulse" if gridpulse["mape"] < official["mape"] else "official",
+            "winner_vs_revised": (
+                "gridpulse" if gridpulse["mape"] < official_revised["mape"] else "official"
+            ),
             "excluded_hours": drops,
-            # Nominal, not realized: the forecast anchors on the last real
-            # demand hour, so EIA's publishing lag shortens the true lead.
-            # Publishing "N hours ahead" is not yet supported (see module
-            # docstring, limit 2).
-            "lead_basis": "nominal",
+            "observed_lead_h": None if observed is None else round(observed, 2),
+            "lead_basis": "observed" if observed is not None else "nominal",
         }
+        # The conservative label is EARNED, not assumed: it holds only while
+        # our realized lead exceeds the operators' documented maximum.
+        if lead == CONSERVATIVE_LEAD:
+            block["conservative"] = bool(
+                observed is not None and observed > OFFICIAL_DOCUMENTED_LEAD_H[1]
+            )
+            block["conservative_basis"] = (
+                f"observed lead {observed:.2f}h > documented official max "
+                f"{OFFICIAL_DOCUMENTED_LEAD_H[1]:.0f}h"
+                if block["conservative"]
+                else "withheld — observed lead does not exceed the documented official maximum"
+            )
+        payload["leads"][lead] = block
 
     headline = payload["leads"].get(HEADLINE_LEAD) or {}
     payload["scoreable"] = bool(headline.get("scoreable"))
