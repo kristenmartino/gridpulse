@@ -2047,6 +2047,76 @@ def write_horizon_drift_metrics(
         return PhaseResult(region=region, ok=False, error=str(exc))
 
 
+# ── Phase: public forecast benchmark (E0) ────────────────────
+
+
+def write_benchmark_metrics(region: str) -> PhaseResult:
+    """Score GridPulse against the BA's OWN day-ahead forecast (E0).
+
+    The product competes with a free incumbent — EIA-930 publishes each BA's
+    day-ahead forecast — so the benchmark is the evidence that decides
+    whether GridPulse is worth anything to a third party. It rides
+    instrumentation that already exists rather than a bolted-on replay:
+
+    * official arm  ← ``vintage:{region}`` ``first_seen_df``
+    * GridPulse arm ← ``drift_horizon:{region}`` resolved 24h/48h records
+    * truth         ← vintage ``last_d`` (settled), for BOTH arms
+    * exclusions    ← ``vintage_summary:{region}`` class + DF coverage
+
+    Ordering: must run AFTER the vintage, vintage-summary and horizon-drift
+    phases in the same tick, all of which it reads. Non-critical — a
+    benchmark error never blocks scoring.
+    """
+    try:
+        # Imported inside the guard: an import-time failure here must degrade
+        # the benchmark, never take down a scoring run for a measurement.
+        from data.redis_client import redis_get, redis_key, redis_set
+        from data.vintage import deserialize_records
+        from models.benchmark import compute_benchmark_payload
+
+        raw = redis_get(redis_key(f"vintage:{region}"))
+        rows = raw.get("records") if isinstance(raw, dict) else None
+        records = deserialize_records(rows)
+        if not records:
+            return PhaseResult(region=region, ok=True, details={"skipped": "no_vintage"})
+
+        summary = redis_get(redis_key(f"vintage_summary:{region}"))
+        summary = summary if isinstance(summary, dict) else {}
+        horizon = redis_get(redis_key(f"drift_horizon:{region}"))
+
+        payload = compute_benchmark_payload(
+            region,
+            records,
+            horizon if isinstance(horizon, dict) else None,
+            summary.get("revision_class"),
+            mean_revision_pct=summary.get("mean_fresh_revision_pct"),
+        )
+        redis_set(redis_key(f"benchmark:{region}"), payload, ttl=REDIS_TTL)
+
+        headline = (payload.get("leads") or {}).get("24h") or {}
+        log.info(
+            "benchmark_scored",
+            region=region,
+            scoreable=payload.get("scoreable"),
+            reason=payload.get("reason"),
+            n=headline.get("n"),
+            winner=headline.get("winner"),
+            delta_mape=headline.get("delta_mape"),
+        )
+        return PhaseResult(
+            region=region,
+            ok=True,
+            details={
+                "scoreable": payload.get("scoreable"),
+                "reason": payload.get("reason"),
+                "winner": headline.get("winner"),
+            },
+        )
+    except Exception as exc:
+        log.warning("benchmark_write_failed", region=region, error=str(exc))
+        return PhaseResult(region=region, ok=False, error=str(exc))
+
+
 # ── Phase: backtests (training) ──────────────────────────────
 
 

@@ -1037,3 +1037,112 @@ class TestAnchorConditioning:
         data = phases.RegionData(region="LDWP", demand_df=pd.DataFrame(), weather_df=pd.DataFrame())
         res = phases.condition_anchor_frame(data)
         assert res.ok is False  # reported, not raised
+
+
+class TestBenchmarkWiring:
+    """E0 — the public benchmark phase, end to end.
+
+    The benchmark is *published* evidence about accuracy, so the wiring
+    matters as much as the arithmetic: it reads three keys written earlier
+    in the same tick, and if it ever runs before them it silently scores
+    nothing while still reporting success.
+    """
+
+    @pytest.fixture
+    def readable_redis(self, fake_redis, monkeypatch):
+        """The shared fixture fakes writes only; the benchmark phase READS
+        three keys written earlier in the same tick, so reads must resolve
+        against the same store or the phase correctly skips as 'no_vintage'
+        and this class would test nothing."""
+        import data.redis_client as rc
+
+        # The vintage phase writes via persist / reads via redis_get_strict,
+        # so route those through the same store (existing helper), then make
+        # plain reads resolve against it too — the benchmark reads three keys
+        # written earlier in the tick.
+        _wire_vintage_redis(monkeypatch, fake_redis)
+        monkeypatch.setattr(rc, "redis_get", lambda key: fake_redis.get(key))
+        return fake_redis
+
+    def _run(self, monkeypatch):
+        from jobs import phases, scoring_job
+
+        order: list[str] = []
+        for name in (
+            "write_vintage_records",
+            "write_horizon_drift_metrics",
+            "write_benchmark_metrics",
+        ):
+            real = getattr(phases, name)
+
+            def _spy(*args, _real=real, _name=name, **kwargs):
+                order.append(_name)
+                return _real(*args, **kwargs)
+
+            monkeypatch.setattr(phases, name, _spy)
+        scoring_job.run()
+        return order
+
+    def test_benchmark_runs_after_the_keys_it_reads(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ):
+        """Vintage (which also writes vintage_summary) and horizon drift must
+        both precede the benchmark — it reads all three."""
+        order = self._run(monkeypatch)
+        assert "write_benchmark_metrics" in order, "benchmark phase never ran"
+        assert order.index("write_vintage_records") < order.index("write_benchmark_metrics")
+        assert order.index("write_horizon_drift_metrics") < order.index("write_benchmark_metrics")
+
+    def test_phase_writes_a_publishable_payload(self, monkeypatch):
+        """Phase-level: given the three keys it reads, the benchmark writes a
+        payload. Driven directly rather than through scoring_job.run(), whose
+        shared harness does not exercise the vintage phase."""
+        import data.redis_client as rc
+        from jobs import phases
+
+        hour = "2026-07-01T00:00:00+00:00"
+        reads = {
+            "gridpulse:vintage:ERCOT": {
+                "records": [
+                    {"ts": hour, "d": 40000.0, "at": hour, "ld": 40000.0, "n": 1, "df": 41000.0}
+                ]
+            },
+            "gridpulse:vintage_summary:ERCOT": {
+                "revision_class": "clean",
+                "mean_fresh_revision_pct": 0.4,
+            },
+            "gridpulse:drift_horizon:ERCOT": {
+                "models": {
+                    "ensemble": {"24h": {"records": [{"ts": hour, "p": 40500.0, "a": 40000.0}]}}
+                }
+            },
+        }
+        writes: dict = {}
+        monkeypatch.setattr(rc, "redis_get", lambda key: reads.get(key))
+        monkeypatch.setattr(
+            rc, "redis_set", lambda key, value, ttl=86400: writes.__setitem__(key, value)
+        )
+
+        result = phases.write_benchmark_metrics("ERCOT")
+
+        assert result.ok
+        payload = writes.get("gridpulse:benchmark:ERCOT")
+        assert payload is not None, "benchmark key not written"
+        assert payload["region"] == "ERCOT"
+        # One hour is far below the sample floor, so the honest answer is a
+        # published refusal to call it — never a verdict on n=1.
+        assert payload["scoreable"] is False
+        assert payload["reason"], "excluded without a published reason"
+
+    def test_benchmark_failure_never_fails_the_run(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ):
+        """Published evidence is secondary to serving forecasts."""
+        import models.benchmark as bench
+        from jobs import scoring_job
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("benchmark exploded")
+
+        monkeypatch.setattr(bench, "compute_benchmark_payload", _boom)
+        assert scoring_job.run() == 0
