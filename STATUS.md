@@ -19,19 +19,60 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-27 — E0-4 methodology published, and writing it found two live
+bugs in the lead instrument.** [`docs/BENCHMARK_METHODOLOGY.md`](docs/BENCHMARK_METHODOLOGY.md)
+states the rules — sources, the single-truth discipline, the five hour-drop
+rules and their bias direction, the exclusion tests, the dual official arm,
+lead-time handling, metrics, windows, fleet aggregation, what the benchmark
+is *not*, eight known limits, and a rule that any future change to the
+scoring rules must state which direction it moves our own number. Numbers
+stay in the generated artifacts so the doc can't go stale.
+
+A 12-agent adversarial review of the draft confirmed **33 defects**, and the
+two worst were mine repeating a number without checking its provenance: the
+"median 649 / min 500 **paired** hours" sizing is actually *officially
+scoreable* hours — the count before the `no_gridpulse` join — an error that
+originated in `MIN_PAIRED_HOURS`'s own comment in #340 and was fixed in both
+places; and a SOCO example meant to teach "always name your metric" itself
+compared *their* median APE over 30d against *our* mean sMAPE over 7d, four
+axes apart, using a 5.82% figure no artifact carries. Also added: the two
+limits that cut in our favour — the headline arm is **not lead-matched**
+(our ~23.9h vs their documented 17–41h, midpoint ~29h), and `no_gridpulse`
+conditions the hour set on *our* availability, dropping hours the operator
+did forecast. And §10's "ours is comparatively flat" is now labelled a
+hypothesis: no committed artifact publishes our spread yet.
+
+Writing it forced a read of the code rather than the code's docstrings, and
+`_observed_lead_hours` was wrong twice: it read the **API's** key
+(`forecast`) off the **Redis** payload (`forecasts`), so it returned `{}`
+every tick — the conservative label was being withheld fleet-wide and
+`lead_basis` never left `"nominal"` — and it measured row index H−1 instead
+of row 0 + H, the hour the drift snapshot actually targets, understating
+every lead by exactly 1h. Both failed conservative, which is why nothing
+looked broken. **The consumer was well tested and the producer was not**: a
+producer returning `{}` is indistinguishable from a BA with no forecast yet.
+Fixed, pinned by five producer tests including a cross-module invariant
+against `snapshot_horizon_predictions`, and both original bugs reproduced as
+assert-applied mutations. Corrected leads: nominal-24h realized
+**23.80–23.95h**, nominal-48h **47.80–47.95h** (probe re-run, artifact
+regenerated) — the conservative claim holds by a wider margin than reported.
+
 **2026-07-27 — E0 measurement pass: both provenance gates measured, both
 pass; publication unblocked** (PR
 [#341](https://github.com/kristenmartino/gridpulse/pull/341),
 `docs/BENCHMARK_PROVENANCE.md`, re-runnable via
 `scripts/benchmark_provenance_probe.py`).
 
-*Gate 1 — does EIA revise DF after we bank it?* Yes, unevenly, and it
-changes nothing material. PJM/MISO/ERCOT/CAISO/GVL/SPP/NYISO revise
-**0%**; SOCO 24.2%; PSEI 26.4% (max Δ 34%); fleet 6.78%. Largest verdict
-shift is **1.42 pts** (PSEI 47.16% as-issued → 45.74% as-revised) — no
-conclusion flips. *Gate 2 — what lead do we actually forecast at?* A
-nominal-24h record is a realized **22.80–22.95h**, so no "24 hours ahead"
-claim ships unqualified; the nominal-48h arm's minimum **46.80h exceeds
+*Gate 1 — does EIA revise DF after we bank it?* Yes, unevenly.
+PJM/MISO/ERCOT/CAISO/GVL/SPP/NYISO revise **0%**; SOCO 24.2%; PSEI 26.4%
+(max Δ 34%); FMPP 5.2%, where revision makes them *worse*; fleet 6.78%.
+Largest movement in any operator's own **median** APE is **1.43 pts** (PSEI
+47.15% as-issued → 45.71% as-revised) — which bounds no head-to-head
+verdict, since those are decided on *mean* MAPE and the probe never measures
+it. The payload publishes `winner_vs_revised` per BA rather than asserting
+the two agree. *Gate 2 — what lead do we actually forecast at?* A
+nominal-24h record is a realized **23.80–23.95h**, so no "24 hours ahead"
+claim ships unqualified; the nominal-48h arm's minimum **47.80h exceeds
 the operators' documented 41h maximum**, so publishing it as the
 *conservative* comparison is measurement-supported rather than assumed.
 
@@ -46,9 +87,11 @@ cannot see revision *before* our first capture, so the phrasing is always
 "the earliest day-ahead forecast we observed." **Next: E0-4 methodology
 doc, then E0-3 public page + `/api/v1/benchmark`** — every claim they
 need now has a measurement and a script behind it. Caution the
-measurement surfaced: per-BA verdicts move with metric and window (SOCO
-1.84% median APE / 30d vs 5.82% mean sMAPE / 7d), so the public page must
-carry metric, window and `n` on every row.
+measurement surfaced: per-BA figures move with metric, window AND arm —
+SOCO's *own* forecast reads 1.84% median APE / 30d, while an indicative run
+of *our* ensemble on the drift instrument read 5.82% mean sMAPE / 7d; four
+axes differ, so the two were never comparable. The public page must carry
+metric, window, `n` and arm on every row.
 
 **2026-07-27 — E0 benchmark engine landed (PR 1 of the arc); two
 provenance limits found by design review must be closed before anything

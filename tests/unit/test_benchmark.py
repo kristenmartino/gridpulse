@@ -56,6 +56,20 @@ def _gp(records, value):
     return {r.timestamp: value for r in records}
 
 
+def _tail_records(n_normal=190, n_tail=20, *, actual=1000.0, normal_df=1010.0, tail_df=1500.0):
+    """A feed whose day-ahead forecast is excellent most hours and
+    catastrophic on a few — the shape that separates median from mean."""
+    return [
+        _Rec(
+            f"2026-07-{1 + i // 24:02d}T{i % 24:02d}:00:00Z",
+            normal_df if i < n_normal else tail_df,
+            actual,
+            False,
+        )
+        for i in range(n_normal + n_tail)
+    ]
+
+
 class TestStubTrap:
     """The single most important behavior in the module."""
 
@@ -226,6 +240,25 @@ class TestMetrics:
         assert arm["mae"] == pytest.approx(100.0)
         assert arm["n"] == 5
 
+    def test_median_ape_published_beside_the_mean(self):
+        """The offline reports characterise BAs by MEDIAN APE while the live
+        payload's headline is a MEAN. Publishing both is what stops a reader
+        carrying a figure between artifacts and silently comparing two
+        different statistics."""
+        recs = _records(5, df=1100.0, actual=1000.0)
+        arm = score_arm(pair_hours(recs, _gp(recs, 1000.0))[0], "official")
+        assert arm["median_ape"] == pytest.approx(10.0)
+        assert arm["mape"] == pytest.approx(10.0)
+
+    def test_median_ape_separates_from_the_mean_on_a_tail_heavy_feed(self):
+        """A handful of catastrophic hours drag the mean and leave the median
+        alone. The gap is information, not noise: it says this BA's error is
+        tail-driven rather than pervasive."""
+        recs = _tail_records()
+        arm = score_arm(pair_hours(recs, _gp(recs, 1000.0))[0], "official")
+        assert arm["median_ape"] == pytest.approx(1.0)
+        assert arm["mape"] == pytest.approx(5.667, abs=0.01)
+
 
 class TestLeadsAndPayload:
     def test_both_headline_and_conservative_leads_are_reported(self):
@@ -247,6 +280,20 @@ class TestLeadsAndPayload:
         lead = payload["leads"][HEADLINE_LEAD]
         assert lead["winner"] == "gridpulse"
         assert lead["delta_mape"] == pytest.approx(15.0)
+
+    def test_metric_dependent_verdicts_are_visible_not_hidden(self):
+        """The winner is decided on mean MAPE. When the median disagrees —
+        because the official forecast is excellent most hours and terrible on
+        a few — the payload must SAY so, so a reader can see the call is
+        metric-dependent instead of taking the headline on trust."""
+        recs = _tail_records()
+        payload = compute_benchmark_payload("TEST", recs, _horizon(recs, 1030.0), "clean")
+        lead = payload["leads"][HEADLINE_LEAD]
+
+        assert lead["official"]["median_ape"] < lead["official"]["mape"]  # tail-driven
+        assert lead["winner"] == "gridpulse"  # on the mean, we win
+        assert lead["delta_mape"] > 0
+        assert lead["delta_median_ape"] < 0  # on the median, they do — published
 
     def test_thin_sample_refuses_a_verdict(self):
         recs = _records(MIN_PAIRED_HOURS - 1, df=1100.0)
@@ -440,3 +487,122 @@ class TestObservedLead:
         payload = self._payload({})
         assert payload["leads"][HEADLINE_LEAD]["lead_basis"] == "nominal"
         assert payload["leads"][CONSERVATIVE_LEAD]["conservative"] is False
+
+
+class TestObservedLeadProducer:
+    """The *producer* of the observed lead — ``jobs.phases._observed_lead_hours``.
+
+    ``TestObservedLead`` above injects the dict and so never exercised this;
+    both bugs it now pins survived that gap. The consumer being well-tested
+    is what made them invisible: a producer that returns ``{}`` looks
+    exactly like a BA with no forecast yet.
+    """
+
+    @staticmethod
+    def _redis_payload(n_rows: int = 168, offset_min: int = -6):
+        """A payload shaped like ``gridpulse:forecast:{region}:1h``.
+
+        ``offset_min`` is row 0 minus ``scored_at`` — negative because the
+        forecast anchors on the last settled demand hour, which is behind
+        wall-clock by EIA's publishing lag.
+        """
+        scored_at = pd.Timestamp("2026-07-27T12:00:00+00:00")
+        origin = scored_at + pd.Timedelta(minutes=offset_min)
+        origin = origin.floor("h") if offset_min == 0 else origin
+        return {
+            "region": "TEST",
+            "scored_at": scored_at.isoformat(),
+            "granularity": "1h",
+            "forecasts": [
+                {
+                    "timestamp": (origin + pd.Timedelta(hours=i)).isoformat(),
+                    "predicted_demand_mw": 1000.0 + i,
+                    "ensemble": 1000.0 + i,
+                }
+                for i in range(n_rows)
+            ],
+        }
+
+    def test_reads_the_redis_payload_key(self):
+        """The rows live under ``forecasts``; the API's ``forecast`` is a
+        reshape. Reading the API name off the Redis payload returned no
+        observation at all — the label silently stayed nominal fleet-wide."""
+        from jobs import phases
+
+        out = phases._observed_lead_hours(self._redis_payload())
+        assert set(out) == {"24h", "48h"}, "no observation from the real payload shape"
+        assert out["24h"] == pytest.approx(23.9, abs=0.01)
+        assert out["48h"] == pytest.approx(47.9, abs=0.01)
+
+    def test_measures_the_hour_the_benchmark_actually_scores(self):
+        """The lead must describe the SAME target hour that
+        ``snapshot_horizon_predictions`` snapshots and the benchmark later
+        grades — row 0 + H. Measuring row index H−1 understated it by 1h."""
+        from jobs import phases
+        from models.drift import snapshot_horizon_predictions
+
+        payload = self._redis_payload()
+        made = pd.Timestamp(payload["scored_at"])
+        observed = phases._observed_lead_hours(payload)
+
+        snaps = {s["horizon"]: s["target_ts"] for s in snapshot_horizon_predictions(payload)}
+        for label, lead_h in observed.items():
+            target = pd.Timestamp(snaps[label])
+            expected = (target - made).total_seconds() / 3600.0
+            assert lead_h == pytest.approx(expected, abs=1e-6), (
+                f"{label}: lead describes a different hour than the one scored"
+            )
+
+    def test_lead_hours_agree_with_the_drift_horizon_definition(self):
+        """The local mapping is a copy of the drift module's; a divergence
+        must fail here rather than degrade to a wrong lead at runtime."""
+        from jobs import phases
+        from models.drift import _HORIZON_HOURS
+
+        for label, hours in phases._BENCHMARK_LEAD_HOURS.items():
+            assert _HORIZON_HOURS[label] == hours
+
+    def test_no_rows_or_no_scored_at_is_no_observation(self):
+        """Absence must read as "not measured" (nominal basis), never as a
+        lead of zero — a zero would withhold nothing, it would publish a
+        wrong number."""
+        from jobs import phases
+
+        assert phases._observed_lead_hours(None) == {}
+        assert phases._observed_lead_hours({"forecasts": []}) == {}
+        assert phases._observed_lead_hours({"forecasts": [{"timestamp": "x"}]}) == {}
+        payload = self._redis_payload()
+        payload.pop("scored_at")
+        assert phases._observed_lead_hours(payload) == {}
+
+    def test_observed_lead_shrinks_when_eia_publishing_lag_grows(self):
+        """The whole point of measuring per tick: if EIA fell further behind,
+        the realized lead drops and the conservative label must lapse."""
+        from jobs import phases
+
+        normal = phases._observed_lead_hours(self._redis_payload(offset_min=-6))
+        lagged = phases._observed_lead_hours(self._redis_payload(offset_min=-8 * 60))
+        assert lagged["48h"] < normal["48h"]
+        assert lagged["48h"] == pytest.approx(40.0, abs=0.01)
+        assert lagged["48h"] < OFFICIAL_DOCUMENTED_LEAD_H[1]
+
+
+def test_official_documented_lead_is_declared_exactly_once():
+    """docs/BENCHMARK_METHODOLOGY.md §12.2 tells readers this constant lives
+    in one place. It briefly did not — the provenance probe carried its own
+    literal, so the bar the conservative label is judged against could have
+    drifted from the engine's silently. Keep the doc's claim true."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    pattern = re.compile(r"^OFFICIAL_DOCUMENTED_LEAD_H\s*=", re.MULTILINE)
+    declarations = [
+        path.relative_to(root).as_posix()
+        for folder in ("models", "scripts", "jobs", "components", "data")
+        for path in (root / folder).rglob("*.py")
+        if pattern.search(path.read_text())
+    ]
+    assert declarations == ["models/benchmark.py"], (
+        f"expected a single declaration, found {declarations}"
+    )

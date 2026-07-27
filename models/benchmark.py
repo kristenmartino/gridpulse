@@ -11,26 +11,33 @@ that already exists rather than a one-shot replay:
 * **Truth** — the vintage ``last_d``, EIA's settled value, used as the
   SINGLE truth for both arms so neither is scored against its own yardstick.
 
-## Two provenance limits that MUST be disclosed before publishing
+## Two provenance limits, now measured (``docs/BENCHMARK_PROVENANCE.md``)
 
-Both were found by design review after the first implementation, and both
-constrain what this module is allowed to claim:
+Both were found by design review after the first implementation. Neither is
+an open question any more, and what each one still forbids is stated here:
 
 1. **``first_seen_df`` is not "the day-ahead value as published."**
    ``data.vintage`` only admits an hour once EIA publishes a metered ``D``,
    so the DF we store was re-read 0–3h *after* the target hour, not at
-   day-ahead time. The *value* originates from the BA's day-ahead
-   submission, but nothing in this repo yet measures whether EIA revises DF
-   in between. Until that is measured, the honest phrasing is "the earliest
-   day-ahead forecast we observed," never "their day-ahead forecast." The
-   bias direction is at least conservative for us: any revision that landed
-   before our capture makes *their* number better, not ours.
-2. **Our lead is nominal, not realized.** ``_resolve_forecast_start``
-   anchors the forecast at the last *real* demand hour, so with EIA's 1–4h
-   publishing lag a "24h" record is a realized ~20–24h wall-clock lead. The
-   resolved drift records discard ``made_at``, so this module cannot yet
-   compute the realized lead — it therefore labels leads as **nominal** and
-   must not publish a "24 hours ahead" claim.
+   day-ahead time. **Measured:** EIA does revise DF, very unevenly — 7 of 10
+   sampled BAs never revise at all (PJM, MISO, ERCOT, CAISO, GVL, SPP,
+   NYISO), while PSEI revises 26.4% and SOCO 24.2%. The largest movement in
+   any sampled operator's own *median* APE is 1.43 points — which bounds
+   nothing about a head-to-head result, since verdicts are decided on *mean*
+   MAPE and the probe never measures it. So rather than pick a side, the
+   official arm is scored **both ways** (``official`` as-issued,
+   ``official_revised`` as EIA's current view) and both verdicts publish. Still forbidden: calling
+   either one "their day-ahead forecast" — a revision that landed *before*
+   our first capture is invisible to us, so the phrasing stays "the earliest
+   day-ahead forecast we observed."
+2. **The lead is measured per tick, not assumed.**
+   ``_resolve_forecast_start`` anchors the forecast at the last *real*
+   demand hour, so with EIA's publishing lag a nominal "24h" record carries
+   a realized ~23.9h. ``jobs.phases._observed_lead_hours`` computes that
+   from the forecast payload each tick and passes it as ``observed_lead_h``;
+   the payload publishes the number and sets ``lead_basis`` to ``observed``.
+   Still forbidden: an unqualified "24 hours ahead" claim — quote the
+   realized figure, which is the shorter one.
 
 ## The traps this module does defend against
 
@@ -58,14 +65,14 @@ published. Two classes:
 
 ## Lead-time handling
 
-Ours is a *nominal* 24h snapshot (realized ~20–24h — see limit 2 above).
-Theirs is a day-ahead submission documented at **17–41h** depending on
-hour-of-day, per the Form EIA-930 instructions — documented, not observed
-by us. The payload therefore also carries a comparison at our nominal
-**48h** snapshot, which even after the lag shortfall exceeds their
-documented maximum. That variant may only be *labelled* conservative once
-realized leads are measured; until then it is published as a second data
-point, not as a claim.
+Ours is a *nominal* 24h snapshot, realized ~23.9h (measured every tick —
+see limit 2 above). Theirs is a day-ahead submission documented at
+**17–41h** depending on hour-of-day, per the Form EIA-930 instructions —
+documented, not observed by us. The payload therefore also carries the
+comparison at our nominal **48h** snapshot, realized ~47.9h, which clears
+their documented maximum. That arm is *labelled* conservative only while
+the tick's own observed lead exceeds 41h, so the label lapses by itself if
+EIA's publishing lag ever grows.
 """
 
 from __future__ import annotations
@@ -78,11 +85,14 @@ import numpy as np
 #: Fraction of hours a BA must publish a day-ahead forecast for to be
 #: scoreable at all.
 MIN_DF_COVERAGE = 0.80
-#: Minimum paired hours before a per-BA verdict is published. Measured
-#: sample sizes: 30-day windows give median 649 / min 500 paired hours per
-#: BA, while 7-day windows give median 133 / min 46 — too thin for a
-#: per-BA call, which is why verdicts use the 30-day window and the 7-day
-#: number is only ever shown as a trend.
+#: Minimum paired hours before a per-BA verdict is published. Sizing came
+#: from *officially scoreable* hours — the count after the vintage-side drops
+#: but BEFORE the ``no_gridpulse`` join, which is what
+#: ``docs/BENCHMARK_SCOREABILITY.md`` reports: median 649 / min 500 per BA
+#: over 30 days, against median 133 / min 46 over 7. Paired hours are a
+#: subset of those, so the 30-day window is the one that can carry a per-BA
+#: verdict and 7-day numbers are only ever a trend. The true paired count is
+#: the per-lead ``n`` in the payload.
 MIN_PAIRED_HOURS = 200
 
 #: Feed classes that cannot be scored fairly (see module docstring).
@@ -118,7 +128,7 @@ CONSERVATIVE_LEAD = "48h"
 #: EIA's documented day-ahead submission window (Form EIA-930
 #: instructions) — documented, not observed by us. The conservative arm may
 #: only be labelled as such while our realized lead exceeds the upper
-#: bound; measured at 46.80h minimum, so it currently does
+#: bound; measured at 47.80h minimum, so it currently does
 #: (docs/BENCHMARK_PROVENANCE.md).
 OFFICIAL_DOCUMENTED_LEAD_H = (17.0, 41.0)
 
@@ -164,13 +174,31 @@ def wape(actual: np.ndarray, predicted: np.ndarray) -> float:
 
 
 def score_arm(pairs: list[PairedHour], arm: str) -> dict[str, float]:
-    """MAPE / MAE / WAPE for one arm over the paired hours."""
+    """MAPE / median APE / MAE / WAPE for one arm over the paired hours.
+
+    ``mape`` is the **mean** APE — the industry-standard headline, and the
+    statistic the winner is decided on. ``median_ape`` is published beside it
+    because the offline reports (``docs/BENCHMARK_SCOREABILITY.md``,
+    ``docs/BENCHMARK_PROVENANCE.md``) characterise BAs by *median* APE, and a
+    reader carrying a figure between artifacts without noticing the statistic
+    changed would be comparing two different things. On a feed with a fat
+    error tail the two diverge substantially — which is information, not
+    noise: a large gap says the BA's error is tail-driven.
+    """
     actual = np.array([p.actual for p in pairs], dtype=float)
     pred = np.array([getattr(p, arm) for p in pairs], dtype=float)
     if actual.size == 0:
-        return {"mape": float("nan"), "mae": float("nan"), "wape": float("nan"), "n": 0}
+        return {
+            "mape": float("nan"),
+            "median_ape": float("nan"),
+            "mae": float("nan"),
+            "wape": float("nan"),
+            "n": 0,
+        }
+    ape = np.abs(actual - pred) / actual * 100.0
     return {
-        "mape": round(float(np.mean(np.abs(actual - pred) / actual * 100.0)), 3),
+        "mape": round(float(np.mean(ape)), 3),
+        "median_ape": round(float(np.median(ape)), 3),
         "mae": round(float(np.mean(np.abs(actual - pred))), 1),
         "wape": round(wape(actual, pred), 3),
         "n": int(actual.size),
@@ -232,25 +260,29 @@ def pair_hours(
     """Join the two arms on target hour, dropping every unfair hour.
 
     Returns ``(pairs, drop_counts)`` — the per-reason counts are published,
-    because the exclusions are not neutral across BAs (a stub-heavy BA like
-    MISO loses ~20% of its hours while a clean one loses none) and a reader
-    who cannot see that will assume the worst.
+    because the exclusions are not neutral across BAs and a reader who cannot
+    see that will assume the worst. MISO loses ~20% of its hours to stubs and
+    ~10% more to hours with no published DF; the cleanest feeds still lose a
+    percent or two. None loses nothing.
 
-    Drop reasons, in order:
+    Drop reasons, in evaluation order (the order matters: each hour is
+    attributed to the FIRST rule it trips, so these counts are disjoint):
 
+    * ``no_df`` — the BA published no day-ahead forecast for the hour.
+      Checked first, because both stub predicates read as "not a stub" when
+      DF is simply absent.
+    * ``unsettled`` — no finite, positive settled actual yet.
     * ``unresolved_stub`` — settled value still equals the day-ahead
       forecast. The official arm would score exactly 0% by construction,
       *and* our arm would be graded against their forecast rather than
       reality. This is the sharper of the two stub predicates.
     * ``first_seen_placeholder`` — flagged ``D == DF`` at first sight.
       Dropped conservatively even when later corrected.
-    * ``unsettled`` — no finite, positive settled actual yet.
-    * ``no_df`` — the BA published no day-ahead forecast for the hour.
-      Checked independently of the stub predicates, which both read as
-      "not a stub" when DF is simply absent.
     * ``no_gridpulse`` — we have no matured prediction for the hour. Both
       arms are always scored on the SAME hour set; a one-sided score would
-      compare a 30-day official record against a 1-day GridPulse one.
+      compare a 30-day official record against a 1-day GridPulse one. Note
+      the cost: the operator's forecast for that hour exists and goes
+      unscored, so the sample is conditioned on OUR availability too.
     """
     out: list[PairedHour] = []
     drops = {
@@ -337,8 +369,11 @@ def gridpulse_predictions(
     """Extract ``{target_hour: predicted}`` from the horizon-drift payload.
 
     Reads the resolved records the horizon pipeline already keeps for
-    ``models.{model}.{lead}.records`` — these are settled-regraded, so the
-    GridPulse arm inherits the same truth discipline as the official arm.
+    ``models.{model}.{lead}.records``, and takes **only the prediction** from
+    them. The drift record's own ``actual`` is deliberately ignored: this
+    module re-grades every prediction against the vintage ``last_d``, so both
+    arms are scored by one yardstick computed in one place rather than each
+    inheriting its own pipeline's notion of truth.
     """
     if not horizon_payload:
         return {}
@@ -423,6 +458,10 @@ def compute_benchmark_payload(
             # Positive delta = GridPulse is more accurate on that metric.
             "delta_mape": round(official["mape"] - gridpulse["mape"], 3),
             "delta_wape": round(official["wape"] - gridpulse["wape"], 3),
+            # The winner is decided on mean MAPE; this is published so a
+            # reader can see immediately whether that call is metric-
+            # dependent, instead of having to take the headline on trust.
+            "delta_median_ape": round(official["median_ape"] - gridpulse["median_ape"], 3),
             "delta_mape_vs_revised": round(official_revised["mape"] - gridpulse["mape"], 3),
             "winner": "gridpulse" if gridpulse["mape"] < official["mape"] else "official",
             "winner_vs_revised": (
@@ -485,9 +524,10 @@ def fleet_rollup(
             "losses": len(fleet) - wins,
             "median_gridpulse_mape": round(float(np.median(gp_mapes)), 3) if gp_mapes else None,
             "median_official_mape": round(float(np.median(off_mapes)), 3) if off_mapes else None,
-            # The consistency story: our spread vs theirs. This is the
-            # durable claim even in windows where the win count is a coin
-            # flip — measured 41x spread in the operators' own accuracy.
+            # The consistency story: our spread vs theirs, both on MEAN
+            # MAPE. Note the 41x figure quoted elsewhere is a *median* APE
+            # spread from docs/BENCHMARK_SCOREABILITY.md — a different
+            # statistic over a different hour set, not this field.
             "gridpulse_spread": _spread(gp_mapes),
             "official_spread": _spread(off_mapes),
         },
