@@ -19,6 +19,33 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-27 — E0-3 shipped: the public benchmark is live-able.**
+[`/benchmark`](web/benchmark.html) + `/api/v1/benchmark` (+ per-region).
+The page holds no data of its own — it fetches the public endpoint in the
+browser, so it cannot render a figure the API would not also return. It
+publishes both official arms and **both** verdicts (an amber pill where a
+revision flips a BA), per-row drop counts, fairness exclusions with their
+reason and the direction of the bias, and the limits led by the two that cut
+against us. API follows the existing contract: allow-listed export, 503
+`{"status": "warming"}` when cold, per-BA `scored_at`.
+
+An 8-agent adversarial review confirmed **17 defects**, all fixed. The two
+that mattered: the excluded table lumped *fairness* exclusions together with
+BAs merely **still accumulating hours**, under a lede claiming "most are
+broken feeds" — false at launch, when the second group is larger, and it made
+a young BA read as a hidden loss (now two sections, split on the published
+reason). And the page said "their forecast", the exact phrasing §12.1
+forbids — now "the earliest day-ahead we observed" throughout. Also: an
+invisible focus ring (30%-alpha token, ~1.5:1, fails WCAG 1.4.11 — the same
+bug is in `/about`, **not yet fixed there**), missing `aria-sort`, BA cells
+promoted to `th[scope=row]`, and a loading placeholder that read "Loading…"
+forever with JS off.
+
+**E0 is complete: engine → measurement → methodology → public surface.**
+Next: deploy and watch the first real payloads (the conservative label and
+`observed_lead_h` only start populating once #342's fix is live), then decide
+whether the `/benchmark` page is promoted from a side path.
+
 **2026-07-27 — E0-4 methodology published, and writing it found two live
 bugs in the lead instrument.** [`docs/BENCHMARK_METHODOLOGY.md`](docs/BENCHMARK_METHODOLOGY.md)
 states the rules — sources, the single-truth discipline, the five hour-drop

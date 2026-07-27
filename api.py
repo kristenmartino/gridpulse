@@ -216,6 +216,11 @@ def index():
                 "GET /api/v1/drift/{region}": (
                     "Live 1h drift + horizon-matched (24/48/72h) accuracy grades"
                 ),
+                "GET /api/v1/benchmark": (
+                    "GridPulse vs each BA's own EIA-930 day-ahead forecast, "
+                    "fleet rollup + every per-BA row"
+                ),
+                "GET /api/v1/benchmark/{region}": "One BA's benchmark row",
             },
             "notes": [
                 "Data updates hourly from the scoring pipeline (EIA-930 + Open-Meteo).",
@@ -227,6 +232,10 @@ def index():
                 "by numerical weather forecasts. The dashboard's longer view leans "
                 "on climatology beyond the weather window (ADR-008), which the API "
                 "does not export as if it were a weather-driven forecast.",
+                "Benchmark figures carry the statistic that produced them, and "
+                "the rules, exclusions and known limits are published in "
+                "docs/BENCHMARK_METHODOLOGY.md — read the limits before quoting "
+                "a number.",
             ],
             "attribution": list(_ATTRIBUTION.values()),
         }
@@ -523,4 +532,197 @@ def drift(raw_region: str):
             "horizons": horizon.get("horizons", ["24h", "48h", "72h"]),
             "models": by_model,
         }
+    return jsonify(body)
+
+
+# ── Public forecast benchmark (E0-3) ─────────────────────────
+
+#: Export allow-list for one lead block. The Redis payload is a cache schema,
+#: not a contract — a future debug field must not auto-publish here. Both
+#: official arms ship, and both verdicts, because publishing only the
+#: favourable scoring is the objection the dual arm exists to pre-empt
+#: (docs/BENCHMARK_METHODOLOGY.md §6).
+_EXPORTED_BENCHMARK_LEAD_FIELDS = (
+    "scoreable",
+    "n",
+    "official",
+    "official_revised",
+    "gridpulse",
+    "delta_mape",
+    "delta_wape",
+    "delta_median_ape",
+    "delta_mape_vs_revised",
+    "winner",
+    "winner_vs_revised",
+    "excluded_hours",
+    "observed_lead_h",
+    "lead_basis",
+    "conservative",
+    "conservative_basis",
+    "reason",
+)
+
+#: Every metric block travels with the statistic that produced it. §8 of the
+#: methodology forbids publishing a per-BA figure without metric, window, `n`
+#: and arm — this is that rule expressed as a field.
+_BENCHMARK_STATISTICS = {
+    "mape": "mean absolute percentage error over the paired hours",
+    "median_ape": "median absolute percentage error over the paired hours",
+    "mae": "mean absolute error, MW",
+    "wape": "sum|error| / sum|actual|, percent",
+}
+
+_BENCHMARK_NOTES = [
+    "Both arms are scored on the SAME hours against the SAME settled actual "
+    "(EIA's revised value), so neither is graded on its own yardstick.",
+    "Hours where EIA published the day-ahead forecast AS the actual are "
+    "excluded — scoring them would credit the official forecast with a "
+    "perfect prediction on hours it never made. Per-reason drop counts ship "
+    "as excluded_hours.",
+    "The official arm is scored twice: as-issued (the earliest day-ahead "
+    "forecast we observed, the fair comparison) and as-revised (EIA's current "
+    "value, which for a revising BA carries hindsight). Both verdicts are "
+    "published.",
+    "Verdicts are decided on mean MAPE. median_ape, mae and wape are "
+    "published for interpretation and decide nothing.",
+    "Leads are nominal unless lead_basis is 'observed'. Our realized lead is "
+    "shorter than its label, and the 24h arm is NOT lead-matched against the "
+    "operators' documented 17-41h submission window — see the methodology's "
+    "limits before quoting a lead.",
+    "Excluded BAs are published with their reason rather than omitted.",
+]
+
+_BENCHMARK_DOCS = {
+    "methodology": (
+        "https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_METHODOLOGY.md"
+    ),
+    "scoreability": (
+        "https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_SCOREABILITY.md"
+    ),
+    "provenance": (
+        "https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_PROVENANCE.md"
+    ),
+}
+
+
+def _export_isolated(fleet: Any) -> dict[str, Any] | None:
+    """Isolated regions (ERCOT), through the same lead allow-list."""
+    if not isinstance(fleet, dict) or not isinstance(fleet.get("isolated"), dict):
+        return None
+    return {
+        region: {k: block[k] for k in _EXPORTED_BENCHMARK_LEAD_FIELDS if k in block}
+        for region, block in fleet["isolated"].items()
+        if isinstance(block, dict)
+    }
+
+
+def _export_excluded_list(fleet: Any) -> list[dict[str, Any]] | None:
+    """The rollup's excluded regions, region + reason only."""
+    if not isinstance(fleet, dict) or not isinstance(fleet.get("excluded"), list):
+        return None
+    return [
+        {"region": e.get("region"), "reason": e.get("reason")}
+        for e in fleet["excluded"]
+        if isinstance(e, dict)
+    ]
+
+
+def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """One BA's payload, allow-listed for a public trust boundary."""
+    leads = {}
+    for lead, block in (payload.get("leads") or {}).items():
+        if isinstance(block, dict):
+            leads[lead] = {k: block[k] for k in _EXPORTED_BENCHMARK_LEAD_FIELDS if k in block}
+    return {
+        "region": payload.get("region"),
+        "name": REGION_NAMES.get(payload.get("region", ""), payload.get("region")),
+        # Per-BA freshness: the fleet key's updated_at stamps the rollup, not
+        # this row, and the per-region route has no fleet key to fall back on.
+        "scored_at": payload.get("scored_at"),
+        "scoreable": bool(payload.get("scoreable")),
+        "reason": payload.get("reason"),
+        "reason_detail": payload.get("reason_detail"),
+        "revision_class": payload.get("revision_class"),
+        "df_coverage": payload.get("df_coverage"),
+        "placeholder_pct": payload.get("placeholder_pct"),
+        "leads": leads,
+    }
+
+
+@api_v1.get("/benchmark")
+def benchmark():
+    """GridPulse vs each BA's own EIA-930 day-ahead forecast.
+
+    The fleet rollup plus every per-BA row — including the excluded ones,
+    which carry their reason. Rules, limits and reproduction scripts:
+    ``docs/BENCHMARK_METHODOLOGY.md``.
+    """
+    memoized = _memo_get("benchmark")
+    if memoized is not None:
+        return jsonify(memoized)
+
+    fleet = redis_get(redis_key("meta:benchmark_fleet"))
+    regions_out = []
+    for code in sorted(REGION_NAMES):
+        payload = redis_get(redis_key(f"benchmark:{code}"))
+        if isinstance(payload, dict) and payload.get("region"):
+            regions_out.append(_export_benchmark_payload(payload))
+
+    if not regions_out:
+        return _warming_response(
+            "No benchmark results yet — a BA needs roughly nine days of "
+            "scoring ticks before enough matured forecasts pair with settled "
+            "actuals to publish a verdict."
+        )
+
+    body = {
+        "comparison": "GridPulse forecast vs the balancing authority's own day-ahead forecast",
+        "truth": "EIA's settled demand value for the hour, used for both arms",
+        "window_days": 30,
+        "updated_at": fleet.get("updated_at") if isinstance(fleet, dict) else None,
+        "fleet": fleet.get("fleet") if isinstance(fleet, dict) else None,
+        "n_scoreable": fleet.get("n_scoreable") if isinstance(fleet, dict) else None,
+        "n_excluded": fleet.get("n_excluded") if isinstance(fleet, dict) else None,
+        # The rollup's own list, so a consumer can reconcile the count above
+        # against named regions instead of trusting it.
+        "excluded": _export_excluded_list(fleet),
+        # Same allow-list as every other lead block — an isolated region is
+        # not a back door for internal fields.
+        "isolated": _export_isolated(fleet),
+        "statistics": _BENCHMARK_STATISTICS,
+        "regions": regions_out,
+        "notes": _BENCHMARK_NOTES,
+        "docs": _BENCHMARK_DOCS,
+        "attribution": [_ATTRIBUTION["demand"]],
+    }
+    _memo_set("benchmark", body)
+    return jsonify(body)
+
+
+@api_v1.get("/benchmark/<raw_region>")
+def benchmark_region(raw_region: str):
+    """One BA's benchmark row, excluded ones included with their reason."""
+    region = _resolve_region(raw_region)
+    if region is None:
+        return _unknown_region_response()
+
+    payload = redis_get(redis_key(f"benchmark:{region}"))
+    if not isinstance(payload, dict) or not payload.get("region"):
+        return _warming_response(
+            "No benchmark payload cached for this region. The hourly scoring "
+            "job writes it once the region has settled vintage history; a "
+            "region that is scored but still accumulating paired hours "
+            "appears here with its reason instead."
+        )
+
+    body = _export_benchmark_payload(payload)
+    body.update(
+        {
+            "window_days": 30,
+            "statistics": _BENCHMARK_STATISTICS,
+            "notes": _BENCHMARK_NOTES,
+            "docs": _BENCHMARK_DOCS,
+            "attribution": [_ATTRIBUTION["demand"]],
+        }
+    )
     return jsonify(body)
