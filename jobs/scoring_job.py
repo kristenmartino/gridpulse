@@ -203,7 +203,7 @@ def _score_region(region: str) -> dict:
     # and the horizon-drift records (written immediately above), so it must
     # stay after both. Isolated like the drift phases — the benchmark is
     # published evidence, never a reason to fail a scoring run.
-    benchmark_res = phases.write_benchmark_metrics(region)
+    benchmark_res = phases.write_benchmark_metrics(region, previous_forecast, region_data.demand_df)
     summary["phases"]["benchmark"] = {
         "ok": benchmark_res.ok,
         **(benchmark_res.details if benchmark_res.ok else {"error": benchmark_res.error}),

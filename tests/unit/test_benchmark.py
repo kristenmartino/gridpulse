@@ -14,17 +14,21 @@ would embarrass it, plus the exclusion contract:
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from models.benchmark import (
+    CONSERVATIVE_LEAD,
     EXCLUDE_BROKEN_FEED,
     EXCLUDE_DF_COVERAGE,
     HEADLINE_LEAD,
     MIN_PAIRED_HOURS,
+    OFFICIAL_DOCUMENTED_LEAD_H,
     compute_benchmark_payload,
     fleet_rollup,
     gridpulse_predictions,
     pair_hours,
+    revised_df_from_frame,
     score_arm,
     scoreability,
     wape,
@@ -327,3 +331,112 @@ def _horizon(records, predicted, leads=("24h",)):
             }
         }
     }
+
+
+class TestDualOfficialArm:
+    """EIA revises the day-ahead forecast for some BAs (PSEI 26%, SOCO 24%;
+    the big ISOs never — docs/BENCHMARK_PROVENANCE.md). Scoring only the
+    as-issued value invites "you graded their stale number", so the
+    conservative arm grades them on the revised value, which carries
+    hindsight. We publish both."""
+
+    def test_revised_arm_scored_on_the_same_hours_and_truth(self):
+        """The conservative arm must not quietly get a different hour set or
+        a different actual — that is how a head-to-head gets rigged."""
+        recs = _records(300, df=1200.0, actual=1000.0)
+        revised = {r.timestamp: 1100.0 for r in recs}
+        pairs, _ = pair_hours(recs, _gp(recs, 1050.0), revised)
+        assert len(pairs) == 300
+        assert all(p.actual == 1000.0 for p in pairs)
+        assert all(p.official == 1200.0 and p.official_revised == 1100.0 for p in pairs)
+
+    def test_revised_falls_back_to_as_issued_when_absent(self):
+        """7 of 10 sampled BAs never revise — they must score identically."""
+        recs = _records(300, df=1200.0, actual=1000.0)
+        pairs, _ = pair_hours(recs, _gp(recs, 1050.0), None)
+        assert all(p.official_revised == p.official for p in pairs)
+
+    def test_payload_reports_both_verdicts(self):
+        """A reader must be able to see the result under either scoring."""
+        recs = _records(300, df=1200.0, actual=1000.0)
+        revised = {r.timestamp: 1100.0 for r in recs}
+        payload = compute_benchmark_payload(
+            "TEST", recs, _horizon(recs, 1050.0), "clean", revised_df_by_ts=revised
+        )
+        lead = payload["leads"][HEADLINE_LEAD]
+        assert lead["official"]["mape"] == pytest.approx(20.0)
+        assert lead["official_revised"]["mape"] == pytest.approx(10.0)
+        assert lead["winner"] == "gridpulse"
+        assert lead["winner_vs_revised"] == "gridpulse"
+        assert lead["delta_mape_vs_revised"] == pytest.approx(5.0)
+
+    def test_revised_arm_can_flip_the_verdict_and_that_is_visible(self):
+        """If the revision is large enough to lose us the BA, the payload
+        says so rather than hiding behind the as-issued number."""
+        recs = _records(300, df=1300.0, actual=1000.0)
+        revised = {r.timestamp: 1010.0 for r in recs}  # revision makes them great
+        payload = compute_benchmark_payload(
+            "TEST", recs, _horizon(recs, 1050.0), "clean", revised_df_by_ts=revised
+        )
+        lead = payload["leads"][HEADLINE_LEAD]
+        assert lead["winner"] == "gridpulse"
+        assert lead["winner_vs_revised"] == "official"
+
+    def test_revised_df_read_from_the_live_frame(self):
+        """forecast_mw on the fetched frame IS EIA's post-revision DF, so no
+        new capture is needed."""
+        frame = pd.DataFrame(
+            {
+                "timestamp": pd.to_datetime(["2026-07-01T00:00Z", "2026-07-01T01:00Z"]),
+                "forecast_mw": [900.0, float("nan")],
+            }
+        )
+        got = revised_df_from_frame(frame)
+        assert got["2026-07-01T00:00:00Z"] == 900.0
+        assert len(got) == 1  # the NaN row is skipped, not zero-filled
+
+    def test_missing_frame_is_empty_not_an_error(self):
+        assert revised_df_from_frame(None) == {}
+        assert revised_df_from_frame(pd.DataFrame()) == {}
+
+
+class TestObservedLead:
+    """Our nominal 24h record is a realized ~22.9h (the forecast anchors on
+    the last real demand hour). The conservative label on the 48h arm is
+    EARNED by measurement, never assumed."""
+
+    def _payload(self, lead_h):
+        recs = _records(300, df=1100.0, actual=1000.0)
+        return compute_benchmark_payload(
+            "TEST",
+            recs,
+            _horizon(recs, 1000.0, leads=("24h", "48h")),
+            "clean",
+            observed_lead_h=lead_h,
+        )
+
+    def test_observed_lead_replaces_the_nominal_label(self):
+        payload = self._payload({"24h": 22.92, "48h": 46.92})
+        head = payload["leads"][HEADLINE_LEAD]
+        assert head["lead_basis"] == "observed"
+        assert head["observed_lead_h"] == pytest.approx(22.92)
+
+    def test_conservative_label_granted_when_lead_exceeds_their_maximum(self):
+        payload = self._payload({"24h": 22.92, "48h": 46.92})
+        arm = payload["leads"][CONSERVATIVE_LEAD]
+        assert arm["conservative"] is True
+        assert str(int(OFFICIAL_DOCUMENTED_LEAD_H[1])) in arm["conservative_basis"]
+
+    def test_conservative_label_withheld_when_lead_falls_short(self):
+        """If EIA's publishing lag ever grew, our 48h arm would stop
+        exceeding their documented 41h maximum — and the claim must lapse
+        automatically rather than persist as a stale assertion."""
+        payload = self._payload({"24h": 16.0, "48h": 40.0})
+        arm = payload["leads"][CONSERVATIVE_LEAD]
+        assert arm["conservative"] is False
+        assert "withheld" in arm["conservative_basis"]
+
+    def test_no_observation_falls_back_to_nominal(self):
+        payload = self._payload({})
+        assert payload["leads"][HEADLINE_LEAD]["lead_basis"] == "nominal"
+        assert payload["leads"][CONSERVATIVE_LEAD]["conservative"] is False
