@@ -85,6 +85,27 @@ class TestLandingContent:
         assert re.search(r'<a class="btn-primary" href="/">', body)
         assert 'href="/" target' not in body
 
+    def test_focus_indicator_is_opaque(self, body) -> None:
+        """--accent-ring is 30% alpha; as an outline it measures 1.46:1 on
+        --bg-base and 1.50:1 on --bg-raised, against the 3:1 WCAG 1.4.11
+        requires of a focus indicator. It shipped that way and a keyboard
+        user could not see where they were on the page. The opaque accent
+        measures 5.38:1 / 5.13:1 — and is what the dashboard already uses."""
+        assert "outline: 2px solid var(--accent-base);" in body
+        assert "outline: 2px solid var(--accent-ring);" not in body
+
+    def test_every_focusable_element_is_covered_by_the_rule(self, body) -> None:
+        """The page is almost entirely links, so a rule that missed anchors
+        would leave the whole page unfocusable-looking. Pinning the selector
+        catches a future <button> or <summary> being added without one."""
+        import re as _re
+
+        rule = _re.search(r"([^\n]*):focus-visible[^{]*\{[^}]*outline[^}]*\}", body)
+        assert rule, "no focus-visible rule on the page"
+        selectors = rule.group(0).split("{")[0]
+        for tag in ("a", "button", "summary"):
+            assert f"{tag}:focus-visible" in selectors, tag
+
     def test_posture_pins_no_commercial_language(self, body) -> None:
         """The BSC-era guardrail as a test: portfolio-neutral, nothing
         commercial, no combat claims (market-entry plan rule; archived

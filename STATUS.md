@@ -37,7 +37,7 @@ a young BA read as a hidden loss (now two sections, split on the published
 reason). And the page said "their forecast", the exact phrasing §12.1
 forbids — now "the earliest day-ahead we observed" throughout. Also: an
 invisible focus ring (30%-alpha token, ~1.5:1, fails WCAG 1.4.11 — the same
-bug is in `/about`, **not yet fixed there**), missing `aria-sort`, BA cells
+bug was in `/about`, fixed in a follow-up), missing `aria-sort`, BA cells
 promoted to `th[scope=row]`, and a loading placeholder that read "Loading…"
 forever with JS off.
 
