@@ -19,6 +19,34 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-27 — E0 benchmark engine landed (PR 1 of the arc); two
+provenance limits found by design review must be closed before anything
+publishes.** The gate epic for commercialization: GridPulse competes
+against a *free* incumbent (EIA-930 publishes each BA's day-ahead
+forecast), so relative accuracy is the value proposition. Engine rides
+existing instrumentation — official arm from vintage `first_seen_df`,
+GridPulse arm from `drift_horizon` 24h/48h records, settled `last_d` as
+the single truth for both. Measured: **44 of 51 BAs scoreable**, and the
+operators' own accuracy spans **41×** (ERCOT 1.15% → PSEI 47.21%) —
+content no incumbent publishes (`docs/BENCHMARK_SCOREABILITY.md`).
+
+**Two limits block the public claim, both documented in
+`models/benchmark.py`:** (1) `first_seen_df` is *not* the day-ahead value
+as published — vintage only admits an hour once EIA publishes a metered
+`D`, so the DF was re-read 0–3h after the target hour, and nothing yet
+measures whether EIA revises DF in between; (2) our lead is *nominal*, not
+realized — the forecast anchors on the last real demand hour, so a "24h"
+record is a ~20–24h wall-clock lead, and the resolved drift records
+discard `made_at`. Neither may be published as a claim until measured.
+**Next: a DF-revision measurement week, then the realized-lead capture** —
+both gate the methodology doc (E0-4) and the public page (E0-3).
+
+Indicative sizing (10 BAs, approximate metric match — *not* the
+benchmark): GridPulse 6, official 4, with losses all in well-run ISOs
+within ~1.2 pts and wins large where the operator is weak (PSEI 3.67 vs
+30.59). The durable claim looks like **consistency** — we are ~3–5%
+everywhere, they range 1.4%–47% — rather than a win count.
+
 **2026-07-23 — ADR-012 flipped ON: 36 BAs now forecast on aggregated
 footprint weather.** Flag `multipoint_weather` → True (PR B of the #336
 arc; the issue — auto-closed early by a close-keyword written in PR A's
