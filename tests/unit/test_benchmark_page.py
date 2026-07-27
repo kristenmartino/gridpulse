@@ -373,6 +373,27 @@ class TestBenchmarkPagePosture:
         assert re.search(r'<div id="state"[^>]*\bhidden\b', body)
         assert "state.hidden = false;" in body
 
+    def test_realized_lead_is_stated_once_not_per_row(self, body) -> None:
+        """It varies by ~0.15h across the fleet, so a per-row copy is
+        near-identical 44 times over — which reads as boilerplate and invites
+        the (reasonable) suspicion that the row is not really per-BA. It is a
+        property of how we anchor, so it belongs in the sidebar."""
+        assert 'id="realized-lead"' in body
+        assert "renderLead" in body
+        # the per-row line survives ONLY as the exception: a row with no
+        # measurement, which is genuinely per-row information
+        assert "Realized lead this tick" not in body
+        assert "h.lead_basis !== 'observed'" in body
+
+    def test_realized_lead_is_derived_from_the_payload(self, body) -> None:
+        """Hard-coding it would leave a stale number on the page the moment
+        EIA's publishing lag changed — the exact failure the observed-lead
+        instrument exists to prevent."""
+        assert "observed_lead_h" in body
+        assert "Math.min.apply" in body and "Math.max.apply" in body
+        # no literal lead figure anywhere in the rendered sidebar
+        assert "23.9" not in body.split("<script>")[1]
+
     def test_spread_tile_names_its_statistic_and_population(self, body) -> None:
         """A bare ratio invites confusion with the median-APE spread in the
         scoreability report — a different statistic over different hours."""

@@ -200,6 +200,7 @@
       text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 10px;
     }
     .panel dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; }
+    .panel-note { font-size: 12px; color: var(--text-secondary); margin-top: 10px; }
     .panel dt { color: var(--text-tertiary); }
     .panel dd { color: var(--text-primary); text-align: right; }
     .panel ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-secondary); }
@@ -432,9 +433,17 @@
               <dt>Applied to</dt><dd>both arms, same hours</dd>
               <dt>Window</dt><dd>30 days</dd>
               <dt>Horizon</dt><dd>nominal 24h</dd>
+              <dt>Realized lead</dt><dd id="realized-lead">&mdash;</dd>
               <dt>Verdict metric</dt><dd>mean MAPE</dd>
               <dt>Updated</dt><dd id="updated">&mdash;</dd>
             </dl>
+            <p class="panel-note" id="lead-note">
+              The forecast anchors on the last <em>settled</em> demand hour, so
+              a &ldquo;24h&rdquo; row is slightly less than 24 hours ahead. It
+              is a property of how we anchor, near-identical across balancing
+              authorities &mdash; which is why it is stated here once rather
+              than repeated on every row.
+            </p>
           </div>
 
           <div class="panel">
@@ -662,12 +671,18 @@
           .map(function (k) { return drops[k] + ' — ' + labels[k]; });
         p.textContent = parts.length ? parts.join(' · ') : 'No hours dropped in this window.';
         det.appendChild(p);
-        var lead = document.createElement('p');
-        lead.className = 'drops';
-        lead.textContent = h.lead_basis === 'observed' && h.observed_lead_h
-          ? 'Realized lead this tick: ' + h.observed_lead_h + 'h (nominal ' + HEADLINE + ').'
-          : 'Realized lead not measured on this tick — the horizon is nominal ' + HEADLINE + '.';
-        det.appendChild(lead);
+        /* The realized lead lives in the sidebar: it varies by ~0.15h across
+           the fleet, so repeating it on 44 rows says nothing and invites the
+           reasonable suspicion that the row is boilerplate. What IS per-row
+           is the exception — a row whose lead was not measured this tick, and
+           whose horizon therefore remains a nominal label. */
+        if (h.lead_basis !== 'observed') {
+          var lead = document.createElement('p');
+          lead.className = 'drops';
+          lead.textContent = 'Realized lead not measured for this row — its ' +
+            HEADLINE + ' horizon is the nominal label, not an observation.';
+          det.appendChild(lead);
+        }
         dc.appendChild(det);
       });
     }
@@ -712,8 +727,37 @@
       document.getElementById('pending-section').hidden = pending.length === 0;
     }
 
+    /* Derived from the rows, never hard-coded: if the anchoring changes or
+       EIA's publishing lag grows, this number moves on its own. */
+    function renderLead() {
+      var scoredRows = (data.regions || []).filter(scored);
+      var observed = scoredRows
+        .map(function (r) { return head(data, r).observed_lead_h; })
+        .filter(function (v) { return typeof v === 'number' && isFinite(v); });
+      var el = document.getElementById('realized-lead');
+      var note = document.getElementById('lead-note');
+
+      if (!observed.length) {
+        el.textContent = 'not measured';
+        note.textContent = 'No row carried a measured lead this tick, so every ' +
+          'horizon below is the nominal label rather than an observation. ' +
+          'Nothing here may be quoted as an "N hours ahead" claim.';
+        return;
+      }
+      var lo = Math.min.apply(null, observed);
+      var hi = Math.max.apply(null, observed);
+      el.textContent = (lo === hi ? num(lo) : num(lo) + '–' + num(hi)) + 'h';
+      if (observed.length < scoredRows.length) {
+        note.textContent = 'Measured on ' + observed.length + ' of ' + scoredRows.length +
+          ' scored rows; the rest carry the nominal label and say so when expanded. ' +
+          'The forecast anchors on the last settled demand hour, so a "24h" row is ' +
+          'slightly less than 24 hours ahead.';
+      }
+    }
+
     function render() {
       renderTiles();
+      renderLead();
       renderRows();
       renderExcluded();
       document.getElementById('updated').textContent =
