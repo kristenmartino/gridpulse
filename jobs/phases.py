@@ -2157,6 +2157,11 @@ def write_benchmark_metrics(
             revised_df_by_ts=revised_df_from_frame(demand_df),
             observed_lead_h=_observed_lead_hours(previous_forecast),
         )
+        # Per-BA freshness. The fleet rollup's own timestamp stamps the
+        # rollup; a reader of one region's row has no way to tell how old it
+        # is without this, and the per-region API route has no fleet key to
+        # fall back on.
+        payload["scored_at"] = datetime.now(UTC).isoformat()
         redis_set(redis_key(f"benchmark:{region}"), payload, ttl=REDIS_TTL)
 
         headline = (payload.get("leads") or {}).get("24h") or {}

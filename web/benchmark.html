@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forecast Benchmark — GridPulse</title>
+
+  <link rel="canonical" href="https://gridpulse.kristenmartino.ai/benchmark">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
+
+  <meta name="description" content="GridPulse scored against each balancing authority's own EIA-930 day-ahead forecast — same hours, same settled truth, published rules, published exclusions.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://gridpulse.kristenmartino.ai/benchmark">
+  <meta property="og:title" content="Forecast Benchmark — GridPulse">
+  <meta property="og:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
+  <meta name="twitter:card" content="summary_large_image">
+
+  <style>
+    /* Design tokens — curated subset of assets/custom.css :root, duplicated
+       deliberately (the landing-page precedent): a public surface must not
+       break when dashboard chrome CSS changes. Keep in sync by value. */
+    :root {
+      --bg-base: #0a0a0b;
+      --bg-raised: #111113;
+      --bg-hover: #18181b;
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-default: rgba(255, 255, 255, 0.12);
+      --text-primary: #e4e4e7;
+      --text-secondary: #a1a1aa;
+      --text-tertiary: #71717a;
+      --accent-base: #3b82f6;
+      --accent-hover: #5b9aff;
+      --accent-dim: rgba(59, 130, 246, 0.15);
+      --accent-ring: rgba(59, 130, 246, 0.30);
+      --ours: #3b82f6;
+      --theirs: #f97316;
+      --warn: #f59e0b;
+      --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-display: 'Sora', 'Inter', sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --radius-xl: 12px;
+      --radius-full: 9999px;
+      --content-max: 78rem;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent-base); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    /* --accent-ring is 30% alpha; composited on this background it measures
+       ~1.5:1, which fails WCAG 1.4.11 for a focus indicator. The app's own
+       pattern (assets/custom.css) uses the opaque accent — 5.4:1 here. */
+    a:focus-visible, button:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--accent-base);
+      outline-offset: 2px;
+      border-radius: var(--radius-md);
+    }
+    .wrap { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .site-header {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10, 10, 11, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .site-header .wrap {
+      height: 60px; display: flex; align-items: center;
+      justify-content: space-between; gap: 16px;
+    }
+    .wordmark {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-display); font-weight: 600;
+      font-size: 19px; letter-spacing: -0.02em; color: var(--text-primary);
+    }
+    .wordmark .pulse { color: var(--accent-base); }
+    .header-cta { font-size: 14px; font-weight: 500; }
+
+    /* ── Hero ───────────────────────────────────────────── */
+    .hero { padding: 56px 0 32px; border-bottom: 1px solid var(--border-subtle); }
+    .eyebrow {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--accent-base); margin-bottom: 12px;
+    }
+    h1 {
+      font-family: var(--font-display); font-size: clamp(30px, 4.2vw, 46px);
+      line-height: 1.12; letter-spacing: -0.025em; font-weight: 700;
+      margin-bottom: 18px; max-width: 20ch;
+    }
+    .subhead { font-size: 18px; color: var(--text-secondary); max-width: 62ch; }
+    .subhead + .subhead { margin-top: 14px; }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    .cols {
+      display: grid; grid-template-columns: minmax(0, 1fr) 20rem;
+      gap: 40px; align-items: start; padding: 40px 0 8px;
+    }
+    /* Grid items default to min-width:auto, so the min-width:60rem table
+       would push the whole page wider than the viewport instead of
+       scrolling inside its own container. The body must never scroll
+       horizontally. */
+    .cols > * { min-width: 0; }
+
+    section { padding: 28px 0; }
+    h2 {
+      font-family: var(--font-display); font-size: 22px; font-weight: 600;
+      letter-spacing: -0.01em; margin-bottom: 6px;
+    }
+    .section-lede { color: var(--text-secondary); font-size: 15px; margin-bottom: 18px; max-width: 72ch; }
+
+    /* ── Fleet stat tiles ───────────────────────────────── */
+    .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .tile {
+      background: var(--bg-raised); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); padding: 16px;
+    }
+    .tile .label {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--text-tertiary);
+    }
+    .tile .value {
+      font-family: var(--font-display); font-size: 26px; font-weight: 700;
+      letter-spacing: -0.02em; margin-top: 4px;
+    }
+    .tile .sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .tile.ours .value { color: var(--ours); }
+    .tile.theirs .value { color: var(--theirs); }
+
+    /* ── Table ──────────────────────────────────────────── */
+    .table-scroll { overflow-x: auto; border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); }
+    /* overflow-x:auto makes overflow-y auto too, so `position: sticky` on the
+       head only bites inside a height-bounded box. Only the long table gets
+       one — capping the short exclusion tables would scroll them for nothing. */
+    .table-scroll.tall { max-height: 78vh; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 60rem; }
+    thead th {
+      background: var(--bg-raised); text-align: right; padding: 10px 12px;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+      text-transform: uppercase; color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border-default); white-space: nowrap;
+      position: sticky; top: 0; z-index: 1;
+    }
+    thead th:first-child, tbody td:first-child, tbody th { text-align: left; }
+    thead th .unit {
+      display: block; text-transform: none; letter-spacing: 0;
+      font-weight: 400; font-size: 11px; color: var(--text-secondary);
+    }
+    thead th button {
+      background: none; border: 0; color: inherit; font: inherit;
+      text-transform: inherit; letter-spacing: inherit; cursor: pointer; padding: 0;
+    }
+    thead th button::after { content: ' \2195'; opacity: 0.4; }
+    tbody td, tbody th { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+    tbody tr:hover { background: var(--bg-hover); }
+    tbody tr:last-child td { border-bottom: 0; }
+    /* A BA's drop-count row belongs to the row ABOVE it. Without this the
+       divider lands between them and the detail reads as a heading for the
+       NEXT balancing authority. */
+    tbody tr.data td, tbody tr.data th { border-bottom: 0; }
+    tbody tr.detail td { padding: 0 12px 9px; }
+    .ba { font-weight: 600; }
+    .ba .ba-name { display: block; font-weight: 400; font-size: 12px; color: var(--text-secondary); }
+    td.ours { color: var(--ours); }
+    td.theirs { color: var(--theirs); }
+    .pill {
+      display: inline-block; padding: 1px 8px; border-radius: var(--radius-full);
+      font-size: 11px; font-weight: 600; border: 1px solid var(--border-default);
+      color: var(--text-secondary);
+    }
+    .pill.split { border-color: rgba(245, 158, 11, 0.4); color: var(--warn); }
+    .drops { font-size: 12px; color: var(--text-tertiary); }
+    details.row-detail summary { cursor: pointer; color: var(--text-tertiary); font-size: 12px; }
+    details.row-detail[open] summary { color: var(--text-secondary); }
+
+    /* ── Sidebar ────────────────────────────────────────── */
+    .sidebar { position: sticky; top: 84px; display: flex; flex-direction: column; gap: 14px; }
+    .panel {
+      background: var(--bg-raised); border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg); padding: 16px 18px;
+    }
+    .panel h3 {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.07em;
+      text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 10px;
+    }
+    .panel dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 13px; }
+    .panel dt { color: var(--text-tertiary); }
+    .panel dd { color: var(--text-primary); text-align: right; }
+    .panel ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+    .panel li::before { content: '\2014\00a0'; color: var(--text-tertiary); }
+    .panel .endpoint {
+      font-family: var(--font-mono); font-size: 12px; background: var(--bg-base);
+      border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
+      padding: 8px 10px; margin-top: 8px; overflow-x: auto; white-space: nowrap;
+    }
+
+    /* ── Limits + excluded ──────────────────────────────── */
+    .limits { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .limit {
+      background: var(--bg-raised); border: 1px solid var(--border-subtle);
+      border-left: 2px solid var(--warn); border-radius: var(--radius-lg); padding: 14px 16px;
+    }
+    .limit h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+    .limit p { font-size: 13px; color: var(--text-secondary); }
+
+    .state { padding: 40px 0; color: var(--text-secondary); font-size: 15px; }
+    .state strong { color: var(--text-primary); }
+
+    footer {
+      border-top: 1px solid var(--border-subtle); padding: 32px 0 48px;
+      color: var(--text-tertiary); font-size: 13px; margin-top: 24px;
+    }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 32px; justify-content: space-between; align-items: center; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 20px; }
+    footer a { color: var(--text-secondary); }
+    footer a:hover { color: var(--text-primary); }
+
+    @media (max-width: 1000px) {
+      .cols { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+      .sidebar { position: static; }
+      .tiles { grid-template-columns: repeat(2, 1fr); }
+      .table-scroll.tall { max-height: none; }
+      thead th { position: static; }
+    }
+    @media (max-width: 560px) {
+      .tiles, .limits { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="wordmark" href="/about" aria-label="GridPulse — About">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="6" fill="#0a0a0b"/>
+          <path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16"
+                stroke="#3b82f6" stroke-width="2.25"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <span>Grid<span class="pulse">Pulse</span></span>
+      </a>
+      <a class="header-cta" href="/">Open the live platform &rarr;</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Forecast Benchmark</p>
+        <h1>Measured against the forecast you already have.</h1>
+        <p class="subhead">
+          Every US balancing authority publishes its own day-ahead demand
+          forecast through EIA-930, free. This page scores GridPulse against
+          that forecast — on the same hours, against the same settled actual,
+          under rules written down before the results were read.
+        </p>
+        <p class="subhead">
+          The exclusions, the drop counts and the known limits are published
+          here too. They are the part that makes the rest worth reading.
+        </p>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <div class="cols">
+        <div>
+          <noscript>
+            <p class="state">
+              This page renders from the public JSON endpoint
+              <strong>/api/v1/benchmark</strong>, which needs JavaScript to
+              fetch. The endpoint itself is plain JSON and can be read
+              directly.
+            </p>
+          </noscript>
+
+          <div id="state" class="state" role="status" hidden>Loading the latest scored window&hellip;</div>
+
+          <div id="content" hidden>
+            <section aria-labelledby="fleet-h">
+              <h2 id="fleet-h">Fleet</h2>
+              <p class="section-lede" id="fleet-lede"></p>
+              <div class="tiles" id="tiles"></div>
+            </section>
+
+            <section aria-labelledby="rows-h">
+              <h2 id="rows-h">Per balancing authority</h2>
+              <p class="section-lede">
+                Mean MAPE over the paired hours in the 30-day window, at our
+                nominal 24-hour horizon. <strong>n</strong> is the number of
+                hours both forecasts and a settled actual exist for — the only
+                hours either arm is scored on. Expand a row for the hours that
+                were dropped and why.
+              </p>
+              <div class="table-scroll tall">
+                <table id="rows">
+                  <thead>
+                    <tr>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="region">Balancing authority</button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="n">n<span class="unit">paired hours</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="official">Earliest day-ahead we observed<span class="unit">as-issued, mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="official_revised">Same forecast, as revised<span class="unit">as-revised, mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="gridpulse">GridPulse<span class="unit">mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="delta">Difference<span class="unit">points, + = GridPulse closer</span></button></th>
+                      <th scope="col">Both scorings agree?</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section aria-labelledby="excluded-h" id="excluded-section" hidden>
+              <h2 id="excluded-h">Excluded, and why</h2>
+              <p class="section-lede">
+                A balancing authority is left out only when it cannot be scored
+                fairly — a feed whose readings revise too heavily to score
+                intraday, or one that publishes a day-ahead forecast too
+                rarely. Note the direction: most of these are broken feeds, and
+                a BA with sloppy data operations plausibly also forecasts
+                sloppily, so this list likely removes cases favourable to us
+                rather than unfavourable ones.
+              </p>
+              <div class="table-scroll">
+                <table id="excluded">
+                  <thead>
+                    <tr>
+                      <th scope="col">Balancing authority</th>
+                      <th scope="col">Reason</th>
+                      <th scope="col">Why it cannot be scored fairly</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section aria-labelledby="pending-h" id="pending-section" hidden>
+              <h2 id="pending-h">Not yet scoreable — still accumulating</h2>
+              <p class="section-lede">
+                These balancing authorities qualify on every fairness rule but
+                have not yet built up enough comparable hours for a verdict.
+                Forecasts mature at 24 per horizon per day, so a newly scored
+                BA needs <strong>at least nine days</strong> before it can
+                appear above. A BA with no verdict yet has not accumulated
+                evidence — it has not lost.
+              </p>
+              <div class="table-scroll">
+                <table id="pending">
+                  <thead>
+                    <tr>
+                      <th scope="col">Balancing authority</th>
+                      <th scope="col">Paired hours so far</th>
+                      <th scope="col">Needed for a verdict</th>
+                    </tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </section>
+
+            <section aria-labelledby="limits-h">
+              <h2 id="limits-h">What this does not show</h2>
+              <p class="section-lede">
+                Written down because a benchmark without them is marketing. The
+                full list of eight lives in the methodology.
+              </p>
+              <div class="limits">
+                <div class="limit">
+                  <h3>The 24-hour arm is not lead-matched</h3>
+                  <p>
+                    Our realized lead measures 23.80&ndash;23.95h across a
+                    15-BA sample, inside the 17&ndash;41h window EIA documents
+                    for day-ahead submissions. On a typical hour the operator plausibly
+                    forecast from further out than we did &mdash; on the arm
+                    every comparison here is taken from.
+                  </p>
+                </div>
+                <div class="limit">
+                  <h3>The hour set depends on our availability too</h3>
+                  <p>
+                    An hour is dropped when <em>we</em> have no matured
+                    prediction for it, even though the operator's forecast for
+                    that hour exists. Not corrected for; the drop counts are
+                    published per row instead.
+                  </p>
+                </div>
+                <div class="limit">
+                  <h3>This is not how operators forecast</h3>
+                  <p>
+                    The day-ahead value is what a BA publishes to EIA. It need
+                    not be the forecast it dispatches on, and several operate
+                    more sophisticated internal models. A large error here is
+                    evidence about the published series, nothing more.
+                  </p>
+                </div>
+                <div class="limit">
+                  <h3>Not a claim about market value</h3>
+                  <p>
+                    Demand error only. Nothing here is scored on prices,
+                    reserve margins, or dispatch outcomes, and two leads is not
+                    the whole horizon curve.
+                  </p>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <aside class="sidebar" aria-label="How this is measured">
+          <div class="panel">
+            <h3>How this is measured</h3>
+            <dl>
+              <dt>Comparison</dt><dd>ours vs the earliest day-ahead we observed</dd>
+              <dt>Truth</dt><dd>EIA settled value</dd>
+              <dt>Applied to</dt><dd>both arms, same hours</dd>
+              <dt>Window</dt><dd>30 days</dd>
+              <dt>Horizon</dt><dd>nominal 24h</dd>
+              <dt>Verdict metric</dt><dd>mean MAPE</dd>
+              <dt>Updated</dt><dd id="updated">&mdash;</dd>
+            </dl>
+          </div>
+
+          <div class="panel">
+            <h3>Rules that shaped the numbers</h3>
+            <ul>
+              <li>Hours where EIA published the forecast <em>as</em> the actual are excluded &mdash; scoring them would credit the operator with a perfect prediction on hours it never made.</li>
+              <li>The operator's column is the <em>earliest day-ahead forecast we observed</em>, not necessarily the first they issued: a revision landing before we first saw the hour is invisible to us.</li>
+              <li>Only settled actuals count. First-published values run up to ~70% wrong on high-revision feeds.</li>
+              <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight.</li>
+              <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
+            </ul>
+          </div>
+
+          <div class="panel">
+            <h3>Read the rules yourself</h3>
+            <ul>
+              <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_METHODOLOGY.md" target="_blank" rel="noopener">Methodology</a> &mdash; every rule, and eight known limits</li>
+              <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_SCOREABILITY.md" target="_blank" rel="noopener">Scoreability</a> &mdash; which BAs qualify, and why not</li>
+              <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_PROVENANCE.md" target="_blank" rel="noopener">Provenance</a> &mdash; what we measured about our own inputs</li>
+            </ul>
+            <p style="margin-top:12px;font-size:13px;color:var(--text-secondary)">
+              Every number on this page is read from one public endpoint. Call
+              it yourself:
+            </p>
+            <div class="endpoint">GET /api/v1/benchmark</div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>Built by Kristen Martino &middot; GridPulse</span>
+      <nav>
+        <a href="/about">About</a>
+        <a href="/">Live platform</a>
+        <a href="/api/v1/benchmark" target="_blank" rel="noopener">Benchmark JSON</a>
+        <a href="https://github.com/kristenmartino/gridpulse" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+      <span>Demand data: U.S. Energy Information Administration, Form EIA-930 (public domain).</span>
+    </div>
+  </footer>
+
+  <script>
+  (function () {
+    'use strict';
+    var HEADLINE = '24h';
+    var state = document.getElementById('state');
+    /* Revealed here, not in the markup: with JavaScript off nothing ever
+       resolves this placeholder, and a permanent "Loading…" next to the
+       <noscript> notice is worse than no placeholder at all. */
+    state.hidden = false;
+    var content = document.getElementById('content');
+    var rowsBody = document.querySelector('#rows tbody');
+    var excludedBody = document.querySelector('#excluded tbody');
+    var pendingBody = document.querySelector('#pending tbody');
+    /* models.benchmark.MIN_PAIRED_HOURS — shown so a reader can see how far
+       off a still-accumulating BA is, rather than just that it is missing. */
+    var MIN_PAIRED_HOURS = 200;
+    var data = null;
+    var sortKey = 'region';
+    var sortAsc = true;
+
+    function num(v, digits) {
+      return (v === null || v === undefined || isNaN(v)) ? null : Number(v).toFixed(digits === undefined ? 2 : digits);
+    }
+    function text(el, s) { el.textContent = s; return el; }
+    function cell(row, value, cls) {
+      var td = row.insertCell();
+      if (cls) { td.className = cls; }
+      td.textContent = (value === null || value === undefined) ? '—' : value;
+      return td;
+    }
+    function head(payload, region) { return (region.leads || {})[HEADLINE] || {}; }
+
+    /* The BA is the row's header, not another cell — without scope="row" a
+       screen reader reading "4.94" cannot say which BA it belongs to, and
+       this table is horizontally scrolled on most screens. */
+    function rowHeader(tr, region) {
+      var th = document.createElement('th');
+      th.scope = 'row';
+      th.className = 'ba';
+      th.textContent = region.region;
+      var nm = document.createElement('span');
+      nm.className = 'ba-name';
+      nm.textContent = region.name || '';
+      th.appendChild(nm);
+      tr.appendChild(th);
+      return th;
+    }
+
+    /* A row is shown only when its headline lead actually carries a verdict —
+       a BA that is scoreable but still accumulating paired hours has no
+       number to show, and inventing one is the whole thing this page is
+       arguing against. */
+    function scored(region) {
+      var h = head(data, region);
+      return region.scoreable && h.scoreable && h.official && h.gridpulse;
+    }
+
+    function sortValue(region, key) {
+      var h = head(data, region);
+      if (key === 'region') { return region.region; }
+      if (key === 'n') { return h.n; }
+      if (key === 'delta') { return h.delta_mape; }
+      if (key === 'official') { return (h.official || {}).mape; }
+      if (key === 'official_revised') { return (h.official_revised || {}).mape; }
+      if (key === 'gridpulse') { return (h.gridpulse || {}).mape; }
+      return null;
+    }
+
+    function renderTiles() {
+      var tiles = document.getElementById('tiles');
+      var fleet = data.fleet || {};
+      var spreadOurs = fleet.gridpulse_spread || {};
+      var spreadTheirs = fleet.official_spread || {};
+      var items = [
+        {
+          label: 'Scoreable',
+          value: (data.n_scoreable === null || data.n_scoreable === undefined) ? '—' : data.n_scoreable,
+          sub: (data.n_excluded === null || data.n_excluded === undefined)
+            ? 'exclusion count unavailable this tick — see the tables below'
+            : data.n_excluded + ' excluded, each with a published reason'
+        },
+        {
+          label: 'Their median error', cls: 'theirs',
+          value: fleet.median_official_mape === null || fleet.median_official_mape === undefined
+            ? '—' : num(fleet.median_official_mape) + '%',
+          sub: 'median across BAs of each BA’s mean MAPE'
+        },
+        {
+          label: 'Our median error', cls: 'ours',
+          value: fleet.median_gridpulse_mape === null || fleet.median_gridpulse_mape === undefined
+            ? '—' : num(fleet.median_gridpulse_mape) + '%',
+          sub: 'same statistic, same hours, same window'
+        },
+        {
+          label: 'Spread across BAs',
+          value: (spreadTheirs.ratio ? spreadTheirs.ratio + '×' : '—') +
+                 ' / ' + (spreadOurs.ratio ? spreadOurs.ratio + '×' : '—'),
+          /* Naming the statistic is not optional here: the 41× figure quoted
+             in the scoreability report is a MEDIAN APE spread, and this is a
+             mean-MAPE one over a different population. */
+          sub: 'theirs / ours — worst ÷ best BA mean MAPE, 30-day window, ' +
+               'fleet excl. ERCOT' +
+               (spreadTheirs.min ? ' (theirs ' + num(spreadTheirs.min) + '–' + num(spreadTheirs.max) +
+                 '%, ours ' + num(spreadOurs.min) + '–' + num(spreadOurs.max) + '%)' : '')
+        }
+      ];
+      tiles.innerHTML = '';
+      items.forEach(function (it) {
+        var d = document.createElement('div');
+        d.className = 'tile' + (it.cls ? ' ' + it.cls : '');
+        d.appendChild(text(document.createElement('div'), it.label)).className = 'label';
+        d.appendChild(text(document.createElement('div'), String(it.value))).className = 'value';
+        d.appendChild(text(document.createElement('div'), it.sub)).className = 'sub';
+        tiles.appendChild(d);
+      });
+
+      var wins = fleet.wins, losses = fleet.losses;
+      document.getElementById('fleet-lede').textContent =
+        (wins === undefined || wins === null)
+          ? 'Fleet aggregation is still accumulating.'
+          : 'Across ' + fleet.n + ' scoreable balancing authorities, GridPulse is closer on ' +
+            wins + ' and the operator is closer on ' + losses +
+            '. ERCOT is reported separately rather than folded in. Medians, not means: one ' +
+            'catastrophic BA should move its own row, not the fleet’s.';
+    }
+
+    function renderRows() {
+      var list = (data.regions || []).filter(scored);
+      list.sort(function (a, b) {
+        var x = sortValue(a, sortKey), y = sortValue(b, sortKey);
+        if (x === null || x === undefined) { return 1; }
+        if (y === null || y === undefined) { return -1; }
+        if (x < y) { return sortAsc ? -1 : 1; }
+        if (x > y) { return sortAsc ? 1 : -1; }
+        return 0;
+      });
+
+      rowsBody.innerHTML = '';
+      list.forEach(function (region) {
+        var h = head(data, region);
+        var tr = rowsBody.insertRow();
+        tr.className = 'data';
+        rowHeader(tr, region);
+        cell(tr, h.n);
+        cell(tr, num((h.official || {}).mape), 'theirs');
+        cell(tr, num((h.official_revised || {}).mape), 'theirs');
+        cell(tr, num((h.gridpulse || {}).mape), 'ours');
+        var delta = num(h.delta_mape);
+        cell(tr, delta === null ? null : (h.delta_mape > 0 ? '+' + delta : delta));
+
+        var agree = h.winner && h.winner_vs_revised && h.winner === h.winner_vs_revised;
+        var td = tr.insertCell();
+        var pill = document.createElement('span');
+        pill.className = 'pill' + (agree ? '' : ' split');
+        pill.textContent = agree ? 'yes' : 'no — revision changes it';
+        td.appendChild(pill);
+
+        /* The drop counts are not a footnote: they are how a reader sees that
+           exclusions are uneven across BAs. */
+        var detailRow = rowsBody.insertRow();
+        detailRow.className = 'detail';
+        var dc = detailRow.insertCell();
+        dc.colSpan = 7;
+        dc.style.textAlign = 'left';
+        var det = document.createElement('details');
+        det.className = 'row-detail';
+        var sum = document.createElement('summary');
+        sum.textContent = 'Hours dropped from ' + region.region + ', and why';
+        det.appendChild(sum);
+        var p = document.createElement('p');
+        p.className = 'drops';
+        var drops = h.excluded_hours || {};
+        var labels = {
+          no_df: 'no day-ahead forecast published',
+          unsettled: 'no settled actual yet',
+          unresolved_stub: 'settled value still equals the day-ahead forecast (unresolved stub)',
+          first_seen_placeholder: 'flagged as a placeholder at first sight',
+          no_gridpulse: 'no matured GridPulse prediction'
+        };
+        var parts = Object.keys(labels).filter(function (k) { return drops[k]; })
+          .map(function (k) { return drops[k] + ' — ' + labels[k]; });
+        p.textContent = parts.length ? parts.join(' · ') : 'No hours dropped in this window.';
+        det.appendChild(p);
+        var lead = document.createElement('p');
+        lead.className = 'drops';
+        lead.textContent = h.lead_basis === 'observed' && h.observed_lead_h
+          ? 'Realized lead this tick: ' + h.observed_lead_h + 'h (nominal ' + HEADLINE + ').'
+          : 'Realized lead not measured on this tick — the horizon is nominal ' + HEADLINE + '.';
+        det.appendChild(lead);
+        dc.appendChild(det);
+      });
+    }
+
+    /* Two populations, and merging them is dishonest in BOTH directions: a BA
+       excluded by a fairness rule is a permanent, reasoned omission, while a
+       BA short of paired hours is simply young. Early in a deploy the second
+       group is the larger one, so one table under the 'most of these are
+       broken feeds' lede would be plainly false. */
+    var FAIRNESS_REASONS = ['broken-feed', 'df-coverage'];
+
+    function reasonOf(region) {
+      return region.reason || head(data, region).reason || 'insufficient-paired-hours';
+    }
+
+    function renderExcluded() {
+      var unscored = (data.regions || []).filter(function (r) { return !scored(r); });
+      var excluded = unscored.filter(function (r) { return FAIRNESS_REASONS.indexOf(reasonOf(r)) !== -1; });
+      var pending = unscored.filter(function (r) { return FAIRNESS_REASONS.indexOf(reasonOf(r)) === -1; });
+
+      excludedBody.innerHTML = '';
+      excluded.forEach(function (region) {
+        var tr = excludedBody.insertRow();
+        rowHeader(tr, region);
+        cell(tr, reasonOf(region));
+        var td = cell(tr, region.reason_detail || '—');
+        td.style.textAlign = 'left';
+        td.style.color = 'var(--text-secondary)';
+        td.style.fontSize = '13px';
+      });
+
+      pendingBody.innerHTML = '';
+      pending.forEach(function (region) {
+        var h = head(data, region);
+        var tr = pendingBody.insertRow();
+        rowHeader(tr, region);
+        cell(tr, (h.n === undefined || h.n === null) ? '—' : h.n);
+        cell(tr, MIN_PAIRED_HOURS);
+      });
+
+      document.getElementById('excluded-section').hidden = excluded.length === 0;
+      document.getElementById('pending-section').hidden = pending.length === 0;
+    }
+
+    function render() {
+      renderTiles();
+      renderRows();
+      renderExcluded();
+      document.getElementById('updated').textContent =
+        data.updated_at ? new Date(data.updated_at).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : '—';
+      markSortState();
+      state.hidden = true;
+      content.hidden = false;
+    }
+
+    /* aria-sort is the only thing that tells a screen-reader user the table
+       reordered — the visual cue is a glyph they never see. */
+    function markSortState() {
+      Array.prototype.forEach.call(document.querySelectorAll('th[aria-sort]'), function (th) {
+        var btn = th.querySelector('button[data-sort]');
+        th.setAttribute(
+          'aria-sort',
+          btn && btn.getAttribute('data-sort') === sortKey
+            ? (sortAsc ? 'ascending' : 'descending')
+            : 'none'
+        );
+      });
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('th button[data-sort]'), function (btn) {
+      btn.addEventListener('click', function () {
+        var key = btn.getAttribute('data-sort');
+        sortAsc = (key === sortKey) ? !sortAsc : true;
+        sortKey = key;
+        renderRows();
+        markSortState();
+      });
+    });
+
+    fetch('/api/v1/benchmark', { headers: { Accept: 'application/json' } })
+      .then(function (res) {
+        if (res.status === 503) {
+          return res.json().then(function (body) {
+            throw new Error(body.detail || 'The benchmark is still warming up.');
+          });
+        }
+        if (!res.ok) { throw new Error('The benchmark endpoint returned ' + res.status + '.'); }
+        return res.json();
+      })
+      .then(function (body) { data = body; render(); })
+      .catch(function (err) {
+        state.innerHTML = '';
+        var p = document.createElement('p');
+        p.innerHTML = '<strong>No results to show.</strong> ';
+        p.appendChild(document.createTextNode(err.message));
+        state.appendChild(p);
+        var q = document.createElement('p');
+        q.style.marginTop = '10px';
+        q.textContent = 'Nothing is estimated or filled in when the data is not there — ' +
+          'an empty page is the honest state.';
+        state.appendChild(q);
+      });
+  })();
+  </script>
+</body>
+</html>
