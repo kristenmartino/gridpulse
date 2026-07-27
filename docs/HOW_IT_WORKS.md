@@ -50,10 +50,15 @@ flowchart LR
     APIClient((API client)) -- GET /api/v1/* --> App
 ```
 
-**HTTP surfaces on the web tier:** the Dash UI, `/health` (+ `?deep=1`),
-`/metrics`, and since #250 a **public read-only JSON API** at `/api/v1` —
-index, `/regions`, `/forecast/{region}?horizon=` (capped at 168h, the
-weather-driven week), `/grid/summary`, `/drift/{region}`. The API reads the
+**HTTP surfaces on the web tier:** the Dash UI, `/about` and `/benchmark`
+(static pages served from `web/`), `/health` (+ `?deep=1`), `/metrics`, and
+since #250 a **public read-only JSON API** at `/api/v1` — index, `/regions`,
+`/forecast/{region}?horizon=` (capped at 168h, the weather-driven week),
+`/grid/summary`, `/drift/{region}`, `/benchmark` and `/benchmark/{region}`.
+The `/benchmark` page carries no data of its own: it fetches
+`/api/v1/benchmark` in the browser, so what it renders is exactly what the
+public endpoint will admit to. Its rules, exclusions and limits are
+[`docs/BENCHMARK_METHODOLOGY.md`](BENCHMARK_METHODOLOGY.md). The API reads the
 same `gridpulse:*` Redis keys as the UI (same warming semantics: cold cache →
 `503 {"status": "warming"}`, never fabricated data; unknown region → 404) and
 exports fields by allow-list only. See the README "Public API" section for
