@@ -2273,11 +2273,6 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     transform: translateY(-1px);
 }
 
-.gp-region-card:focus-visible {
-    outline: 2px solid var(--accent-ring);
-    outline-offset: 2px;
-}
-
 .gp-region-card--empty {
     opacity: 0.6;
 }
