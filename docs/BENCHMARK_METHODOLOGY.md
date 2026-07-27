@@ -7,7 +7,7 @@ This file is the *rules*. The numbers live in the generated artifacts —
 [`BENCHMARK_PROVENANCE.md`](BENCHMARK_PROVENANCE.md) — and in the live
 `gridpulse:benchmark:{ba}` payload, so the numbers can move without this
 document going stale. Implementation: [`models/benchmark.py`](../models/benchmark.py)
-(pure, 44 unit tests) and the `write_benchmark_metrics` phase in
+(pure, 45 unit tests) and the `write_benchmark_metrics` phase in
 [`jobs/phases.py`](../jobs/phases.py).
 
 ---
@@ -75,9 +75,9 @@ record against a partial GridPulse one and call the difference accuracy.
 Every candidate hour passes five tests, in this order. The per-reason counts
 ship in the payload as `excluded_hours`, because the drops are **not neutral
 across BAs** — MISO loses ~20% of its hours to stubs and ~10% more to hours
-with no published `DF` at all, while a clean feed loses a fraction of a
-percent, and a reader who cannot see that will reasonably assume the
-worst.
+with no published `DF` at all, while the cleanest feeds still lose a percent
+or two (none loses nothing), and a reader who cannot see that will reasonably
+assume the worst.
 
 | Rule | Dropped when | Why |
 |---|---|---|
@@ -143,12 +143,14 @@ BA's result, the payload says so rather than reporting only the favourable
 one. For every BA that does not revise, the two arms are identical by
 construction.
 
-Measured effect: no sampled operator's own accuracy moves by more than
-**1.43 points** between the two scorings. That probe scores only the official
-side, so it bounds the movement — it cannot by itself establish that no
-head-to-head verdict flips. Whether a flip occurs is decided per BA in the
-payload, which is why `winner_vs_revised` is published beside `winner` rather
-than asserted to agree with it. See
+Measured effect: no sampled operator's own **median APE** moves by more than
+**1.43 points** between the two scorings. Read that narrowly — it bounds a
+median, on the official side only, and every verdict here is decided on
+**mean** MAPE (§8), which the probe does not measure. A fat-tailed feed can
+move a mean far more than a median, so nothing measured so far bounds a
+head-to-head result. Whether a flip occurs is decided per BA in the payload,
+which is why `winner_vs_revised` is published beside `winner` rather than
+asserted to agree with it. See
 [`BENCHMARK_PROVENANCE.md`](BENCHMARK_PROVENANCE.md).
 
 ## 7. Lead time
@@ -171,11 +173,14 @@ tick's own observed lead exceeds the operators' documented 41h maximum —
 the check runs per tick, so if EIA's publishing lag ever grew, the label
 would lapse on its own rather than persist as a stale assertion.
 
-**The 24h arm is not lead-matched, and the mismatch runs in our favour.**
-Our realized 23.80–23.95h sits *inside* their documented 17–41h window, whose
-midpoint is ~29h — so on a typical hour the operator forecast from further
-out than we did. This is the reason the 48h arm exists, and the reason §12
-lists it as a limit rather than leaving a reader to find it.
+**The 24h arm is not lead-matched, and the mismatch appears to run in our
+favour.** Across the 15 BAs sampled, our realized lead is 23.80–23.95h —
+inside their documented 17–41h window, whose midpoint is ~29h. We have never
+observed an actual submission time (§12.2), so this is a comparison of our
+measurement against their documentation, not of two measurements; on that
+basis the operator plausibly forecast from further out than we did on a
+typical hour. This is the reason the 48h arm exists, and the reason §12 lists
+it as a limit rather than leaving a reader to find it.
 
 **What the code enforces:** when a tick has no measurement, the block ships
 `observed_lead_h: null` and `lead_basis: "nominal"` — the *label* degrades,
@@ -300,19 +305,24 @@ number per BA is not a supportable format.
    look better here than it deserves.
 3. **Exclusions are not neutral**, and skew against us (§5). Stated rather
    than corrected for.
-4. **The headline arm is not lead-matched, in our favour.** Our realized
-   23.80–23.95h sits inside the operators' documented 17–41h window
-   (midpoint ~29h), so on a typical hour they forecast from further out than
-   we did — an advantage to us on the arm every win/loss count is taken from.
-   The 48h arm is the mitigation, not a cancellation: it is published beside
-   the headline, not instead of it.
+4. **The headline arm is not lead-matched, and the gap appears to favour
+   us.** Our realized 23.80–23.95h (15-BA sample) sits inside the operators'
+   documented 17–41h window, midpoint ~29h — so on a typical hour they
+   plausibly forecast from further out than we did, on the arm every
+   win/loss count is taken from. "Plausibly" because their side is
+   documentation, not observation (limit 2). The 48h arm is the mitigation,
+   not a cancellation: it publishes beside the headline, not instead of
+   it.
 5. **The hour set is conditioned on our own availability.** `no_gridpulse`
    (§4) drops an hour from *both* arms because *we* had no matured
    prediction — the operator's forecast for that hour exists and goes
-   unscored. Our predictions come only from ticks that ran, and the frame
-   they were graded from passes a demand-quality guard the vintage record
-   does not. Neither effect is corrected for; both are why the drop counts
-   ship in the payload.
+   unscored. Our predictions exist only for hours a tick actually
+   snapshotted *and* later resolved, and resolution reads a demand frame
+   that has passed a quality guard the vintage capture has not. That does
+   not change how an hour is graded (§2 — grading is always against vintage
+   `last_d`); it changes *which* hours become eligible at all. Neither
+   effect is corrected for; both are why the drop counts ship in the
+   payload.
 6. **One model.** The GridPulse arm is the served ensemble. Nothing here is a
    per-model claim, and the arm changes when the ensemble changes.
 7. **Mean/median differ across artifacts** (§8) — a live footgun for anyone
@@ -334,12 +344,12 @@ python scripts/benchmark_provenance_probe.py --output docs/BENCHMARK_PROVENANCE.
 Both regenerate their committed artifact in place, so any figure quoted from
 them is a re-runnable measurement rather than a screenshot. The scoring rules
 themselves are pure functions in `models/benchmark.py`, covered by
-`tests/unit/test_benchmark.py` (44 tests). Behaviours whose tests have been
+`tests/unit/test_benchmark.py` (45 tests). Behaviours whose tests have been
 verified by assert-applied mutation — deliberately breaking the code and
 confirming a named test fails — are the stub predicates, the medians in the
-fleet rollup, the dual official arm, the earned conservative label, the
-observed-lead producer (both its payload key and its target-hour arithmetic),
-and the median-APE metric. That list is what has been checked, not a claim
+fleet rollup, the shared-hour-set rule, the dual official arm, the earned
+conservative label, the observed-lead producer (both its payload key and its
+target-hour arithmetic), and the median-APE metric. That list is what has been checked, not a claim
 about the suite as a whole. Live per-BA output: `gridpulse:benchmark:{ba}`.
 
 ## 14. Changing this methodology

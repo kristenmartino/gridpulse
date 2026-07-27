@@ -21,10 +21,12 @@ an open question any more, and what each one still forbids is stated here:
    so the DF we store was re-read 0–3h *after* the target hour, not at
    day-ahead time. **Measured:** EIA does revise DF, very unevenly — 7 of 10
    sampled BAs never revise at all (PJM, MISO, ERCOT, CAISO, GVL, SPP,
-   NYISO), while PSEI revises 26.4% and SOCO 24.2% — and the largest effect
-   on any verdict is 1.43 points, which flips nothing. Rather than pick a
-   side, the official arm is scored **both ways** (``official`` as-issued,
-   ``official_revised`` as EIA's current view). Still forbidden: calling
+   NYISO), while PSEI revises 26.4% and SOCO 24.2%. The largest movement in
+   any sampled operator's own *median* APE is 1.43 points — which bounds
+   nothing about a head-to-head result, since verdicts are decided on *mean*
+   MAPE and the probe never measures it. So rather than pick a side, the
+   official arm is scored **both ways** (``official`` as-issued,
+   ``official_revised`` as EIA's current view) and both verdicts publish. Still forbidden: calling
    either one "their day-ahead forecast" — a revision that landed *before*
    our first capture is invisible to us, so the phrasing stays "the earliest
    day-ahead forecast we observed."
@@ -258,9 +260,10 @@ def pair_hours(
     """Join the two arms on target hour, dropping every unfair hour.
 
     Returns ``(pairs, drop_counts)`` — the per-reason counts are published,
-    because the exclusions are not neutral across BAs (a stub-heavy BA like
-    MISO loses ~20% of its hours while a clean one loses none) and a reader
-    who cannot see that will assume the worst.
+    because the exclusions are not neutral across BAs and a reader who cannot
+    see that will assume the worst. MISO loses ~20% of its hours to stubs and
+    ~10% more to hours with no published DF; the cleanest feeds still lose a
+    percent or two. None loses nothing.
 
     Drop reasons, in evaluation order (the order matters: each hour is
     attributed to the FIRST rule it trips, so these counts are disjoint):
@@ -521,9 +524,10 @@ def fleet_rollup(
             "losses": len(fleet) - wins,
             "median_gridpulse_mape": round(float(np.median(gp_mapes)), 3) if gp_mapes else None,
             "median_official_mape": round(float(np.median(off_mapes)), 3) if off_mapes else None,
-            # The consistency story: our spread vs theirs. This is the
-            # durable claim even in windows where the win count is a coin
-            # flip — measured 41x spread in the operators' own accuracy.
+            # The consistency story: our spread vs theirs, both on MEAN
+            # MAPE. Note the 41x figure quoted elsewhere is a *median* APE
+            # spread from docs/BENCHMARK_SCOREABILITY.md — a different
+            # statistic over a different hour set, not this field.
             "gridpulse_spread": _spread(gp_mapes),
             "official_spread": _spread(off_mapes),
         },

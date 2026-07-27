@@ -62,15 +62,13 @@ load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 import config  # noqa: E402
 from data.eia_client import _get_eia_code  # noqa: E402
 from data.vintage import deserialize_records  # noqa: E402
-from models.benchmark import STUB_EPSILON_MW  # noqa: E402
+
+# Imported, never re-declared: a second literal here could drift from the
+# engine's and quietly grade the conservative label against a different bar.
+from models.benchmark import OFFICIAL_DOCUMENTED_LEAD_H, STUB_EPSILON_MW  # noqa: E402
 
 EIA_URL = "https://api.eia.gov/v2/electricity/rto/region-data/data/"
 API_BASE = "https://gridpulse.kristenmartino.ai/api/v1"
-
-#: EIA's documented day-ahead submission lead, from the Form EIA-930
-#: instructions — DOCUMENTED, not observed by us. Our conservative arm must
-#: exceed the upper bound for the "we gave them more lead" claim to hold.
-OFFICIAL_DOCUMENTED_LEAD_H = (17.0, 41.0)
 
 #: A banked and a current DF value are "the same" within this many MW.
 DF_REVISION_EPSILON_MW = 0.5
@@ -178,7 +176,7 @@ def probe_df_revision() -> pd.DataFrame:
                 "max_revision_pct": round(max_delta_pct, 2),
                 "official_as_issued_pct": round(as_banked, 2),
                 "official_as_revised_pct": round(as_revised, 2),
-                "verdict_shift_pts": round(as_banked - as_revised, 2),
+                "median_ape_shift_pts": round(as_banked - as_revised, 2),
             }
         )
     return pd.DataFrame(rows)
@@ -249,18 +247,26 @@ def main() -> int:
     report.append(_md_table(revision) + "\n")
 
     if not revision.empty:
-        worst = revision.loc[revision["verdict_shift_pts"].abs().idxmax()]
+        worst = revision.loc[revision["median_ape_shift_pts"].abs().idxmax()]
         n_zero = int((revision["revised_pct"] == 0).sum())
         report.append(
             f"\n**Reading.** Revision is real but uneven — {n_zero} of "
             f"{len(revision)} sampled BAs never revise at all. The largest "
-            f"effect on any verdict is **{abs(worst['verdict_shift_pts']):.2f} "
-            f"points** ({worst['ba']}: {worst['official_as_issued_pct']:.2f}% "
-            f"as-issued vs {worst['official_as_revised_pct']:.2f}% as-revised), "
-            "which does not flip a single conclusion. The benchmark therefore "
-            "publishes **both**: as-issued as the fair comparison, as-revised "
-            "as the conservative one, since a forecast revised after the "
-            "target hour carries hindsight.\n"
+            f"movement in any operator's own **median APE** is "
+            f"**{abs(worst['median_ape_shift_pts']):.2f} points** "
+            f"({worst['ba']}: {worst['official_as_issued_pct']:.2f}% "
+            f"as-issued vs {worst['official_as_revised_pct']:.2f}% "
+            "as-revised).\n\n**What this does NOT establish.** Both columns "
+            "are medians, and the benchmark decides every verdict on *mean* "
+            "MAPE — which this probe does not measure. A fat-tailed feed can "
+            "move a mean far more than a median, so nothing here bounds a "
+            "head-to-head result. Whether a revision changes a verdict is "
+            "decided per BA and published as `winner_vs_revised` beside "
+            "`winner`. That is why the benchmark publishes **both** official "
+            "arms — as-issued as the fair comparison, as-revised as the "
+            "conservative one, since a forecast revised after the target hour "
+            "carries hindsight — rather than asserting the choice is "
+            "immaterial.\n"
         )
 
     report.append(

@@ -6,7 +6,7 @@ The two questions the benchmark engine could not answer about itself, measured. 
 
 `first_seen_df` is the day-ahead value re-read 0–3h *after* the target hour (the vintage window only admits an hour once EIA publishes a metered `D`). If EIA revises DF in between, the scoring choice matters. Below: how often it revises, and the official arm scored **both ways** against settled truth, under the benchmark's own exclusions.
 
-| ba | n_compared | revised_pct | max_revision_pct | official_as_issued_pct | official_as_revised_pct | verdict_shift_pts |
+| ba | n_compared | revised_pct | max_revision_pct | official_as_issued_pct | official_as_revised_pct | median_ape_shift_pts |
 |---|---|---|---|---|---|---|
 | PJM | 668 | 0.0 | 0.0 | 3.1 | 3.1 | 0.0 |
 | MISO | 646 | 0.0 | 0.0 | 2.44 | 2.44 | 0.0 |
@@ -19,7 +19,9 @@ The two questions the benchmark engine could not answer about itself, measured. 
 | SPP | 622 | 0.0 | 0.0 | 8.0 | 8.0 | 0.0 |
 | NYISO | 622 | 0.0 | 0.0 | 1.6 | 1.6 | 0.0 |
 
-**Reading.** Revision is real but uneven — 7 of 10 sampled BAs never revise at all. The largest effect on any verdict is **1.43 points** (PSEI: 47.15% as-issued vs 45.71% as-revised), which does not flip a single conclusion. The benchmark therefore publishes **both**: as-issued as the fair comparison, as-revised as the conservative one, since a forecast revised after the target hour carries hindsight.
+**Reading.** Revision is real but uneven — 7 of 10 sampled BAs never revise at all. The largest movement in any operator's own **median APE** is **1.43 points** (PSEI: 47.15% as-issued vs 45.71% as-revised).
+
+**What this does NOT establish.** Both columns are medians, and the benchmark decides every verdict on *mean* MAPE — which this probe does not measure. A fat-tailed feed can move a mean far more than a median, so nothing here bounds a head-to-head result. Whether a revision changes a verdict is decided per BA and published as `winner_vs_revised` beside `winner`. That is why the benchmark publishes **both** official arms — as-issued as the fair comparison, as-revised as the conservative one, since a forecast revised after the target hour carries hindsight — rather than asserting the choice is immaterial.
 
 **Limit of this probe.** It cannot see a revision that happened *before* our first capture. That would need DF captured for hours with no `D` yet — a separate instrument, not built. So the phrasing everywhere is *the earliest day-ahead forecast we observed*, never *their day-ahead forecast*.
 

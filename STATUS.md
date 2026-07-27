@@ -63,11 +63,14 @@ pass; publication unblocked** (PR
 `docs/BENCHMARK_PROVENANCE.md`, re-runnable via
 `scripts/benchmark_provenance_probe.py`).
 
-*Gate 1 — does EIA revise DF after we bank it?* Yes, unevenly, and it
-changes nothing material. PJM/MISO/ERCOT/CAISO/GVL/SPP/NYISO revise
-**0%**; SOCO 24.2%; PSEI 26.4% (max Δ 34%); fleet 6.78%. Largest verdict
-shift is **1.43 pts** (PSEI 47.15% as-issued → 45.71% as-revised) — no
-conclusion flips. *Gate 2 — what lead do we actually forecast at?* A
+*Gate 1 — does EIA revise DF after we bank it?* Yes, unevenly.
+PJM/MISO/ERCOT/CAISO/GVL/SPP/NYISO revise **0%**; SOCO 24.2%; PSEI 26.4%
+(max Δ 34%); FMPP 5.2%, where revision makes them *worse*; fleet 6.78%.
+Largest movement in any operator's own **median** APE is **1.43 pts** (PSEI
+47.15% as-issued → 45.71% as-revised) — which bounds no head-to-head
+verdict, since those are decided on *mean* MAPE and the probe never measures
+it. The payload publishes `winner_vs_revised` per BA rather than asserting
+the two agree. *Gate 2 — what lead do we actually forecast at?* A
 nominal-24h record is a realized **23.80–23.95h**, so no "24 hours ahead"
 claim ships unqualified; the nominal-48h arm's minimum **47.80h exceeds
 the operators' documented 41h maximum**, so publishing it as the

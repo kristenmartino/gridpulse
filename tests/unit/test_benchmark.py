@@ -585,3 +585,24 @@ class TestObservedLeadProducer:
         assert lagged["48h"] < normal["48h"]
         assert lagged["48h"] == pytest.approx(40.0, abs=0.01)
         assert lagged["48h"] < OFFICIAL_DOCUMENTED_LEAD_H[1]
+
+
+def test_official_documented_lead_is_declared_exactly_once():
+    """docs/BENCHMARK_METHODOLOGY.md §12.2 tells readers this constant lives
+    in one place. It briefly did not — the provenance probe carried its own
+    literal, so the bar the conservative label is judged against could have
+    drifted from the engine's silently. Keep the doc's claim true."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    pattern = re.compile(r"^OFFICIAL_DOCUMENTED_LEAD_H\s*=", re.MULTILINE)
+    declarations = [
+        path.relative_to(root).as_posix()
+        for folder in ("models", "scripts", "jobs", "components", "data")
+        for path in (root / folder).rglob("*.py")
+        if pattern.search(path.read_text())
+    ]
+    assert declarations == ["models/benchmark.py"], (
+        f"expected a single declaration, found {declarations}"
+    )
