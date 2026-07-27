@@ -155,9 +155,17 @@ class TestTruthDiscipline:
         assert len(pairs) == 1
 
     def test_hour_without_a_gridpulse_forecast_is_dropped(self):
-        """No paired hour means no comparison — never a one-sided score."""
-        recs = _records(5)
-        assert pair_hours(recs, {})[0] == []
+        """No paired hour means no comparison — never a one-sided score.
+
+        Publishing a 30-day official record beside a 1-day GridPulse one is
+        the exact failure this benchmark exists to avoid. The records here
+        must clear every EARLIER filter (non-stub, settled, DF present) so
+        this asserts the gridpulse join specifically.
+        """
+        recs = _records(5, df=1100.0, actual=1000.0)
+        pairs, drops = pair_hours(recs, {})
+        assert pairs == []
+        assert drops["no_gridpulse"] == 5, "hours dropped for the wrong reason"
 
 
 class TestExclusions:
@@ -260,6 +268,19 @@ class TestFleetRollup:
         roll = fleet_rollup(payloads)
         assert roll["fleet"]["n"] == 2
         assert "ERCOT" in roll["isolated"]
+
+    def test_fleet_uses_medians_not_means(self):
+        """One PSEI-class outlier (official ~47%) must not drag the fleet
+        figure — a mean would make us look better than we are."""
+        payloads = []
+        for region, off_mw in (("A", 1030.0), ("B", 1040.0), ("C", 1500.0)):
+            recs = _records(300, df=off_mw, actual=1000.0)
+            payloads.append(
+                compute_benchmark_payload(region, recs, _horizon(recs, 1020.0), "clean")
+            )
+        roll = fleet_rollup(payloads)
+        # medians of (3%, 4%, 50%) = 4%; the mean would be ~19%
+        assert roll["fleet"]["median_official_mape"] == pytest.approx(4.0, abs=0.2)
 
     def test_spread_ratio_is_the_consistency_story(self):
         """The durable claim: our spread is narrow, theirs is 41x."""
