@@ -39,7 +39,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install ruff mypy
+      # Install the ruff version this repo actually pins (requirements.lock)
+      # rather than whatever is newest. An unpinned linter silently upgrades
+      # and fails unrelated PRs on rules that did not exist when the code was
+      # written — which is exactly what happened on 2026-07-27, when a new
+      # ruff began formatting fenced code blocks inside Markdown and started
+      # rejecting CLAUDE.md content untouched since the initial commit.
+      # Deriving the pin from the lock keeps CI and local development on the
+      # same tool; upgrading ruff is now a deliberate lockfile change.
+      - run: pip install "$(grep -m1 '^ruff==' requirements.lock)" mypy
+      - run: ruff --version
       - run: ruff check .
       - run: ruff format --check .
 

@@ -198,6 +198,17 @@ def _score_region(region: str) -> dict:
         ),
     }
 
+    # E0 public benchmark: GridPulse vs. this BA's OWN day-ahead forecast.
+    # Reads the vintage window + vintage_summary (written earlier this tick)
+    # and the horizon-drift records (written immediately above), so it must
+    # stay after both. Isolated like the drift phases — the benchmark is
+    # published evidence, never a reason to fail a scoring run.
+    benchmark_res = phases.write_benchmark_metrics(region)
+    summary["phases"]["benchmark"] = {
+        "ok": benchmark_res.ok,
+        **(benchmark_res.details if benchmark_res.ok else {"error": benchmark_res.error}),
+    }
+
     gen_res = phases.write_generation(region)
     summary["phases"]["generation"] = {
         "ok": gen_res.ok,
@@ -486,6 +497,40 @@ def run() -> int:
         # No region produced a verdict this run (total model-store outage). Leave
         # the last-known map in place rather than clobbering it with {}.
         log.warning("scoring_gate_status_skipped_no_verdicts")
+
+    # E0 fleet rollup: fold the per-BA benchmark payloads into the public
+    # headline (win/loss, medians, the accuracy-spread comparison) plus the
+    # excluded list with reasons. Read back from Redis rather than threaded
+    # through the parallel per-region results — one cheap pass, and it stays
+    # correct if a region was scored by an earlier run.
+    #
+    # Mirrored to GCS because the benchmark claims a *trajectory*: the Redis
+    # keys carry a 24h TTL, so a longer outage would silently erase the
+    # public track record (the vintage instrument mirrors for the same
+    # reason). Fire-and-forget — never fail a scoring run for it.
+    try:
+        from data.redis_client import redis_get, redis_key
+        from models.benchmark import fleet_rollup
+
+        payloads = []
+        for r in regions:
+            p = redis_get(redis_key(f"benchmark:{r}"))
+            if isinstance(p, dict) and p.get("region"):
+                payloads.append(p)
+        if payloads:
+            rollup = fleet_rollup(payloads)
+            phases.write_meta("benchmark_fleet", extra=rollup)
+            log.info(
+                "benchmark_fleet_written",
+                scoreable=rollup["n_scoreable"],
+                excluded=rollup["n_excluded"],
+                wins=rollup["fleet"]["wins"],
+                losses=rollup["fleet"]["losses"],
+            )
+        else:
+            log.warning("benchmark_fleet_skipped_no_payloads")
+    except Exception as e:
+        log.warning("benchmark_fleet_failed", error=str(e))
 
     elapsed = round(time.time() - t0, 2)
     log.info(
