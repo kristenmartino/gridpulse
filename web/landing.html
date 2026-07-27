@@ -81,8 +81,15 @@
 
     a { color: var(--accent-base); text-decoration: none; }
     a:hover { color: var(--accent-hover); }
-    a:focus-visible, button:focus-visible {
-      outline: 2px solid var(--accent-ring);
+    /* --accent-ring is 30% alpha. Composited on this page it measures
+       1.46:1 against --bg-base and 1.50:1 against --bg-raised — an outline
+       a keyboard user effectively cannot see, and a WCAG 1.4.11 failure
+       (3:1 required for a focus indicator). The opaque accent measures
+       5.38:1 / 5.13:1 and matches what assets/custom.css already does for
+       the dashboard. The token itself is unchanged: it is a by-value copy
+       of the design system, where it is a shadow colour, not an outline. */
+    a:focus-visible, button:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--accent-base);
       outline-offset: 2px;
       border-radius: var(--radius-md);
     }
