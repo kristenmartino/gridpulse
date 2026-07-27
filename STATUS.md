@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-18
+# Status — updated 2026-07-27
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -19,9 +19,40 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-27 — E0 measurement pass: both provenance gates measured, both
+pass; publication unblocked** (PR
+[#341](https://github.com/kristenmartino/gridpulse/pull/341),
+`docs/BENCHMARK_PROVENANCE.md`, re-runnable via
+`scripts/benchmark_provenance_probe.py`).
+
+*Gate 1 — does EIA revise DF after we bank it?* Yes, unevenly, and it
+changes nothing material. PJM/MISO/ERCOT/CAISO/GVL/SPP/NYISO revise
+**0%**; SOCO 24.2%; PSEI 26.4% (max Δ 34%); fleet 6.78%. Largest verdict
+shift is **1.42 pts** (PSEI 47.16% as-issued → 45.74% as-revised) — no
+conclusion flips. *Gate 2 — what lead do we actually forecast at?* A
+nominal-24h record is a realized **22.80–22.95h**, so no "24 hours ahead"
+claim ships unqualified; the nominal-48h arm's minimum **46.80h exceeds
+the operators' documented 41h maximum**, so publishing it as the
+*conservative* comparison is measurement-supported rather than assumed.
+
+Encoded, not just documented: the official side is now scored **twice on
+the same hours and the same settled truth** — as-issued (fair, primary)
+and as-revised (conservative, since post-hour revision carries
+hindsight) — with both verdicts published and any revision-driven flip
+named rather than hidden; and the conservative label on the 48h arm is
+**earned per tick** from the realized lead, lapsing automatically if
+EIA's publishing lag grows. Known limit, stated everywhere: the probe
+cannot see revision *before* our first capture, so the phrasing is always
+"the earliest day-ahead forecast we observed." **Next: E0-4 methodology
+doc, then E0-3 public page + `/api/v1/benchmark`** — every claim they
+need now has a measurement and a script behind it. Caution the
+measurement surfaced: per-BA verdicts move with metric and window (SOCO
+1.84% median APE / 30d vs 5.82% mean sMAPE / 7d), so the public page must
+carry metric, window and `n` on every row.
+
 **2026-07-27 — E0 benchmark engine landed (PR 1 of the arc); two
 provenance limits found by design review must be closed before anything
-publishes.** The gate epic for commercialization: GridPulse competes
+publishes.** *(Both closed by the measurement pass above.)* The gate epic for commercialization: GridPulse competes
 against a *free* incumbent (EIA-930 publishes each BA's day-ahead
 forecast), so relative accuracy is the value proposition. Engine rides
 existing instrumentation — official arm from vintage `first_seen_df`,
