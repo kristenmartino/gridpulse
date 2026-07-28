@@ -90,7 +90,7 @@ class TestLiveHorizonVerdict:
         v = live_horizon_verdict(_drift_payload({"ensemble": 8.5}))
         assert v["grade"] == "rollback"
         assert mape_grade(8.5, "7d") == "target"
-        assert 8.5 < MAPE_BY_HORIZON["7d"]["rollback"]
+        assert MAPE_BY_HORIZON["7d"]["rollback"] > 8.5
 
     @pytest.mark.parametrize(
         "payload",
