@@ -182,7 +182,7 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 1. ~~**V3.ε** NEVP capacity verification~~ — ✅ shipped 2026-05-01 ([config.py](../config.py); 8,000 → 15,445 MW per EIA-860M Feb 2026)
 2. ~~**V3.α** Interchange flow visualization~~ — ✅ shipped 2026-05-01 ([#69](https://github.com/kristenmartino/gridpulse/pull/69))
 3. ~~**V3.ζ** Full-coverage BA expansion (16 → 51 BAs)~~ — ✅ shipped 2026-05-02 (~99% of US lower-48 demand vs ~85% before)
-4. ~~**V3.β** Real BA-polygon choropleth~~ — ✅ shipped 2026-05-02 (electricitymaps-contrib MIT-licensed source; ~165 KB asset, all 51 BAs covered)
+4. ~~**V3.β** Real BA-polygon choropleth~~ — ✅ shipped 2026-05-02 (electricitymaps-contrib source — recorded as MIT at the time, corrected to **AGPL-3.0** on 2026-07-28, see #357; ~165 KB asset, all 51 BAs covered)
 5. ~~**V3.η** Capacity figure for import-dominated BAs~~ — ✅ shipped 2026-05-02 (capacity corrections for 7 BAs + `IS_IMPORT_DOMINATED` frozenset + UI wiring across 5 callsites + dedicated test file)
 6. **V3.γ** Hawaii / Alaska coverage — 3–5 days, data-path investigation
 7. **V3.δ** Multi-tenant / per-user views — deferred (weeks; awaits product-market signal)
@@ -243,7 +243,7 @@ _Scoped 2026-05-01. Each item now has explicit acceptance criteria, files, and e
 
 **What landed**: New `Polygons` view on the US Grid tab — Plotly `Choropleth` driven by `assets/ba_polygons.geojson`, all 51 BAs covered.
 
-**Source**: Filtered from [electricitymaps-contrib](https://github.com/electricitymaps/electricitymaps-contrib)'s `geo/world.geojson` (MIT license). The repo already had US-prefixed zones for every EIA-930 BA in our 51-BA set; we filtered to our codes via the existing `EIA_REGION_CODES` alias map (CAISO↔CISO, ERCOT↔ERCO, ISONE↔ISNE, NYISO↔NYIS, SPP↔SWPP — all 51 mapped on first pass).
+**Source**: Filtered from [electricitymaps-contrib](https://github.com/electricitymaps/electricitymaps-contrib)'s `geo/world.geojson` (recorded as MIT at the time; the upstream repo is **AGPL-3.0** and the geometries we use were edited after its Jan-2023 relicence — corrected 2026-07-28, see #357). The repo already had US-prefixed zones for every EIA-930 BA in our 51-BA set; we filtered to our codes via the existing `EIA_REGION_CODES` alias map (CAISO↔CISO, ERCOT↔ERCO, ISONE↔ISNE, NYISO↔NYIS, SPP↔SWPP — all 51 mapped on first pass).
 
 **Effort**: ~30 minutes once the data source was found. Original 3-day estimate assumed manual HIFLD cleanup; the public open-source asset eliminated the bulk of the work.
 

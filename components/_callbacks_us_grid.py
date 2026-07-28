@@ -757,7 +757,8 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
 
     V3.β closes the deferral noted in V1.γ — centroids were "80% of the
     visual punch for 10% of the cost"; this delivers the remaining 20%.
-    Polygons sourced from electricitymaps-contrib's world.geojson (MIT
+    Polygons sourced from electricitymaps-contrib's world.geojson (AGPL-3.0 —
+    see THIRD_PARTY_NOTICES.md and #357; previously mislabelled MIT here
     license), filtered to our 51 BA codes via EIA-930 respondent
     suffixes, ~165 KB pre-simplified.
 
