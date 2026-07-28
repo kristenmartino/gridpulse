@@ -875,6 +875,25 @@ _GUARD_REASON_COPY = {
 }
 
 
+#: Label for a region served the seasonal-naive baseline instead of a model
+#: (``models.skill``). Not a model name — every surface that resolves a
+#: served model must be able to say "this is not a model" in the same breath.
+BASELINE_SERIES_LABEL = "seasonal-naive baseline"
+
+
+def is_baseline_served(cached: dict | None) -> bool:
+    """Is this payload's headline series the baseline rather than a model?
+
+    The scoring job substitutes a seasonal-naive series for regions whose
+    model measurably loses to it (``models.skill.should_serve_baseline``).
+    That series lands in ``predicted_demand_mw`` — the same key a model
+    forecast uses — so any surface plotting it without checking this flag
+    presents a baseline as a model, which is the failure the substitution
+    exists to correct.
+    """
+    return isinstance(cached, dict) and cached.get("served_series") == "seasonal-naive"
+
+
 def _served_model_for_payload(cached: dict, model_name: str) -> str:
     """Resolve which model's series the outlook chart plots for a payload
     and a dropdown selection (P2-26/#273).
@@ -886,10 +905,16 @@ def _served_model_for_payload(cached: dict, model_name: str) -> str:
     Legacy payloads without ``primary_model`` keep the xgboost attribution
     — nothing better is knowable for them.
 
+    A region served the BASELINE resolves to neither: the headline series is
+    not any model's output, so naming a model here would attribute a naive
+    projection to a trained forecaster on every label the tab renders.
+
     Shared by the chart render path and the model-metrics card so the two
     can't disagree about which model the tab is describing.
     """
     forecasts = cached.get("forecasts") or []
+    if is_baseline_served(cached) and (not forecasts or model_name not in forecasts[0]):
+        return BASELINE_SERIES_LABEL
     if not forecasts or model_name in forecasts[0]:
         return model_name
     return str(cached.get("primary_model") or "xgboost")
@@ -1113,7 +1138,11 @@ def _outlook_tab_from_redis(
             x=timestamps,
             y=predictions,
             mode="lines",
-            name=f"{served_model.upper()} Forecast",
+            name=(
+                f"{BASELINE_SERIES_LABEL.title()}"
+                if is_baseline_served(cached)
+                else f"{served_model.upper()} Forecast"
+            ),
             line=dict(
                 color=COLORS.get(served_model, COLORS["ensemble"]),
                 width=model_style.get("width", 2),
@@ -1176,7 +1205,20 @@ def _outlook_tab_from_redis(
     # column, say so on the chart — the title alone naming the served model
     # doesn't explain why the requested model isn't shown.
     substitution_caption = ""
-    if served_model != model_name:
+    if is_baseline_served(cached):
+        # The strongest disclosure on the chart, because this is the case a
+        # reader is least likely to guess: the line is not a model's output
+        # at all. Said plainly, with the reason, rather than as a footnote —
+        # a baseline presented as a forecast is the exact failure the
+        # substitution exists to correct.
+        reason = str(cached.get("served_reason") or "")
+        substitution_caption = (
+            "<br><sup><b>Not a model forecast.</b> This region is served a "
+            "seasonal-naive baseline — the same clock hour from the most "
+            "recent observed day — because its trained models measurably "
+            f"lose to it{(': ' + reason) if reason else ''}.</sup>"
+        )
+    elif served_model != model_name:
         substitution_caption = (
             f"<br><sup>Requested {model_name.upper()} unavailable this scoring run — "
             f"showing {served_model.upper()} (payload primary)</sup>"
@@ -1185,7 +1227,9 @@ def _outlook_tab_from_redis(
         **_layout(
             uirevision=f"{region}:{horizon_hours}",
             title=(
-                f"{horizon_labels.get(horizon_hours, '')} {served_model.upper()} Demand Forecast — {region}"
+                f"{horizon_labels.get(horizon_hours, '')} "
+                f"{served_model.upper() if not is_baseline_served(cached) else BASELINE_SERIES_LABEL.title()}"
+                f" Demand Forecast — {region}"
                 f"{substitution_caption}{interval_caption}{horizon_caption}"
             ),
             xaxis_title="Date/Time",
