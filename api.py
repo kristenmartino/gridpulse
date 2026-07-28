@@ -604,6 +604,9 @@ _EXPORTED_BENCHMARK_LEAD_FIELDS = (
     "conservative",
     "conservative_basis",
     "reason",
+    # #348: our own live grade for the series this row scores. Same model,
+    # same lead — not a healthier neighbouring measurement.
+    "serve_grade",
 )
 
 #: Every metric block travels with the statistic that produced it. §8 of the
@@ -634,6 +637,13 @@ _BENCHMARK_NOTES = [
     "operators' documented 17-41h submission window — see the methodology's "
     "limits before quoting a lead.",
     "Excluded BAs are published with their reason rather than omitted.",
+    "Rows carry serve_grade — our own rolling grade for the exact series "
+    "scored, at the same horizon. A row graded 'rollback' is one we already "
+    "know is failing, and it is marked rather than presented as an ordinary "
+    "comparison.",
+    "This arm always scores the model, so where serves_scored_model is false "
+    "the row measures the forecaster rather than the series a user of that "
+    "BA is served — see served_series.",
 ]
 
 _BENCHMARK_DOCS = {
@@ -689,6 +699,13 @@ def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "revision_class": payload.get("revision_class"),
         "df_coverage": payload.get("df_coverage"),
         "placeholder_pct": payload.get("placeholder_pct"),
+        # #348: which series this row scores, and which one the product
+        # actually serves for this BA. They differ wherever a BA was
+        # substituted onto the seasonal-naive baseline, and a reader has no
+        # way to know that from the numbers alone.
+        "scored_model": payload.get("scored_model"),
+        "served_series": payload.get("served_series"),
+        "serves_scored_model": payload.get("serves_scored_model"),
         "leads": leads,
     }
 

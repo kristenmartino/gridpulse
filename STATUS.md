@@ -19,6 +19,29 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-28 — #348: the benchmark row that knew it was bad and didn't say so.**
+Every unflattering fact on `/benchmark` is published deliberately except one:
+a row our own drift monitor already grades `rollback` was rendered as an
+ordinary comparison. SEC publishes **17.64%** against the operator's 8.14%
+while we grade its ensemble `rollback` at 24h.
+
+Shipped two markers, both payload-derived (no region list, no new capture):
+`serve_grade` — the grade for the **exact** series that row scores, same
+model and same lead — and `served_series` / `serves_scored_model`.
+
+**The second one was the sharper find.** This arm always scores the
+*ensemble*, and SEC is served the *seasonal-naive baseline* — so SEC's
+published number is **worse than what it actually serves**. The arm is
+deliberately not re-based onto the fallback (that would stop it measuring the
+forecaster), which makes it a disclosure rather than a scoring change. Limit 6
+of the methodology asserted "the GridPulse arm is the served ensemble"; that
+was true when written and isn't any more, and is corrected.
+
+Also corrected: a grade earns `rollback` by exceeding the **acceptable**
+threshold (7.0 at 24h), not `MAPE_BY_HORIZON`'s `rollback` entry (12.0) —
+`mape_grade` never uses that as a boundary. Draft page copy quoted 12.0, as
+does the issue text. The applicable figure now ships as `acceptable_max`.
+
 **2026-07-28 — #349: the gate's bar did not move, and that is the finding.**
 The complaint was real — `is_forecast_quality_acceptable` grades the
 **training holdout** against the **7-day** band (22%), while the number we
