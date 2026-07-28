@@ -106,6 +106,17 @@
     }
     .subhead { font-size: 18px; color: var(--text-secondary); max-width: 62ch; }
     .subhead + .subhead { margin-top: 14px; }
+    /* The result, stated before the reader reaches a single table. Leading
+       with the scoreboard let a one-line skim end at "his model loses";
+       leading with the shape of the result is both more accurate and more
+       useful, and it is generated from the payload so it cannot flatter. */
+    .verdict {
+      margin-top: 26px; padding: 18px 20px; max-width: 68ch;
+      background: var(--bg-raised); border: 1px solid var(--border-subtle);
+      border-left: 2px solid var(--accent-base); border-radius: var(--radius-lg);
+      font-size: 15px; color: var(--text-primary);
+    }
+    .verdict strong { color: var(--text-primary); }
 
     /* ── Layout ─────────────────────────────────────────── */
     .cols {
@@ -276,6 +287,7 @@
           The exclusions, the drop counts and the known limits are published
           here too. They are the part that makes the rest worth reading.
         </p>
+        <p class="verdict" id="verdict" hidden></p>
       </div>
     </div>
 
@@ -614,6 +626,65 @@
             'catastrophic BA should move its own row, not the fleet’s.';
     }
 
+    /* Written from the payload every load, with both directions handled — a
+       hard-coded verdict would become a lie the first time the numbers moved,
+       which is the whole failure mode this page exists to avoid. */
+    function renderVerdict() {
+      var fleet = data.fleet || {};
+      var ours = fleet.median_gridpulse_mape;
+      var theirs = fleet.median_official_mape;
+      var el = document.getElementById('verdict');
+      if (ours === null || ours === undefined || theirs === null || theirs === undefined) {
+        return;
+      }
+      var weLead = ours < theirs;
+      var gap = num(Math.abs(ours - theirs));
+      var parts = [];
+
+      parts.push(
+        weLead
+          ? 'On the typical balancing authority GridPulse is the closer of the two — ' +
+            num(ours) + '% against ' + num(theirs) + '%, a gap of ' + gap + ' points.'
+          : 'On the typical balancing authority the operator’s own forecast is the ' +
+            'closer of the two — ' + num(theirs) + '% against our ' + num(ours) + '%, a gap of ' +
+            gap + ' points, and they are closer on ' + fleet.losses + ' of ' + fleet.n + ' BAs.'
+      );
+
+      var so = fleet.gridpulse_spread || {}, st = fleet.official_spread || {};
+      if (so.ratio && st.ratio) {
+        parts.push(
+          so.ratio < st.ratio
+            ? 'What does separate the two is consistency: our error spans ' + so.ratio +
+              '× from best BA to worst, theirs ' + st.ratio + '×.'
+            : 'Their error is also the more consistent of the two — ' + st.ratio +
+              '× from best BA to worst, against our ' + so.ratio + '×.'
+        );
+      }
+
+      /* Name the largest gap in each direction rather than only ours — the
+         asymmetry is the finding, and half of it is unflattering. */
+      var scoredRows = (data.regions || []).filter(scored);
+      var byDelta = scoredRows.slice().sort(function (a, b) {
+        return head(data, b).delta_mape - head(data, a).delta_mape;
+      });
+      if (byDelta.length > 1) {
+        var best = byDelta[0], worst = byDelta[byDelta.length - 1];
+        var bh = head(data, best), wh = head(data, worst);
+        if (bh.delta_mape > 0) {
+          parts.push('The gap is widest where an operator forecasts its own load poorly: ' +
+            best.region + ' reads ' + num(bh.official.mape) + '% against our ' +
+            num(bh.gridpulse.mape) + '%.');
+        }
+        if (wh.delta_mape < 0) {
+          parts.push('Our own worst row is ' + worst.region + ', at ' +
+            num(wh.gridpulse.mape) + '% against their ' + num(wh.official.mape) + '%.');
+        }
+      }
+
+      el.textContent = parts.join(' ');
+      el.hidden = false;
+    }
+
     function renderRows() {
       var list = (data.regions || []).filter(scored);
       list.sort(function (a, b) {
@@ -757,6 +828,7 @@
 
     function render() {
       renderTiles();
+      renderVerdict();
       renderLead();
       renderRows();
       renderExcluded();

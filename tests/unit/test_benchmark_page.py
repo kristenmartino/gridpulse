@@ -259,6 +259,25 @@ class TestBenchmarkEndpoint:
         mock_get.side_effect = _redis([_payload()], _FLEET)
         assert client.get("/api/v1/benchmark/PJM").get_json()["scored_at"]
 
+    @patch("api.redis_get")
+    def test_a_losing_result_is_published_unchanged(self, mock_get, client) -> None:
+        """The first real run had the operators closer on 28 of 43. Nothing in
+        the export may soften that: the deltas keep their sign and the winner
+        stays whoever was actually closer."""
+        behind = _lead_block(
+            official={"mape": 3.8, "median_ape": 3.0, "mae": 700.0, "wape": 3.6, "n": 640},
+            official_revised={"mape": 3.8, "median_ape": 3.0, "mae": 700.0, "wape": 3.6, "n": 640},
+            gridpulse={"mape": 4.82, "median_ape": 4.1, "mae": 900.0, "wape": 4.7, "n": 640},
+            delta_mape=-1.02,
+            winner="official",
+            winner_vs_revised="official",
+        )
+        mock_get.side_effect = _redis([_payload(leads={"24h": behind})], _FLEET)
+        lead = client.get("/api/v1/benchmark").get_json()["regions"][0]["leads"]["24h"]
+        assert lead["winner"] == "official"
+        assert lead["delta_mape"] == -1.02
+        assert lead["gridpulse"]["mape"] > lead["official"]["mape"]
+
 
 class TestBenchmarkPageRoute:
     def test_serves_html_200(self, client) -> None:
@@ -399,3 +418,27 @@ class TestBenchmarkPagePosture:
         scoreability report — a different statistic over different hours."""
         assert "worst ÷ best BA mean MAPE" in body
         assert "excl. ERCOT" in body
+
+    def test_the_result_is_stated_before_the_tables(self, body) -> None:
+        """Leading with the scoreboard let a one-line skim end at "his model
+        loses". The result now appears above the first table, in words."""
+        assert 'id="verdict"' in body
+        assert "renderVerdict" in body
+        # it sits in the hero, not below the fleet section
+        assert body.index('id="verdict"') < body.index('id="fleet-h"')
+
+    def test_the_verdict_handles_losing_and_winning_alike(self, body) -> None:
+        """A hard-coded verdict becomes a lie the first time the numbers move.
+        Both directions must be generated, and the unflattering branch must
+        name the loss rather than skipping to the consolation."""
+        assert "var weLead = ours < theirs;" in body
+        assert "own forecast is the" in body  # the losing branch
+        assert "GridPulse is the closer" in body  # the winning branch
+        assert "Our own worst row is" in body  # names our worst, always
+
+    def test_the_verdict_is_derived_not_written_in(self, body) -> None:
+        """No literal from any particular run may appear in the script — the
+        page must restate itself from whatever the payload says."""
+        script = body.split("<script>")[1]
+        for stale in ("28 of 43", "4.82", "3.80", "8.3\u00d7", "PSEI", "SEC"):
+            assert stale not in script, f"hard-coded result in the page: {stale!r}"
