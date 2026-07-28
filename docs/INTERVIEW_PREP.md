@@ -516,6 +516,52 @@ a join with no type system behind it. Fail-safe defaults are good
 engineering, and they are also camouflage — a feature that never fires looks
 identical to a feature with nothing to say.*
 
+### 17. "Tell me about a time you measured the wrong thing."
+**Three instruments agreed a forecast was bad. None of them could tell me it was worse than doing nothing, because none of them compared it to anything.**
+
+Situation: A public benchmark I'd built showed one balancing authority —
+a ~300 MW generation co-op — as our worst row by a wide margin: 18.0%
+error against the operator's own 8.2%. Every instrument I had agreed it
+was bad. The live drift monitor graded all four models `rollback`. The
+holdout said 6.96%, which was its own puzzle.
+
+Task: Work out whether it was fixable, and fix it.
+
+Action: I formed a theory quickly and it was wrong. The ensemble weighting
+had cut XGBoost to 3% because its R² was 0.085, leaving the forecast on
+ARIMA and Prophet — both carrying open defects in our tracker. Tidy story,
+and I nearly shipped against it. What stopped me was checking the error by
+lead time first: **10.38% at one hour, 12.59% at 24h, 10.55% at 48h**. Flat.
+A healthy region ran 1.70% at 1h growing to 5.84% at 24h — that's what
+recursion looks like. Ours wasn't degrading with horizon; it was wrong
+immediately, one hour out, with the actual known to the previous hour. So
+it was never a recursion, anchoring, or weather-feature problem, and every
+fix I'd been about to build addressed a mechanism that wasn't operating.
+
+Then I asked the question none of the instruments asked: what would
+*nothing* score? Seasonal-naive — "yesterday, same hour", no model, no
+weather, no training — got **11.5%** where our three-model ensemble got
+18.0%. I ran it across all 44 scoreable BAs: 35 beat the baseline by a
+median of 0.83 points, eight sat within a point of the line, and this one
+was 6.36 points *below* it — six times the next worst.
+
+Result: The finding wasn't "a bad region", it was "a region where we
+subtract information." I shipped the missing primitive — skill against a
+naive baseline, as a tested module and a re-runnable study — because the
+real defect was that a product built to forecast had no measurement of
+whether its forecasts beat the trivial alternative. That absence is what
+let a worse-than-nothing forecast sit behind a healthy-looking 6.96%
+holdout, on a public page, indefinitely.
+
+**Lesson to convey**: *Absolute error told me the model was bad. Only a
+baseline could tell me it was harmful, and the difference changes the fix
+entirely — you don't tune a model that should be switched off. Check the
+error's shape across the axis you think is failing before you build for
+that mechanism: flat-in-horizon and growing-in-horizon are different
+diseases, and I had a fix half-built for the wrong one. And any forecasting
+system without a skill score is reporting a number nobody can interpret —
+"18%" means nothing until you know that free means 11.5%.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

@@ -257,6 +257,7 @@ models/
   xgboost_model.py        → XGBoost with TimeSeriesSplit CV + SHAP
   ensemble.py             → 1/MAPE weighted combination
   evaluation.py           → MAPE, RMSE, MAE, R², residuals, error-by-hour
+  skill.py                → skill vs a seasonal-naive baseline (is the model beating "yesterday"?)
   model_service.py        → Forecast service layer: get_forecasts() with trained→simulated fallback
   training.py             → Orchestrator: train all → validate → compute weights → serialize
   pricing.py              → Merit-order pricing model
