@@ -562,6 +562,57 @@ diseases, and I had a fix half-built for the wrong one. And any forecasting
 system without a skill score is reporting a number nobody can interpret —
 "18%" means nothing until you know that free means 11.5%.*
 
+### 18. "Tell me about a time the obvious fix was the wrong one."
+**The bug report was "this gate is too lenient." Measuring first showed that tightening it would have hidden 7 of 51 regions — three of them by less than the noise.**
+
+Situation: Our product hides a balancing authority when its forecast is bad
+enough to be misleading. I'd found that the gate asked a strangely generous
+question: it graded the **training holdout** against the **7-day** error
+band, when the number we publicly publish is the **24-hour** one measured on
+the live serve path. One region passed at 6.96% while every one of its four
+served models graded `rollback` at 24h. The gate was answering a kinder
+question than the one the product advertises, and nothing anywhere noticed
+the gap.
+
+Task: Close it. The issue I'd written myself proposed the direct fix — grade
+the gate on the serve path, at the horizon we publish.
+
+Action: Before changing a gate that removes regions from users, I measured
+what the change would actually do. I pulled every region's live 24h grade
+and replayed both rules across the fleet. Today's gate hides **zero of 51**.
+The "correct" rule would hide **seven** — and three of those sat at 7.1%,
+7.5% and 7.7% against a 7.0% threshold. Under 0.7 points of margin on a
+rolling window that moves by more than that between ticks: those regions
+would flicker in and out of the product on noise.
+
+That reframed the defect. "Too lenient" was wrong. Hiding a region is a
+heavy, user-visible act, and the generous question — *can we forecast this
+at all?* — is the right one to gate on. The real defect was narrower and
+worse: the sharp question had **no voice at all**. So I left the bar exactly
+where it was and shipped the missing second opinion — a serve-path grade at
+the published horizon, computed every tick from data we already wrote,
+published beside the verdict, exposed on the API next to an explicit
+statement of which measurement decides visibility, and logged as an alert
+whenever a region passes the gate while failing at 24h.
+
+Result: Nothing was hidden that wasn't hidden before, no region flickers,
+and the silent state is now loud. I also caught a real gap in my own tests
+while writing them: the existing gate test couldn't prove the new wiring
+ran, because its harness starts with no drift history — so the value was
+always `None` and the producer never executed. That is the exact shape of a
+bug I'd shipped two weeks earlier, so I seeded the fixture and pinned the
+producer, then mutated the implementation eight ways to confirm the tests
+actually fail when it breaks.
+
+**Lesson to convey**: *When a fix removes something from users, measure the
+blast radius before you write it — "hides 7 of 51, three inside the noise"
+is a fact that changes the design, and it took ten minutes to get. And check
+what the complaint actually is: mine turned out not to be "the threshold is
+wrong" but "the second measurement isn't published," which is a much smaller
+and much safer change. Two instruments disagreeing is not a problem to
+reconcile by moving one of them — it's information, and the fix is usually
+to show both and say which one decides.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
