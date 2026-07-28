@@ -160,15 +160,33 @@ class TestSubstitutionPolicy:
 
 
 class TestForwardBaseline:
-    def test_each_lead_reads_the_most_recent_observed_same_hour(self):
-        """Lead 1-24 reads yesterday, 25-48 two days ago — the same predictor
-        the skill score measures, so what is served is what was measured."""
-        hist = np.arange(96, dtype=float)  # 4 days, values == index
-        out = seasonal_naive_forecast(hist, 48)
-        assert out[0] == hist[96 - 24]  # lead 1  -> yesterday, same hour
-        assert out[23] == hist[96 - 1]  # lead 24 -> yesterday, same hour
-        assert out[24] == hist[96 - 48]  # lead 25 -> two days ago
-        assert out[47] == hist[96 - 25]  # lead 48 -> two days ago
+    def test_every_lead_reads_the_last_observed_day(self):
+        """Stated as the PROPERTY, not as indices. The first version of this
+        test asserted index arithmetic and therefore agreed with a buggy
+        implementation that walked an extra day back per block — lead 25 read
+        72h before its target instead of 48h, and it shipped.
+
+        The invariant: the source is the same clock hour, a whole number of
+        days before the target, always inside the final 24h of history."""
+        hist = np.arange(96, dtype=float)  # values == index, so value == position
+        horizon = 72
+        out = seasonal_naive_forecast(hist, horizon)
+        last = 95
+
+        for h in range(1, horizon + 1):
+            src = int(out[h - 1])  # the position it read
+            gap = h - (src - last)  # hours between target and source
+            assert gap % 24 == 0, f"lead {h}: source is not a whole day back ({gap}h)"
+            assert gap == 24 * -(-h // 24), f"lead {h}: read {gap}h back, not the nearest day"
+            assert last - 23 <= src <= last, f"lead {h}: read outside the last observed day"
+
+    def test_the_daily_profile_repeats_across_horizon_days(self):
+        """What a reader sees, and a consequence of the invariant: day 2 of
+        the forecast has the same shape as day 1, because both replay the
+        last observed day."""
+        hist = np.arange(96, dtype=float)
+        out = seasonal_naive_forecast(hist, 72)
+        assert list(out[0:24]) == list(out[24:48]) == list(out[48:72])
 
     def test_repeats_the_daily_shape(self):
         y = _daily(n_days=5)
@@ -179,12 +197,14 @@ class TestForwardBaseline:
         """The caller must keep the model rather than serve a stub."""
         assert seasonal_naive_forecast(np.arange(10, dtype=float), 24).size == 0
 
-    def test_a_nan_source_hour_falls_back_to_the_nearest_observed_day(self):
+    def test_a_gap_in_the_last_day_steps_back_a_further_day(self):
+        """One missing hour must not disable substitution for a whole region —
+        the same clock hour a further day back is still a real observation."""
         hist = np.arange(96, dtype=float)
-        hist[96 - 48] = np.nan  # the lead-25 source hour
-        out = seasonal_naive_forecast(hist, 48)
+        hist[72] = np.nan  # first hour of the last observed day
+        out = seasonal_naive_forecast(hist, 24)
         assert np.isfinite(out).all()
-        assert out[24] == hist[96 - 24]  # fell back one day forward
+        assert out[0] == hist[72 - 24]  # stepped back exactly one further day
 
 
 class TestServingIntegration:

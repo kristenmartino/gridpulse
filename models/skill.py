@@ -147,18 +147,35 @@ def seasonal_naive_forecast(
     ``history`` is the observed series ending at the forecast origin, oldest
     first. Returns an empty array when history is too short to project even
     one day — the caller must then keep the model.
+
+    The index is derived, not guessed. For lead ``h`` the target is
+    ``origin + h``; the source is ``target - lag_h*k`` where ``k`` is the
+    smallest integer putting the source at or before the origin, i.e.
+    ``k = ceil(h / lag_h)``. So the source index is
+    ``(N-1) + h - lag_h*k`` — which always lands inside the LAST observed
+    day, meaning every day of the horizon repeats that same day.
+
+    An earlier cut used ``N - lag_h*k + (h-1) % lag_h``, which walks one
+    extra day back per block: lead 25 read 72h before its target instead of
+    48h, and lead 49 read 96h instead of 72h. It matched what the skill
+    score measures only for the first day, so the served series drifted
+    further from the measured predictor the longer the horizon ran. The unit
+    test encoded the same wrong arithmetic and passed.
     """
     y = np.asarray(history, dtype=float)
     if y.size < lag_h:
         return np.empty(0, dtype=float)
     out = np.empty(horizon_h, dtype=float)
+    last = y.size - 1
     for h in range(1, horizon_h + 1):
-        days_back = -(-h // lag_h)  # ceil division
-        idx = y.size - (days_back * lag_h) + (h - 1) % lag_h
-        if idx < 0 or idx >= y.size or not np.isfinite(y[idx]):
-            # nearest observed equivalent: the same clock hour, one day later
-            idx = y.size - lag_h + (h - 1) % lag_h
-            if idx < 0 or not np.isfinite(y[idx]):
-                return np.empty(0, dtype=float)
+        k = -(-h // lag_h)  # ceil division
+        idx = last + h - lag_h * k
+        # A gap in the most recent day must not disable the whole projection:
+        # step back further whole days for that hour only. Every candidate is
+        # still the same clock hour and still a real observation.
+        while idx >= 0 and not np.isfinite(y[idx]):
+            idx -= lag_h
+        if idx < 0 or idx >= y.size:
+            return np.empty(0, dtype=float)
         out[h - 1] = y[idx]
     return out
