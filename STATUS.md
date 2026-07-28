@@ -19,6 +19,47 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-27 — the benchmark returned its first real numbers, and the
+incumbent wins.** Across 43 scoreable BAs at the 24h headline, **the
+operators' own day-ahead forecasts are closer on 28, GridPulse on 15**;
+median mean-MAPE **theirs 3.80% vs ours 4.82%**. The 48h conservative arm
+(label now genuinely earned — observed 47.82h > their documented 41h max)
+does not rescue it: 14–30, 3.82% vs 5.16%.
+
+**This is not an instrument fault, which is what makes it credible.** Our
+median here is 4.76–4.82% against a published holdout claim of 4.8% — the
+benchmark reproduces our own known accuracy exactly, and the operators are
+simply better than it on most BAs. Instrument health is clean:
+`lead_basis` is `observed` on all 44 (so #342's producer fix is live),
+leads vary 22.74–23.94h per BA, 44 distinct drop-count combinations, no
+verdict flips under the as-revised scoring, exclusions match the
+scoreability report exactly.
+
+**What the data does support**, and it is narrower than what this file
+used to claim: not more accurate on a typical BA — **more consistent**
+(our spread 8.3×, 2.18–18.03%; theirs 23.4×, 1.76–41.32%) and dramatically
+better where an operator forecasts its own load poorly (PSEI 41.32 → 3.46,
+FMPP 28.15 → 5.42, FPC 22.15 → 6.24). The page now states this result in
+words above the first table, generated from the payload, so a one-line
+skim can't stop at a scoreboard and a future run can't leave a stale boast
+behind.
+
+**SEC is the open technical item.** Our worst row at 18.02% vs their
+8.24%, confirmed by every metric (median APE 13.47 vs 5.49, WAPE 17.22 vs
+9.10) and by a second instrument — live horizon drift grades *every* SEC
+model `rollback` at 24h. Mechanism: SEC's XGBoost holdout is 21.3% with
+**R² = 0.085**, so the sharpened inverse-MAPE weighting (ADR-004) cut it to
+**3%** and the ensemble runs on ARIMA 52% + Prophet 45% — both carrying
+open defects (#297 ARIMA univariate, #299 Prophet seam-step). Root cause
+looks like fit, not code: a ~308 MW generation co-op whose load follows
+member scheduling, which our weather/calendar feature set cannot see.
+**Governance gap worth its own issue:** SEC reads `quality_gated=False`
+because the gate judges the *holdout* champion (6.96%) against the **7d**
+rollback band (22%) — wrong measurement (holdout, not serve path — the
+ADR-010 blindness again, live is 2.6× holdout) and wrong horizon (a 7d
+tolerance while our own drift grades it rollback against the 24h band of
+12%).
+
 **2026-07-27 — E0-3 shipped: the public benchmark is live-able.**
 [`/benchmark`](web/benchmark.html) + `/api/v1/benchmark` (+ per-region).
 The page holds no data of its own — it fetches the public endpoint in the
@@ -142,11 +183,13 @@ discard `made_at`. Neither may be published as a claim until measured.
 **Next: a DF-revision measurement week, then the realized-lead capture** —
 both gate the methodology doc (E0-4) and the public page (E0-3).
 
-Indicative sizing (10 BAs, approximate metric match — *not* the
-benchmark): GridPulse 6, official 4, with losses all in well-run ISOs
-within ~1.2 pts and wins large where the operator is weak (PSEI 3.67 vs
-30.59). The durable claim looks like **consistency** — we are ~3–5%
-everywhere, they range 1.4%–47% — rather than a win count.
+~~Indicative sizing (10 BAs, approximate metric match): GridPulse 6,
+official 4… we are ~3–5% everywhere.~~ **Superseded by the real
+measurement on 2026-07-27 — see the entry at the top of this file. The
+indicative run had the win count backwards and the "~3–5% everywhere"
+range was wrong (our real range is 2.18–18.03%).** Left struck through
+rather than deleted: it is the estimate the epic was planned against, and
+how far off it was is the point.
 
 **2026-07-23 — ADR-012 flipped ON: 36 BAs now forecast on aggregated
 footprint weather.** Flag `multipoint_weather` → True (PR B of the #336
