@@ -65,9 +65,7 @@ class TestLiveHorizonVerdict:
         The gate's sibling bug (#255) was assuming a fixed champion. This
         picks the minimum across whatever was actually scored.
         """
-        v = live_horizon_verdict(
-            _drift_payload({"ensemble": 9.0, "xgboost": 4.2, "arima": 11.0})
-        )
+        v = live_horizon_verdict(_drift_payload({"ensemble": 9.0, "xgboost": 4.2, "arima": 11.0}))
         assert v["champion"] == "xgboost"
         assert v["champion_mape"] == pytest.approx(4.2)
         assert v["grade"] == "acceptable"
@@ -108,9 +106,7 @@ class TestLiveHorizonVerdict:
 
     def test_non_finite_mape_is_skipped_not_ranked(self):
         """NaN must not win the min() and become the champion."""
-        v = live_horizon_verdict(
-            _drift_payload({"ensemble": float("nan"), "arima": 6.0})
-        )
+        v = live_horizon_verdict(_drift_payload({"ensemble": float("nan"), "arima": 6.0}))
         assert v["champion"] == "arima"
         assert v["n_models"] == 1
 
