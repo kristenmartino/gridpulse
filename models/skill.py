@@ -89,3 +89,76 @@ def skill_payload(
         "beats_baseline": None if skill is None else bool(skill > 0),
         "n_hours": int(np.isfinite(np.asarray(series, dtype=float)).sum()),
     }
+
+
+# ── serving a baseline where the model has negative skill ────
+
+#: A model must lose to the baseline by at least this many error points
+#: before its forecast is replaced. Set well clear of the noise floor: on the
+#: 2026-07-27 fleet, eight regions sat within ~1 point of the line and one —
+#: SEC — was ~4 points down at every measured lead. Substituting on a
+#: fractional deficit would churn served forecasts for no measurable gain.
+BASELINE_SUBSTITUTION_MIN_POINTS = 2.0
+
+#: Minimum measured hours before a skill number may change what a region is
+#: served.
+BASELINE_SUBSTITUTION_MIN_HOURS = 24 * 7
+
+
+def should_serve_baseline(skill_block: dict | None) -> tuple[bool, str]:
+    """Should this region be served the baseline instead of its model?
+
+    Returns ``(decision, reason)`` — the reason is published, because a region
+    whose forecast silently changed source is exactly what a user should not
+    have to discover for themselves.
+
+    Deliberately asymmetric. Absence of a measurement is never a reason to
+    substitute: an unmeasured region keeps its model, so a broken skill
+    pipeline degrades to today's behaviour rather than swapping all 51
+    regions onto a naive forecast.
+    """
+    if not isinstance(skill_block, dict):
+        return False, "no skill measurement"
+    points = skill_block.get("points_vs_baseline")
+    hours = skill_block.get("n_hours") or 0
+    if points is None:
+        return False, "skill not measurable"
+    if hours < BASELINE_SUBSTITUTION_MIN_HOURS:
+        return False, f"only {hours}h measured, need {BASELINE_SUBSTITUTION_MIN_HOURS}h"
+    if points > -BASELINE_SUBSTITUTION_MIN_POINTS:
+        return False, f"model within {BASELINE_SUBSTITUTION_MIN_POINTS} pts of baseline"
+    return True, (
+        f"model loses to seasonal-naive by {abs(points):.2f} error points "
+        f"over {hours}h — serving the baseline instead"
+    )
+
+
+def seasonal_naive_forecast(
+    history: np.ndarray, horizon_h: int, *, lag_h: int = SEASONAL_NAIVE_LAG_H
+) -> np.ndarray:
+    """Project the baseline forward: each future hour takes the same clock
+    hour from the most recent FULLY OBSERVED day.
+
+    Lead 1–24 reads yesterday, 25–48 reads two days ago, and so on — exactly
+    the predictor the skill score measures, so what gets served is what was
+    measured. Recursing on the baseline's own output instead would serve
+    something no measurement covers.
+
+    ``history`` is the observed series ending at the forecast origin, oldest
+    first. Returns an empty array when history is too short to project even
+    one day — the caller must then keep the model.
+    """
+    y = np.asarray(history, dtype=float)
+    if y.size < lag_h:
+        return np.empty(0, dtype=float)
+    out = np.empty(horizon_h, dtype=float)
+    for h in range(1, horizon_h + 1):
+        days_back = -(-h // lag_h)  # ceil division
+        idx = y.size - (days_back * lag_h) + (h - 1) % lag_h
+        if idx < 0 or idx >= y.size or not np.isfinite(y[idx]):
+            # nearest observed equivalent: the same clock hour, one day later
+            idx = y.size - lag_h + (h - 1) % lag_h
+            if idx < 0 or not np.isfinite(y[idx]):
+                return np.empty(0, dtype=float)
+        out[h - 1] = y[idx]
+    return out
