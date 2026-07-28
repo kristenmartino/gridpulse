@@ -478,13 +478,15 @@
               <li>Only settled actuals count. First-published values run up to ~70% wrong on high-revision feeds.</li>
               <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight.</li>
               <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
+              <li>A row marked <span class="flag">rollback</span> is one our own drift monitor already grades as failing at that horizon &mdash; the number stands, but we would not defend the forecast behind it.</li>
+              <li>A row marked <span class="flag substituted">not served</span> scores our ensemble for a BA we serve a seasonal-naive baseline instead, so its published number is <em>worse</em> than what that BA actually receives. The arm is not re-based onto the fallback, because that would stop it measuring the forecaster.</li>
             </ul>
           </div>
 
           <div class="panel">
             <h3>Read the rules yourself</h3>
             <ul>
-              <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_METHODOLOGY.md" target="_blank" rel="noopener">Methodology</a> &mdash; every rule, and eight known limits</li>
+              <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_METHODOLOGY.md" target="_blank" rel="noopener">Methodology</a> &mdash; every rule, and nine known limits</li>
               <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_SCOREABILITY.md" target="_blank" rel="noopener">Scoreability</a> &mdash; which BAs qualify, and why not</li>
               <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_PROVENANCE.md" target="_blank" rel="noopener">Provenance</a> &mdash; what we measured about our own inputs</li>
             </ul>

@@ -22,7 +22,7 @@ same settled truth, whose number was closer?
 | | |
 |---|---|
 | **Official arm** | The earliest day-ahead forecast we observed the BA publish for the target hour (§12.1) |
-| **GridPulse arm** | Our served ensemble's forecast for that same hour |
+| **GridPulse arm** | Our **ensemble's** forecast for that same hour — always the ensemble, which on a substituted BA is not the series we serve (limit 6) |
 | **Truth** | EIA's settled value for that hour — the *same* value grades both |
 
 This is a continuously recomputed measurement, not a one-off replay: it runs
@@ -323,13 +323,32 @@ number per BA is not a supportable format.
    `last_d`); it changes *which* hours become eligible at all. Neither
    effect is corrected for; both are why the drop counts ship in the
    payload.
-6. **One model.** The GridPulse arm is the served ensemble. Nothing here is a
-   per-model claim, and the arm changes when the ensemble changes.
+6. **One model, and not always the served one.** The GridPulse arm is always
+   the **ensemble**. Nothing here is a per-model claim, and the arm changes
+   when the ensemble changes. Where a BA has been substituted onto the
+   seasonal-naive baseline (`models/skill.py`), the ensemble is no longer
+   what that BA's users are served — the row still scores the ensemble,
+   because re-basing the arm onto a fallback would stop it measuring the
+   forecaster at all. That makes the published number **worse** than what
+   the BA actually serves, and the row says so: `served_series` and
+   `serves_scored_model` ship in the payload and mark the row on the page.
+   SEC is the live case (published 17.64% for an ensemble it does not
+   serve).
 7. **Mean/median differ across artifacts** (§8) — a live footgun for anyone
    quoting across documents.
 8. **Both arms inherit EIA's settled values.** If a settled value is itself
    wrong, both arms are graded against the same wrong number. Shared bias,
    not differential bias, but not zero.
+9. **A published row may be one we already grade failing.** Our drift
+   monitor grades every model on a rolling 7-day window against the band for
+   its own horizon, and a row can be `rollback` there while appearing on this
+   page as an ordinary comparison. Since #348 that grade travels with the
+   row as `serve_grade` — same model, same lead as the row scores — and a
+   `rollback` row is marked. Note the grade is earned by exceeding the
+   **acceptable** threshold (7.0% at 24h), not `MAPE_BY_HORIZON`'s `rollback`
+   entry (12.0), which `mape_grade` never uses as a boundary; the applicable
+   figure ships as `acceptable_max` so the page cannot overstate how bad a
+   flagged row must be.
 
 ## 13. Reproducing it
 
@@ -364,3 +383,18 @@ lead definitions must, in the same PR:
 A rule that gets looser in our favour needs a materially stronger
 justification than one that gets stricter. The point of writing the rules
 down first is that we do not get to discover them after seeing the result.
+
+### Change log
+
+**2026-07-28 — per-row `serve_grade` and served-series disclosure ([#348]).**
+*Direction: moves our own number by exactly nothing.* No drop rule, exclusion,
+metric, window or lead definition changed, and no score was recomputed — both
+additions are context attached to rows that already publish their numbers.
+Both move the page against us: one marks rows we already grade `rollback`
+(SEC), the other says the ensemble scored on a substituted BA is not what that
+BA serves. The second is the only one with a direction argument available at
+all, and it runs *toward* disclosure — the alternative, re-basing the arm onto
+the served baseline, would have improved SEC's published number while
+destroying what the arm measures.
+
+[#348]: https://github.com/kristenmartino/gridpulse/issues/348
