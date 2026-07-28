@@ -1139,8 +1139,8 @@ def _outlook_tab_from_redis(
             y=predictions,
             mode="lines",
             name=(
-                f"{BASELINE_SERIES_LABEL.title()}"
-                if is_baseline_served(cached)
+                BASELINE_SERIES_LABEL.title()
+                if served_model == BASELINE_SERIES_LABEL
                 else f"{served_model.upper()} Forecast"
             ),
             line=dict(
@@ -1206,17 +1206,26 @@ def _outlook_tab_from_redis(
     # doesn't explain why the requested model isn't shown.
     substitution_caption = ""
     if is_baseline_served(cached):
-        # The strongest disclosure on the chart, because this is the case a
-        # reader is least likely to guess: the line is not a model's output
-        # at all. Said plainly, with the reason, rather than as a footnote —
-        # a baseline presented as a forecast is the exact failure the
+        # Disclose the substitution whichever series is plotted. Two distinct
+        # statements, and conflating them is how the first cut of this went
+        # wrong: what this REGION is served (the baseline), and what this
+        # CHART is drawing (whatever the model selector asked for). A chart
+        # titled "baseline" over a model's line is the same class of lie the
         # substitution exists to correct.
         reason = str(cached.get("served_reason") or "")
+        plotted_is_baseline = served_model == BASELINE_SERIES_LABEL
         substitution_caption = (
-            "<br><sup><b>Not a model forecast.</b> This region is served a "
-            "seasonal-naive baseline — the same clock hour from the most "
-            "recent observed day — because its trained models measurably "
-            f"lose to it{(': ' + reason) if reason else ''}.</sup>"
+            "<br><sup><b>"
+            + (
+                "Not a model forecast."
+                if plotted_is_baseline
+                else f"Shown: {served_model.upper()}, for comparison only."
+            )
+            + "</b> GridPulse serves this region a seasonal-naive baseline — the "
+            "same clock hour from the most recent observed day — because its "
+            f"trained models measurably lose to it{(': ' + reason) if reason else ''}."
+            + ("" if plotted_is_baseline else " That baseline is the served series, not this line.")
+            + "</sup>"
         )
     elif served_model != model_name:
         substitution_caption = (
@@ -1228,7 +1237,7 @@ def _outlook_tab_from_redis(
             uirevision=f"{region}:{horizon_hours}",
             title=(
                 f"{horizon_labels.get(horizon_hours, '')} "
-                f"{served_model.upper() if not is_baseline_served(cached) else BASELINE_SERIES_LABEL.title()}"
+                f"{BASELINE_SERIES_LABEL.title() if served_model == BASELINE_SERIES_LABEL else served_model.upper()}"
                 f" Demand Forecast — {region}"
                 f"{substitution_caption}{interval_caption}{horizon_caption}"
             ),
