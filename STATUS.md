@@ -53,12 +53,14 @@ model `rollback` at 24h. Mechanism: SEC's XGBoost holdout is 21.3% with
 open defects (#297 ARIMA univariate, #299 Prophet seam-step). Root cause
 looks like fit, not code: a ~308 MW generation co-op whose load follows
 member scheduling, which our weather/calendar feature set cannot see.
-**Governance gap worth its own issue:** SEC reads `quality_gated=False`
+**Governance gap — now [#349](https://github.com/kristenmartino/gridpulse/issues/349):** SEC reads `quality_gated=False`
 because the gate judges the *holdout* champion (6.96%) against the **7d**
 rollback band (22%) — wrong measurement (holdout, not serve path — the
 ADR-010 blindness again, live is 2.6× holdout) and wrong horizon (a 7d
 tolerance while our own drift grades it rollback against the 24h band of
-12%).
+12%). The disclosure half — `/benchmark` publishing a 24h scorecard for a
+BA our own drift already grades `rollback`, with no marker — is
+[#348](https://github.com/kristenmartino/gridpulse/issues/348).
 
 **2026-07-27 — E0-3 shipped: the public benchmark is live-able.**
 [`/benchmark`](web/benchmark.html) + `/api/v1/benchmark` (+ per-region).
