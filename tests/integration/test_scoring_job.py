@@ -258,6 +258,100 @@ class TestScoringJob:
         gate = fake_redis["gridpulse:meta:gate_status"]
         assert gate["regions"]["ERCOT"] == {"acceptable": True, "best_mape": 5.0}
 
+    def test_real_score_region_escalates_a_live_horizon_disagreement(
+        self,
+        fake_redis,
+        patch_data_sources,
+        patch_single_region,
+        monkeypatch,
+    ) -> None:
+        """#349: exercise the REAL producer, not just the pure verdict function.
+
+        The sibling of this test (above) proved the gate verdict is published.
+        It could not prove the serve-path second opinion is *attached*, because
+        the harness starts with no drift history — so `live_horizon` was None
+        and the wiring was never executed. That is precisely how the
+        `_observed_lead_hours` bug shipped: consumer covered, producer not.
+
+        Here the region's drift window is pre-seeded with rollback-grade 24h
+        numbers while the holdout says 5.0% (comfortably inside the gate's 22%
+        bar). The published entry must carry both verdicts and the flag.
+        """
+        from models import persistence as mp
+
+        fake_model = _fake_xgb_model()
+        fake_meta = mp.ModelMetadata(
+            region="ERCOT",
+            model_name="xgboost",
+            version="v-test",
+            data_hash="h",
+            trained_at="",
+            train_rows=1,
+            mape=5.0,
+            lib_versions={},
+            extra={},
+        )
+        monkeypatch.setattr(
+            "jobs.scoring_job.load_model",
+            lambda region, model_name: (fake_model, fake_meta),
+        )
+        import models.xgboost_model as xgb_mod
+
+        monkeypatch.setattr(xgb_mod, "predict_xgboost", lambda model, x: np.full(len(x), 41_000.0))
+        import models.model_service as model_service
+
+        monkeypatch.setattr(
+            model_service,
+            "get_forecasts",
+            lambda region, df: {"ensemble": df["demand_mw"].values, "metrics": {}},
+        )
+
+        # Freeze the drift window at rollback grade. Pinned AFTER the drift
+        # phase would rewrite it, so the seed is what the gate actually reads.
+        from jobs import phases
+
+        seeded = {
+            "models": {
+                "ensemble": {"24h": {"rolling_mape_7d": 12.215, "n_7d": 160}},
+                "arima": {"24h": {"rolling_mape_7d": 16.942, "n_7d": 160}},
+            }
+        }
+
+        def _seed_drift(*a, **kw):
+            return phases.PhaseResult(region="ERCOT", ok=True)
+
+        monkeypatch.setattr(phases, "write_horizon_drift_metrics", _seed_drift)
+
+        # The fake_redis fixture only replaces redis_set, so a real redis_get
+        # would return None and the wiring would go untested again. Serve the
+        # seed for the drift key ONLY — every other read keeps its existing
+        # behavior, so this test cannot perturb the other 36.
+        import data.redis_client as rc
+
+        real_get = rc.redis_get
+        monkeypatch.setattr(
+            rc,
+            "redis_get",
+            lambda key, *a, **kw: (
+                seeded if key == "gridpulse:drift_horizon:ERCOT" else real_get(key, *a, **kw)
+            ),
+        )
+
+        from jobs import scoring_job
+
+        assert scoring_job.run() == 0
+
+        entry = fake_redis["gridpulse:meta:gate_status"]["regions"]["ERCOT"]
+        # The generous question still passes — nothing gets hidden.
+        assert entry["acceptable"] is True
+        assert entry["best_mape"] == 5.0
+        # ...and the sharp question is now published beside it, disagreeing.
+        assert entry["disagrees"] is True
+        assert entry["live_horizon"]["grade"] == "rollback"
+        assert entry["live_horizon"]["champion"] == "ensemble"
+        assert entry["live_horizon"]["champion_mape"] == 12.215
+        assert entry["live_horizon"]["horizon"] == "24h"
+
     def test_scoring_job_missing_model_still_writes_actuals(
         self,
         fake_redis,

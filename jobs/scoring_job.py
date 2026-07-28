@@ -282,9 +282,44 @@ def _score_region(region: str) -> dict:
     # a verdict; a no-metric region is simply absent from the map (the web gate
     # treats absent as warming → visible), so untrained BAs are never hidden.
     if model_metrics:
-        from models.model_service import gate_verdict_from_metrics
+        from models.model_service import (
+            OPERATING_HORIZON,
+            gate_disagrees_with_live,
+            gate_verdict_from_metrics,
+            live_horizon_verdict,
+        )
 
         summary["gate"] = gate_verdict_from_metrics(model_metrics)
+
+        # #349. The verdict above answers "can we forecast this BA at all?"
+        # against the TRAINING HOLDOUT and the generous 7-day band. It is a
+        # deliberately low bar and it stays low — hiding a region is heavy-
+        # handed, and today it hides none of the 51. What was missing is the
+        # second opinion: how the models actually did in the serve path, at
+        # the horizon we publish. SEC passed the gate at 6.96% holdout while
+        # every model graded `rollback` at 24h, and nothing anywhere noticed.
+        # Both numbers are now published side by side, and the disagreement
+        # is logged as an alert rather than being silently reconciled.
+        try:
+            from data.redis_client import redis_get, redis_key
+
+            live = live_horizon_verdict(redis_get(redis_key(f"drift_horizon:{region}")))
+        except Exception as e:  # pragma: no cover - defensive; must not fail scoring
+            log.warning("gate_live_horizon_read_failed", region=region, error=str(e))
+            live = None
+        if live:
+            summary["gate"]["live_horizon"] = live
+            if gate_disagrees_with_live(summary["gate"], live):
+                summary["gate"]["disagrees"] = True
+                log.warning(
+                    "gate_live_horizon_disagreement",
+                    region=region,
+                    holdout_mape=summary["gate"].get("best_mape"),
+                    live_mape=live["champion_mape"],
+                    live_grade=live["grade"],
+                    live_champion=live["champion"],
+                    horizon=OPERATING_HORIZON,
+                )
 
     has_features = phases.engineer_region_features(region_data) is not None
 

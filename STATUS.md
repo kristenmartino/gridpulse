@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-27
+# Status — updated 2026-07-28
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,31 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-07-28 — #349: the gate's bar did not move, and that is the finding.**
+The complaint was real — `is_forecast_quality_acceptable` grades the
+**training holdout** against the **7-day** band (22%), while the number we
+publish is 24h on the serve path. SEC passed at 6.96% holdout with all four
+models `rollback` at 24h (ensemble 12.2, arima 16.9, xgboost 25.2, prophet
+34.0).
+
+**Measuring the blast radius before touching it changed the design.** The
+gate hides **0 of 51** regions today; re-grading it on the 24h band would
+hide **7** — SPA 25.3, SEC 12.2, IID 11.4, AZPS 9.6, WALC 7.7, LDWP 7.5,
+CPLE 7.1 — and three of those sit within **0.7 points** of the threshold,
+i.e. inside the tick-to-tick movement of a rolling window. They would
+flicker in and out of the product on noise.
+
+So the generous question stays the gate (hiding a BA is heavy-handed), and
+the sharp question gets published instead of being absent: `live_horizon`
+on the verdict, `operating_horizon_grade` + an explicit
+`quality_gate_measurement` on `/api/v1/regions`, and a
+`gate_live_horizon_disagreement` warning every tick a region passes the gate
+while failing at 24h. **SEC stays visible and is now flagged**, which is
+also the standing evidence for its baseline substitution.
+
+Caveat worth keeping: for a substituted region the live grade describes the
+**models**, not the served series.
 
 **2026-07-28 — #313 closed: the vintage/drift window corruption stopped on
 2026-07-17 and has not recurred.** The defence shipped in #313/#320 made the

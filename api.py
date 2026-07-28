@@ -245,7 +245,10 @@ def index():
 @api_v1.get("/regions")
 def regions():
     """The 51 balancing authorities with coordinates + capacity metadata."""
-    from models.model_service import is_forecast_quality_acceptable
+    from models.model_service import (
+        is_forecast_quality_acceptable,
+        published_live_horizon,
+    )
 
     memoized = _memo_get("regions")
     if memoized is not None:
@@ -254,6 +257,18 @@ def regions():
     out = []
     for code in sorted(REGION_NAMES):
         coords = REGION_COORDINATES.get(code, {})
+        live = published_live_horizon(code)
+        live_grade = (
+            {
+                "horizon": live.get("horizon"),
+                "grade": live.get("grade"),
+                "champion": live.get("champion"),
+                "champion_mape": live.get("champion_mape"),
+                "measurement": live.get("measurement"),
+            }
+            if live
+            else None
+        )
         out.append(
             {
                 "code": code,
@@ -272,7 +287,17 @@ def regions():
                 # Quality-gated = the BA's best served model (ensemble or
                 # champion base, not XGBoost-alone; #255) is still in the 7d
                 # rollback grade. The UI hides these regions; the API discloses.
+                #
+                # The measurement behind it is the TRAINING HOLDOUT against the
+                # 7-day band — the most generous question we ask. It is stated
+                # in `quality_gate_measurement` rather than left to be inferred,
+                # because the horizon-matched serve-path grade beside it can and
+                # does disagree (#349): a BA can sit at `rollback` for 24h while
+                # passing this gate comfortably. Both are published; only the
+                # first one hides anything.
                 "quality_gated": not is_forecast_quality_acceptable(code),
+                "quality_gate_measurement": "training-holdout, 7d band",
+                "operating_horizon_grade": live_grade,
             }
         )
     body = {"count": len(out), "regions": out}

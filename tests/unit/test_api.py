@@ -124,6 +124,49 @@ class TestRegions:
         assert fpl["capacity_source"] == "nameplate"
         assert fpl["import_dominated"] is False
         assert fpl["quality_gated"] is False
+        # #349: the gate's measurement is stated on the payload, not left to be
+        # inferred, because the horizon-matched grade beside it can disagree.
+        assert fpl["quality_gate_measurement"] == "training-holdout, 7d band"
+        assert "operating_horizon_grade" in fpl
+
+    def test_regions_disclose_the_operating_horizon_grade(self, client, monkeypatch):
+        """#349: both verdicts ship, and the sharp one is labelled as such.
+
+        A region can pass the gate (holdout vs the 7-day band) while every
+        served model is rollback-graded at 24h — SEC did, for weeks, in
+        silence. The API now carries the second opinion.
+        """
+        import api as api_mod
+        import models.model_service as ms
+
+        # /regions is memoized for 30s; a stale body would silently pass this
+        # test whatever the endpoint does.
+        api_mod._memo.pop("regions", None)
+
+        monkeypatch.setattr(
+            ms,
+            "published_live_horizon",
+            lambda code: (
+                {
+                    "horizon": "24h",
+                    "grade": "rollback",
+                    "champion": "ensemble",
+                    "champion_mape": 12.215,
+                    "measurement": "serve-path drift, 7d rolling",
+                }
+                if code == "SEC"
+                else None
+            ),
+        )
+        body = client.get("/api/v1/regions").get_json()
+        api_mod._memo.pop("regions", None)
+        sec = next(r for r in body["regions"] if r["code"] == "SEC")
+        assert sec["quality_gated"] is False, "the escalation must not hide the region"
+        assert sec["operating_horizon_grade"]["grade"] == "rollback"
+        assert sec["operating_horizon_grade"]["champion_mape"] == 12.215
+        assert sec["operating_horizon_grade"]["measurement"] == "serve-path drift, 7d rolling"
+        fpl = next(r for r in body["regions"] if r["code"] == "FPL")
+        assert fpl["operating_horizon_grade"] is None
         hst = next(r for r in body["regions"] if r["code"] == "HST")
         assert hst["import_dominated"] is True
         # Peak-derived capacity (peak×1.15) is disclosed as an estimate, not

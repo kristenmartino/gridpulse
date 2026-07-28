@@ -14,7 +14,7 @@
 | Fact | Value | Source of truth |
 |---|---|---|
 | Balancing authorities covered | **51** | [`config.REGION_COORDINATES`](../config.py) |
-| UI-visible count | **51** (quality-gated) | a BA is hidden only when its best *served* model — ensemble or champion base, **not** XGBoost-alone ([#255](https://github.com/kristenmartino/gridpulse/issues/255)) — is in the 7d rollback grade; 0 hidden at the 2026-07-03 training |
+| UI-visible count | **51** (quality-gated) | a BA is hidden only when its best *served* model — ensemble or champion base, **not** XGBoost-alone ([#255](https://github.com/kristenmartino/gridpulse/issues/255)) — is in the 7d rollback grade **as measured on the training holdout** (the generous question; the horizon-matched serve-path grade is published beside it but does not hide, [#349](https://github.com/kristenmartino/gridpulse/issues/349)); **0 hidden**, re-measured 2026-07-28 |
 | Demand coverage (contiguous US lower-48) | **~100%** | derived from EIA-930 demand vs. our covered set |
 | EIA-930 total BAs (contiguous US) | **63** | [Aug 2025 Federal Register PRA renewal](https://www.govinfo.gov/content/pkg/FR-2025-08-28/pdf/2025-16450.pdf) |
 | BA-count coverage of EIA-930 | **~81%** (51 of 63) | derived |

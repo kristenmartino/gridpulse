@@ -206,6 +206,34 @@ that fails is still persisted (forensics) but the pointer stays on
 yesterday's accepted model — stale-but-sane over fresh-but-insane, the same
 principle the data layer applies when an API degrades.
 
+**Which measurement decides visibility (#349).** Two different gates share
+a word and are easy to confuse. ADR-010 above gates **which model gets
+served** — a serve-path replay, and the sharper of the two instruments. The
+*visibility* gate (`is_forecast_quality_acceptable`, `gridpulse:meta:gate_status`)
+decides **which BAs appear in the product at all**, and it is judged on the
+**training holdout** against the **7-day** band — deliberately the most
+generous question available, because hiding a balancing authority is a heavy
+act. As measured on 2026-07-28 it hides **none** of the 51.
+
+The cost of that generosity is that the holdout answer can be far kinder
+than the horizon the benchmark publishes: SEC sat at 6.96% holdout — well
+inside the 22% rollback bar — while every served model graded `rollback` at
+24h on the live serve path (ensemble 12.2%, arima 16.9%, xgboost 25.2%,
+prophet 34.0%). Both numbers were right about their own question, and
+nothing compared them.
+
+Since #349 the bar has not moved — re-grading visibility on the 24h band
+would have hidden 7 of 51 BAs, three of them within 0.7 points of the
+threshold and so inside the noise — but the second opinion is computed every
+tick (`live_horizon_verdict`), published beside the verdict as
+`live_horizon`, exposed on `/api/v1/regions` as `operating_horizon_grade`
+next to an explicit `quality_gate_measurement`, and logged as
+`gate_live_horizon_disagreement` whenever a region passes the gate while
+failing at the horizon we publish. For a BA served the seasonal-naive
+baseline instead (`models/skill.py`), that grade describes the models rather
+than the served series — which is precisely the evidence for the
+substitution.
+
 **Forecast horizon and the day-16 boundary.** The scoring job produces a **30-day** demand forecast at hourly granularity (`FORECAST_HORIZON_HOURS = 720`). Open-Meteo's free `/forecast` endpoint covers the first **16 days** (384 hours) with actual weather forecast values. For the remaining days 17-30, the future-feature builder drives the weather inputs from a per-BA **(day_of_year, hour) weather-normal** — a trailing ~10-year ERA5 "normal weather year" built nightly by the training job (#283), with a **seam anomaly-blend** so the current weather regime decays into the normal over ~5 days past the boundary, and the autoregressive demand features kept on recent data so the tail stays anchored to *current* load levels. Where a BA's normal artifact isn't backfilled yet, the builder falls back to the #281 **recent-28-day (hour, dow) climatology** (`CLIMATOLOGY_WINDOW_DAYS = 28`). The Forecast tab renders a visible day-16 divider on the 30-day chart with labels ("← Open-Meteo forecast" / "climatology baseline →") so users can correctly interpret the regime split — the demand forecast past day 16 reflects seasonal/diurnal patterns, not forward-looking signal. The decision and alternatives considered are documented in ADR-008 (PRD.md §10). Atmospheric chaos limits deterministic NWP skill to ~10-14 days regardless of model, so climatology is the right answer past Open-Meteo's coverage rather than a cost-driven hack.
 
 **Where the weather is sampled (ADR-012).** A BA's demand responds to weather across its whole territory, but the fetch historically sampled a single representative point — for MISO, one spot in rural Illinois standing in for fifteen states. Since ADR-012 each BA's footprint is sampled at up to **12 static cells** (chosen offline from census population centres inside the BA polygon, committed as `assets/multipoint_coordinates.json`) and averaged. The study behind it (`docs/MULTIPOINT_WEATHER_STUDY.md`) measured **+1.14 sMAPE pts** — MISO +1.77, PJM +1.41, SPP +1.45, and ~0 for compact single-metro BAs, which keep their single point. It also measured population *weighting* as adding nothing over a plain average, so the aggregation is unweighted and needs no census data at runtime. Wind direction uses a circular mean (averaging 350° and 10° arithmetically would point the wind due south) and the ordinal WMO `weather_code` uses a mode rather than a mean. The whole path fails open to single-point at every seam — the #161 lesson.
