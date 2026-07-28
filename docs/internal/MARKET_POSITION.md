@@ -134,7 +134,7 @@ If that holds, public transparency wins *attention*, not *deals*.
 
 | Asset | Verdict | Why |
 |---|---|---|
-| **Vintage instrument** — what EIA first published vs what settled, per hour, per BA | **Real barrier, small moat** | EIA does not republish its own revision history, so this genuinely cannot be backfilled. But ours is a rolling 30-day window, not an accumulating archive — a competitor reaches parity 30 days after they start. Head start, not a data moat. |
+| **Vintage instrument** — what EIA first published vs what settled, per hour, per BA | **Real barrier, small moat** | EIA does not republish its own revision history, so this genuinely cannot be backfilled. But ours is a rolling 30-day window, not an accumulating archive — a competitor reaches parity 30 days after they start. Head start, not a data moat. *(A production anomaly wiped parts of this window on 07-16/17; it stopped, the defence is armed, and the window has rebuilt cleanly since — see #313.)* |
 | **ADR-010 serve-path acceptance gate** | **Head start** | Hardest thing here to arrive at independently — it took an incident plus replaying 67 persisted model vintages. No IP, no lock-in, and the whole diagnosis is published in this repo. Most teams ship holdout MAPE and never discover the failure mode. |
 | **Published benchmark methodology** | **Institutionally expensive to copy** | Technically 2–4 weeks of work. What a competitor will not do is publish a scorecard on which they lose 28 of 43, with the exclusions and limits attached. |
 | **Skill-vs-naive across the fleet** | **Textbook** | The measurement is standard. *Acting* on it in production — serving the baseline where the model loses — is not. |
@@ -200,9 +200,16 @@ life if a competitor starts accumulating their own.
 
 - [#357](https://github.com/kristenmartino/gridpulse/issues/357) — AGPL asset; needs a
   replacement source or a compliance decision.
-- [#313](https://github.com/kristenmartino/gridpulse/issues/313) — vintage windows
-  destructively re-pinned in production, trigger unknown. This is the *asset* in option
-  A being corrupted; it outranks the rest.
+- ~~[#313](https://github.com/kristenmartino/gridpulse/issues/313) — vintage windows
+  destructively re-pinned in production~~ — **closed 2026-07-28, and this doc
+  overstated it.** The anomaly stopped on 2026-07-17 and the instrument has
+  accumulated cleanly since: the tombstone has fired **zero** times in 13 days, as
+  have both drift read-failure events, so it is not "defended and ongoing" — it is
+  gone. A log audit did confirm the damage was real while it lasted (8 reset ticks,
+  15 drift-window wipes across CAISO/ERCOT/FPL/PJM, 07-16 to 07-17), and found that
+  the resets hit *several regions at the same instant* — a property of the tick, not
+  the region, which is the thread to pull if it ever recurs. The tombstone stays armed
+  as the tripwire.
 - [#349](https://github.com/kristenmartino/gridpulse/issues/349) — the quality gate
   judges the holdout against the 7-day band, so a BA failing at 24h passes silently.
 - [#358](https://github.com/kristenmartino/gridpulse/issues/358) — backfilled hours
