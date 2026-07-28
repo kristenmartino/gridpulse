@@ -19,6 +19,33 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-28 — #313 closed: the vintage/drift window corruption stopped on
+2026-07-17 and has not recurred.** The defence shipped in #313/#320 made the
+anomaly *observable*; 13 days later it has been observed **zero** times —
+`vintage_window_missing_but_seeded`, `horizon_drift_history_read_failed` and
+`drift_history_read_failed` are all 0, as is any Redis error line. Query
+shape validated against live events first (`baseline_substituted` = 24 hits
+in 2 days, exactly one region hourly since the flip), because a mistyped
+filter also returns zero.
+
+**The unchecked audit item came back positive:** drift windows really were
+wiped — **8 reset ticks, 15 window wipes** across CAISO/ERCOT/FPL/PJM
+between 07-16 02:00 and 07-17 09:00, every one a drop to exactly 0. #320
+landed 07-17 14:23 UTC; nothing since, through 07-28.
+
+**New fact that sharpens the trigger, if it ever recurs:** half the reset
+ticks hit *several regions at the same instant* (three-region wipes at
+02:00:46, 12:00:55, 09:00:53). The issue framed the victims as "the
+earliest-fetched regions", implying a per-region property — the simultaneity
+says it is a property of the **tick**. Something returns nil for several
+distinct keys at once in the first seconds of a run, then the same
+connection serves the other 47 regions fine. Every reset is 46–68s past the
+hour. Consistent with the cold-start init race found during #312.
+
+`MARKET_POSITION.md` called this the top risk to the most differentiated
+asset, "being corrupted by an unknown trigger" — that was read off the
+issue's open state rather than evidence, and is corrected in the same PR.
+
 **2026-07-28 — market position written down, and it inverts the pitch**
 ([`docs/internal/MARKET_POSITION.md`](docs/internal/MARKET_POSITION.md),
 internal). Triggered by a look at [orreryhq.com](https://orreryhq.com).
