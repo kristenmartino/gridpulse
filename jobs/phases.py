@@ -2248,6 +2248,10 @@ def write_benchmark_metrics(
             # conservative official arm costs no extra capture.
             revised_df_by_ts=revised_df_from_frame(demand_df),
             observed_lead_h=_observed_lead_hours(previous_forecast),
+            # #348. `previous_forecast` is this region's forecast payload,
+            # which is where the substitution is recorded — so naming what we
+            # actually serve costs no extra Redis read.
+            served_series=(previous_forecast or {}).get("served_series"),
         )
         # Per-BA freshness. The fleet rollup's own timestamp stamps the
         # rollup; a reader of one region's row has no way to tell how old it

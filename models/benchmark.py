@@ -391,6 +391,43 @@ def gridpulse_predictions(
     return out
 
 
+def serve_grade(
+    horizon_payload: dict[str, Any] | None, model: str, lead: str
+) -> dict[str, Any] | None:
+    """Our own live grade for **the exact series this row scores** (#348).
+
+    Read off the same ``models.{model}.{lead}`` block
+    :func:`gridpulse_predictions` takes its predictions from — deliberately
+    not a champion-across-models or a different horizon. The marker on the
+    page must describe the line in that row, not a neighbouring measurement
+    that happens to be healthier.
+
+    Returns ``None`` when the block carries no grade, which is a warming
+    region, not a passing one.
+    """
+    if not horizon_payload:
+        return None
+    block = ((horizon_payload.get("models") or {}).get(model) or {}).get(lead) or {}
+    grade = block.get("grade")
+    if not grade:
+        return None
+    # The boundary the number had to cross to earn this grade. `mape_grade`
+    # returns `rollback` for anything ABOVE `acceptable` — the band dict's own
+    # "rollback" entry (12.0 at 24h) is never used as a threshold, so quoting
+    # it on the page would overstate how bad a flagged row has to be.
+    from config import MAPE_BY_HORIZON
+
+    bands = MAPE_BY_HORIZON.get(lead) or {}
+    return {
+        "grade": grade,
+        "model": model,
+        "horizon": lead,
+        "rolling_mape_7d": block.get("rolling_mape_7d"),
+        "n_7d": block.get("n_7d"),
+        "acceptable_max": bands.get("acceptable"),
+    }
+
+
 # ── payload ──────────────────────────────────────────────────
 
 
@@ -404,6 +441,7 @@ def compute_benchmark_payload(
     mean_revision_pct: float | None = None,
     revised_df_by_ts: dict[str, float] | None = None,
     observed_lead_h: dict[str, float] | None = None,
+    served_series: str | None = None,
 ) -> dict[str, Any]:
     """Build ``gridpulse:benchmark:{region}`` for one tick.
 
@@ -415,6 +453,14 @@ def compute_benchmark_payload(
     values so the conservative official arm can be scored; ``observed_lead_h``
     carries this tick's measured lead per nominal horizon, which decides
     whether the conservative label may be applied at all.
+
+    ``served_series`` names what the product actually serves for this BA
+    (``"model"`` or ``"seasonal-naive"``). It does not change a single score
+    — this arm always grades ``model``, by design, so the benchmark keeps
+    measuring the forecaster rather than quietly re-basing onto whatever we
+    fell back to. But where the two differ the row is no longer describing
+    what a user of that BA gets, and #348 is precisely about rows that carry
+    context we hold and do not publish.
     """
     score = scoreability(vintage_records, revision_class)
     payload: dict[str, Any] = {
@@ -422,6 +468,9 @@ def compute_benchmark_payload(
         "revision_class": revision_class,
         "mean_revision_pct": mean_revision_pct,
         **score,
+        "scored_model": model,
+        "served_series": served_series,
+        "serves_scored_model": None if served_series is None else served_series == "model",
         "leads": {},
     }
     if not score["scoreable"]:
@@ -470,6 +519,11 @@ def compute_benchmark_payload(
             "excluded_hours": drops,
             "observed_lead_h": None if observed is None else round(observed, 2),
             "lead_basis": "observed" if observed is not None else "nominal",
+            # #348: our own rolling grade for THIS row's series. A row we
+            # already grade `rollback` was being published as an ordinary
+            # comparison — the one unflattering fact on the page that wasn't
+            # disclosed deliberately.
+            "serve_grade": serve_grade(horizon_payload, model, lead),
         }
         # The conservative label is EARNED, not assumed: it holds only while
         # our realized lead exceeds the operators' documented maximum.

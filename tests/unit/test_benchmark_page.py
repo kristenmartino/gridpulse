@@ -186,6 +186,65 @@ class TestBenchmarkEndpoint:
         assert "_debug_scratch" not in body["regions"][0]["leads"]["24h"]
 
     @patch("api.redis_get")
+    def test_serve_grade_reaches_the_trust_boundary(self, mock_get, client) -> None:
+        """#348: a row we already grade `rollback` says so publicly.
+
+        The grade is computed against the same model and the same lead the
+        row scores, so the marker describes that row's line rather than a
+        healthier neighbouring measurement.
+        """
+        graded = _payload(
+            region="SEC",
+            leads={
+                "24h": _lead_block(
+                    serve_grade={
+                        "grade": "rollback",
+                        "model": "ensemble",
+                        "horizon": "24h",
+                        "rolling_mape_7d": 12.215,
+                        "n_7d": 160,
+                    }
+                ),
+                "48h": _lead_block(),
+            },
+        )
+        mock_get.side_effect = _redis([graded], _FLEET)
+        row = client.get("/api/v1/benchmark").get_json()["regions"][0]
+        assert row["leads"]["24h"]["serve_grade"]["grade"] == "rollback"
+        assert row["leads"]["24h"]["serve_grade"]["rolling_mape_7d"] == 12.215
+        # An ungraded lead must not inherit the flagged one's verdict.
+        assert "serve_grade" not in row["leads"]["48h"]
+
+    @patch("api.redis_get")
+    def test_a_substituted_ba_discloses_what_it_actually_serves(self, mock_get, client) -> None:
+        """#348: this arm always scores the model, so where a BA is served the
+        seasonal-naive baseline the row is not describing what its users get.
+        Publishing the number without that is the same omission the page
+        exists to avoid."""
+        mock_get.side_effect = _redis(
+            [
+                _payload(
+                    region="SEC",
+                    scored_model="ensemble",
+                    served_series="seasonal-naive",
+                    serves_scored_model=False,
+                )
+            ],
+            _FLEET,
+        )
+        row = client.get("/api/v1/benchmark").get_json()["regions"][0]
+        assert row["served_series"] == "seasonal-naive"
+        assert row["serves_scored_model"] is False
+        assert row["scored_model"] == "ensemble"
+
+    @patch("api.redis_get")
+    def test_notes_name_both_new_disclosures(self, mock_get, client) -> None:
+        mock_get.side_effect = _redis([_payload()], _FLEET)
+        notes = " ".join(client.get("/api/v1/benchmark").get_json()["notes"]).lower()
+        assert "serve_grade" in notes and "rollback" in notes
+        assert "serves_scored_model" in notes
+
+    @patch("api.redis_get")
     def test_excluded_regions_publish_with_their_reason(self, mock_get, client) -> None:
         """An excluded BA that silently vanishes reads as a hidden loss."""
         mock_get.side_effect = _redis([_payload(), _excluded()], _FLEET)

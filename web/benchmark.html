@@ -196,6 +196,18 @@
       color: var(--text-secondary);
     }
     .pill.split { border-color: rgba(245, 158, 11, 0.4); color: var(--warn); }
+    /* #348 — a row we already grade `rollback` must not read as an ordinary
+       comparison. Sits in the row header so it travels with the BA code
+       under horizontal scroll, where a trailing cell would be off-screen. */
+    .flag {
+      display: inline-block; margin-left: 6px; padding: 0 6px;
+      border-radius: var(--radius-full); font-size: 10px; font-weight: 600;
+      letter-spacing: 0.03em; text-transform: uppercase; vertical-align: 1px;
+      border: 1px solid rgba(245, 158, 11, 0.4); color: var(--warn);
+    }
+    .flag.substituted { border-color: var(--border-default); color: var(--text-secondary); }
+    .row-note { font-size: 12px; color: var(--text-tertiary); margin: 6px 0 0; }
+    .row-note b { color: var(--warn); font-weight: 600; }
     .drops { font-size: 12px; color: var(--text-tertiary); }
     details.row-detail summary { cursor: pointer; color: var(--text-tertiary); font-size: 12px; }
     details.row-detail[open] summary { color: var(--text-secondary); }
@@ -548,6 +560,84 @@
       return th;
     }
 
+    /* #348. Two facts we hold and did not publish, both derived from the
+       payload (never a hard-coded region list):
+
+       1. `serve_grade` — our own rolling grade for the EXACT series this row
+          scores: same model, same horizon. A row graded `rollback` is one we
+          already know is failing.
+       2. `serves_scored_model` — this arm always scores the model, so where
+          a BA was substituted onto the seasonal-naive baseline the row
+          measures the forecaster, not the series that BA's users are served.
+
+       Every other unflattering fact on this page is published deliberately;
+       these were the exceptions. */
+    function flagRow(th, region) {
+      var h = head(data, region);
+      var sg = h.serve_grade || {};
+      var notes = [];
+
+      /* Built as DOM, never innerHTML. Every value here is server-generated,
+         but this is a public page and string-concatenated markup is how that
+         stops being true. */
+      function note() {
+        var p = document.createElement('p');
+        p.className = 'row-note';
+        for (var i = 0; i < arguments.length; i++) {
+          var part = arguments[i];
+          if (typeof part === 'string') { p.appendChild(document.createTextNode(part)); }
+          else { p.appendChild(part); }
+        }
+        notes.push(p);
+        return p;
+      }
+      function strong(text) {
+        var b = document.createElement('b');
+        b.textContent = text;
+        return b;
+      }
+      function badge(cls, text, title) {
+        var el = document.createElement('span');
+        el.className = 'flag' + (cls ? ' ' + cls : '');
+        el.textContent = text;
+        el.title = title;
+        th.appendChild(el);
+      }
+
+      if (sg.grade === 'rollback') {
+        var at = (sg.rolling_mape_7d === null || sg.rolling_mape_7d === undefined)
+          ? 'a failing level' : num(sg.rolling_mape_7d) + '%';
+        var horizon = sg.horizon || HEADLINE;
+        var model = sg.model || 'served';
+        badge('', 'rollback',
+          'Our own drift monitor grades this BA\u2019s ' + model + ' forecast rollback at ' +
+          horizon + ' (' + at + ', 7d rolling).');
+        var bound = (sg.acceptable_max === null || sg.acceptable_max === undefined)
+          ? ' worse than the acceptable band for that horizon'
+          : ' against an acceptable band of ' + num(sg.acceptable_max) + '%';
+        note('We already grade this row ', strong('rollback'),
+          ' \u2014 our drift monitor scores the ' + model + ' forecast at ' + at +
+          ' over the trailing 7 days at ' + horizon + ',' + bound +
+          '. The comparison stands; it is not a forecast we would defend.');
+      }
+
+      if (region.serves_scored_model === false) {
+        var scored = region.scored_model || 'model';
+        var served = region.served_series || 'baseline';
+        badge('substituted', 'not served',
+          'This row scores the ' + scored + ', but GridPulse serves the ' +
+          served + ' series for this BA.');
+        note('This row scores the ', strong(scored),
+          ', which is not what we serve here \u2014 this BA is served the ',
+          strong(served),
+          ' series instead. The benchmark always grades the model, because re-basing ' +
+          'it onto a fallback would stop it measuring the forecaster. So this number ' +
+          'is worse than what a user of this BA actually receives.');
+      }
+
+      return notes;
+    }
+
     /* A row is shown only when its headline lead actually carries a verdict —
        a BA that is scoreable but still accumulating paired hours has no
        number to show, and inventing one is the whole thing this page is
@@ -701,7 +791,7 @@
         var h = head(data, region);
         var tr = rowsBody.insertRow();
         tr.className = 'data';
-        rowHeader(tr, region);
+        var rowFlags = flagRow(rowHeader(tr, region), region);
         cell(tr, h.n);
         cell(tr, num((h.official || {}).mape), 'theirs');
         cell(tr, num((h.official_revised || {}).mape), 'theirs');
@@ -726,8 +816,11 @@
         var det = document.createElement('details');
         det.className = 'row-detail';
         var sum = document.createElement('summary');
-        sum.textContent = 'Hours dropped from ' + region.region + ', and why';
+        sum.textContent = rowFlags.length
+          ? 'Why this row is flagged, and which hours were dropped'
+          : 'Hours dropped from ' + region.region + ', and why';
         det.appendChild(sum);
+        rowFlags.forEach(function (np) { det.appendChild(np); });
         var p = document.createElement('p');
         p.className = 'drops';
         var drops = h.excluded_hours || {};
