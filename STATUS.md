@@ -19,6 +19,35 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-28 — baseline substitution flipped ON; SEC now serves the
+seasonal-naive baseline.** Flag `baseline_substitution` → True after
+shadow-running the live decision across all 44 scoreable regions.
+
+**Shadow result: SEC alone**, at **−4.03** error points against the −2.0
+bar (model 12.59% vs naive 8.56% on the trailing 7 days). 43 regions keep
+their model; 0 were unmeasured. Stable across every window with enough
+hours to decide — −2.88 at 5d, −4.03 at 7d, −2.79 at 10d — while the
+nearest other region (FPC) sits at −1.68 and never clears the bar.
+
+One apparent disagreement in the stability run was the policy working: the
+5-day window substitutes *nothing*, not because SEC's margin fails but
+because 120 hours is below the 168-hour minimum the policy requires before
+it will decide at all. The guard fired exactly as intended.
+
+**Disclosure is on both surfaces before the flip, deliberately.**
+`/api/v1/forecast` reports `series_source: "seasonal-naive-baseline"`; the
+dashboard resolves through `_served_model_for_payload` to a label that is
+not a model name, so title, trace and caption all say so, and the caption
+carries the scoring job's own reason. Per-model rows stay intact as the
+evidence.
+
+**Post-flip watch:** `baseline_substituted` log lines should name SEC and
+only SEC each tick; the Forecast tab for SEC should title "Seasonal-Naive
+Baseline Demand Forecast"; and SEC's benchmark row should move toward the
+naive number (~8–11% rather than ~18%) as substituted hours accumulate in
+the drift window. Rollback = flip back — the substitution is a read-time
+swap with no persisted state.
+
 **2026-07-28 — baseline substitution built, ships DARK; flip after shadow
 verification.** Where a model measurably loses to "yesterday, same hour",
 the honest thing to serve is the free thing. Flag `baseline_substitution`

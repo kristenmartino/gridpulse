@@ -1034,9 +1034,13 @@ FEATURE_FLAGS: dict[str, bool] = {
     "what_changed": True,  # NEXD-8: session-aware change detection
     "smart_defaults": True,  # NEXD-9: remember last filter state in localStorage
     # Serve a seasonal-naive baseline for regions whose model measurably
-    # loses to it (models/skill.py). Ships dark: it changes what a user is
-    # shown, so it flips only after shadow logs confirm the decision set.
-    "baseline_substitution": False,
+    # loses to it (models/skill.py). Flipped 2026-07-28 after shadow-running
+    # the live decision across all 44 scoreable regions: SEC alone, at -4.03
+    # error points against the -2.0 bar, stable at every window with enough
+    # hours to decide (-2.88 at 5d, -2.79 at 10d) while the nearest other
+    # region sits at -1.68. Rollback = flip back; the substitution is a
+    # read-time swap with no persisted state.
+    "baseline_substitution": True,
     "cross_tab_links": True,  # NEXD-11: contextual links between tabs
     "inline_tooltips": True,  # NEXD-13: SHAP-based per-point forecast tooltips
     # NEXD-14 / shell-redesign post-R6: replay surfaces stale snapshots and
