@@ -19,6 +19,40 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-28 — market position written down, and it inverts the pitch**
+([`docs/internal/MARKET_POSITION.md`](docs/internal/MARKET_POSITION.md),
+internal). Triggered by a look at [orreryhq.com](https://orreryhq.com).
+
+**Orrery is not a competitor today** — they sell derived *weather* by the call
+(live API serves NOAA GFS 0.25° only; the advertised ECMWF/HRRR/NBM/CAMS are
+not served yet), from a ~30-day-old domain, apparently one engineer, no
+funding, no prices published despite marketing "published prices". They sit
+at the weather-ingestion layer, closer to an Open-Meteo substitute than a
+rival. **The watch item is real though:** `load`/`lmp`/`wind_generation` are
+first-class in their schema and `/v1/energy/load` is a live BA-keyed route
+returning `series: null` — declared surface, no data. They also independently
+converged on our skill baseline ("24-hour persistence"), the same week.
+
+**The honest position:** "we forecast demand better" is not sellable — our own
+public scorecard contradicts it on **five of six major ISOs** (ERCOT 2.48 vs
+1.44, NYISO 5.25 vs 2.06, ISONE 7.90 vs 3.43). We win big on small weak-forecast
+BAs (PSEI 3.59 vs 40.9, FMPP 5.52 vs 28.15). **The wedge is a floor, not a
+ceiling** — and the buyers with budget are on the ISOs, where we lose.
+
+**What's differentiated is the measurement apparatus, not the forecast.**
+Ranked: the vintage instrument is a real barrier but only a 30-day rolling
+window (head start, not a moat); ADR-010's gate is hardest to arrive at
+independently but fully published here; the benchmark methodology is cheap to
+copy technically and expensive institutionally (nobody publishes a scorecard
+they lose). Publishing accuracy vs the incumbent is **table stakes** — Enverus
+and Amperon both do it. The white space is publishing *continuously,
+pre-sale, including losses*.
+
+**Recommendation is neither "sell A" nor "sell B" but keep measuring:** the
+benchmark is 2 days old, skill 1 day, substitution flipped today — and the
+asset with the shortest shelf life is the one a competitor starts matching 30
+days after they begin.
+
 **2026-07-28 — baseline substitution flipped ON; SEC now serves the
 seasonal-naive baseline.** Flag `baseline_substitution` → True after
 shadow-running the live decision across all 44 scoreable regions.
