@@ -382,6 +382,73 @@ def gate_verdict_from_metrics(model_metrics: dict) -> dict:
     return {"acceptable": best <= MAPE_BY_HORIZON["7d"]["rollback"], "best_mape": best}
 
 
+#: The horizon the product is actually judged on. The gate's own bar is the
+#: 7-day band (a deliberately generous "can we forecast this at all?"), but
+#: the drift instrument grades every model against its OWN horizon band — so
+#: the two can disagree without anything noticing. That gap is #349.
+OPERATING_HORIZON = "24h"
+
+
+def live_horizon_verdict(
+    horizon_payload: dict | None, horizon: str = OPERATING_HORIZON
+) -> dict | None:
+    """Grade a region's models at the operating horizon from LIVE records.
+
+    The gate (:func:`gate_verdict_from_metrics`) judges the training holdout
+    against the 7-day band. This judges what the models actually did in the
+    serve path, at the horizon the benchmark publishes, using the rolling
+    drift window the scoring job already writes. Two different questions, and
+    until #349 only one of them was ever published.
+
+    Returns ``None`` when there is no signal — an untrained or warming region
+    must not be graded, exactly as the gate treats a metric-less region.
+
+    **What this is not.** It grades the MODELS. For a region served the
+    seasonal-naive baseline instead (``models.skill``), the served series is
+    not any model's output, so this verdict explains *why* the substitution
+    happened rather than describing what a user is shown.
+    """
+    models = ((horizon_payload or {}).get("models") or {}) if horizon_payload else {}
+    scored: list[tuple[str, float]] = []
+    for name in ("ensemble", "xgboost", "prophet", "arima"):
+        block = (models.get(name) or {}).get(horizon) or {}
+        mape = block.get("rolling_mape_7d")
+        if mape is None or not np.isfinite(mape):
+            continue
+        scored.append((name, float(mape)))
+    if not scored:
+        return None
+
+    from config import mape_grade
+
+    champion, champion_mape = min(scored, key=lambda t: t[1])
+    return {
+        "horizon": horizon,
+        "champion": champion,
+        "champion_mape": round(champion_mape, 3),
+        "grade": mape_grade(champion_mape, horizon),
+        "measurement": "serve-path drift, 7d rolling",
+        "n_models": len(scored),
+    }
+
+
+def gate_disagrees_with_live(gate: dict | None, live: dict | None) -> bool:
+    """Is the region passing the gate while failing at the operating horizon?
+
+    This is the silent state #349 is about: SEC's holdout champion read 6.96%
+    (well inside the 7-day band's 22% bar) while every model graded
+    ``rollback`` at 24h. Both instruments were right about their own question,
+    nothing compared them, and the region served a forecast worse than
+    "yesterday, same hour" for weeks.
+
+    Absence is never a disagreement — an unmeasured region is not a failing
+    one.
+    """
+    if not isinstance(gate, dict) or not isinstance(live, dict):
+        return False
+    return bool(gate.get("acceptable")) and live.get("grade") == "rollback"
+
+
 def get_best_holdout_mape(region: str) -> float | None:
     """Best achievable holdout MAPE for ``region`` — the champion across every
     served model (ensemble + 3 bases), or ``None`` when no real metric exists.
@@ -450,6 +517,24 @@ def _get_gate_status() -> dict | None:
     return regions
 
 
+def published_live_horizon(region: str) -> dict | None:
+    """The scoring job's live serve-path grade for ``region``, or ``None``.
+
+    Reads the same cached ``meta:gate_status`` map the gate uses, so exposing
+    it costs no extra Redis round-trip. Returns ``None`` when the region has
+    no published verdict, when the map is missing, or when the scoring job
+    that wrote the entry predates #349.
+    """
+    status = _get_gate_status()
+    if not isinstance(status, dict):
+        return None
+    verdict = status.get(region)
+    if not isinstance(verdict, dict):
+        return None
+    live = verdict.get("live_horizon")
+    return live if isinstance(live, dict) else None
+
+
 def _log_gate_unavailable_once() -> None:
     """Warn (rate-limited to once per ``_GATE_STATUS_TTL``) that the published
     gate verdict is missing in production, so the pass-open fallback is never
@@ -483,6 +568,16 @@ def is_forecast_quality_acceptable(region: str) -> bool:
       Redis/GCS exception AND swept per-render GCS metas on cold Redis.
     * **Dev/offline** (``REQUIRE_REDIS`` False, no scoring job publishing) falls
       back to computing the verdict inline from local metrics.
+
+    **Which measurement decides this (#349).** The ``best_mape`` behind the
+    verdict is a **training-holdout** number graded against the **7-day** band
+    — deliberately the most generous question available ("can we forecast this
+    BA at all?"), because hiding a region from the product is heavy-handed.
+    It is emphatically *not* a serve-path measurement, and it is not matched to
+    the 24h horizon the benchmark publishes. The horizon-matched serve-path
+    grade is published alongside it as ``live_horizon``
+    (:func:`published_live_horizon`) and escalates on its own when the two
+    disagree; it does not move this bar.
 
     The ``forecast_quality_gate`` feature flag short-circuits to True when False.
     """
