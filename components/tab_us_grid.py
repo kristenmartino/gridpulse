@@ -28,7 +28,8 @@ def _view_toggle() -> html.Div:
 
     V3.β added the Polygons option — a Plotly Choropleth driven by
     ``assets/ba_polygons.geojson`` (51 BA service-territory polygons
-    sourced from the MIT-licensed electricitymaps-contrib repo, ~165 KB
+    sourced from the AGPL-3.0 electricitymaps-contrib repo (see
+    THIRD_PARTY_NOTICES.md and #357), ~165 KB
     pre-simplified). Map (centroid scatter) is preserved as a fallback.
     """
     return html.Div(
