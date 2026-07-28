@@ -79,3 +79,75 @@ class TestAttribution:
         assert _served_model_for_payload(_payload(), "xgboost") == "arima"
         payload = _payload(forecasts=[{"timestamp": "t", "xgboost": 1.0}])
         assert _served_model_for_payload(payload, "xgboost") == "xgboost"
+
+
+class TestHeadlineFollowsTheLabel:
+    """The bug this class exists for: the API published `series_source:
+    "seasonal-naive-baseline"` while `demand_mw` carried the ENSEMBLE's
+    numbers, because the row builder preferred the `ensemble` column and the
+    substitution writes `predicted_demand_mw` / `baseline`.
+
+    A false label is worse than no substitution — a consumer trusts it.
+    """
+
+    @staticmethod
+    def _redis(payload):
+        def _get(key):
+            return payload if "forecast:" in key else None
+
+        return _get
+
+    @staticmethod
+    def _payload(**over):
+        p = {
+            "region": "SEC",
+            "scored_at": "2026-07-28T12:00:00+00:00",
+            "primary_model": "arima",
+            "forecasts": [
+                {
+                    "timestamp": "2026-07-28T12:00:00+00:00",
+                    "predicted_demand_mw": 300.0,
+                    "baseline": 300.0,
+                    "ensemble": 241.3,
+                    "arima": 249.2,
+                    "xgboost": 261.6,
+                }
+            ],
+        }
+        p.update(over)
+        return p
+
+    def test_substituted_region_publishes_the_baseline_numbers(self, monkeypatch):
+        import api as api_module
+
+        api_module._memo.clear()
+        monkeypatch.setattr(
+            api_module, "redis_get", self._redis(self._payload(served_series="seasonal-naive"))
+        )
+        from flask import Flask
+
+        app = Flask(__name__)
+        app.register_blueprint(api_module.api_v1)
+        body = app.test_client().get("/api/v1/forecast/SEC?horizon=1").get_json()
+
+        assert body["series_source"] == "seasonal-naive-baseline"
+        assert body["forecast"][0]["demand_mw"] == 300.0, "label says baseline, numbers must be too"
+        assert body["forecast"][0]["demand_mw"] != 241.3, (
+            "served the ensemble under a baseline label"
+        )
+        # the models stay visible as the evidence for the substitution
+        assert body["forecast"][0]["by_model"]["ensemble"] == 241.3
+
+    def test_normal_region_still_publishes_the_ensemble(self, monkeypatch):
+        import api as api_module
+
+        api_module._memo.clear()
+        monkeypatch.setattr(api_module, "redis_get", self._redis(self._payload()))
+        from flask import Flask
+
+        app = Flask(__name__)
+        app.register_blueprint(api_module.api_v1)
+        body = app.test_client().get("/api/v1/forecast/SEC?horizon=1").get_json()
+
+        assert body["series_source"] == "ensemble"
+        assert body["forecast"][0]["demand_mw"] == 241.3

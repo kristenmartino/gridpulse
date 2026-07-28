@@ -330,15 +330,25 @@ def forecast(raw_region: str):
     # exactly the fact that justified it.
     if payload.get("served_series") == "seasonal-naive":
         series_source = "seasonal-naive-baseline"
+        # The headline series MUST follow the label. Reading `ensemble` here
+        # published the model's numbers under a "baseline" source — a false
+        # disclosure, and worse than not substituting at all, because a
+        # consumer would trust the label. The substituted series lives in
+        # `baseline` / `predicted_demand_mw`; the models stay in `by_model`.
+        headline_keys = ("baseline", "predicted_demand_mw")
     else:
         series_source = "ensemble" if has_ensemble else payload.get("primary_model", "unknown")
+        headline_keys = ("ensemble", "predicted_demand_mw")
 
     rows_out: list[dict[str, Any]] = []
     for r in rows_in:
         rows_out.append(
             {
                 "timestamp": r.get("timestamp"),
-                "demand_mw": r.get("ensemble", r.get("predicted_demand_mw")),
+                "demand_mw": next(
+                    (r[k] for k in headline_keys if k in r),
+                    r.get("predicted_demand_mw"),
+                ),
                 # Allow-list, never pass-through: unknown fields a future
                 # writer adds to the cache schema must not auto-publish.
                 "by_model": {name: r[name] for name in _EXPORTED_MODELS if name in r},
