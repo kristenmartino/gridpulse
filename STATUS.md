@@ -19,6 +19,39 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-28 — baseline substitution built, ships DARK; flip after shadow
+verification.** Where a model measurably loses to "yesterday, same hour",
+the honest thing to serve is the free thing. Flag `baseline_substitution`
+→ False; flag-off is byte-identical to today and pinned by a test.
+
+**A window mismatch nearly inverted this.** The first cut compared a
+30-day baseline against a 7-day model and concluded we *won* SEC at 48h
+(+3.36) and 72h (+2.75) — I was about to report that substitution wasn't
+supported. On matched 7-day windows the baseline wins at **every** lead:
+24h **8.56 vs 12.54**, 48h **9.55 vs 10.57**, 72h **8.01 vs 11.21**. The
+helper now measures both sides on one window and carries a comment saying
+why, because that error is one line away at all times.
+
+**Policy, not a region list.** Substitution needs the baseline to beat the
+model by ≥ 2.0 error points over ≥ 168 measured hours. Today that selects
+SEC alone (−3.98 pts) and leaves the eight regions within ~1 point of the
+line untouched. Every failure path keeps the model — flag off, no skill
+signal, no drift record, thin history, unusable projection, any exception
+— because the model is right on 35 of 44 regions and a bug that
+substituted wrongly would replace all of them.
+
+**Disclosure is part of the change, not a follow-up.** Payload carries
+`served_series` / `served_reason` / the skill block; `/api/v1/forecast`
+reports `series_source: "seasonal-naive-baseline"`, never `"ensemble"`.
+Per-model rows stay intact so the evidence sits next to the decision.
+4 assert-applied mutations killed (substitute-when-fine,
+substitute-when-unmeasured, wrong source day, flag ignored).
+
+**Next: shadow-verify the decision set is SEC alone across a few ticks,
+then flip.** The UI still needs to show the substitution — the dashboard
+reads `predicted_demand_mw` and would currently present a baseline series
+without saying so, which is the one gap left in this arc.
+
 **2026-07-28 — SEC isn't a bad region, it's a region where our model is
 worse than free.** Investigating the benchmark's worst row produced a
 finding no existing instrument could have surfaced, because none of them

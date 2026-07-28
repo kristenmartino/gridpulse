@@ -324,7 +324,14 @@ def forecast(raw_region: str):
     # The production series is the ensemble when present (ADR-004); fall back
     # to the payload's primary model and say so — never silently.
     has_ensemble = any("ensemble" in r for r in rows_in)
-    series_source = "ensemble" if has_ensemble else payload.get("primary_model", "unknown")
+    # A region served the seasonal-naive baseline (models/skill.py) must never
+    # read as a model forecast here — the substitution exists BECAUSE the model
+    # was worse than the baseline, and publishing it as "ensemble" would hide
+    # exactly the fact that justified it.
+    if payload.get("served_series") == "seasonal-naive":
+        series_source = "seasonal-naive-baseline"
+    else:
+        series_source = "ensemble" if has_ensemble else payload.get("primary_model", "unknown")
 
     rows_out: list[dict[str, Any]] = []
     for r in rows_in:
@@ -344,6 +351,8 @@ def forecast(raw_region: str):
         "scored_at": payload.get("scored_at"),
         "granularity": payload.get("granularity", "1h"),
         "series_source": series_source,
+        "served_reason": payload.get("served_reason"),
+        "skill": payload.get("skill"),
         "horizon_hours": len(rows_out),
         "forecast": rows_out,
         "notes": [

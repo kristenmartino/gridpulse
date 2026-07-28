@@ -1343,6 +1343,81 @@ def _horizon_guard_for_series(
     }
 
 
+def _baseline_substitution(
+    region: str, demand_df: pd.DataFrame, horizon_h: int
+) -> tuple[np.ndarray, dict[str, Any]] | None:
+    """Seasonal-naive series for a region whose model loses to it, or None.
+
+    Returns None — meaning "keep the model" — for every failure: the flag is
+    off, no skill signal, too little history, or a deficit inside the noise
+    band. That asymmetry is deliberate. Substituting when we should not is
+    worse than the reverse, because the model is right on 35 of 44 regions
+    and a bug here would replace all of them.
+
+    The comparison is like-for-like on purpose. Both sides are measured over
+    the drift instrument's own 7-day window: an earlier version of this
+    analysis compared a 30-day baseline against a 7-day model and concluded
+    the model won at 48h/72h, which reversed once the windows matched.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("baseline_substitution"):
+        return None
+    try:
+        from data.redis_client import redis_get, redis_key
+        from models.skill import (
+            SEASONAL_NAIVE_LAG_H,
+            mape,
+            seasonal_naive_forecast,
+            should_serve_baseline,
+            skill_score,
+        )
+
+        if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
+            return None
+        d = demand_df.dropna(subset=["demand_mw"]).copy()
+        d["timestamp"] = pd.to_datetime(d["timestamp"], utc=True)
+        # asfreq exposes gaps as NaN. Without it the lag reaches across a gap
+        # and compares hours that are days apart, flattering the baseline —
+        # which here would mean substituting a model that was fine.
+        series = d.sort_values("timestamp").set_index("timestamp").asfreq("h")["demand_mw"]
+        window = series[series.index > series.index.max() - pd.Timedelta(days=7)]
+        y = window.to_numpy(dtype=float)
+        if y.size <= SEASONAL_NAIVE_LAG_H:
+            return None
+
+        horizon = redis_get(redis_key(f"drift_horizon:{region}"))
+        block = (((horizon or {}).get("models") or {}).get("ensemble") or {}).get("24h") or {}
+        model_mape = block.get("rolling_mape_7d")
+        if model_mape is None:
+            return None
+
+        baseline_mape = mape(y[SEASONAL_NAIVE_LAG_H:], y[:-SEASONAL_NAIVE_LAG_H])
+        skill_block = {
+            "model_mape": round(float(model_mape), 3),
+            "baseline_mape": round(baseline_mape, 3),
+            "baseline": f"seasonal-naive lag {SEASONAL_NAIVE_LAG_H}h",
+            "skill": skill_score(float(model_mape), baseline_mape),
+            "points_vs_baseline": round(baseline_mape - float(model_mape), 3),
+            "n_hours": int(np.isfinite(y).sum()),
+            "window_days": 7,
+        }
+        serve, reason = should_serve_baseline(skill_block)
+        skill_block["decision"] = reason
+        if not serve:
+            return None
+
+        values = seasonal_naive_forecast(series.to_numpy(dtype=float), horizon_h)
+        if values.size != horizon_h or not np.isfinite(values).all():
+            log.warning("baseline_substitution_unusable", region=region)
+            return None
+        log.warning("baseline_substituted", region=region, **skill_block)
+        return values, skill_block
+    except Exception as exc:  # pragma: no cover — never block a forecast
+        log.warning("baseline_substitution_failed", region=region, error=str(exc))
+        return None
+
+
 def predict_and_write_forecast(
     data: RegionData,
     models: dict[str, Any] | None,
@@ -1537,6 +1612,23 @@ def predict_and_write_forecast(
             "primary_model": primary_name,
             "forecasts": fl,
         }
+
+        # Where the model measurably loses to "yesterday, same hour", serve the
+        # baseline instead. The per-model rows are LEFT INTACT: the substitution
+        # replaces the headline series a reader consumes, and hiding the models
+        # would destroy the evidence for why it happened. `served_series` is the
+        # disclosure — nothing may present this as a model forecast.
+        substitution = _baseline_substitution(region, data.demand_df, len(fl))
+        if substitution is not None:
+            values, skill_block = substitution
+            for i, row in enumerate(fl):
+                row["predicted_demand_mw"] = float(values[i])
+                row["baseline"] = float(values[i])
+            redis_payload["served_series"] = "seasonal-naive"
+            redis_payload["served_reason"] = skill_block["decision"]
+            redis_payload["skill"] = skill_block
+        else:
+            redis_payload["served_series"] = "model"
         if ensemble_weights is not None:
             redis_payload["ensemble_weights"] = {
                 k: round(v, 4) for k, v in ensemble_weights.items()

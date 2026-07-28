@@ -1033,6 +1033,10 @@ FEATURE_FLAGS: dict[str, bool] = {
     "ai_briefing": True,  # Claude-powered executive briefing on Overview tab
     "what_changed": True,  # NEXD-8: session-aware change detection
     "smart_defaults": True,  # NEXD-9: remember last filter state in localStorage
+    # Serve a seasonal-naive baseline for regions whose model measurably
+    # loses to it (models/skill.py). Ships dark: it changes what a user is
+    # shown, so it flips only after shadow logs confirm the decision set.
+    "baseline_substitution": False,
     "cross_tab_links": True,  # NEXD-11: contextual links between tabs
     "inline_tooltips": True,  # NEXD-13: SHAP-based per-point forecast tooltips
     # NEXD-14 / shell-redesign post-R6: replay surfaces stale snapshots and
