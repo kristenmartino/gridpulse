@@ -19,6 +19,45 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-28 — SEC isn't a bad region, it's a region where our model is
+worse than free.** Investigating the benchmark's worst row produced a
+finding no existing instrument could have surfaced, because none of them
+measured skill against a baseline. Measured
+([`docs/PERSISTENCE_SKILL.md`](docs/PERSISTENCE_SKILL.md), re-runnable):
+**SEC's served ensemble reads 17.8% against a seasonal-naive "yesterday,
+same hour" baseline's 11.5%** — 6.36 points of *negative* skill. A one-line
+predictor with no model, no weather and no training beats three trained
+models and their ensemble.
+
+**It is not the fleet.** 35 of 44 BAs beat the baseline, median +0.83 pts,
+best +3.50 (NYISO). Eight others sit within ~1 point of the line, which is
+noise at this sample size. SEC is 6× the next worst.
+
+**And it is not what I first diagnosed.** The error is *flat across
+horizon* — 10.38% at 1h, 12.59% at 24h, 10.55% at 48h, 11.23% at 72h.
+Compare NYISO at 1.70% → 5.84%, which is what recursion actually looks
+like. A 10% error one hour ahead, with the actual known to the previous
+hour, means the model never tracks this load at any lead. So it is **not**
+recursion drift, **not** an anchoring problem, and **not** fixable with
+more weather features — my earlier ensemble-weighting theory (ADR-004
+cutting XGBoost to 3%) was wrong about the mechanism, and the ensemble at
+13.8% already beats every member (ARIMA 18.8, XGB 26.1, Prophet 37.2).
+SEC's load is simply the most volatile sampled: cv 33%, peak/trough 2.38,
+median hour-over-hour step 7.54% against 1.7–5.0% elsewhere.
+
+**Shipped: the missing primitive.** `models/skill.py` +
+`scripts/persistence_skill.py`. Skill vs a naive baseline is the minimum
+bar a forecasting product clears, and nothing here measured it — which is
+how a worse-than-nothing forecast stayed invisible behind a 6.96% holdout.
+
+**The serving decision is open and is the actual "fix":** serve the
+baseline for negative-skill BAs (SEC 17.8% → 11.5%), gate them, or
+disclose on the benchmark page ([#348](https://github.com/kristenmartino/gridpulse/issues/348)).
+Recommend serving the baseline where skill is negative by a real margin,
+with hysteresis so it can't flap — but that changes what users see, so it
+is a product call. Continuous per-tick skill publication is the natural
+next PR either way.
+
 **2026-07-27 — the benchmark returned its first real numbers, and the
 incumbent wins.** Across 43 scoreable BAs at the 24h headline, **the
 operators' own day-ahead forecasts are closer on 28, GridPulse on 15**;
