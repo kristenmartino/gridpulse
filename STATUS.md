@@ -95,8 +95,7 @@ asset, "being corrupted by an unknown trigger" — that was read off the
 issue's open state rather than evidence, and is corrected in the same PR.
 
 **2026-07-28 — market position written down, and it inverts the pitch**
-([`docs/internal/MARKET_POSITION.md`](docs/internal/MARKET_POSITION.md),
-internal). Triggered by a look at [orreryhq.com](https://orreryhq.com).
+(internal note, not published). Triggered by a look at [orreryhq.com](https://orreryhq.com).
 
 **Orrery is not a competitor today** — they sell derived *weather* by the call
 (live API serves NOAA GFS 0.25° only; the advertised ECMWF/HRRR/NBM/CAMS are
