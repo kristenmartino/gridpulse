@@ -244,6 +244,24 @@ class TestVerdict:
         assert v["winner"] == "treatment"
         assert abs(v["mean"]) < 0.25
 
+    def test_a_real_but_unreliable_effect_is_refused_on_consistency_alone(self):
+        """Wins big in 4 of 7 windows, loses small in 3.
+
+        Mean and median both positive, so this is not outlier domination; the
+        magnitude clears 2x stderr, so it is not noise. It fails on
+        CONSISTENCY alone — an effect that is real on average but absent in
+        43% of windows is not something to ship.
+
+        Added because mutation testing removed the consistency guard entirely
+        and every other test still passed: the guard was reachable but
+        uncovered, which is the same as not having it.
+        """
+        v = verdict([3.0, 3.0, 3.0, 3.0, -0.5, -0.5, -0.5])
+        assert v["mean"] > 0 and v["median"] > 0, "not the outlier-domination shape"
+        assert v["decisive"] is False
+        assert "reliable" in v["reason"]
+        assert v["sign_consistency"] == pytest.approx(4 / 7, abs=0.01)
+
     def test_noise_around_zero_is_refused(self):
         v = verdict([0.4, -0.3, 0.5, -0.6, 0.2])
         assert v["decisive"] is False

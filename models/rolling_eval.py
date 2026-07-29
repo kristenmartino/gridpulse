@@ -323,8 +323,8 @@ def verdict(
         return out
     if consistency < min_sign_consistency:
         out["reason"] = (
-            f"wins only {consistency:.0%} of windows (< {min_sign_consistency:.0%}) — "
-            f"mean is driven by outlier windows, report as tail risk not as a win"
+            f"wins only {consistency:.0%} of windows (< {min_sign_consistency:.0%} required) — "
+            f"real on average but not reliable enough to ship"
         )
         return out
 
