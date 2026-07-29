@@ -242,6 +242,25 @@ substitution.
 
 **Long-horizon sanity guard (#296).** SARIMAX total integration is capped at **d + D ≤ 1** (seasonal D=1 carries the daily cycle; d is pinned to 0) — a doubly-integrated fit extrapolates the training window's local weather trend as a permanent linear trend, which decayed SC/PSCO/PJM through 0 MW and grew BPAT ~2× across the 30-day view. Defense is layered: the training job runs a fit-time 720h check (degenerate structures refit with the safe default), and the scoring job validates **every served series (each model + the ensemble)** at 24h/168h/720h against a band around the trailing month's real demand (floor 0.5× recent min, ceiling 1.6× recent max, plus a sustained-drift check on ≥15-day slices; `config.LONG_HORIZON_GUARD_*`). A flagged series gets a `horizon_guard` entry in the forecast payload — the Forecast tab then **withholds that model at flagged horizons and says why** ("failed the long-horizon sanity guard") instead of drawing a degenerate line.
 
+**SARIMAX order selection is univariate on purpose (#297).** `pmdarima`'s
+stepwise search picks `(p,d,q)(P,D,Q,24)` from demand alone; the weather
+regressors are deliberately withheld from the *search*, though the fitted
+model always uses all five. This started as a bug — `exogenous=` is the
+pmdarima 1.x spelling of `X`, and since `auto_arima` takes `**fit_args` the
+kwarg was swallowed silently — but replaying both arms
+(`docs/ARIMA_ORDER_EXOG_STUDY.md`) showed the exog-aware search is **worse on
+every major ISO**: PJM 9.18→18.22, CAISO 5.18→12.42, ERCOT 8.57→12.98, MISO
+7.63→10.52 sMAPE, at 2.8× the search cost. Given the regressors, AIC credits
+them for variance the seasonal terms were carrying and prunes those terms
+(CAISO loses seasonal AR *and* MA) — defensible in-sample, wrong across 168
+recursive hours. The behaviour was kept and the dead kwarg removed, so the
+code now states the choice instead of stumbling into it.
+
+Worth knowing operationally: the search runs **only on a cold cache**. The
+training job reads the previous model's persisted order and skips it, then
+re-persists — there is no invalidation path, so an order propagates
+indefinitely and every live order was selected univariately.
+
 ## §5 — UI structure
 
 Five tabs, four personas, one region. Adapts presentation to the user role without changing the underlying data.

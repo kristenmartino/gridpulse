@@ -613,6 +613,58 @@ and much safer change. Two instruments disagreeing is not a problem to
 reconcile by moving one of them — it's information, and the fix is usually
 to show both and say which one decides.*
 
+### 19. "Tell me about a bug you decided not to fix."
+**A kwarg that had been silently doing nothing for months. Fixing it made the forecast twice as bad on our largest market.**
+
+Situation: A parameter in our ARIMA order-selection call used a name the
+library had renamed two major versions earlier. Because that function
+accepts arbitrary keyword arguments, the old name was accepted, swallowed,
+and ignored — no error, no warning. The consequence was that the model-order
+search ran on demand alone, while the model we actually fit included five
+weather regressors. The code said one thing and did another, which is about
+as clean a defect as you get.
+
+Task: Fix it. The issue even had the one-word fix written in it, plus an
+instruction I'd added when filing it: measure before merging.
+
+Action: I made the change, then built the study. Both arms fit the identical
+final model — only the selected order differed — over a 168-hour holdout on
+ten balancing authorities, fed *known* future weather so the comparison
+favoured the version I expected to win.
+
+It lost. Not marginally: on the four largest markets the "correct" version
+was worse by 2.9, 4.4, 7.2 and **9.0 points** of error. PJM went from 9.2%
+to 18.2%.
+
+The mechanism was legible once I looked at the orders. Given five weather
+columns, the in-sample selection criterion credits those columns for
+variance the seasonal terms had been carrying, and prunes the seasonal
+terms as redundant — one region lost both its seasonal autoregressive and
+moving-average terms. That is defensible for one step ahead. Across 168
+recursive hours it is not: the seasonal terms carry the daily cycle
+robustly, and pointwise weather regression has to be right at every step to
+replace them. The accident had been protecting us.
+
+Result: I kept the behaviour and removed the lie — no dead parameter, and no
+"corrected" one either, with the numbers and the reasoning at the call site.
+The tests pin the class of defect rather than the instance: every keyword
+must exist in the installed library's signature, so the next rename can't
+hide the same way, and a test fails if someone re-applies the obvious fix,
+pointing them at the study. I also found the search only runs on a cold
+cache — orders are persisted and reused forever with no invalidation — so
+this was a no-op in steady state either way, which is worth knowing before
+anyone plans a change that depends on re-selection.
+
+**Lesson to convey**: *"The code doesn't do what it says" is a reason to
+investigate, not a reason to know which way to change it. I had a one-word
+fix, a filed issue agreeing with me, and a clean causal story — and the
+measurement said the opposite, decisively. The valuable output wasn't the
+diff, it was knowing that our order selection is load-bearing in a way
+nobody had documented. And when you keep surprising behaviour, you owe the
+next person the evidence and a test that stops them from "fixing" it — an
+accident you've measured and chosen is a decision; leave it looking like an
+accident and someone will helpfully undo it.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

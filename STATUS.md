@@ -19,6 +19,37 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-29 — #297: the dead kwarg was load-bearing. Fix rejected on evidence.**
+`_auto_select_order` passed `exogenous=` (pmdarima 1.x) where 2.x wants `X`;
+`auto_arima` takes `**fit_args`, so it was swallowed and the order search ran
+univariate while the fit used all five weather regressors.
+
+The issue's own fix sketch said `exogenous=` → `X=`, then measure. **Measured,
+it is the wrong fix** — worse on every major ISO:
+
+| BA | control | "fixed" | Δ |
+|---|---:|---:|---:|
+| PJM | 9.18 | 18.22 | **−9.04** |
+| CAISO | 5.18 | 12.42 | **−7.24** |
+| ERCOT | 8.57 | 12.98 | **−4.41** |
+| MISO | 7.63 | 10.52 | **−2.90** |
+
+10 BAs: 4 better / 6 worse, median −0.44 pts, and 2.8× the search cost. Given
+the regressors, AIC credits them for variance the seasonal terms carried and
+prunes those terms (CAISO (1,1,1,24) → (0,1,0,24)). Fine in-sample, wrong over
+168 recursive hours. The study fed the losing arm *perfect* future weather.
+
+Shipped: keep the behaviour, delete the lie — no dead kwarg, no `X`, numbers
+at the call site, and tests that pin the *class* (every kwarg must exist in
+the installed signature) plus a guard that fails if someone re-applies the
+obvious fix. Study: `docs/ARIMA_ORDER_EXOG_STUDY.md`.
+
+**Operational find:** `_auto_select_order` runs only on a **cold cache** — the
+training job reads the previous model's persisted order, skips the search, and
+re-persists it, with **no invalidation path anywhere**. Every live order was
+selected univariately. Any future change that needs fleet-wide re-selection
+must build that invalidation first; nothing provides it today.
+
 **2026-07-28 — #348: the benchmark row that knew it was bad and didn't say so.**
 Every unflattering fact on `/benchmark` is published deliberately except one:
 a row our own drift monitor already grades `rollback` was rendered as an
