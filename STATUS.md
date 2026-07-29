@@ -19,6 +19,35 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-29 — evaluation policy: rolling origin, and we stopped optimising MAPE.**
+Prompted by asking what to do next and getting an uncomfortable answer: the eval
+harness could not support the decisions being made with it.
+
+`models/rolling_eval.py` + [`docs/EVALUATION_POLICY.md`](docs/EVALUATION_POLICY.md).
+
+**The proof.** CAISO re-run over 8 rolling windows gives per-window deltas
+`-0.43 +2.31 -0.20 0.00 -6.93 +4.30 +1.57 -0.30` — mean +0.04, median −0.10, a
+wash. The two numbers previously published (−7.24, +3.87) are **the two
+extremes of that distribution**. The harness returns *inconclusive*.
+
+**Metric change: optimise WAPE, publish MAPE.** MAPE grows without bound for
+over-forecasts but caps at 100% for under-forecasts, so minimising it biases
+toward **under**-forecasting demand — the expensive direction for a grid. It
+also explodes on low denominators (SEC, ~300 MW) and cannot aggregate across
+BAs meaningfully. MAPE stays the published number for comparability with EIA /
+ISOs / vendors, protected as a constraint rather than optimised.
+
+Satisficing vetoes a win: |bias| ≤ 2%, MAPE regression ≤ 0.5 pts, and an
+*unmeasurable* constraint counts as failed.
+
+**Incidental find worth pulling on:** across those 8 windows the control arm —
+what production serves — under-forecasts CAISO by **−2.83%**. Dangerous
+direction, and exactly what the new bias constraint is for. One BA, so not yet
+a mechanism.
+
+**Open question:** the serving gate still grades on MAPE, so a WAPE-optimising
+experiment can disagree with it. Migrating the gate is the fix; not done.
+
 **2026-07-29 — #297: the dead kwarg was load-bearing. Fix rejected on evidence.**
 `_auto_select_order` passed `exogenous=` (pmdarima 1.x) where 2.x wants `X`;
 `auto_arima` takes `**fit_args`, so it was swallowed and the order search ran
