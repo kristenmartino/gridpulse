@@ -114,7 +114,7 @@ def train_arima(
             seasonal_order=seasonal_order,
         )
     elif auto_order:
-        order, seasonal_order = _auto_select_order(y, exog)
+        order, seasonal_order = _auto_select_order(y)
 
     # Enforce seasonal differencing (D>=1) to prevent forecast drift.
     # Without D=1, ARIMA's integrated component causes predictions to
@@ -500,14 +500,17 @@ def _get_exog(df: pd.DataFrame, n_rows: int | None = None) -> np.ndarray | None:
     return exog
 
 
-def _auto_select_order(
-    y: np.ndarray,
-    exog: np.ndarray | None,
-) -> tuple[tuple, tuple]:
+def _auto_select_order(y: np.ndarray) -> tuple[tuple, tuple]:
     """Use pmdarima auto_arima for order selection.
 
-    Uses 1440 rows (60 days) for at least 2.5 full seasonal cycles at m=24.
-    Forces D=1 (seasonal differencing) to prevent forecast drift.
+    Uses the trailing 504 rows (21 daily cycles at m=24) and forces D=1
+    (seasonal differencing) to prevent forecast drift.
+
+    **Univariate by design (#297).** The exogenous weather matrix is
+    deliberately NOT passed — measured worse on every major ISO. The reasoning
+    and the numbers are at the call site and in
+    ``docs/ARIMA_ORDER_EXOG_STUDY.md``. The final ``SARIMAX`` fit is
+    unaffected: it always uses the regressors.
     """
     try:
         import pmdarima as pm
@@ -519,11 +522,32 @@ def _auto_select_order(
         # auto_arima MLE cost without changing the chosen order.
         subset_size = 504
         y_sub = y[-subset_size:] if len(y) > subset_size else y
-        exog_sub = exog[-subset_size:] if exog is not None and len(exog) > subset_size else exog
 
         auto = pm.auto_arima(
             y_sub,
-            exogenous=exog_sub,
+            # NO `X=` — the order search is deliberately UNIVARIATE (#297).
+            #
+            # This used to read `exogenous=exog_sub`, which pmdarima 2.x
+            # renamed to `X`. Since auto_arima takes **fit_args the old name
+            # raised nothing, was swallowed, and the search ran univariate
+            # anyway. The obvious fix is to pass `X=exog_sub`. Measured, it is
+            # the wrong fix: docs/ARIMA_ORDER_EXOG_STUDY.md replays both arms
+            # over 10 BAs and the exog-aware search is WORSE on all four major
+            # ISOs — PJM 9.18→18.22, CAISO 5.18→12.42, ERCOT 8.57→12.98,
+            # MISO 7.63→10.52 sMAPE — at ~2.6x the search cost.
+            #
+            # Mechanism: given the regressors, AIC credits them for structure
+            # the seasonal terms were carrying and prunes those terms (CAISO
+            # (1,1,1,24) -> (0,1,0,24), losing seasonal AR *and* MA). Over a
+            # 168h horizon the seasonal terms were doing robust work that
+            # pointwise weather regression does not replicate — and the study
+            # fed the exog arm PERFECT future weather, so production, which
+            # feeds it a forecast, would fare no better.
+            #
+            # So the accident was load-bearing, and this keeps its behaviour
+            # while removing the lie: the search is univariate on purpose, the
+            # final SARIMAX below still fits with all 5 regressors, and no
+            # kwarg here silently does nothing.
             seasonal=True,
             m=24,
             max_p=2,

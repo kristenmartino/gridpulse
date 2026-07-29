@@ -329,7 +329,7 @@ class TestArimaModel:
 
         with patch.dict("sys.modules", {"pmdarima": mock_pm}):
             y = np.random.uniform(30000, 50000, 200)
-            order, seasonal_order = _auto_select_order(y, None)
+            order, seasonal_order = _auto_select_order(y)
 
         assert isinstance(order, tuple)
         assert len(order) == 3
@@ -343,7 +343,7 @@ class TestArimaModel:
 
         with patch.dict("sys.modules", {"pmdarima": mock_pm}):
             y = np.random.uniform(30000, 50000, 200)
-            order, seasonal_order = _auto_select_order(y, None)
+            order, seasonal_order = _auto_select_order(y)
 
         assert order == DEFAULT_ORDER
         assert seasonal_order == DEFAULT_SEASONAL_ORDER

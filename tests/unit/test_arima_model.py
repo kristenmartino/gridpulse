@@ -203,7 +203,7 @@ class TestCachedOrderFastPath:
         from models.arima_model import _auto_select_order
 
         y = 40_000.0 + 5_000.0 * np.sin(2 * np.pi * np.arange(600) / 24)
-        order, seasonal_order = _auto_select_order(y, None)
+        order, seasonal_order = _auto_select_order(y)
 
         kwargs = fake_pm.auto_arima.call_args.kwargs
         assert kwargs["d"] == 0
