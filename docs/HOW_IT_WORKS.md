@@ -248,12 +248,14 @@ regressors are deliberately withheld from the *search*, though the fitted
 model always uses all five. This started as a bug — `exogenous=` is the
 pmdarima 1.x spelling of `X`, and since `auto_arima` takes `**fit_args` the
 kwarg was swallowed silently — but replaying both arms
-(`docs/ARIMA_ORDER_EXOG_STUDY.md`) showed the exog-aware search is **worse on
-every major ISO**: PJM 9.18→18.22, CAISO 5.18→12.42, ERCOT 8.57→12.98, MISO
-7.63→10.52 sMAPE, at 2.8× the search cost. Given the regressors, AIC credits
-them for variance the seasonal terms were carrying and prunes those terms
-(CAISO loses seasonal AR *and* MA) — defensible in-sample, wrong across 168
-recursive hours. The behaviour was kept and the dead kwarg removed, so the
+(`docs/ARIMA_ORDER_EXOG_STUDY.md`, all 51 BAs) rejected the exog-aware search.
+Not because it loses everywhere — 18 BAs improve, 20 worsen, 13 are unaffected
+— but because the losses total **−61.7 sMAPE pts against +14.9 gained** (worst
+single BA −19.18), at 2.7× the search cost: a heavier left tail for no expected
+gain. The harm concentrates where the search **drops the seasonal MA term**
+(those 14 BAs mean −2.99 vs −0.21 for the rest) — given the regressors, AIC
+credits them for variance that term was carrying and prunes it; defensible
+in-sample, wrong across 168 recursive hours. The behaviour was kept and the dead kwarg removed, so the
 code now states the choice instead of stumbling into it.
 
 Worth knowing operationally: the search runs **only on a cold cache**. The

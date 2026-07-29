@@ -530,19 +530,22 @@ def _auto_select_order(y: np.ndarray) -> tuple[tuple, tuple]:
             # This used to read `exogenous=exog_sub`, which pmdarima 2.x
             # renamed to `X`. Since auto_arima takes **fit_args the old name
             # raised nothing, was swallowed, and the search ran univariate
-            # anyway. The obvious fix is to pass `X=exog_sub`. Measured, it is
-            # the wrong fix: docs/ARIMA_ORDER_EXOG_STUDY.md replays both arms
-            # over 10 BAs and the exog-aware search is WORSE on all four major
-            # ISOs — PJM 9.18→18.22, CAISO 5.18→12.42, ERCOT 8.57→12.98,
-            # MISO 7.63→10.52 sMAPE — at ~2.6x the search cost.
+            # anyway. The obvious fix is to pass `X=exog_sub`. Measured over
+            # all 51 BAs (docs/ARIMA_ORDER_EXOG_STUDY.md), it is the wrong fix.
             #
-            # Mechanism: given the regressors, AIC credits them for structure
-            # the seasonal terms were carrying and prunes those terms (CAISO
-            # (1,1,1,24) -> (0,1,0,24), losing seasonal AR *and* MA). Over a
-            # 168h horizon the seasonal terms were doing robust work that
-            # pointwise weather regression does not replicate — and the study
-            # fed the exog arm PERFECT future weather, so production, which
-            # feeds it a forecast, would fare no better.
+            # It is not that it loses everywhere — 18 BAs improve, 20 worsen,
+            # 13 select the same order either way. It is the ASYMMETRY: the
+            # losses total -61.7 sMAPE pts against +14.9 gained, mean -0.92,
+            # worst single BA -19.18 (ISONE 13.93 -> 33.11). A heavier left
+            # tail for no expected gain, at 2.7x the search cost.
+            #
+            # Mechanism, fleet-validated: harm concentrates where the search
+            # drops the seasonal MA term (Q 1->0) — those 14 BAs mean -2.99,
+            # the other 24 mean -0.21. Given the regressors, AIC credits them
+            # for variance that term was carrying and prunes it; over 168
+            # recursive hours it was carrying the daily cycle robustly. The
+            # study also fed the exog arm PERFECT future weather, so
+            # production, which feeds it a forecast, would fare no better.
             #
             # So the accident was load-bearing, and this keeps its behaviour
             # while removing the lie: the search is univariate on purpose, the

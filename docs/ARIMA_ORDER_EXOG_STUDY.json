@@ -1,14 +1,579 @@
 {
   "summary": {
-    "n": 10,
-    "n_better": 4,
-    "n_worse": 6,
-    "median_delta_pts": -0.44,
-    "mean_delta_pts": -1.954,
-    "median_search_s_A": 19.9,
-    "median_search_s_B": 55.4
+    "run_date": "2026-07-29",
+    "n_regions": 51,
+    "n_order_changed": 38,
+    "n_order_unchanged": 13,
+    "n_better": 18,
+    "n_worse": 20,
+    "median_delta_pts": 0.0,
+    "mean_delta_pts": -0.918,
+    "changed_only_mean_delta_pts": -1.232,
+    "total_loss_pts": -61.71,
+    "total_gain_pts": 14.88,
+    "worst_pts": -19.18,
+    "best_pts": 3.87,
+    "median_search_s_A": 21.9,
+    "median_search_s_B": 58.7
   },
   "regions": [
+    {
+      "region": "AECI",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 23.3,
+        "smape": 6.559
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 67.3,
+        "smape": 7.273
+      },
+      "delta_smape_pts": -0.714,
+      "order_changed": true
+    },
+    {
+      "region": "AVA",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 24.6,
+        "smape": 6.197
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 50.5,
+        "smape": 5.462
+      },
+      "delta_smape_pts": 0.735,
+      "order_changed": true
+    },
+    {
+      "region": "AZPS",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 33.1,
+        "smape": 7.237
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 86.6,
+        "smape": 7.237
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "BANC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 29.4,
+        "smape": 9.929
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 81.7,
+        "smape": 9.549
+      },
+      "delta_smape_pts": 0.38,
+      "order_changed": true
+    },
+    {
+      "region": "BPAT",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 13.1,
+        "smape": 3.104
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 53.6,
+        "smape": 2.823
+      },
+      "delta_smape_pts": 0.281,
+      "order_changed": true
+    },
+    {
+      "region": "CAISO",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 25.4,
+        "smape": 8.441
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 45.2,
+        "smape": 4.572
+      },
+      "delta_smape_pts": 3.869,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": -7.238
+    },
+    {
+      "region": "CHPD",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 16.7,
+        "smape": 5.259
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 87.0,
+        "smape": 5.259
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "CPLE",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 13.9,
+        "smape": 10.019
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 52.5,
+        "smape": 10.458
+      },
+      "delta_smape_pts": -0.439,
+      "order_changed": true
+    },
+    {
+      "region": "CPLW",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 11.7,
+        "smape": 8.704
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 70.0,
+        "smape": 11.563
+      },
+      "delta_smape_pts": -2.859,
+      "order_changed": true
+    },
+    {
+      "region": "DOPD",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 16.0,
+        "smape": 2.845
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 77.3,
+        "smape": 3.477
+      },
+      "delta_smape_pts": -0.632,
+      "order_changed": true
+    },
+    {
+      "region": "DUK",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 15.4,
+        "smape": 10.905
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 39.4,
+        "smape": 16.712
+      },
+      "delta_smape_pts": -5.807,
+      "order_changed": true
+    },
+    {
+      "region": "EPE",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 14.8,
+        "smape": 5.576
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 48.5,
+        "smape": 5.576
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "ERCOT",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 18.8,
+        "smape": 4.984
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 27.9,
+        "smape": 11.739
+      },
+      "delta_smape_pts": -6.755,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": -4.407
+    },
+    {
+      "region": "FMPP",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 23.6,
+        "smape": 7.477
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 59.4,
+        "smape": 7.097
+      },
+      "delta_smape_pts": 0.38,
+      "order_changed": true
+    },
+    {
+      "region": "FPC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 21.5,
+        "smape": 5.922
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 58.3,
+        "smape": 6.676
+      },
+      "delta_smape_pts": -0.754,
+      "order_changed": true
+    },
     {
       "region": "FPL",
       "n_train": 2545,
@@ -25,12 +590,50 @@
           1,
           24
         ],
-        "search_s": 18.2,
-        "smape": 4.439
+        "search_s": 22.7,
+        "smape": 4.528
       },
       "B_exog_aware": {
         "order": [
           1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 31.9,
+        "smape": 4.754
+      },
+      "delta_smape_pts": -0.226,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": -0.165
+    },
+    {
+      "region": "GCPD",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 14.7,
+        "smape": 1.565
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
           0,
           1
         ],
@@ -40,10 +643,121 @@
           1,
           24
         ],
-        "search_s": 58.2,
-        "smape": 4.604
+        "search_s": 74.9,
+        "smape": 1.743
       },
-      "delta_smape_pts": -0.165,
+      "delta_smape_pts": -0.178,
+      "order_changed": true
+    },
+    {
+      "region": "GVL",
+      "n_train": 2503,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 24.0,
+        "smape": 13.344
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 89.4,
+        "smape": 13.344
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "HST",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 12.9,
+        "smape": 4.853
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 72.8,
+        "smape": 3.206
+      },
+      "delta_smape_pts": 1.647,
+      "order_changed": true
+    },
+    {
+      "region": "IID",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 31.6,
+        "smape": 6.414
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 76.8,
+        "smape": 6.279
+      },
+      "delta_smape_pts": 0.135,
       "order_changed": true
     },
     {
@@ -62,8 +776,8 @@
           1,
           24
         ],
-        "search_s": 21.6,
-        "smape": 5.573
+        "search_s": 18.7,
+        "smape": 6.155
       },
       "B_exog_aware": {
         "order": [
@@ -77,69 +791,18 @@
           1,
           24
         ],
-        "search_s": 53.3,
-        "smape": 5.473
+        "search_s": 40.5,
+        "smape": 5.338
       },
-      "delta_smape_pts": 0.1,
-      "order_changed": true
+      "delta_smape_pts": 0.817,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": 0.1
     },
     {
-      "region": "PACE",
+      "region": "ISONE",
       "n_train": 2545,
       "n_test": 168,
       "A_univariate": {
-        "order": [
-          2,
-          0,
-          0
-        ],
-        "seasonal_order": [
-          0,
-          1,
-          1,
-          24
-        ],
-        "search_s": 14.7,
-        "smape": 3.94
-      },
-      "B_exog_aware": {
-        "order": [
-          1,
-          0,
-          0
-        ],
-        "seasonal_order": [
-          1,
-          1,
-          0,
-          24
-        ],
-        "search_s": 47.8,
-        "smape": 3.884
-      },
-      "delta_smape_pts": 0.056,
-      "order_changed": true
-    },
-    {
-      "region": "PSCO",
-      "n_train": 2545,
-      "n_test": 168,
-      "A_univariate": {
-        "order": [
-          1,
-          0,
-          1
-        ],
-        "seasonal_order": [
-          0,
-          1,
-          1,
-          24
-        ],
-        "search_s": 28.0,
-        "smape": 9.842
-      },
-      "B_exog_aware": {
         "order": [
           2,
           0,
@@ -151,11 +814,63 @@
           1,
           24
         ],
-        "search_s": 77.4,
-        "smape": 9.671
+        "search_s": 22.1,
+        "smape": 13.93
       },
-      "delta_smape_pts": 0.171,
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 85.1,
+        "smape": 33.108
+      },
+      "delta_smape_pts": -19.178,
       "order_changed": true
+    },
+    {
+      "region": "JEA",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 24.1,
+        "smape": 8.311
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 152.3,
+        "smape": 8.311
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
     },
     {
       "region": "LDWP",
@@ -173,14 +888,14 @@
           1,
           24
         ],
-        "search_s": 9.5,
-        "smape": 13.059
+        "search_s": 12.0,
+        "smape": 13.781
       },
       "B_exog_aware": {
         "order": [
           1,
           0,
-          1
+          0
         ],
         "seasonal_order": [
           0,
@@ -188,14 +903,15 @@
           1,
           24
         ],
-        "search_s": 62.9,
-        "smape": 13.774
+        "search_s": 47.6,
+        "smape": 13.781
       },
-      "delta_smape_pts": -0.715,
-      "order_changed": true
+      "delta_smape_pts": 0.0,
+      "order_changed": false,
+      "prior_run_delta_smape_pts": -0.715
     },
     {
-      "region": "WALC",
+      "region": "LGEE",
       "n_train": 2545,
       "n_test": 168,
       "A_univariate": {
@@ -210,25 +926,25 @@
           1,
           24
         ],
-        "search_s": 25.4,
-        "smape": 13.795
+        "search_s": 28.1,
+        "smape": 7.275
       },
       "B_exog_aware": {
         "order": [
           1,
           0,
-          0
+          1
         ],
         "seasonal_order": [
+          1,
+          1,
           0,
-          1,
-          1,
           24
         ],
-        "search_s": 76.4,
-        "smape": 9.204
+        "search_s": 48.9,
+        "smape": 5.668
       },
-      "delta_smape_pts": 4.591,
+      "delta_smape_pts": 1.607,
       "order_changed": true
     },
     {
@@ -247,8 +963,157 @@
           1,
           24
         ],
-        "search_s": 22.2,
-        "smape": 7.625
+        "search_s": 21.9,
+        "smape": 3.912
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 47.6,
+        "smape": 7.769
+      },
+      "delta_smape_pts": -3.857,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": -2.897
+    },
+    {
+      "region": "NEVP",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 10.5,
+        "smape": 5.491
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 81.1,
+        "smape": 5.491
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "NWMT",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 24.7,
+        "smape": 5.871
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 58.8,
+        "smape": 5.871
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "NYISO",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 13.0,
+        "smape": 28.428
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          0,
+          24
+        ],
+        "search_s": 67.2,
+        "smape": 28.559
+      },
+      "delta_smape_pts": -0.131,
+      "order_changed": true
+    },
+    {
+      "region": "PACE",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 10.5,
+        "smape": 4.006
       },
       "B_exog_aware": {
         "order": [
@@ -262,10 +1127,85 @@
           0,
           24
         ],
-        "search_s": 31.1,
-        "smape": 10.522
+        "search_s": 47.6,
+        "smape": 3.999
       },
-      "delta_smape_pts": -2.897,
+      "delta_smape_pts": 0.007,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": 0.056
+    },
+    {
+      "region": "PACW",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 11.0,
+        "smape": 5.102
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 38.2,
+        "smape": 5.102
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "PGE",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 18.3,
+        "smape": 5.892
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 50.0,
+        "smape": 6.974
+      },
+      "delta_smape_pts": -1.082,
       "order_changed": true
     },
     {
@@ -279,13 +1219,311 @@
           0
         ],
         "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 19.9,
+        "smape": 8.86
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          0,
+          24
+        ],
+        "search_s": 56.4,
+        "smape": 13.869
+      },
+      "delta_smape_pts": -5.009,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": -9.035
+    },
+    {
+      "region": "PNM",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 22.1,
+        "smape": 4.903
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 73.2,
+        "smape": 4.903
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "PSCO",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 26.5,
+        "smape": 10.249
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 86.5,
+        "smape": 10.249
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false,
+      "prior_run_delta_smape_pts": 0.171
+    },
+    {
+      "region": "PSEI",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 22.4,
+        "smape": 7.009
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 51.2,
+        "smape": 6.354
+      },
+      "delta_smape_pts": 0.655,
+      "order_changed": true
+    },
+    {
+      "region": "SC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 27.9,
+        "smape": 7.429
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 65.3,
+        "smape": 7.006
+      },
+      "delta_smape_pts": 0.423,
+      "order_changed": true
+    },
+    {
+      "region": "SCEG",
+      "n_train": 2525,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 32.6,
+        "smape": 10.593
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 81.0,
+        "smape": 8.22
+      },
+      "delta_smape_pts": 2.373,
+      "order_changed": true
+    },
+    {
+      "region": "SCL",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
           1,
           1,
           0,
           24
         ],
-        "search_s": 38.1,
-        "smape": 9.184
+        "search_s": 25.2,
+        "smape": 5.443
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 45.3,
+        "smape": 5.473
+      },
+      "delta_smape_pts": -0.03,
+      "order_changed": true
+    },
+    {
+      "region": "SEC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 21.0,
+        "smape": 16.9
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 58.7,
+        "smape": 16.9
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "SOCO",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 23.7,
+        "smape": 3.596
       },
       "B_exog_aware": {
         "order": [
@@ -299,17 +1537,106 @@
           0,
           24
         ],
-        "search_s": 57.5,
-        "smape": 18.219
+        "search_s": 49.4,
+        "smape": 8.906
       },
-      "delta_smape_pts": -9.035,
+      "delta_smape_pts": -5.31,
       "order_changed": true
     },
     {
-      "region": "ERCOT",
+      "region": "SPA",
+      "n_train": 2538,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          0,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 8.6,
+        "smape": 22.29
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 76.5,
+        "smape": 23.693
+      },
+      "delta_smape_pts": -1.403,
+      "order_changed": true
+    },
+    {
+      "region": "SPP",
       "n_train": 2545,
       "n_test": 168,
       "A_univariate": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 25.5,
+        "smape": 4.858
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          0,
+          24
+        ],
+        "search_s": 41.5,
+        "smape": 3.87
+      },
+      "delta_smape_pts": 0.988,
+      "order_changed": true
+    },
+    {
+      "region": "SRP",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 13.7,
+        "smape": 10.723
+      },
+      "B_exog_aware": {
         "order": [
           2,
           0,
@@ -321,12 +1648,71 @@
           0,
           24
         ],
-        "search_s": 14.4,
-        "smape": 8.569
+        "search_s": 51.3,
+        "smape": 14.536
+      },
+      "delta_smape_pts": -3.813,
+      "order_changed": true
+    },
+    {
+      "region": "TAL",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 19.0,
+        "smape": 8.402
       },
       "B_exog_aware": {
         "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
           1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 70.2,
+        "smape": 8.402
+      },
+      "delta_smape_pts": 0.0,
+      "order_changed": false
+    },
+    {
+      "region": "TEC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 24.5,
+        "smape": 9.097
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
           0,
           0
         ],
@@ -336,14 +1722,88 @@
           0,
           24
         ],
-        "search_s": 31.2,
-        "smape": 12.976
+        "search_s": 40.8,
+        "smape": 8.859
       },
-      "delta_smape_pts": -4.407,
+      "delta_smape_pts": 0.238,
       "order_changed": true
     },
     {
-      "region": "CAISO",
+      "region": "TEPC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          1,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 33.9,
+        "smape": 8.106
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          0,
+          24
+        ],
+        "search_s": 87.2,
+        "smape": 7.947
+      },
+      "delta_smape_pts": 0.159,
+      "order_changed": true
+    },
+    {
+      "region": "TIDC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          2
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 19.6,
+        "smape": 7.239
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          1,
+          1,
+          1,
+          24
+        ],
+        "search_s": 91.4,
+        "smape": 7.093
+      },
+      "delta_smape_pts": 0.146,
+      "order_changed": true
+    },
+    {
+      "region": "TPWR",
       "n_train": 2545,
       "n_test": 168,
       "A_univariate": {
@@ -353,13 +1813,13 @@
           0
         ],
         "seasonal_order": [
-          1,
+          0,
           1,
           1,
           24
         ],
-        "search_s": 17.7,
-        "smape": 5.184
+        "search_s": 11.8,
+        "smape": 6.334
       },
       "B_exog_aware": {
         "order": [
@@ -368,16 +1828,91 @@
           0
         ],
         "seasonal_order": [
-          0,
+          1,
           1,
           0,
           24
         ],
-        "search_s": 22.5,
-        "smape": 12.422
+        "search_s": 47.6,
+        "smape": 9.506
       },
-      "delta_smape_pts": -7.238,
+      "delta_smape_pts": -3.172,
       "order_changed": true
+    },
+    {
+      "region": "TVA",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 22.1,
+        "smape": 6.944
+      },
+      "B_exog_aware": {
+        "order": [
+          1,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 60.0,
+        "smape": 7.307
+      },
+      "delta_smape_pts": -0.363,
+      "order_changed": true
+    },
+    {
+      "region": "WALC",
+      "n_train": 2545,
+      "n_test": 168,
+      "A_univariate": {
+        "order": [
+          2,
+          0,
+          1
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 27.5,
+        "smape": 8.766
+      },
+      "B_exog_aware": {
+        "order": [
+          2,
+          0,
+          0
+        ],
+        "seasonal_order": [
+          0,
+          1,
+          1,
+          24
+        ],
+        "search_s": 36.1,
+        "smape": 8.728
+      },
+      "delta_smape_pts": 0.038,
+      "order_changed": true,
+      "prior_run_delta_smape_pts": 4.591
     }
   ]
 }

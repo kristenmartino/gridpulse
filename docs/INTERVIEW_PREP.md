@@ -632,9 +632,13 @@ final model — only the selected order differed — over a 168-hour holdout on
 ten balancing authorities, fed *known* future weather so the comparison
 favoured the version I expected to win.
 
-It lost. Not marginally: on the four largest markets the "correct" version
-was worse by 2.9, 4.4, 7.2 and **9.0 points** of error. PJM went from 9.2%
-to 18.2%.
+It lost — and I then ran it across all 51 regions rather than trusting the
+ten. The full result is more interesting than the sample was: 18 regions
+improved, 20 got worse, 13 were unaffected. A coin flip on the count. What
+decided it was the asymmetry — **the losses totalled 61.7 points of error
+against 14.9 gained**, with a worst case of one region going from 14% to 33%.
+A much heavier left tail for no expected gain, at nearly triple the search
+cost.
 
 The mechanism was legible once I looked at the orders. Given five weather
 columns, the in-sample selection criterion credits those columns for
@@ -654,6 +658,13 @@ pointing them at the study. I also found the search only runs on a cold
 cache — orders are persisted and reused forever with no invalidation — so
 this was a no-op in steady state either way, which is worth knowing before
 anyone plans a change that depends on re-selection.
+
+The fleet run also corrected me. Several per-region numbers from the ten-BA
+sample did not reproduce a day later — one region reversed sign entirely, and
+another's *control* error halved between adjacent windows. The conclusion
+survived because it never rested on those rows, but I had quoted them as
+headline evidence, and I had to go back and restate the argument on the
+aggregate and the mechanism, which is what actually held.
 
 **Lesson to convey**: *"The code doesn't do what it says" is a reason to
 investigate, not a reason to know which way to change it. I had a one-word

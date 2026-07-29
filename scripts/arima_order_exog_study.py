@@ -85,6 +85,26 @@ DEFAULT_REGIONS = [
 ]
 
 
+def _get_with_retry(url: str, params: dict, *, timeout: int, tries: int = 4):
+    """GET with backoff. A fleet run makes 102 upstream calls; a single
+    throttled one must fail loudly after retrying, never silently reduce the
+    study to a smaller one (the lesson from the ERCO/CISO code typo, which
+    read as 'insufficient history' rather than as an error)."""
+    last: Exception | None = None
+    for attempt in range(tries):
+        try:
+            r = requests.get(url, params=params, timeout=timeout)
+            if r.status_code == 429 or r.status_code >= 500:
+                raise requests.HTTPError(f"HTTP {r.status_code}")
+            r.raise_for_status()
+            return r
+        except Exception as e:  # noqa: BLE001 - retried, then re-raised
+            last = e
+            if attempt < tries - 1:
+                time.sleep(2**attempt * 3)
+    raise RuntimeError(f"upstream failed after {tries} tries: {last}")
+
+
 def _eia_demand(region: str, start: datetime, end: datetime, api_key: str) -> pd.DataFrame:
     # Our code is not always EIA's respondent code (ERCOT→ERCO, CAISO→CISO).
     # Reuse the client's own mapping rather than re-deriving it — passing the
@@ -96,7 +116,7 @@ def _eia_demand(region: str, start: datetime, end: datetime, api_key: str) -> pd
     rows: list[dict] = []
     offset = 0
     while True:
-        r = requests.get(
+        r = _get_with_retry(
             EIA_URL,
             params={
                 "api_key": api_key,
@@ -113,7 +133,6 @@ def _eia_demand(region: str, start: datetime, end: datetime, api_key: str) -> pd
             },
             timeout=90,
         )
-        r.raise_for_status()
         batch = r.json().get("response", {}).get("data", [])
         rows.extend(batch)
         if len(batch) < 5000:
@@ -128,7 +147,7 @@ def _eia_demand(region: str, start: datetime, end: datetime, api_key: str) -> pd
 
 
 def _archive_weather(lat: float, lon: float, start: datetime, end: datetime) -> pd.DataFrame:
-    r = requests.get(
+    r = _get_with_retry(
         ARCHIVE_URL,
         params={
             "latitude": lat,
@@ -158,7 +177,6 @@ def _archive_weather(lat: float, lon: float, start: datetime, end: datetime) -> 
         },
         timeout=120,
     )
-    r.raise_for_status()
     h = r.json()["hourly"]
     df = pd.DataFrame(h)
     df["timestamp"] = pd.to_datetime(df.pop("time"), utc=True)
@@ -268,7 +286,17 @@ def study_region(region: str, api_key: str) -> dict[str, Any] | None:
     y_sub = y_train[-sub:] if len(y_train) > sub else y_train
     x_sub = x_train[-sub:] if x_train is not None and len(x_train) > sub else x_train
 
-    out: dict[str, Any] = {"region": region, "n_train": len(y_train), "n_test": len(y_test)}
+    out: dict[str, Any] = {
+        "region": region,
+        "n_train": len(y_train),
+        "n_test": len(y_test),
+        # Record the window. Two runs a single day apart moved per-BA results
+        # by >10 pts and flipped CAISO's sign; without this stamped on the
+        # artifact, reconciling them meant guessing which dates each used.
+        "window_start": str(feats["timestamp"].iloc[0]),
+        "window_end": str(feats["timestamp"].iloc[-1]),
+        "holdout_start": str(test["timestamp"].iloc[0]),
+    }
     for arm, use_exog in (("A_univariate", False), ("B_exog_aware", True)):
         try:
             order, seasonal, secs = _select_order(y_sub, x_sub, use_exog=use_exog)
@@ -322,6 +350,10 @@ def main() -> int:
         if res:
             results.append(res)
             print("   ", json.dumps({k: v for k, v in res.items() if k != "region"})[:200])
+            # Checkpoint every region — a fleet run is ~90 minutes and a crash
+            # at region 48 should cost the last region, not all of them.
+            with open(args.out, "w") as fh:
+                json.dump({"summary": {"partial": True}, "regions": results}, fh, indent=2)
 
     scored = [r for r in results if r.get("delta_smape_pts") is not None]
     summary = {
