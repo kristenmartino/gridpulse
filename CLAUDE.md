@@ -375,6 +375,23 @@ When making shell/UI changes:
 
 ---
 
+## Deciding an experiment
+
+Any A/B or model change routes its verdict through
+[`models/rolling_eval.py`](models/rolling_eval.py). Full rationale:
+[`docs/EVALUATION_POLICY.md`](docs/EVALUATION_POLICY.md).
+
+- **Rolling origin, never one window.** A single 168h holdout reversed CAISO's
+  sign between two adjacent days. Default 8 windows.
+- **Optimise WAPE, publish MAPE.** MAPE is asymmetric against over-forecasting,
+  so minimising it biases toward *under*-forecasting demand — the expensive
+  direction for a grid. MAPE stays the published number for comparability and
+  is protected as a constraint.
+- **Satisficing constraints veto a win:** |bias| ≤ 2%, MAPE regression ≤ 0.5
+  pts. An unmeasurable constraint counts as failed.
+- **`verdict()` may refuse to decide.** Inconclusive is a valid, common, and
+  publishable outcome — say so rather than reaching for the nearest number.
+
 ## Spec References
 - `docs/internal/EXECUTION_BRIEF.md` — prioritization, redesign direction, execution order
 - `PRD.md` — requirements, personas, descoping rationale, ADRs
