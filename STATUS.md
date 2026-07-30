@@ -19,6 +19,33 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-30 — BTM solar: not supported. Two of three predictions fail.**
+[`docs/BTM_SOLAR_PROBE.md`](docs/BTM_SOLAR_PROBE.md). Probed residuals rather
+than building features — the explicit lesson from the cooling pack.
+
+**Prediction 1 (sign) fails, and it is decisive.** Unmodelled rooftop PV means
+*over*-forecasting at high irradiance. Observed: signed error is positive at
+top-quintile irradiance in only **3 of 8** BAs, and the mean daylight signed
+error is **−0.636%** — we systematically *under*-forecast in daylight, the
+opposite direction. No external data needed to read that.
+
+**Prediction 3 (dose-response) fails:** corr(BTM rank, gradient) = **+0.14**,
+and CAISO (highest penetration) shows +1.85 while FPL (second) shows −0.93.
+Weak evidence though — the ranking is my own guess, not EIA-861M.
+
+**What the residual actually is:** we under-forecast worst on **hot,
+low-irradiance** hours — muggy, high-cooling-load, no solar relief. Opposite
+shape to a PV story.
+
+**The premise itself checked out.** Hot hours carry **24.3% of MW served** but
+**34.7% of MW error** — **1.43×**, so genuinely harder, not just bigger, in 7
+of 8 BAs. (FPL is 1.04 — there it *was* just load size; drop FPL from hot-hour
+work.)
+
+Hot-hour cause now: temperature representation **rejected**, BTM solar
+**rejected**. Untested: demand response, and the economical explanation that
+trees already learn these interactions.
+
 **2026-07-30 — cooling-response features: measured, rejected, and the negative
 result is the useful part.** [`docs/COOLING_RESPONSE_STUDY.md`](docs/COOLING_RESPONSE_STUDY.md).
 
