@@ -1,0 +1,1011 @@
+{
+  "regions": [
+    {
+      "region": "PJM",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": true,
+        "winner": "treatment",
+        "n": 5,
+        "mean": 1.1238,
+        "median": 1.0455,
+        "stderr": 0.4032,
+        "t": 2.787,
+        "sign_consistency": 1.0,
+        "worst_window": 0.1099,
+        "best_window": 2.4234,
+        "reason": "treatment wins 100% of 5 windows, mean +1.124 pts (2.8x stderr)"
+      },
+      "satisficing": {
+        "passed": true,
+        "failures": []
+      },
+      "ship": true,
+      "recursive_mean": {
+        "wape": 5.6219,
+        "mape": 5.5451,
+        "bias_pct": 1.1517
+      },
+      "direct_mean": {
+        "wape": 4.4982,
+        "mape": 4.2878,
+        "bias_pct": -1.6347
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 4.0697,
+            "mape": 4.2092,
+            "bias_pct": 2.862
+          },
+          "direct": {
+            "wape": 2.546,
+            "mape": 2.5586,
+            "bias_pct": -0.1579
+          },
+          "delta_wape": 1.5237
+        },
+        {
+          "recursive": {
+            "wape": 4.5666,
+            "mape": 4.4772,
+            "bias_pct": -1.0963
+          },
+          "direct": {
+            "wape": 3.5211,
+            "mape": 3.3193,
+            "bias_pct": -2.279
+          },
+          "delta_wape": 1.0455
+        },
+        {
+          "recursive": {
+            "wape": 7.1109,
+            "mape": 7.3731,
+            "bias_pct": 6.9173
+          },
+          "direct": {
+            "wape": 4.6875,
+            "mape": 4.6864,
+            "bias_pct": -1.6439
+          },
+          "delta_wape": 2.4234
+        },
+        {
+          "recursive": {
+            "wape": 8.6703,
+            "mape": 7.8474,
+            "bias_pct": -6.1953
+          },
+          "direct": {
+            "wape": 8.154,
+            "mape": 7.2754,
+            "bias_pct": -5.5838
+          },
+          "delta_wape": 0.5163
+        },
+        {
+          "recursive": {
+            "wape": 3.6921,
+            "mape": 3.8186,
+            "bias_pct": 3.2707
+          },
+          "direct": {
+            "wape": 3.5822,
+            "mape": 3.5995,
+            "bias_pct": 1.4912
+          },
+          "delta_wape": 0.1099
+        }
+      ]
+    },
+    {
+      "region": "MISO",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": -0.1363,
+        "median": -0.1856,
+        "stderr": 0.412,
+        "t": -0.331,
+        "sign_consistency": 0.6,
+        "worst_window": -1.169,
+        "best_window": 1.16,
+        "reason": "|mean| 0.136 < 2.0x stderr 0.412 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": false,
+        "failures": [
+          "bias -4.51% exceeds \u00b12.0% (under-forecasting systematically)"
+        ]
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 4.9793,
+        "mape": 4.7979,
+        "bias_pct": -2.5858
+      },
+      "direct_mean": {
+        "wape": 5.1156,
+        "mape": 4.8322,
+        "bias_pct": -4.5103
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 3.8845,
+            "mape": 3.6698,
+            "bias_pct": -2.99
+          },
+          "direct": {
+            "wape": 4.6863,
+            "mape": 4.4784,
+            "bias_pct": -4.1153
+          },
+          "delta_wape": -0.8018
+        },
+        {
+          "recursive": {
+            "wape": 2.8889,
+            "mape": 2.8644,
+            "bias_pct": -2.4992
+          },
+          "direct": {
+            "wape": 4.0579,
+            "mape": 3.9551,
+            "bias_pct": -3.733
+          },
+          "delta_wape": -1.169
+        },
+        {
+          "recursive": {
+            "wape": 7.2357,
+            "mape": 7.175,
+            "bias_pct": -0.5293
+          },
+          "direct": {
+            "wape": 6.0757,
+            "mape": 5.7265,
+            "bias_pct": -4.9642
+          },
+          "delta_wape": 1.16
+        },
+        {
+          "recursive": {
+            "wape": 6.6656,
+            "mape": 6.1174,
+            "bias_pct": -5.9368
+          },
+          "direct": {
+            "wape": 6.3509,
+            "mape": 5.748,
+            "bias_pct": -5.6404
+          },
+          "delta_wape": 0.3147
+        },
+        {
+          "recursive": {
+            "wape": 4.2216,
+            "mape": 4.1627,
+            "bias_pct": -0.9739
+          },
+          "direct": {
+            "wape": 4.4072,
+            "mape": 4.253,
+            "bias_pct": -4.0984
+          },
+          "delta_wape": -0.1856
+        }
+      ]
+    },
+    {
+      "region": "ERCOT",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": -0.093,
+        "median": -0.1066,
+        "stderr": 0.218,
+        "t": -0.427,
+        "sign_consistency": 0.8,
+        "worst_window": -0.7277,
+        "best_window": 0.6298,
+        "reason": "|mean| 0.093 < 2.0x stderr 0.218 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": true,
+        "failures": []
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 2.4748,
+        "mape": 2.4582,
+        "bias_pct": -0.1818
+      },
+      "direct_mean": {
+        "wape": 2.5678,
+        "mape": 2.5165,
+        "bias_pct": -0.81
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 2.6922,
+            "mape": 2.4951,
+            "bias_pct": -1.9829
+          },
+          "direct": {
+            "wape": 2.7988,
+            "mape": 2.6278,
+            "bias_pct": -1.6817
+          },
+          "delta_wape": -0.1066
+        },
+        {
+          "recursive": {
+            "wape": 2.2879,
+            "mape": 2.2547,
+            "bias_pct": -0.2777
+          },
+          "direct": {
+            "wape": 2.3126,
+            "mape": 2.286,
+            "bias_pct": -0.3776
+          },
+          "delta_wape": -0.0247
+        },
+        {
+          "recursive": {
+            "wape": 2.4578,
+            "mape": 2.5821,
+            "bias_pct": 1.3017
+          },
+          "direct": {
+            "wape": 2.6936,
+            "mape": 2.7772,
+            "bias_pct": 1.13
+          },
+          "delta_wape": -0.2358
+        },
+        {
+          "recursive": {
+            "wape": 1.4925,
+            "mape": 1.5243,
+            "bias_pct": -0.928
+          },
+          "direct": {
+            "wape": 2.2202,
+            "mape": 2.1551,
+            "bias_pct": -1.7774
+          },
+          "delta_wape": -0.7277
+        },
+        {
+          "recursive": {
+            "wape": 3.4437,
+            "mape": 3.4348,
+            "bias_pct": 0.9778
+          },
+          "direct": {
+            "wape": 2.8139,
+            "mape": 2.7363,
+            "bias_pct": -1.3431
+          },
+          "delta_wape": 0.6298
+        }
+      ]
+    },
+    {
+      "region": "ISONE",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": 2.2666,
+        "median": 1.0023,
+        "stderr": 1.5336,
+        "t": 1.478,
+        "sign_consistency": 0.8,
+        "worst_window": -0.1497,
+        "best_window": 8.3278,
+        "reason": "|mean| 2.267 < 2.0x stderr 1.534 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": true,
+        "failures": []
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 8.4525,
+        "mape": 8.6657,
+        "bias_pct": 2.4928
+      },
+      "direct_mean": {
+        "wape": 6.1859,
+        "mape": 6.0521,
+        "bias_pct": -0.5965
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 6.0913,
+            "mape": 6.2032,
+            "bias_pct": 1.4445
+          },
+          "direct": {
+            "wape": 5.089,
+            "mape": 5.2594,
+            "bias_pct": 2.8647
+          },
+          "delta_wape": 1.0023
+        },
+        {
+          "recursive": {
+            "wape": 5.9469,
+            "mape": 6.2526,
+            "bias_pct": 1.1078
+          },
+          "direct": {
+            "wape": 4.7534,
+            "mape": 4.58,
+            "bias_pct": -2.7792
+          },
+          "delta_wape": 1.1935
+        },
+        {
+          "recursive": {
+            "wape": 13.5623,
+            "mape": 14.9314,
+            "bias_pct": 14.0463
+          },
+          "direct": {
+            "wape": 5.2345,
+            "mape": 4.9707,
+            "bias_pct": -1.4239
+          },
+          "delta_wape": 8.3278
+        },
+        {
+          "recursive": {
+            "wape": 10.0207,
+            "mape": 9.0441,
+            "bias_pct": -8.1484
+          },
+          "direct": {
+            "wape": 9.0616,
+            "mape": 8.1493,
+            "bias_pct": -6.6086
+          },
+          "delta_wape": 0.9591
+        },
+        {
+          "recursive": {
+            "wape": 6.6412,
+            "mape": 6.8971,
+            "bias_pct": 4.0137
+          },
+          "direct": {
+            "wape": 6.7909,
+            "mape": 7.301,
+            "bias_pct": 4.9645
+          },
+          "delta_wape": -0.1497
+        }
+      ]
+    },
+    {
+      "region": "SPP",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": true,
+        "winner": "control",
+        "n": 5,
+        "mean": -1.2056,
+        "median": -1.2128,
+        "stderr": 0.2594,
+        "t": -4.648,
+        "sign_consistency": 1.0,
+        "worst_window": -1.9827,
+        "best_window": -0.4257,
+        "reason": "control wins 100% of 5 windows, mean -1.206 pts (4.6x stderr)"
+      },
+      "satisficing": {
+        "passed": false,
+        "failures": [
+          "bias -3.44% exceeds \u00b12.0% (under-forecasting systematically)",
+          "published MAPE regresses +1.03 pts (> 0.5 allowed)"
+        ]
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 4.9167,
+        "mape": 4.9221,
+        "bias_pct": -1.6069
+      },
+      "direct_mean": {
+        "wape": 6.1224,
+        "mape": 5.9565,
+        "bias_pct": -3.4361
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 5.5239,
+            "mape": 5.5232,
+            "bias_pct": -2.8734
+          },
+          "direct": {
+            "wape": 6.9859,
+            "mape": 6.9006,
+            "bias_pct": -3.8098
+          },
+          "delta_wape": -1.462
+        },
+        {
+          "recursive": {
+            "wape": 5.9902,
+            "mape": 6.0652,
+            "bias_pct": -2.391
+          },
+          "direct": {
+            "wape": 6.4159,
+            "mape": 6.2917,
+            "bias_pct": -5.7007
+          },
+          "delta_wape": -0.4257
+        },
+        {
+          "recursive": {
+            "wape": 3.9136,
+            "mape": 4.0054,
+            "bias_pct": 0.6769
+          },
+          "direct": {
+            "wape": 4.8586,
+            "mape": 4.6452,
+            "bias_pct": -2.288
+          },
+          "delta_wape": -0.945
+        },
+        {
+          "recursive": {
+            "wape": 5.0061,
+            "mape": 4.8664,
+            "bias_pct": -4.4843
+          },
+          "direct": {
+            "wape": 6.9888,
+            "mape": 6.6222,
+            "bias_pct": -5.4684
+          },
+          "delta_wape": -1.9827
+        },
+        {
+          "recursive": {
+            "wape": 4.1498,
+            "mape": 4.1505,
+            "bias_pct": 1.0371
+          },
+          "direct": {
+            "wape": 5.3626,
+            "mape": 5.3227,
+            "bias_pct": 0.0865
+          },
+          "delta_wape": -1.2128
+        }
+      ]
+    },
+    {
+      "region": "CAISO",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": 0.2741,
+        "median": 1.6873,
+        "stderr": 1.2087,
+        "t": 0.227,
+        "sign_consistency": 0.6,
+        "worst_window": -4.2684,
+        "best_window": 2.3043,
+        "reason": "|mean| 0.274 < 2.0x stderr 1.209 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": false,
+        "failures": [
+          "bias -2.94% exceeds \u00b12.0% (under-forecasting systematically)"
+        ]
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 6.1009,
+        "mape": 5.915,
+        "bias_pct": -0.2583
+      },
+      "direct_mean": {
+        "wape": 5.8268,
+        "mape": 5.6004,
+        "bias_pct": -2.9364
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 3.9886,
+            "mape": 4.0304,
+            "bias_pct": 3.4658
+          },
+          "direct": {
+            "wape": 8.257,
+            "mape": 7.9218,
+            "bias_pct": -7.88
+          },
+          "delta_wape": -4.2684
+        },
+        {
+          "recursive": {
+            "wape": 9.5785,
+            "mape": 8.6381,
+            "bias_pct": -7.7929
+          },
+          "direct": {
+            "wape": 7.8912,
+            "mape": 7.1872,
+            "bias_pct": -6.7389
+          },
+          "delta_wape": 1.6873
+        },
+        {
+          "recursive": {
+            "wape": 7.1656,
+            "mape": 6.7668,
+            "bias_pct": -5.7472
+          },
+          "direct": {
+            "wape": 5.3769,
+            "mape": 5.2301,
+            "bias_pct": -2.7956
+          },
+          "delta_wape": 1.7887
+        },
+        {
+          "recursive": {
+            "wape": 2.4413,
+            "mape": 2.4205,
+            "bias_pct": 1.4244
+          },
+          "direct": {
+            "wape": 2.5827,
+            "mape": 2.5656,
+            "bias_pct": -1.2674
+          },
+          "delta_wape": -0.1414
+        },
+        {
+          "recursive": {
+            "wape": 7.3307,
+            "mape": 7.7191,
+            "bias_pct": 7.3585
+          },
+          "direct": {
+            "wape": 5.0264,
+            "mape": 5.0973,
+            "bias_pct": 3.9997
+          },
+          "delta_wape": 2.3043
+        }
+      ]
+    },
+    {
+      "region": "SOCO",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": -0.133,
+        "median": -0.0322,
+        "stderr": 0.2085,
+        "t": -0.638,
+        "sign_consistency": 0.6,
+        "worst_window": -0.7266,
+        "best_window": 0.4962,
+        "reason": "|mean| 0.133 < 2.0x stderr 0.208 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": true,
+        "failures": []
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 3.4779,
+        "mape": 3.4282,
+        "bias_pct": 0.1441
+      },
+      "direct_mean": {
+        "wape": 3.6109,
+        "mape": 3.488,
+        "bias_pct": -0.6261
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 3.5241,
+            "mape": 3.4517,
+            "bias_pct": -1.9711
+          },
+          "direct": {
+            "wape": 3.5563,
+            "mape": 3.4158,
+            "bias_pct": -1.9249
+          },
+          "delta_wape": -0.0322
+        },
+        {
+          "recursive": {
+            "wape": 2.6008,
+            "mape": 2.5549,
+            "bias_pct": -0.5919
+          },
+          "direct": {
+            "wape": 3.0272,
+            "mape": 2.8673,
+            "bias_pct": -0.6298
+          },
+          "delta_wape": -0.4264
+        },
+        {
+          "recursive": {
+            "wape": 3.6935,
+            "mape": 3.7668,
+            "bias_pct": 2.7324
+          },
+          "direct": {
+            "wape": 3.6693,
+            "mape": 3.6561,
+            "bias_pct": 0.3479
+          },
+          "delta_wape": 0.0242
+        },
+        {
+          "recursive": {
+            "wape": 3.4329,
+            "mape": 3.1231,
+            "bias_pct": -1.7031
+          },
+          "direct": {
+            "wape": 4.1595,
+            "mape": 3.8584,
+            "bias_pct": -1.0868
+          },
+          "delta_wape": -0.7266
+        },
+        {
+          "recursive": {
+            "wape": 4.1383,
+            "mape": 4.2445,
+            "bias_pct": 2.2542
+          },
+          "direct": {
+            "wape": 3.6421,
+            "mape": 3.6424,
+            "bias_pct": 0.1629
+          },
+          "delta_wape": 0.4962
+        }
+      ]
+    },
+    {
+      "region": "TVA",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": 0.4833,
+        "median": 0.1116,
+        "stderr": 0.6358,
+        "t": 0.76,
+        "sign_consistency": 0.6,
+        "worst_window": -0.7851,
+        "best_window": 2.7493,
+        "reason": "|mean| 0.483 < 2.0x stderr 0.636 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": true,
+        "failures": []
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 4.5355,
+        "mape": 4.5097,
+        "bias_pct": 0.4606
+      },
+      "direct_mean": {
+        "wape": 4.0522,
+        "mape": 3.9315,
+        "bias_pct": -1.7903
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 4.4384,
+            "mape": 4.4275,
+            "bias_pct": -3.6255
+          },
+          "direct": {
+            "wape": 5.2235,
+            "mape": 5.149,
+            "bias_pct": -4.5947
+          },
+          "delta_wape": -0.7851
+        },
+        {
+          "recursive": {
+            "wape": 2.8939,
+            "mape": 2.9006,
+            "bias_pct": 0.6504
+          },
+          "direct": {
+            "wape": 2.7823,
+            "mape": 2.7767,
+            "bias_pct": 0.7354
+          },
+          "delta_wape": 0.1116
+        },
+        {
+          "recursive": {
+            "wape": 6.7282,
+            "mape": 7.0649,
+            "bias_pct": 5.4377
+          },
+          "direct": {
+            "wape": 3.9789,
+            "mape": 3.8377,
+            "bias_pct": -1.0886
+          },
+          "delta_wape": 2.7493
+        },
+        {
+          "recursive": {
+            "wape": 5.0201,
+            "mape": 4.5375,
+            "bias_pct": -3.0222
+          },
+          "direct": {
+            "wape": 5.559,
+            "mape": 5.1897,
+            "bias_pct": -2.9693
+          },
+          "delta_wape": -0.5389
+        },
+        {
+          "recursive": {
+            "wape": 3.597,
+            "mape": 3.6178,
+            "bias_pct": 2.8625
+          },
+          "direct": {
+            "wape": 2.7175,
+            "mape": 2.7045,
+            "bias_pct": -1.0341
+          },
+          "delta_wape": 0.8795
+        }
+      ]
+    },
+    {
+      "region": "NYISO",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": 4.2919,
+        "median": 2.2465,
+        "stderr": 2.8733,
+        "t": 1.494,
+        "sign_consistency": 0.6,
+        "worst_window": -0.5979,
+        "best_window": 14.9873,
+        "reason": "|mean| 4.292 < 2.0x stderr 2.873 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": true,
+        "failures": []
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 10.1642,
+        "mape": 9.9575,
+        "bias_pct": -6.6891
+      },
+      "direct_mean": {
+        "wape": 5.8723,
+        "mape": 5.5636,
+        "bias_pct": -1.5467
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 7.1764,
+            "mape": 7.1237,
+            "bias_pct": -4.3967
+          },
+          "direct": {
+            "wape": 4.9299,
+            "mape": 4.7662,
+            "bias_pct": -0.7104
+          },
+          "delta_wape": 2.2465
+        },
+        {
+          "recursive": {
+            "wape": 11.0924,
+            "mape": 11.302,
+            "bias_pct": -6.2548
+          },
+          "direct": {
+            "wape": 5.8911,
+            "mape": 5.5403,
+            "bias_pct": -1.4138
+          },
+          "delta_wape": 5.2013
+        },
+        {
+          "recursive": {
+            "wape": 19.5354,
+            "mape": 18.8985,
+            "bias_pct": -17.7108
+          },
+          "direct": {
+            "wape": 4.5481,
+            "mape": 4.3444,
+            "bias_pct": -2.5278
+          },
+          "delta_wape": 14.9873
+        },
+        {
+          "recursive": {
+            "wape": 8.1255,
+            "mape": 7.5054,
+            "bias_pct": -6.3277
+          },
+          "direct": {
+            "wape": 8.7234,
+            "mape": 7.8572,
+            "bias_pct": -3.972
+          },
+          "delta_wape": -0.5979
+        },
+        {
+          "recursive": {
+            "wape": 4.8915,
+            "mape": 4.958,
+            "bias_pct": 1.2444
+          },
+          "direct": {
+            "wape": 5.2691,
+            "mape": 5.3097,
+            "bias_pct": 0.8904
+          },
+          "delta_wape": -0.3776
+        }
+      ]
+    },
+    {
+      "region": "FPL",
+      "horizon_h": 168,
+      "n_windows_scored": 5,
+      "verdict": {
+        "decisive": false,
+        "winner": null,
+        "n": 5,
+        "mean": -0.4128,
+        "median": -0.1932,
+        "stderr": 0.418,
+        "t": -0.988,
+        "sign_consistency": 0.6,
+        "worst_window": -1.9479,
+        "best_window": 0.3334,
+        "reason": "|mean| 0.413 < 2.0x stderr 0.418 \u2014 within window-to-window noise"
+      },
+      "satisficing": {
+        "passed": true,
+        "failures": []
+      },
+      "ship": false,
+      "recursive_mean": {
+        "wape": 3.5168,
+        "mape": 3.5882,
+        "bias_pct": 0.7166
+      },
+      "direct_mean": {
+        "wape": 3.9296,
+        "mape": 3.8882,
+        "bias_pct": -0.5905
+      },
+      "windows": [
+        {
+          "recursive": {
+            "wape": 3.2607,
+            "mape": 3.3195,
+            "bias_pct": -0.3189
+          },
+          "direct": {
+            "wape": 2.9582,
+            "mape": 3.0618,
+            "bias_pct": 0.7032
+          },
+          "delta_wape": 0.3025
+        },
+        {
+          "recursive": {
+            "wape": 2.3729,
+            "mape": 2.3315,
+            "bias_pct": -0.5621
+          },
+          "direct": {
+            "wape": 4.3208,
+            "mape": 4.2274,
+            "bias_pct": -3.3823
+          },
+          "delta_wape": -1.9479
+        },
+        {
+          "recursive": {
+            "wape": 4.382,
+            "mape": 4.3379,
+            "bias_pct": 0.8295
+          },
+          "direct": {
+            "wape": 4.0486,
+            "mape": 4.0103,
+            "bias_pct": 1.3939
+          },
+          "delta_wape": 0.3334
+        },
+        {
+          "recursive": {
+            "wape": 3.2991,
+            "mape": 3.371,
+            "bias_pct": 2.1295
+          },
+          "direct": {
+            "wape": 3.858,
+            "mape": 4.0164,
+            "bias_pct": 1.0035
+          },
+          "delta_wape": -0.5589
+        },
+        {
+          "recursive": {
+            "wape": 4.2692,
+            "mape": 4.5811,
+            "bias_pct": 1.5049
+          },
+          "direct": {
+            "wape": 4.4624,
+            "mape": 4.125,
+            "bias_pct": -2.6708
+          },
+          "delta_wape": -0.1932
+        }
+      ]
+    }
+  ]
+}
