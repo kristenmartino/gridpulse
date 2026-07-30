@@ -1019,6 +1019,14 @@ MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(2 * 1024 * 1024)))
 # Feature Flags (Backlog J2 — simple in-code toggles)
 # ---------------------------------------------------------------------------
 FEATURE_FLAGS: dict[str, bool] = {
+    # Cooling-response feature pack (CDD accumulation, convexity, humidity
+    # interaction). MEASURED AND REJECTED — docs/COOLING_RESPONSE_STUDY.md:
+    # 8 of 8 BAs inconclusive, mean effect -0.0033 WAPE pts, 6 of 8 slightly
+    # the wrong way. Kept dormant because ISONE (+0.328, 83% consistent) may
+    # clear the bar with more windows, and the summer-only error analysis owes
+    # a January re-run that would otherwise rebuild this machinery.
+    # Do not flip without re-running the study.
+    "cooling_response_features": False,
     "tab_forecast": True,
     "tab_weather": True,
     "tab_models": True,

@@ -135,6 +135,7 @@ def engineer_exogenous_features(df: pd.DataFrame) -> pd.DataFrame:
         df["cooling_degree_days"] = compute_cdd(df["temperature_2m"])
         df["heating_degree_days"] = compute_hdd(df["temperature_2m"])
         df["temperature_deviation"] = compute_temperature_deviation(df["temperature_2m"])
+        _add_cooling_response_features(df)
 
     if "wind_speed_80m" in df.columns:
         df["wind_power_estimate"] = compute_wind_power(df["wind_speed_80m"])
@@ -337,6 +338,96 @@ def compute_cdd(temperature_f: pd.Series) -> pd.Series:
         CDD series.
     """
     return np.maximum(0, temperature_f - CDD_HDD_BASELINE_F)
+
+
+#: Trailing windows for CDD accumulation. 24h captures overnight carry-over,
+#: 72h a multi-day heat wave — the two timescales building thermal mass
+#: actually operates on.
+COOLING_ACCUM_WINDOWS_H = (24, 72)
+
+
+def _add_cooling_response_features(df: pd.DataFrame) -> None:
+    """Cooling-response features, in place, behind ``cooling_response_features``.
+
+    Motivated by measurement, not intuition: `docs/ERROR_ANALYSIS.md` found the
+    hottest temperature quintile carries a mean **34.7%** of our error against
+    **11.9%** for the coldest, monotone in 7 of 8 BAs analysed. The existing
+    representation of cooling load is a single linear ``cooling_degree_days``
+    against a fixed 65°F baseline.
+
+    Three things it cannot express, all built from weather variables we already
+    fetch — so nothing here touches the fetch path:
+
+    * **Accumulation** — thermal mass across consecutive hot hours/days.
+    * **Convexity** — cooling load rises faster than linearly in CDD once
+      plant is near capacity.
+    * **Humidity** — latent load; 95°F at 70% RH is not 95°F at 20%.
+
+    Flag-gated and default-off until the rolling-eval study says otherwise.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("cooling_response_features"):
+        return
+    if "cooling_degree_days" not in df.columns:
+        return
+
+    cdd = df["cooling_degree_days"]
+    for window in COOLING_ACCUM_WINDOWS_H:
+        df[f"cdd_accum_{window}h"] = compute_cdd_accumulation(cdd, window)
+    # Convexity. Squared rather than a learned spline: XGBoost can already
+    # split on CDD, so what it lacks is not flexibility but a term that makes
+    # the curvature cheap to express in few splits.
+    df["cdd_squared"] = cdd.pow(2)
+    if "relative_humidity_2m" in df.columns:
+        df["heat_index"] = compute_heat_index(df["temperature_2m"], df["relative_humidity_2m"])
+        # Latent load only bites when there is sensible load to add it to.
+        df["cdd_x_humidity"] = cdd * (df["relative_humidity_2m"] / 100.0)
+
+
+def compute_heat_index(temperature_f: pd.Series, relative_humidity_pct: pd.Series) -> pd.Series:
+    """NWS heat index (Rothfusz regression), °F.
+
+    Cooling load tracks what a building's occupants and its HVAC actually
+    experience, which at high temperature is driven as much by humidity as by
+    the dry-bulb reading: 95°F at 70% RH is a far larger air-conditioning load
+    than 95°F at 20%. The model currently sees temperature and humidity as
+    separate columns and has to learn the interaction from data.
+
+    Below 80°F the regression is not valid and the NWS uses a simple average
+    form instead; that branch is applied here rather than extrapolating a
+    polynomial fitted for hot, humid conditions into cool ones.
+    """
+    t = pd.to_numeric(temperature_f, errors="coerce")
+    r = pd.to_numeric(relative_humidity_pct, errors="coerce").clip(0, 100)
+
+    simple = 0.5 * (t + 61.0 + (t - 68.0) * 1.2 + r * 0.094)
+    full = (
+        -42.379
+        + 2.04901523 * t
+        + 10.14333127 * r
+        - 0.22475541 * t * r
+        - 0.00683783 * t * t
+        - 0.05481717 * r * r
+        + 0.00122874 * t * t * r
+        + 0.00085282 * t * r * r
+        - 0.00000199 * t * t * r * r
+    )
+    return simple.where(t < 80.0, full)
+
+
+def compute_cdd_accumulation(cdd: pd.Series, window_h: int) -> pd.Series:
+    """Trailing mean CDD — building thermal mass, as a feature.
+
+    The third consecutive 95°F day draws materially more cooling load than the
+    first: structures soak heat overnight and start the next day warmer. A
+    point-in-time CDD cannot express that, so the model sees two identical
+    hours with very different true loads.
+
+    Backward-looking only (``min_periods=1`` so early rows survive rather than
+    poisoning the frame with NaN).
+    """
+    return pd.to_numeric(cdd, errors="coerce").rolling(window_h, min_periods=1).mean()
 
 
 def compute_hdd(temperature_f: pd.Series) -> pd.Series:
@@ -596,6 +687,13 @@ def get_feature_names() -> list[str]:
         "cooling_degree_days",
         "heating_degree_days",
         "temperature_deviation",
+        # Cooling-response pack (flag-gated, #ERROR_ANALYSIS). Absent from the
+        # frame when the flag is off, which the selector tolerates.
+        "cdd_accum_24h",
+        "cdd_accum_72h",
+        "cdd_squared",
+        "heat_index",
+        "cdd_x_humidity",
         "wind_power_estimate",
         "solar_capacity_factor",
         "hour_sin",

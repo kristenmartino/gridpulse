@@ -19,6 +19,32 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-30 — cooling-response features: measured, rejected, and the negative
+result is the useful part.** [`docs/COOLING_RESPONSE_STUDY.md`](docs/COOLING_RESPONSE_STUDY.md).
+
+Built the pack the error analysis pointed at — CDD accumulation (24h/72h),
+CDD², NWS heat index, CDD×humidity, all from weather we already fetch. Ran it
+against control over 6 rolling windows on the 8 addressable BAs.
+
+**8 of 8 inconclusive. Mean effect −0.0033 WAPE pts. 6 of 8 slightly worse.**
+Flag `cooling_response_features` stays **off**.
+
+**The informative part:** both arms had *perfect* future weather. If explicit
+accumulation, convexity and humidity terms cannot reduce hot-hour error when
+temperature is known exactly, the hot-hour error is **not a
+temperature-representation problem**. The error analysis was right about
+*where* and wrong about *what*.
+
+What survives as hypotheses, untested: **behind-the-meter solar** (hot
+afternoons are peak-irradiance afternoons; rooftop PV suppresses net load
+exactly at cooling peak and nothing in the feature set knows it exists), demand
+response/curtailment, or simply that trees already learn these interactions.
+
+**ISONE is the one row that moved** (+0.328, 83% sign consistency) — and it is
+exactly where the analysis predicted the biggest payoff. Still below the bar;
+picking it from eight would be the cherry-pick the harness exists to stop.
+Follow-up, not a result.
+
 **2026-07-30 — error analysis: the error is not where the scorecard points.**
 [`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md). The step that had been
 skipped for months — bucket the errors, size the buckets.
