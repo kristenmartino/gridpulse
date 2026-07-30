@@ -19,6 +19,39 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-30 — error analysis: the error is not where the scorecard points.**
+[`docs/ERROR_ANALYSIS.md`](docs/ERROR_ANALYSIS.md). The step that had been
+skipped for months — bucket the errors, size the buckets.
+
+**In MW across the fleet we are 8.5% BETTER than the incumbents** (16.46M vs
+17.99M MWh), the opposite of the published headline (operator closer on 27 of
+43). Both true; only one is about megawatts. Top 10 BAs carry **77.5%** of all
+fleet MW error. **SEC — several sessions of work — is 0.30% of it.**
+
+The addressable gap (28 BAs where we lose) is 3.62M MWh/mo, **82% of it in 8
+BAs**: MISO, ERCOT, ISONE, NYISO, PJM, TVA, FPL, SOCO.
+
+Per-hour on those 8: **19–59% of our error is on hours the operator got
+right**, with our arm given *perfect* weather — so not weather error, and
+addressable.
+
+**The one clear axis is temperature.** Hot quintile carries a mean **34.7%**
+of error vs **11.9%** cold, monotone in 7 of 8 BAs. **Holidays** are 1.87×
+over-represented in ISONE, 1.69× NYISO — against a single binary `is_holiday`
+flag. **Ramp magnitude and hour-of-day are flat** — no signal.
+
+Next, by evidence: cooling response (biggest bucket everywhere), holiday
+features for the northeast BAs, ISONE specifically (worst on every axis).
+
+**I was wrong to deprioritise [#230](https://github.com/kristenmartino/gridpulse/issues/230)** — this
+reconstruction is a *direct* day-ahead model and beat production's live
+numbers (PJM 2.72 vs 4.10, MISO 2.85 vs 3.41). Confounded by perfect weather,
+but large enough to test rather than dismiss.
+
+**Caveat that matters: summer only.** June–July windows. The hot-quintile
+dominance may be seasonal — re-run in January before treating cooling response
+as the year-round answer.
+
 **2026-07-29 — evaluation policy: rolling origin, and we stopped optimising MAPE.**
 Prompted by asking what to do next and getting an uncomfortable answer: the eval
 harness could not support the decisions being made with it.
