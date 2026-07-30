@@ -68,11 +68,11 @@ class TestNoDeadKwargs:
 
         `exogenous` (pmdarima 1.x) must never come back — it is the dead kwarg
         that made this univariate by accident. But `X` must not appear either:
-        passing the regressors was measured WORSE on every major ISO
-        (docs/ARIMA_ORDER_EXOG_STUDY.md — PJM 9.18→18.22, CAISO 5.18→12.42
-        sMAPE). If someone "fixes" this by adding `X=`, they are reintroducing
-        a regression this study already paid for, and this test is the note
-        they will read.
+        passing the regressors was measured across all 51 BAs and rejected
+        (docs/ARIMA_ORDER_EXOG_STUDY.md) — losses total -61.7 sMAPE pts against
+        +14.9 gained, worst single BA -19.18. If someone "fixes" this by adding
+        `X=`, they are reintroducing a regression the study already paid for,
+        and this test is the note they will read.
         """
         for call in _auto_arima_calls():
             passed = {kw.arg for kw in call.keywords if kw.arg}

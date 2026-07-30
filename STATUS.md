@@ -24,20 +24,26 @@ follow-up commit.
 `auto_arima` takes `**fit_args`, so it was swallowed and the order search ran
 univariate while the fit used all five weather regressors.
 
-The issue's own fix sketch said `exogenous=` → `X=`, then measure. **Measured,
-it is the wrong fix** — worse on every major ISO:
+The issue's own fix sketch said `exogenous=` → `X=`, then measure. **Measured
+across all 51 BAs (2026-07-29, 0 failures), it is the wrong fix.**
 
-| BA | control | "fixed" | Δ |
-|---|---:|---:|---:|
-| PJM | 9.18 | 18.22 | **−9.04** |
-| CAISO | 5.18 | 12.42 | **−7.24** |
-| ERCOT | 8.57 | 12.98 | **−4.41** |
-| MISO | 7.63 | 10.52 | **−2.90** |
+Not because it loses everywhere — 18 improve, 20 worsen, **13 select the same
+order either way**. Because of the asymmetry: losses total **−61.7 sMAPE pts
+against +14.9 gained**, mean −0.92, worst single BA **−19.18** (ISONE 13.93 →
+33.11), at 2.7× the search cost. A much heavier left tail for no expected gain.
 
-10 BAs: 4 better / 6 worse, median −0.44 pts, and 2.8× the search cost. Given
-the regressors, AIC credits them for variance the seasonal terms carried and
-prunes those terms (CAISO (1,1,1,24) → (0,1,0,24)). Fine in-sample, wrong over
-168 recursive hours. The study fed the losing arm *perfect* future weather.
+**Mechanism, fleet-validated:** harm concentrates where the search drops the
+**seasonal MA term** (Q 1→0) — those 14 BAs mean −2.99 vs −0.21 for the other
+24. Specifically the MA term, not seasonal complexity generally (bucketing on
+total P+Q separates almost nothing). The study also fed the losing arm
+*perfect* future weather.
+
+**Correction to the 10-BA run PR #365 shipped on:** per-BA numbers from a
+single 168h window do not reproduce. One day of window shift reversed CAISO
+(−7.24 → **+3.87**), evaporated WALC (+4.59 → +0.04), and halved MISO's
+*control* sMAPE (7.62 → 3.91). The aggregate and the mechanism held; the
+individual rows did not. The study now stamps its window, and per-BA figures
+should be read as one draw.
 
 Shipped: keep the behaviour, delete the lie — no dead kwarg, no `X`, numbers
 at the call site, and tests that pin the *class* (every kwarg must exist in
