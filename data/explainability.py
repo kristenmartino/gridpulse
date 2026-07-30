@@ -37,6 +37,14 @@ FEATURE_LABELS: dict[str, str] = {
     "weather_code": "Weather Code",
     # Derived exogenous (9)
     "cooling_degree_days": "Cooling Demand",
+    # Cooling-response pack (flag-gated, measured and rejected — see
+    # docs/COOLING_RESPONSE_STUDY.md). Labelled anyway: the canonical feature
+    # list carries them, and a SHAP panel must never show a raw column name.
+    "cdd_accum_24h": "Heat Build-Up (24h)",
+    "cdd_accum_72h": "Heat Build-Up (3-Day)",
+    "cdd_squared": "Cooling Demand (Non-Linear)",
+    "heat_index": "Heat Index (Feels-Like)",
+    "cdd_x_humidity": "Humid-Heat Cooling Load",
     "heating_degree_days": "Heating Demand",
     "temperature_deviation": "Temp Anomaly",
     "wind_power_estimate": "Wind Power",
