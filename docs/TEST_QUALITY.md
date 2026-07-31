@@ -89,15 +89,87 @@ equivalent, and would bury the signal.
 
 ## Adjudicated survivors
 
-**457 logic survivors remain. Seven have been adjudicated.** The rest are
-recorded but unexamined — do not read the table below as "and the other 450
-are fine." Adjudication is incremental; this is where it accumulates.
+**All 457 logic survivors have now been machine-verified** with
+`scripts/adjudicate_mutants.py`: apply the mutant to the real source, run
+tests, restore. Result:
 
-Verification protocol: apply the mutation to the working copy **one at a time**,
-run the whole unit suite, revert. One at a time matters — two mutations applied
-together produced a failure that neither caused alone, which would have
-mis-adjudicated both. For a *fix*, the same protocol runs twice: the mutation
-must fail the new test and pass without it, or the test is decorative.
+| | |
+|---|---:|
+| confirmed (no test notices) | **455** |
+| false survivors (mutmut was wrong) | **2** |
+
+Both false ones are in `ensemble_combine`, both killed by
+`test_stable_hash_reproducibility.py` — the subprocess blind spot of
+limitation 1. **The tool's false-survivor rate is 0.4%, not a third.**
+
+> **Correcting an earlier claim in this file.** A previous revision said
+> "roughly a third of what a mutation run reports is not a gap," from a sample
+> of seven. That sample was chosen *because* the entries looked interesting,
+> which is exactly how you get a biased estimate. Measured over the whole
+> population it is 2 in 457. The lesson survives — adjudicate before acting —
+> but the number was wrong and the reasoning behind it was worse.
+
+Verification protocol: apply the mutation **one at a time**, run tests, revert.
+One at a time matters — two mutations applied together produced a failure that
+neither caused alone, which would have mis-adjudicated both. For a *fix*, the
+protocol runs twice: the mutation must fail the new test and pass without it,
+or the test is decorative.
+
+### Confirmed does not mean broken
+
+`confirmed` means *no test noticed*. It does not rank severity, and the 455 are
+not 455 defects. Two things matter more than the count:
+
+**They cluster by untested function, not by independent defect.** The top
+clusters are one missing test each, not dozens of bugs:
+
+| confirmed | site | |
+|---:|---|---|
+| 40 | `data/quality.py::coerce_demand_artifacts` | |
+| 32 | `models/rolling_eval.py::verdict` | |
+| 26 | `simulation/scenario_engine.py::_run_ensemble` | dormant, see below |
+| 24 | `models/ensemble.py::ensemble_combine` | |
+| 23 | `data/feature_engineering.py::compute_cyclical_dow` | |
+
+`_run_ensemble` survives *everything*, including `forecasts = None` and
+`ensemble_combine(None, weights)`. That is not 26 findings. It is one function
+with no test.
+
+**Shape predicts value.** Grouping the 455 by what the mutation actually
+changed:
+
+| share | shape | what it usually means |
+|---:|---|---|
+| 17.8% | `dtype=float` dropped | defensive coercion — see below, **not** equivalent |
+| 16.9% | arithmetic operator/constant | usually real |
+| 8.6% | control flow (`continue`/`break`/`return`) | usually real — this class produced a fixed gap |
+| 7.9% | `round()` precision | cosmetic unless the rounding is contractual |
+| 7.7% | assignment nulled (`x = None`) | crashes on mutation; concentrated in untested functions |
+| 11.6% | comparison boundaries, `and`/`or`, negation | real — this class produced four fixed gaps |
+
+### The `dtype=float` class is load-bearing, and I nearly got that wrong
+
+81 survivors drop `dtype=float` from an `np.asarray(...)`. The obvious reading
+is that they are equivalent: for lists of floats and for int arrays the values
+come out identical, and `compute_mape` returns the same number either way.
+
+That reading is wrong. On an **object-dtype** array — which pandas produces
+routinely here from mixed or missing EIA data — `np.isfinite` raises
+`TypeError` without the coercion, while `dtype=float` converts `None` to `nan`
+and carries on:
+
+```python
+np.isfinite(np.asarray(obj_col, dtype=None))   # TypeError
+np.asarray(obj_col, dtype=float)               # [100.  nan 200.]
+```
+
+So they are unpinned **defensive guards**, in the same family as the ensemble
+ones below: low severity (a crash on bad input, not a wrong number), but real,
+and deletable in a refactor with CI green.
+
+Recorded because the first pass through this class classified it as
+"equivalent noise" and only a direct probe caught it. Shape-based triage is a
+prioritisation aid, not a verdict.
 
 | # | site | mutation | verdict |
 |---|---|---|---|
@@ -110,10 +182,36 @@ must fail the new test and pass without it, or the test is decorative.
 | 7 | `models/ensemble.py` `ensemble_combine` | `len(set(lengths)) > 1` → `>= 1` | **FALSE SURVIVOR** — actually killed (see limitation 1) |
 
 Every one of 1–5 survived all 2,687 unit tests before the fix and fails after
-it. Note the shape of this ledger: of seven survivors examined closely, **five
-were real, one was equivalent, and one was a tool artifact.** Roughly a third
-of what a mutation run reports is not a gap — which is the argument for
-adjudicating before acting, and against ever gating on a raw score.
+it.
+
+### Priority: two clusters worth fixing, one worth ignoring
+
+**`models/ensemble.py` — highest value.** ADR-004 weights feed every served
+forecast, and three guards there are unpinned. Each maps to a *reachable*
+crash, not a hypothetical one — the real code handles all three correctly and
+nothing asserts that it does:
+
+| mutation | consequence if the guard were weakened |
+|---|---|
+| `v > 0` → `v >= 0` | a MAPE of exactly 0 is admitted → `ZeroDivisionError` |
+| `and np.isfinite(v)` → `or` | a non-finite MAPE is admitted → `ZeroDivisionError` |
+| `weights.get(k, 0)` → `weights.get(k)` | a model missing from `weights` → `TypeError` |
+
+Reachability is not theoretical: `compute_mape` returns `inf` for all-zero
+actuals, and TIDC publishes zeros (STATUS.md). An infinite MAPE reaching
+`compute_ensemble_weights` is a documented scenario in this system.
+
+**`data/quality.py::coerce_demand_artifacts` (40) and
+`models/rolling_eval.py::verdict` (32) — next.** Both are live decision code,
+and both have already yielded one confirmed real gap each.
+
+**`simulation/scenario_engine.py` (36) — ignore for now.** Nothing in
+`components/`, `jobs/`, `api.py` or `app.py` imports `simulation`. The live
+Scenarios feature runs a heuristic; issue #127 tracks replacing it with this
+engine. So these are real test gaps in code that **does not run in
+production** — zero operational risk today, and worth re-adjudicating if #127
+lands. A raw mutation score cannot tell you this; it is why the score is not
+a gate.
 
 ### 1. The decision boundaries were not pinned — **fixed**
 
@@ -201,7 +299,29 @@ These bound what the score can prove. None of them are silent.
 1. **Subprocess tests cannot kill mutants.** mutmut selects per-mutant tests
    from coverage tracing, which is blind to work done in a child process. Any
    mutant that only such a test would catch is reported as a false survivor.
-   Affects at least `tests/unit/test_stable_hash_reproducibility.py`.
+
+   **The blind spot is now enumerated, and it is small.**
+   `grep -rln "subprocess\|multiprocessing\|Popen" tests/unit/` returns exactly
+   two files — `test_stable_hash_reproducibility.py` and `test_cache.py` — and
+   only the first has been observed killing anything. That bound is what makes
+   `scripts/adjudicate_mutants.py --fast` sound: mutmut has already run every
+   *traced* test against a survivor, so confirming one needs only the tests
+   tracing could not see.
+
+   **Cross-validated, not assumed.** The same 69 mutants were adjudicated both
+   ways — full suite and `--fast`:
+
+   | | full suite | `--fast` |
+   |---|---:|---:|
+   | confirmed | 67 | 67 |
+   | false survivors | 2 | 2 |
+   | wall clock | 84 min | **4 min** |
+
+   **Zero disagreements.** 25x faster for the same answers, which is what made
+   adjudicating all 457 practical rather than aspirational.
+
+   Re-derive the list if tests start spawning processes elsewhere. Running the
+   verifier without `--fast` is always the unconditional check.
 
 2. **Equivalent mutants are counted as survivors.** No tool can identify them
    automatically. They are a permanent floor under 100%, which is one reason
@@ -215,6 +335,33 @@ These bound what the score can prove. None of them are silent.
    forking a parent with a live threaded BLAS pool deadlocks the workers — they
    sit at 0% CPU indefinitely and mutmut's wall-clock timeout never fires
    because nothing is running.
+
+---
+
+## Verifying a survivor
+
+`scripts/mutation_test.py` reports what mutmut *found*.
+`scripts/adjudicate_mutants.py` checks whether it is *true*.
+
+```bash
+python scripts/adjudicate_mutants.py --fast                       # everything
+python scripts/adjudicate_mutants.py --fast --module models/ensemble.py
+python scripts/adjudicate_mutants.py --module data/quality.py     # full suite
+```
+
+For each survivor it applies the mutant to the real source file, runs tests,
+and restores the file:
+
+* tests **pass** -> `confirmed` — genuinely unnoticed
+* tests **fail** -> `false-survivor` — mutmut missed the killing test, which is
+  named in the output
+
+It refuses to start against a dirty working tree, because it restores files
+from memory and a mid-run kill would otherwise leave a mutated source behind.
+
+`confirmed` is still not `bug`. An **equivalent** mutant changes the source
+without changing behaviour and nothing can ever kill it. That last call is
+human; the script's job is to shrink the field it has to be made over.
 
 ---
 
@@ -249,14 +396,24 @@ uploaded as artifacts for 90 days.
 
 It is advisory, and stays that way until all three hold:
 
-1. The baseline is stable across at least four consecutive weekly runs (no
-   unexplained swings from test ordering or flakiness).
-2. Limitations 1 and 2 above are resolved or quantified, so the false-survivor
-   rate is known rather than guessed.
-3. Enough of the 463 logic survivors are adjudicated to know what fraction are
-   equivalent mutants — which is what sets an achievable threshold.
+1. ⬜ The baseline is stable across at least four consecutive weekly runs (no
+   unexplained swings from test ordering or flakiness). One re-run of
+   `models/skill.py` already moved by a single mutant, so this is not
+   theoretical.
+2. ✅ **Resolved.** The false-survivor rate is **measured at 2/457 (0.4%)**,
+   the blind spot behind it is enumerated (limitation 1), and the deselected
+   slow test that was limitation 2 is gone — re-baselining after it landed
+   changed **no** verdict, so it had been killing zero mutants.
+3. ✅ **Resolved.** All 457 logic survivors are machine-verified, clustered by
+   function, and grouped by mutation shape above.
 
-A threshold picked before those are known would be picked from nothing, fire on
+Only (1) is outstanding, and it needs four weeks of scheduled runs rather than
+any decision. **When it clears, the honest threshold is per-module logic score
+with a no-regression rule** — "this module's logic score may not fall" — rather
+than an absolute bar. An absolute bar would have to be set below
+`models/ensemble.py`'s 61.6%, which would make it unable to fire anywhere else.
+
+A threshold picked before these are known would be picked from nothing, fire on
 noise, and get switched off within a month. The failure mode of mutation
 testing in practice is not a low score; it is abandonment.
 

@@ -1,0 +1,3112 @@
+{
+  "checked": 388,
+  "confirmed": 388,
+  "false_survivors": 0,
+  "skipped": 0,
+  "verdicts": [
+    {
+      "key": "models.evaluation.x_compute_mape__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "compute_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mape__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "compute_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mape__mutmut_8",
+      "module": "models/evaluation.py",
+      "function": "compute_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mape__mutmut_10",
+      "module": "models/evaluation.py",
+      "function": "compute_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mape__mutmut_13",
+      "module": "models/evaluation.py",
+      "function": "compute_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mape__mutmut_14",
+      "module": "models/evaluation.py",
+      "function": "compute_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_rmse__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "compute_rmse",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_rmse__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "compute_rmse",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_rmse__mutmut_8",
+      "module": "models/evaluation.py",
+      "function": "compute_rmse",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_rmse__mutmut_10",
+      "module": "models/evaluation.py",
+      "function": "compute_rmse",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mae__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "compute_mae",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mae__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "compute_mae",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mae__mutmut_8",
+      "module": "models/evaluation.py",
+      "function": "compute_mae",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_mae__mutmut_10",
+      "module": "models/evaluation.py",
+      "function": "compute_mae",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_r2__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "compute_r2",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_r2__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "compute_r2",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_r2__mutmut_8",
+      "module": "models/evaluation.py",
+      "function": "compute_r2",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_r2__mutmut_10",
+      "module": "models/evaluation.py",
+      "function": "compute_r2",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_r2__mutmut_22",
+      "module": "models/evaluation.py",
+      "function": "compute_r2",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_r2__mutmut_23",
+      "module": "models/evaluation.py",
+      "function": "compute_r2",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_r2__mutmut_24",
+      "module": "models/evaluation.py",
+      "function": "compute_r2",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_residuals__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "compute_residuals",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_residuals__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "compute_residuals",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_residuals__mutmut_7",
+      "module": "models/evaluation.py",
+      "function": "compute_residuals",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_residuals__mutmut_9",
+      "module": "models/evaluation.py",
+      "function": "compute_residuals",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_error_by_hour__mutmut_1",
+      "module": "models/evaluation.py",
+      "function": "compute_error_by_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_error_by_hour__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "compute_error_by_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_1",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_2",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_7",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_11",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_14",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_17",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_empirical_error_quantiles__mutmut_20",
+      "module": "models/evaluation.py",
+      "function": "empirical_error_quantiles",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_apply_empirical_interval__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "apply_empirical_interval",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_apply_empirical_interval__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "apply_empirical_interval",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_8",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_10",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_13",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_15",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_17",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_18",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_21",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage__mutmut_22",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_1",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_2",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_7",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_10",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_12",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_15",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_17",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_23",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_24",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_25",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_27",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_30",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_33",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_36",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_compute_interval_coverage_drift__mutmut_50",
+      "module": "models/evaluation.py",
+      "function": "compute_interval_coverage_drift",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_3",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_5",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_10",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_11",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_14",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_16",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_25",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_31",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_36",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_39",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_47",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_55",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_57",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_58",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_63",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_65",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_77",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.evaluation.x_check_long_horizon_sanity__mutmut_78",
+      "module": "models/evaluation.py",
+      "function": "check_long_horizon_sanity",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_rolling_origin_splits__mutmut_1",
+      "module": "models/rolling_eval.py",
+      "function": "rolling_origin_splits",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_rolling_origin_splits__mutmut_2",
+      "module": "models/rolling_eval.py",
+      "function": "rolling_origin_splits",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_rolling_origin_splits__mutmut_3",
+      "module": "models/rolling_eval.py",
+      "function": "rolling_origin_splits",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_rolling_origin_splits__mutmut_4",
+      "module": "models/rolling_eval.py",
+      "function": "rolling_origin_splits",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_rolling_origin_splits__mutmut_5",
+      "module": "models/rolling_eval.py",
+      "function": "rolling_origin_splits",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_rolling_origin_splits__mutmut_9",
+      "module": "models/rolling_eval.py",
+      "function": "rolling_origin_splits",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_rolling_origin_splits__mutmut_17",
+      "module": "models/rolling_eval.py",
+      "function": "rolling_origin_splits",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_paired_deltas__mutmut_3",
+      "module": "models/rolling_eval.py",
+      "function": "paired_deltas",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_paired_deltas__mutmut_5",
+      "module": "models/rolling_eval.py",
+      "function": "paired_deltas",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_paired_deltas__mutmut_8",
+      "module": "models/rolling_eval.py",
+      "function": "paired_deltas",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_paired_deltas__mutmut_10",
+      "module": "models/rolling_eval.py",
+      "function": "paired_deltas",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_3",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_5",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_8",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_10",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_11",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_12",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_18",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_19",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_23",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_wape__mutmut_27",
+      "module": "models/rolling_eval.py",
+      "function": "wape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_3",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_5",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_8",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_10",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_12",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_13",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_17",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_bias_pct__mutmut_19",
+      "module": "models/rolling_eval.py",
+      "function": "bias_pct",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_satisficing_check__mutmut_6",
+      "module": "models/rolling_eval.py",
+      "function": "satisficing_check",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_satisficing_check__mutmut_14",
+      "module": "models/rolling_eval.py",
+      "function": "satisficing_check",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_satisficing_check__mutmut_15",
+      "module": "models/rolling_eval.py",
+      "function": "satisficing_check",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_satisficing_check__mutmut_19",
+      "module": "models/rolling_eval.py",
+      "function": "satisficing_check",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_satisficing_check__mutmut_20",
+      "module": "models/rolling_eval.py",
+      "function": "satisficing_check",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_satisficing_check__mutmut_28",
+      "module": "models/rolling_eval.py",
+      "function": "satisficing_check",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_3",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_5",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_7",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_9",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_56",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_58",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_59",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_62",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_66",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_72",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_78",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_89",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_93",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_94",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_95",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_96",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_99",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_103",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_104",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_105",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_106",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_107",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_111",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_112",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_113",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_114",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_115",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_130",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_143",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_151",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_173",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.rolling_eval.x_verdict__mutmut_182",
+      "module": "models/rolling_eval.py",
+      "function": "verdict",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_mape__mutmut_3",
+      "module": "models/skill.py",
+      "function": "mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_mape__mutmut_5",
+      "module": "models/skill.py",
+      "function": "mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_mape__mutmut_8",
+      "module": "models/skill.py",
+      "function": "mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_mape__mutmut_10",
+      "module": "models/skill.py",
+      "function": "mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_mape__mutmut_17",
+      "module": "models/skill.py",
+      "function": "mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_mape__mutmut_19",
+      "module": "models/skill.py",
+      "function": "mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_mape__mutmut_3",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_mape__mutmut_5",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_mape__mutmut_6",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_mape",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_score__mutmut_16",
+      "module": "models/skill.py",
+      "function": "skill_score",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_5",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_13",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_16",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_17",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_18",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_20",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_23",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_26",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_27",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_28",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_29",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_38",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_40",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_42",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_47",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_53",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_54",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_skill_payload__mutmut_56",
+      "module": "models/skill.py",
+      "function": "skill_payload",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_should_serve_baseline__mutmut_14",
+      "module": "models/skill.py",
+      "function": "should_serve_baseline",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_should_serve_baseline__mutmut_21",
+      "module": "models/skill.py",
+      "function": "should_serve_baseline",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_3",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_5",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_6",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_8",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_10",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_14",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_16",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_22",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_36",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_37",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_42",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_43",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_44",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_45",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_46",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_47",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_48",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_49",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "models.skill.x_seasonal_naive_forecast__mutmut_50",
+      "module": "models/skill.py",
+      "function": "seasonal_naive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_real_positive__mutmut_6",
+      "module": "data/quality.py",
+      "function": "is_real_positive",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_10",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_14",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_15",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_16",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_20",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_23",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_26",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_33",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_is_implausible_demand_artifact__mutmut_36",
+      "module": "data/quality.py",
+      "function": "is_implausible_demand_artifact",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_5",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_14",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_19",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_23",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_37",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_53",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_55",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_58",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_59",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_60",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_67",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_71",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_77",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_81",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_82",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_83",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_85",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_86",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_88",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_90",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_93",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_94",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_95",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_96",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_97",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_99",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_100",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_101",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_104",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_107",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_108",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_110",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_115",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_119",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_125",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_129",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_131",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_133",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_136",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.quality.x_coerce_demand_artifacts__mutmut_140",
+      "module": "data/quality.py",
+      "function": "coerce_demand_artifacts",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_15",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_18",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_21",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_40",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_41",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_43",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_44",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_46",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_47",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_48",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_49",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_features__mutmut_50",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_exogenous_features__mutmut_11",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_exogenous_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_exogenous_features__mutmut_17",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_exogenous_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_exogenous_features__mutmut_27",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_exogenous_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_exogenous_features__mutmut_36",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_exogenous_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_exogenous_features__mutmut_61",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_exogenous_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_exogenous_features__mutmut_73",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_exogenous_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_engineer_exogenous_features__mutmut_74",
+      "module": "data/feature_engineering.py",
+      "function": "engineer_exogenous_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_add_autoregressive_demand_features__mutmut_50",
+      "module": "data/feature_engineering.py",
+      "function": "add_autoregressive_demand_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_add_autoregressive_demand_features__mutmut_52",
+      "module": "data/feature_engineering.py",
+      "function": "add_autoregressive_demand_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_add_autoregressive_demand_features__mutmut_53",
+      "module": "data/feature_engineering.py",
+      "function": "add_autoregressive_demand_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_7",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_9",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_25",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_26",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_27",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_77",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_85",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_93",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_105",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_106",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_118",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_119",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_141",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_147",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_150",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_177",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_183",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_186",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_206",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_212",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_215",
+      "module": "data/feature_engineering.py",
+      "function": "compute_autoregressive_snapshot",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_9",
+      "module": "data/feature_engineering.py",
+      "function": "recursive_autoregressive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_17",
+      "module": "data/feature_engineering.py",
+      "function": "recursive_autoregressive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_18",
+      "module": "data/feature_engineering.py",
+      "function": "recursive_autoregressive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_29",
+      "module": "data/feature_engineering.py",
+      "function": "recursive_autoregressive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_31",
+      "module": "data/feature_engineering.py",
+      "function": "recursive_autoregressive_forecast",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x__add_cooling_response_features__mutmut_20",
+      "module": "data/feature_engineering.py",
+      "function": "_add_cooling_response_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x__add_cooling_response_features__mutmut_28",
+      "module": "data/feature_engineering.py",
+      "function": "_add_cooling_response_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x__add_cooling_response_features__mutmut_38",
+      "module": "data/feature_engineering.py",
+      "function": "_add_cooling_response_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x__add_cooling_response_features__mutmut_39",
+      "module": "data/feature_engineering.py",
+      "function": "_add_cooling_response_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x__add_cooling_response_features__mutmut_42",
+      "module": "data/feature_engineering.py",
+      "function": "_add_cooling_response_features",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_5",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_9",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_10",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_12",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_16",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_19",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_20",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_25",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_27",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_28",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_30",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_31",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_75",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_heat_index__mutmut_76",
+      "module": "data/feature_engineering.py",
+      "function": "compute_heat_index",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cdd_accumulation__mutmut_8",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cdd_accumulation",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_temperature_deviation__mutmut_1",
+      "module": "data/feature_engineering.py",
+      "function": "compute_temperature_deviation",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_4",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_6",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_7",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_8",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_10",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_11",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_15",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_16",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_17",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_18",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_20",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_22",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_24",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_32",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_40",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_46",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_48",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_49",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_51",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_wind_power__mutmut_52",
+      "module": "data/feature_engineering.py",
+      "function": "compute_wind_power",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_solar_capacity_factor__mutmut_2",
+      "module": "data/feature_engineering.py",
+      "function": "compute_solar_capacity_factor",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_2",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_4",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_9",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_10",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_11",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_12",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_14",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_15",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_16",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_17",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_18",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_20",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_21",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_23",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_24",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_25",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_26",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_27",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_28",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_29",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_30",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_hour",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_1",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_2",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_4",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_7",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_9",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_10",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_11",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_12",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_14",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_15",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_16",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_17",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_18",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_20",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_21",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_23",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_24",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_25",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_26",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_27",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_28",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_29",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_30",
+      "module": "data/feature_engineering.py",
+      "function": "compute_cyclical_dow",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_holiday_flag__mutmut_1",
+      "module": "data/feature_engineering.py",
+      "function": "compute_holiday_flag",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_holiday_flag__mutmut_2",
+      "module": "data/feature_engineering.py",
+      "function": "compute_holiday_flag",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_holiday_flag__mutmut_3",
+      "module": "data/feature_engineering.py",
+      "function": "compute_holiday_flag",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_holiday_flag__mutmut_6",
+      "module": "data/feature_engineering.py",
+      "function": "compute_holiday_flag",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_holiday_flag__mutmut_7",
+      "module": "data/feature_engineering.py",
+      "function": "compute_holiday_flag",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_holiday_flag__mutmut_9",
+      "module": "data/feature_engineering.py",
+      "function": "compute_holiday_flag",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    },
+    {
+      "key": "data.feature_engineering.x_compute_holiday_flag__mutmut_10",
+      "module": "data/feature_engineering.py",
+      "function": "compute_holiday_flag",
+      "status": "confirmed",
+      "killed_by": [],
+      "note": ""
+    }
+  ]
+}
