@@ -1,7 +1,9 @@
 # Test quality — coverage, mutation testing, and what each one can prove
 
-> Baseline measured 2026-07-31 on `main` @ `ebbb48f`.
-> Regenerate with `python scripts/mutation_test.py`.
+> Baseline measured 2026-07-31; `models/rolling_eval.py`, `data/quality.py`
+> and `models/ensemble.py` re-measured after their fixes landed (#377, #383).
+> Regenerate with `python scripts/mutation_test.py`; re-adjudicate with
+> `python scripts/adjudicate_mutants.py --fast`.
 
 Most of this repo's tests are agent-written. That is fine, but it means "the
 suite is green" carries less information than usual: a test that asserts
@@ -15,9 +17,11 @@ Two instruments, answering two different questions:
 | **Coverage** | did this line *run*? | CI, every PR — HTML artifact + PR comment + `diff-cover` |
 | **Mutation testing** | would anything have *noticed* if this line were wrong? | weekly + on demand, advisory |
 
-Coverage is a floor, not a verdict. `models/ensemble.py` is **85%**
-line-covered and scores **61.6%** against behavioural mutants. Every line ran;
-a third of the ways to break them go unnoticed.
+Coverage is a floor, not a verdict. `models/ensemble.py` was **85%**
+line-covered and scored **61.6%** against behavioural mutants — every line ran,
+and a third of the ways to break them went unnoticed. Pinning its guards took
+that to **73.3%** without touching a line of production code or moving coverage
+at all, which is the whole point: the two instruments measure different things.
 
 ---
 
@@ -57,16 +61,23 @@ and none should try. Adjudication is a human step, and it is the point.
 | `models/rolling_eval.py` | 322 | 220 | 67 | 35 | 68.3% | **76.7%** |
 | `models/skill.py` | 192 | 130 | 49 | 13 | 67.7% | **72.6%** |
 | `data/quality.py` | 188 | 126 | 50 | 12 | 67.0% | **71.6%** |
-| `models/ensemble.py` | 133 | 53 | 33 | 47 | 39.8% | **61.6%** |
-| **overall** | **2,349** | **1,633** | **457** | **259** | **69.5%** | **78.1%** |
+| `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** |
+| **overall** | **2,349** | **1,643** | **447** | **259** | **69.9%** | **78.6%** |
 
-`models/rolling_eval.py` and `data/quality.py` are re-measured after the fixes
-below; the other five rows are the original baseline. **The fixes moved the
-overall score by 0.2 points** — 69.3% → 69.5%, six mutants. That is the honest
-scale of pinning five boundaries in a 2,349-mutant population, and it is worth
-stating plainly: the value was never the score. It was learning that the
-function CLAUDE.md makes mandatory for every model change had unpinned
-decision boundaries.
+`models/rolling_eval.py`, `data/quality.py` and `models/ensemble.py` are
+re-measured after the fixes below; the other four rows are the original
+baseline.
+
+**Two rounds of fixes, and the difference between them is the lesson.** The
+first pinned five decision boundaries in `rolling_eval` and `quality` and moved
+the overall score **0.2 points** (69.3% → 69.5%, six mutants). The second pinned
+four guards in `ensemble` and moved it **0.4 points** (69.5% → 69.9%, ten
+mutants) while moving that module's own logic score **11.7 points**.
+
+Same effort, very different headline movement — because the second landed on
+the weakest module and the first on one of the better-tested ones. Which is
+exactly why the gate policy below is per-module rather than overall: a
+2,349-mutant denominator makes every real fix look like rounding error.
 
 `simulation/scenario_engine.py` is the clearest illustration of why both
 columns are published: 53.4% raw looks alarming, but 75 of its 111 survivors
@@ -101,6 +112,15 @@ tests, restore. Result:
 Both false ones are in `ensemble_combine`, both killed by
 `test_stable_hash_reproducibility.py` — the subprocess blind spot of
 limitation 1. **The tool's false-survivor rate is 0.4%, not a third.**
+
+> **This is a point-in-time measurement, and the point has moved.** The 457
+> were adjudicated against the tree *before* the ensemble guards were pinned;
+> **ten of those 455 confirmed survivors are now dead**, leaving 447. The
+> counts and clusters below describe the population as adjudicated, not as it
+> stands — re-running `scripts/adjudicate_mutants.py --fast` regenerates it in
+> about 20 minutes, and `docs/data/` holds the verdicts to diff against.
+> Kept as-measured rather than silently patched, because a ledger that
+> back-edits its own history is not evidence of anything.
 
 > **Correcting an earlier claim in this file.** A previous revision said
 > "roughly a third of what a mutation run reports is not a gap," from a sample
@@ -184,22 +204,47 @@ prioritisation aid, not a verdict.
 Every one of 1–5 survived all 2,687 unit tests before the fix and fails after
 it.
 
-### Priority: two clusters worth fixing, one worth ignoring
+### Priority: one cluster fixed, one to fix, one to ignore
 
-**`models/ensemble.py` — highest value.** ADR-004 weights feed every served
-forecast, and three guards there are unpinned. Each maps to a *reachable*
-crash, not a hypothetical one — the real code handles all three correctly and
-nothing asserts that it does:
+**`models/ensemble.py` — was highest value, now FIXED.** ADR-004 weights feed
+every served forecast, and three guards were unpinned. Each mapped to a
+*reachable* crash, not a hypothetical one — the real code handled all three
+correctly and nothing asserted that it did:
 
 | mutation | consequence if the guard were weakened |
 |---|---|
 | `v > 0` → `v >= 0` | a MAPE of exactly 0 is admitted → `ZeroDivisionError` |
 | `and np.isfinite(v)` → `or` | a non-finite MAPE is admitted → `ZeroDivisionError` |
 | `weights.get(k, 0)` → `weights.get(k)` | a model missing from `weights` → `TypeError` |
+| `1.0 / n` (fallback) | equal weights stop summing to 1, silently rescaling |
 
 Reachability is not theoretical: `compute_mape` returns `inf` for all-zero
 actuals, and TIDC publishes zeros (STATUS.md). An infinite MAPE reaching
 `compute_ensemble_weights` is a documented scenario in this system.
+
+**Fixed** by seven tests in `tests/unit/test_ensemble.py`, each verified by
+re-applying its mutation one at a time. Measured effect — much larger than the
+0.2 pts the first round of boundary fixes moved, because these landed on the
+weakest module rather than its best-tested one:
+
+| | before | after |
+|---|---:|---:|
+| mutants killed | 53 | **63** |
+| logic survivors | 33 | **23** |
+| logic score | 61.6% | **73.3%** |
+
+`models/ensemble.py` is no longer the lowest-scoring module.
+
+Why the pre-existing `test_handles_inf_mape` did not cover any of it: it pairs
+`inf` with a *healthy* model, which leaves a non-zero denominator, so the
+weights come out right **even with the guard broken**. That is the recurring
+shape of these gaps — a test exists, exercises the line, and asserts something
+true in the one arrangement where the guard does not matter.
+
+One mutant in `ensemble_combine` was checked and deliberately left unpinned:
+`weights = {name: 1.0 / len(model_names)}` is renormalised on the next line, so
+any non-zero constant gives identical output (verified across 0.333 / 0.667 /
+3.0 / 7.0). **Equivalent** — a test for it would be theatre.
 
 **`data/quality.py::coerce_demand_artifacts` (40) and
 `models/rolling_eval.py::verdict` (32) — next.** Both are live decision code,
@@ -410,8 +455,9 @@ It is advisory, and stays that way until all three hold:
 Only (1) is outstanding, and it needs four weeks of scheduled runs rather than
 any decision. **When it clears, the honest threshold is per-module logic score
 with a no-regression rule** — "this module's logic score may not fall" — rather
-than an absolute bar. An absolute bar would have to be set below
-`models/ensemble.py`'s 61.6%, which would make it unable to fire anywhere else.
+than an absolute bar. The floor moves as modules are fixed (`models/ensemble.py`
+went 61.6% -> 73.3%), so any absolute bar is either instantly stale or set so
+low it can never fire. A no-regression rule needs no number at all.
 
 A threshold picked before these are known would be picked from nothing, fire on
 noise, and get switched off within a month. The failure mode of mutation
