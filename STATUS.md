@@ -19,6 +19,36 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-31 — #230 fleet test: the pre-registered rule is NOT confirmed.**
+[`docs/DIRECT_MULTIHORIZON_FLEET.md`](docs/DIRECT_MULTIHORIZON_FLEET.md).
+51 BAs × 6 windows, 306 paired observations, zero skips.
+
+| criterion | result | |
+|---|---|:--|
+| hard pool positive **and decisive** | mean +1.589 but wins only **54%** of windows | **FAIL** |
+| easy pool not positive-decisive | −0.029, noise | pass |
+| separation ≥ 0.5 pts | +1.618 | pass |
+
+Criterion 1 fails on **reliability, not size** — 3.6× stderr on magnitude, but
+the hard pool's median is **+0.198 against a mean of +1.589**. The average is
+carried by a minority of windows.
+
+**Fleet: 25 better / 26 worse. Median Δ = −0.002 pts.** The +0.700 mean is 55%
+attributable to 2 of 51 BAs (NWMT +11.0, NYISO +8.7). 11 decisive for direct,
+5 for recursive, 35 inconclusive.
+
+**Only 17 of 51 per-BA results are detectable at 6 windows** (median MDE 0.90
+pts), which is why the pre-registration moved the unit to the pooled test
+(MDE ≈0.21).
+
+**Per-BA adoption is not the fallback.** The 9 that ship were selected
+*because* they won; choosing and justifying on the same data is the
+cherry-pick the harness exists to stop. Legitimising it needs out-of-sample
+validation — a new pre-registration, not a reinterpretation.
+
+**The pre-registration earned its keep.** Without it, "hard pool +1.589 at
+3.6× stderr, separation 1.6 pts" reads as a win.
+
 **2026-07-30 — #230 direct multi-horizon: not a rewrite, possibly a per-BA
 choice.** [`docs/DIRECT_MULTIHORIZON_STUDY.md`](docs/DIRECT_MULTIHORIZON_STUDY.md).
 
