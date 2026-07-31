@@ -19,6 +19,34 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-31 — bottom-up beats top-down on NYISO. First decisive win in this
+line.** [`docs/NYISO_BOTTOM_UP_STUDY.md`](docs/NYISO_BOTTOM_UP_STUDY.md).
+
+| arm | WAPE | gain |
+|---|---:|---:|
+| top-down (1 model, BA weather) | 3.958 | — |
+| bottom-up, **BA** weather | 3.609 | **+0.349** |
+| **bottom-up, zonal weather** | **3.229** | **+0.729** |
+
+**100% of 6 windows, 3.7× stderr, satisficing clean, ship=true**, and
+**detectable** (MDE 0.390 vs effect 0.729). It also lands exactly where the
+probe predicted (0.5–0.8 pts) — a confirmed forecast, not a fishing result.
+
+**The attribution matters more than the headline.** Bottom-up gains eleven
+load histories *and* eleven weather points at once. Ablation splits it almost
+evenly: **load decomposition alone +0.349 (48%, itself decisive)**, zonal
+weather adds the other **+0.380**. Staged adoption is therefore possible.
+
+**The caveat that governs everything:** the target is the **zone sum, not EIA
+`D`** — they differ by **2.70% WAPE hourly** (means agree at 1.0003; hourly
+ratio 0.94–1.07). That is over half our NYISO error budget. Production
+forecasts `D`, so this does not transfer directly. **Reconciling that gap is
+strictly prior to any adoption.**
+
+**Next:** reconcile → zonal load only → zonal weather. And run the same
+experiment on PJM and ISONE first — the #230 fleet run is a standing reminder
+that a handful of BAs can change character at 51.
+
 **2026-07-31 — NYISO zonal probe: 1 of 3 predictions survives.**
 [`docs/NYISO_ZONAL_PROBE.md`](docs/NYISO_ZONAL_PROBE.md). 985 hours, 11 zones.
 
