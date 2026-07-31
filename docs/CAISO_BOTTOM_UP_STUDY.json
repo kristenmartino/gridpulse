@@ -1,0 +1,178 @@
+{
+  "iso": "CAISO",
+  "target": "sum of CAISO zones (not EIA D \u2014 see module docstring)",
+  "n_zones": 5,
+  "n_windows_scored": 6,
+  "verdict": {
+    "decisive": false,
+    "winner": null,
+    "n": 6,
+    "mean": 0.2826,
+    "median": 0.3271,
+    "stderr": 0.1669,
+    "t": 1.693,
+    "sign_consistency": 0.833,
+    "worst_window": -0.3724,
+    "best_window": 0.7128,
+    "reason": "|mean| 0.283 < 2.0x stderr 0.167 \u2014 within window-to-window noise"
+  },
+  "mde_pts": 0.3338,
+  "detectable": false,
+  "satisficing": {
+    "passed": true,
+    "failures": []
+  },
+  "ship": false,
+  "top_down_mean": {
+    "wape": 3.4055,
+    "mape": 3.297,
+    "bias_pct": 0.2175
+  },
+  "bottom_up_mean": {
+    "wape": 3.1229,
+    "mape": 3.0022,
+    "bias_pct": -0.5196
+  },
+  "ablation_bottom_up_ba_weather": {
+    "n_windows": 6,
+    "wape": 3.3827,
+    "gain_vs_topdown_pts": 0.0227,
+    "full_gain_pts": 0.2826,
+    "share_of_gain_from_load_decomposition": 0.08,
+    "verdict": {
+      "decisive": false,
+      "winner": null,
+      "n": 6,
+      "mean": 0.0227,
+      "median": -0.0048,
+      "stderr": 0.177,
+      "t": 0.128,
+      "sign_consistency": 0.5,
+      "worst_window": -0.4781,
+      "best_window": 0.6243,
+      "reason": "mean +0.023 and median -0.005 disagree in sign \u2014 outlier window(s) dominate; report as tail risk, not as a win"
+    }
+  },
+  "windows": [
+    {
+      "window": 0,
+      "top_down": {
+        "wape": 2.8904,
+        "mape": 2.8385,
+        "bias_pct": 1.2489
+      },
+      "bottom_up": {
+        "wape": 2.2191,
+        "mape": 2.1902,
+        "bias_pct": 0.5967
+      },
+      "bottom_up_ba_weather": {
+        "wape": 2.2661,
+        "mape": 2.2137,
+        "bias_pct": 0.3325
+      },
+      "delta_wape": 0.6713,
+      "delta_wape_ba_weather": 0.6243
+    },
+    {
+      "window": 1,
+      "top_down": {
+        "wape": 5.5049,
+        "mape": 4.8873,
+        "bias_pct": -3.7969
+      },
+      "bottom_up": {
+        "wape": 5.2121,
+        "mape": 4.6224,
+        "bias_pct": -3.9213
+      },
+      "bottom_up_ba_weather": {
+        "wape": 5.9016,
+        "mape": 5.233,
+        "bias_pct": -4.6443
+      },
+      "delta_wape": 0.2928,
+      "delta_wape_ba_weather": -0.3967
+    },
+    {
+      "window": 2,
+      "top_down": {
+        "wape": 2.4406,
+        "mape": 2.3943,
+        "bias_pct": -1.268
+      },
+      "bottom_up": {
+        "wape": 2.4111,
+        "mape": 2.2969,
+        "bias_pct": -1.7112
+      },
+      "bottom_up_ba_weather": {
+        "wape": 2.9187,
+        "mape": 2.7969,
+        "bias_pct": -1.979
+      },
+      "delta_wape": 0.0295,
+      "delta_wape_ba_weather": -0.4781
+    },
+    {
+      "window": 3,
+      "top_down": {
+        "wape": 1.3894,
+        "mape": 1.3695,
+        "bias_pct": 0.5849
+      },
+      "bottom_up": {
+        "wape": 1.7618,
+        "mape": 1.7711,
+        "bias_pct": 0.531
+      },
+      "bottom_up_ba_weather": {
+        "wape": 1.4648,
+        "mape": 1.4444,
+        "bias_pct": 0.191
+      },
+      "delta_wape": -0.3724,
+      "delta_wape_ba_weather": -0.0754
+    },
+    {
+      "window": 4,
+      "top_down": {
+        "wape": 4.4223,
+        "mape": 4.59,
+        "bias_pct": 3.5781
+      },
+      "bottom_up": {
+        "wape": 3.7095,
+        "mape": 3.8786,
+        "bias_pct": 3.0338
+      },
+      "bottom_up_ba_weather": {
+        "wape": 4.0258,
+        "mape": 4.1888,
+        "bias_pct": 3.6557
+      },
+      "delta_wape": 0.7128,
+      "delta_wape_ba_weather": 0.3965
+    },
+    {
+      "window": 5,
+      "top_down": {
+        "wape": 3.7853,
+        "mape": 3.7021,
+        "bias_pct": 0.9577
+      },
+      "bottom_up": {
+        "wape": 3.4239,
+        "mape": 3.2542,
+        "bias_pct": -1.6467
+      },
+      "bottom_up_ba_weather": {
+        "wape": 3.7195,
+        "mape": 3.5803,
+        "bias_pct": 0.1475
+      },
+      "delta_wape": 0.3614,
+      "delta_wape_ba_weather": 0.0658
+    }
+  ]
+}

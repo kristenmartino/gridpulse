@@ -19,6 +19,34 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-31 — bottom-up does NOT generalise, and the mechanism is
+contradicted.** [`docs/ZONAL_GENERALISATION.md`](docs/ZONAL_GENERALISATION.md).
+
+**PJM and ISO-NE could not be tested — both gated.** Verified: PJM Data Miner 2
+and ISO-NE web services both **HTTP 401** without a key; four open ISO-NE
+static paths **404**. Free registration exists but needs account creation.
+**CAISO used instead** (5 TAC areas, open OASIS).
+
+| | NYISO | CAISO |
+|---|---:|---:|
+| gain | **+0.729** (decisive, 3.7× se) | +0.283 (**inconclusive**) |
+| detectable | yes | **no** (MDE 0.334) |
+| from load decomposition | 48% | **8%** |
+
+**The weather-diversity mechanism is contradicted.** CAISO has **19.0°F** mean
+hourly zonal temp spread against NYISO's **12.6°F** — 51% more — and gets less
+than half the gain. If diversity were the driver this should run the other
+way. More likely: zone count / load heterogeneity (11 zones incl. a dense
+metro pocket vs 5 large utility territories). That is a hypothesis, not a
+finding.
+
+**Reconciliation gap replicates:** zone sum vs EIA `D` is 2.70% WAPE (NYISO)
+and 3.34% (CAISO) — a general ISO-vs-EIA property, not a NYISO quirk.
+
+**Do not build zonal ingestion yet.** Next: get PJM/ISO-NE keys; then test the
+zone-count hypothesis directly by aggregating NYISO's 11 zones into 5 and
+re-running — if the gain drops toward CAISO's, the weather story is dead.
+
 **2026-07-31 — bottom-up beats top-down on NYISO. First decisive win in this
 line.** [`docs/NYISO_BOTTOM_UP_STUDY.md`](docs/NYISO_BOTTOM_UP_STUDY.md).
 
