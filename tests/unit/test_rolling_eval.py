@@ -16,6 +16,9 @@ import pytest
 
 from models.rolling_eval import (
     DECISION_METRIC,
+    MAX_ABS_BIAS_PCT,
+    MAX_MAPE_REGRESSION_PTS,
+    MIN_SIGN_CONSISTENCY,
     MIN_WINDOWS_FOR_A_VERDICT,
     REPORTED_METRIC,
     bias_pct,
@@ -89,6 +92,56 @@ class TestSatisficingConstraints:
     def test_a_small_mape_movement_is_tolerated(self):
         r = satisficing_check(treatment_bias_pct=0.1, control_mape=5.0, treatment_mape=5.3)
         assert r["passed"] is True
+
+    def test_a_bias_exactly_on_the_band_edge_passes(self):
+        """The band is inclusive: |bias| == MAX_ABS_BIAS_PCT is inside it.
+
+        Pinned because both comparisons in this function could be flipped
+        from ``>`` to ``>=`` with all 2,687 unit tests green (mutation
+        testing, docs/TEST_QUALITY.md). Every existing test sits comfortably
+        inside or outside the band, so the edge itself — the only input where
+        the two spellings disagree — was decided by an untested branch.
+
+        Which side the edge falls on is a real policy choice, not a detail:
+        EVALUATION_POLICY.md states the constraint as |bias| <= 2%, so exactly
+        2% must SHIP.
+        """
+        r = satisficing_check(
+            treatment_bias_pct=MAX_ABS_BIAS_PCT, control_mape=5.0, treatment_mape=5.0
+        )
+        assert r["passed"] is True, "a bias of exactly the limit is inside the band, not outside"
+
+        r_neg = satisficing_check(
+            treatment_bias_pct=-MAX_ABS_BIAS_PCT, control_mape=5.0, treatment_mape=5.0
+        )
+        assert r_neg["passed"] is True, "the band is symmetric; the low edge is inside it too"
+
+        over = satisficing_check(
+            treatment_bias_pct=MAX_ABS_BIAS_PCT + 0.01, control_mape=5.0, treatment_mape=5.0
+        )
+        assert over["passed"] is False, "one hundredth of a point past the edge is outside"
+
+    def test_a_mape_regression_exactly_on_the_limit_passes(self):
+        """Same edge, the other constraint: a regression of exactly
+        MAX_MAPE_REGRESSION_PTS is tolerated, one hundredth more is not.
+
+        5.5 - 5.0 is exactly 0.5 in binary floating point, so this really does
+        land on the boundary rather than near it.
+        """
+        exactly = satisficing_check(
+            treatment_bias_pct=0.1,
+            control_mape=5.0,
+            treatment_mape=5.0 + MAX_MAPE_REGRESSION_PTS,
+        )
+        assert exactly["passed"] is True, "a regression of exactly the limit is still shippable"
+
+        just_over = satisficing_check(
+            treatment_bias_pct=0.1,
+            control_mape=5.0,
+            treatment_mape=5.0 + MAX_MAPE_REGRESSION_PTS + 0.01,
+        )
+        assert just_over["passed"] is False
+        assert "regress" in just_over["failures"][0]
 
     def test_an_unmeasured_constraint_fails_rather_than_passes(self):
         """An unchecked constraint is not a satisfied one."""
@@ -266,6 +319,46 @@ class TestVerdict:
         v = verdict([0.4, -0.3, 0.5, -0.6, 0.2])
         assert v["decisive"] is False
         assert "noise" in v["reason"]
+
+    def test_consistency_exactly_at_the_threshold_still_ships(self):
+        """MIN_SIGN_CONSISTENCY is a floor, not a bar to clear: winning
+        exactly 75% of windows is enough.
+
+        Three wins in four windows is exactly 0.75 — the only input where
+        ``consistency < min`` and ``consistency <= min`` disagree, and the
+        mutation that flips them survived the whole suite. The shape is chosen
+        so it fails on nothing else: mean and median are both positive (not
+        outlier domination) and |mean| clears 2x stderr (not noise), leaving
+        consistency as the single deciding constraint.
+        """
+        v = verdict([2.0, 2.0, 2.0, -0.2])
+
+        assert v["sign_consistency"] == MIN_SIGN_CONSISTENCY, "must land ON the edge, not near it"
+        assert v["mean"] > 0 and v["median"] > 0, "not the outlier-domination shape"
+        assert v["decisive"] is True, "exactly the required consistency is sufficient"
+        assert v["winner"] == "treatment"
+
+    def test_an_effect_exactly_at_the_noise_threshold_still_ships(self):
+        """|mean| == min_t x stderr is out of the noise band, not in it.
+
+        The threshold is injected rather than reverse-engineered from the
+        default so the equality is exact in floating point: min_t is set to
+        the ratio the data actually produces, which makes
+        ``abs(mean) < min_t * stderr`` a comparison of a value against itself.
+        With ``<`` the effect ships; with ``<=`` it is refused as noise. The
+        suite could not tell those apart.
+        """
+        deltas = [2.0, 2.0, 2.0, -0.2]
+        d = np.asarray(deltas)
+        exact_t = abs(float(d.mean())) / float(d.std(ddof=1) / np.sqrt(d.size))
+
+        v = verdict(deltas, min_t=exact_t)
+        assert v["decisive"] is True, "sitting exactly on the noise threshold is not noise"
+        assert "noise" not in v["reason"]
+
+        just_over = verdict(deltas, min_t=exact_t * 1.001)
+        assert just_over["decisive"] is False
+        assert "noise" in just_over["reason"]
 
     def test_an_exact_no_op_reports_no_difference_not_a_winner(self):
         """13 of 51 BAs select the same ARIMA order either way — delta 0 in

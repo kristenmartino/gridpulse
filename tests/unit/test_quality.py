@@ -194,6 +194,30 @@ class TestCoerceDemandArtifacts:
         _, exclusions = coerce_demand_artifacts(frame)
         assert exclusions == []
 
+    def test_a_gap_does_not_stop_the_scan(self):
+        """An absent hour is SKIPPED, not treated as the end of the window.
+
+        The loop's ``continue`` could be changed to ``break`` with all 2,687
+        unit tests green (mutation testing, docs/TEST_QUALITY.md). Every
+        existing case had its NaNs at the very end of the frame, where
+        skipping and stopping look identical — so the one arrangement that
+        distinguishes them was never exercised.
+
+        It is not a hypothetical arrangement. EIA publishes late: a missing
+        hour followed by a partial for the *next* hour is ordinary behaviour
+        for the broken-feed BAs this guard exists for (LADWP passes through
+        multiple partials per tick). Under ``break`` the scan would stop at
+        the gap and every artifact after it would reach the forecast anchor
+        unflagged — the exact failure #309 shipped this guard to prevent, and
+        silent, because the exclusion list would simply come back empty.
+        """
+        frame = _frame(_steady(3300.0, 28) + [(None, 3515.0), (730.0, 3515.0)])
+        cleaned, exclusions = coerce_demand_artifacts(frame)
+
+        assert len(exclusions) == 1, "the artifact AFTER the gap must still be caught"
+        assert exclusions[0]["mw"] == 730.0
+        assert bool(pd.isna(cleaned["demand_mw"].iloc[-1]))
+
     def test_degenerate_frames_safe(self):
         assert coerce_demand_artifacts(None) == (None, [])
         df, exc = coerce_demand_artifacts(pd.DataFrame())
