@@ -48,7 +48,11 @@ models/*.pkl
 models/*.joblib
 
 # SQLite cache (regenerated from APIs)
+# The -shm/-wal sidecars are rewritten on every open, so tracking them
+# makes the working tree go dirty just from running the test suite.
 *.db
+*.db-shm
+*.db-wal
 *.sqlite
 *.sqlite3
 
