@@ -98,22 +98,17 @@ also_copy = [
 # mutant.
 pytest_add_cli_args_test_selection = ["tests/unit"]
 
-# ONE deselected test, and it is not a judgement call about its value.
-# test_sqlite_cache_hit takes 36.8s in isolation — 76% of the whole 2,690-test
-# unit suite's runtime, and ~121s under mutmut's instrumentation. It reaches
-# data/feature_engineering.py incidentally (the callback it exercises runs the
-# feature pipeline en route), so mutmut re-ran it for EVERY feature-engineering
-# mutant: 904 mutants x ~124s, which does not finish. Deselected, that module's
-# mutants cost ~3s each.
-# The tradeoff, stated rather than hidden: if this test is the only thing that
-# would kill some feature-engineering mutant, that mutant is reported as a
-# survivor here. Given it is a SQLite cache-hit assertion on a callback helper,
-# that is unlikely — but it is a real limitation, recorded in
-# docs/TEST_QUALITY.md. The test's own runtime is tracked separately.
-pytest_add_cli_args = [
-    "--deselect",
-    "tests/unit/test_callbacks_helpers.py::TestRunForecastOutlook::test_sqlite_cache_hit",
-]
+# No tests are deselected. The one that used to be —
+# test_callbacks_helpers.py::TestRunForecastOutlook::test_sqlite_cache_hit at
+# 36.8s — was slow because it was not testing what its name claimed: its mocked
+# payload was missing the cache_version/data_hash fields the read guard checks,
+# so every run fell through to real XGBoost training (and through
+# data/feature_engineering.py, which is why it was re-run for all 904 of that
+# module's mutants). Fixing the payload made it a ~1s cache-path assertion —
+# and the cache path returns before the feature pipeline, so engineer_features
+# is now called 0x by it and it drops out of that module's covering set
+# entirely. Removing the deselect costs nothing and stops reporting any mutant
+# only this test would kill as a survivor.
 
 [tool.mypy]
 python_version = "3.11"

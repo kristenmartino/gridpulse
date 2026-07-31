@@ -676,6 +676,60 @@ next person the evidence and a test that stops them from "fixing" it — an
 accident you've measured and chosen is a decision; leave it looking like an
 accident and someone will helpfully undo it.*
 
+### 20. "Tell me about a performance problem whose cause turned out to be a correctness problem."
+**Our slowest test was 76% of the unit suite. It was slow because it wasn't testing the thing in its own name.**
+
+Situation: One test took 36.8 seconds. The other 2,689 in the unit suite had
+a median in the milliseconds and a maximum under 7. It was also blocking
+mutation testing: it touched the feature-engineering module incidentally, so
+the tool re-ran it for every one of that module's 904 mutants — 904 × ~124s,
+which never finishes. It had been deselected as a documented workaround,
+which meant any mutant only that test would kill was being reported as a
+false survivor.
+
+Task: Make it fast without weakening what it covered — a SQLite cache-hit
+path in a forecast callback. Going in, I expected the honest answer might be
+"this is inherently expensive, mark it slow and move on."
+
+Action: Before optimising I checked what it actually executed, by spying on
+`train_xgboost` while the test ran. It was called. A test named
+"sqlite_cache_hit" was training a real gradient-boosted model — five-fold
+time-series cross-validation plus SHAP — on every run.
+
+The read guard requires four things to serve from cache: predictions
+present, a matching cache version, and a data hash matching the live frames.
+The test's mocked payload supplied only predictions. So the guard rejected
+it and the function fell through to inline training. It stayed green because
+its assertions were `"predictions" in result` and `isinstance(..., ndarray)`
+— and inline training satisfies both. `git log -S` dated it: a commit four
+months earlier had hardened the guard in the production path and left the
+test behind. Three sibling tests of the same shape all set the fields
+correctly, so this was one drifted outlier, not a pattern I'd have to argue
+about.
+
+Result: Completing the payload fixed the coverage and the runtime in the
+same edit — **35.8s → ~1s standalone, and the whole unit suite from 91s
+to 42s** on one machine, same command before and after. I then
+made the class of defect fail loudly rather than slowly: the test now
+asserts the exact cached values, that the cache was queried once with the
+expected key, and that the in-memory cache was primed on the way out — none
+of which a fall-through can fake — and patches `train_xgboost` to raise, so
+if the guard ever changes again the test fails in 0.9 seconds instead of
+passing in 36. The mutation-testing deselect and the "known limitation" note
+it had earned both came out; that module's mutants are no longer scored
+against a phantom. No `slow` marker: the slowness was a symptom, not a cost.
+
+**Lesson to convey**: *An outlier in a runtime distribution is a question,
+not a chore. Everything else in that suite was milliseconds — that gap was
+the suite telling me the test was doing something categorically different
+from what it claimed. The instinct is to optimise the slow thing or quarantine
+it; both would have preserved the actual defect, which was three months of
+zero coverage on a cache path, and quarantining it would have added a CI
+filter to hide it. The general version: a test that is slow for the same
+reason it is wrong will look, from the outside, exactly like a test that is
+slow for a good reason. The only way to tell them apart is to check what it
+runs, not how long it runs.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
