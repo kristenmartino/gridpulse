@@ -58,10 +58,16 @@ Two properties of this wiring matter:
 
 Two disciplines, both load-bearing:
 
-**Settled truth only.** EIA's first-published actual is preliminary and, on
-high-revision feeds, has been observed up to ~70% wrong. Scoring against it
-would grade both arms on a number EIA itself later withdrew. Only `last_d`
-counts — EIA's latest value for the hour, refreshed on every tick. Note what
+**Settled truth only.** EIA's first-published actual is preliminary *by
+design*, not by accident: the [Form EIA-930 instructions][eia930] direct
+respondents to "submit their best estimates on schedule and correct the data
+with a resubmission within 3 days or as soon as the actual data is available,"
+and to resubmit within 30 days when an unexpected error exceeds 10 MWh. So a
+first-published value is an estimate the respondent is instructed to replace.
+On high-revision feeds we have observed it up to ~70% wrong — that magnitude is
+ours, measured; the fact that it revises at all is EIA's, documented. Scoring
+against it would grade both arms on a number EIA itself later withdrew. Only
+`last_d` counts — EIA's latest value for the hour, refreshed on every tick. Note what
 that is *not*: no flag marks an hour final, so `last_d` is settled in
 practice (revisions stop) rather than by declaration, and a very recent hour
 may still move. Both arms move with it together.
@@ -163,9 +169,9 @@ the same target hour the drift pipeline snapshots and the benchmark later
 grades — and the payload carries it as `observed_lead_h` with `lead_basis:
 "observed"`.
 
-**Theirs is documented, not observed.** The Form EIA-930 instructions put the
-day-ahead submission at **17–41 hours** ahead depending on hour-of-day. We
-cite that; we do not measure it, and the doc says so wherever it appears.
+**Theirs is documented, not observed.** The [Form EIA-930 instructions][eia930]
+put the day-ahead submission at **17–41 hours** ahead depending on hour-of-day.
+We cite that; we do not measure it, and the doc says so wherever it appears.
 
 **The conservative arm is earned.** The benchmark also scores our nominal
 **48h** snapshot. That arm may be *labelled* conservative only while the
@@ -398,3 +404,4 @@ the served baseline, would have improved SEC's published number while
 destroying what the arm measures.
 
 [#348]: https://github.com/kristenmartino/gridpulse/issues/348
+[eia930]: https://www.eia.gov/survey/form/eia_930/instructions.pdf
