@@ -19,6 +19,38 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-31 — ISO real-time feeds: the anchor case is dead. My reasoning was
+wrong.** [`docs/ISO_REALTIME_FEEDS.md`](docs/ISO_REALTIME_FEEDS.md).
+
+I recommended these across several turns on the premise that "EIA-930 is
+hourly and lagged" and that a fresher anchor would help. Measured:
+
+| | claimed | measured |
+|---|---|---|
+| EIA publication lag | "lagged" | **1.7h, identical across all 51 BAs** |
+| trailing stub hours | implied material | **median 0** (only ERCOT, 6h) |
+
+**And staleness costs nothing anyway.** Holding scored hours fixed and varying
+only anchor age: **2h costs +0.014 pts (median −0.036)**; even **24h costs
++0.087**. The 0–8h range is noise around zero, several entries negative. At a
+24h horizon the forecast is driven by weather and calendar, not recent demand.
+
+**A correction inside the correction:** my first probe reported 19.7h median
+staleness. That was my own bug — EIA's `D` and `DF` cover different ranges, so
+every future forecast-only hour was counted as a stale actual. The "18h" was
+the forecast horizon.
+
+**What ISO feeds verifiably offer instead** (fetched live, auth-free): NYISO
+publishes 5-min load *and* day-ahead forecasts **per zone** — 11 zones where
+EIA-930 gives one number. **Zonal decomposition is the real differentiator,
+not freshness** — a different hypothesis from the one I argued, and untested.
+
+Cost of that path: ~7 of 51 BAs (but ~62% of fleet MW error), seven separate
+integrations, zonal weather needed to match, and ERCOT gates its modern API.
+
+**Recommendation: do not build the ingestion I was recommending.** If ISO data
+is pursued, probe NYISO zonal structure against BA-level residuals *first*.
+
 **2026-07-31 — #230 fleet test: the pre-registered rule is NOT confirmed.**
 [`docs/DIRECT_MULTIHORIZON_FLEET.md`](docs/DIRECT_MULTIHORIZON_FLEET.md).
 51 BAs × 6 windows, 306 paired observations, zero skips.
