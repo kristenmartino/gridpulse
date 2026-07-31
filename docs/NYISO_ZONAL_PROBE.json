@@ -1,0 +1,50 @@
+{
+  "n_hours": 985,
+  "n_zones": 11,
+  "corr_tempspread_vs_templevel": 0.2569,
+  "within_temperature_band_spread_effect_pts": {
+    "cool": 0.512,
+    "mid": 0.061,
+    "hot": 0.804
+  },
+  "top_spread_quintile": {
+    "n_hours": 198,
+    "share_of_total_abs_error_pct": 25.6,
+    "share_of_hours_pct": 20.1
+  },
+  "mean_abs_resid_pct": 3.663,
+  "prediction_1_weather_diversity": {
+    "corr_tempspread_vs_absresid": 0.1229,
+    "abs_resid_by_tempspread_quintile": {
+      "1": 3.367,
+      "2": 3.352,
+      "3": 3.656,
+      "4": 3.268,
+      "5": 4.674
+    },
+    "temp_spread_range_f": [
+      3.9,
+      26.4
+    ]
+  },
+  "prediction_2_load_mix": {
+    "corr_downstateshare_vs_signedresid": 0.0851,
+    "signed_resid_by_downstate_quintile": {
+      "1": 0.611,
+      "2": -0.34,
+      "3": -2.098,
+      "4": -0.306,
+      "5": 1.771
+    }
+  },
+  "prediction_3_mix_instability": {
+    "corr_mixdeparture_vs_absresid": -0.0084,
+    "abs_resid_by_mixdeparture_quintile": {
+      "1": 4.317,
+      "2": 3.504,
+      "3": 3.227,
+      "4": 3.044,
+      "5": 4.224
+    }
+  }
+}

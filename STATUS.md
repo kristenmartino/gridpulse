@@ -19,6 +19,29 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-31 — NYISO zonal probe: 1 of 3 predictions survives.**
+[`docs/NYISO_ZONAL_PROBE.md`](docs/NYISO_ZONAL_PROBE.md). 985 hours, 11 zones.
+
+**Weather diversity — supported.** Abs residual by zonal temperature-spread
+quintile: 3.37, 3.35, 3.66, 3.27, **4.67**. A threshold, not a line (which is
+why corr is only +0.123). **Survives the temperature control** — spread and
+level correlate at +0.257, but the within-band effect is cool **+0.512**, mid
++0.061, hot **+0.804**. The mid band showing nothing is what makes it
+credible: mild weather means flat load response, so zonal disagreement
+shouldn't matter there. Top-spread quintile: 25.6% of error on 20.1% of hours.
+
+**Load mix — fails** (corr +0.085, non-monotonic). **Mix instability — fails**
+(corr −0.008, U-shaped).
+
+**Caution the finding owes:** 1.27× concentration is the *same shape* that
+produced two consecutive failures — hot hours were 1.43× and both the cooling
+pack and BTM died on it. Concentration says where error is, not that it is
+addressable.
+
+**Next step is one BA, not seven integrations:** bottom-up (11 zonal models +
+zonal weather, summed) vs top-down on NYISO, through the existing harness. If
+diversity really costs us, bottom-up should recover the 0.5–0.8 pts.
+
 **2026-07-31 — ISO real-time feeds: the anchor case is dead. My reasoning was
 wrong.** [`docs/ISO_REALTIME_FEEDS.md`](docs/ISO_REALTIME_FEEDS.md).
 
