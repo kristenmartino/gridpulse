@@ -46,5 +46,8 @@ pytest-mock>=3.14.0
 # Changed-lines coverage — the signal that matters on a PR, since total
 # coverage barely moves when 40 lines land in a 12,500-line codebase.
 diff-cover>=9.0.0
+# Mutation testing — does the suite NOTICE when the code is wrong?
+# Driver: scripts/mutation_test.py. Baseline: docs/TEST_QUALITY.md.
+mutmut>=3.7.0
 ruff>=0.5.0
 mypy>=1.10.0

@@ -38,6 +38,83 @@ markers = [
     "integration: marks integration tests",
 ]
 
+[tool.mutmut]
+# Mutation testing. Full rationale, baseline scores and the adjudicated
+# survivor ledger: docs/TEST_QUALITY.md. Driver: scripts/mutation_test.py.
+#
+# source_paths are COPIED into mutants/ and mutmut runs pytest from there, so
+# anything the selected tests import must be reachable — hence also_copy.
+# only_mutate then narrows what actually gets mutated.
+source_paths = ["models", "data", "simulation"]
+
+# The decision-critical seven: pure logic where a silently wrong number
+# propagates into a published result. Deliberately NOT the whole codebase —
+# I/O clients and persistence produce slow, mostly-equivalent mutants.
+only_mutate = [
+    "models/evaluation.py",
+    "models/rolling_eval.py",
+    "models/ensemble.py",
+    "models/skill.py",
+    "data/quality.py",
+    "data/feature_engineering.py",
+    "simulation/scenario_engine.py",
+]
+
+also_copy = [
+    "config.py",
+    "observability.py",
+    "hash_utils.py",
+    "health.py",
+    "ratelimit.py",
+    "reconcile.py",
+    "api.py",
+    "landing.py",
+    "app.py",
+    "assets",
+    "jobs",
+    "components",
+    "personas",
+    "web",
+    "scripts",
+    # Several unit tests assert on repo structure rather than behaviour
+    # (monitoring policies declared in docs/monitoring/README.md, third-party
+    # notices, docs sync). They cannot kill a mutant in the seven target
+    # modules, but they must not ERROR either — a failing test in the stats
+    # pass aborts the whole run.
+    "docs",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "Dockerfile",
+    ".env.example",
+    "requirements.txt",
+    "requirements.lock",
+]
+
+# The WHOLE unit suite, not just each module's obvious test file. A narrower
+# selection would report false survivors: mutants killed only by a test we
+# forgot to include would look like real gaps. mutmut's stats pass maps each
+# function to the tests that actually exercise it, so per-mutant it still runs
+# only the covering tests — the breadth costs one full pass, not one per
+# mutant.
+pytest_add_cli_args_test_selection = ["tests/unit"]
+
+# ONE deselected test, and it is not a judgement call about its value.
+# test_sqlite_cache_hit takes 36.8s in isolation — 76% of the whole 2,690-test
+# unit suite's runtime, and ~121s under mutmut's instrumentation. It reaches
+# data/feature_engineering.py incidentally (the callback it exercises runs the
+# feature pipeline en route), so mutmut re-ran it for EVERY feature-engineering
+# mutant: 904 mutants x ~124s, which does not finish. Deselected, that module's
+# mutants cost ~3s each.
+# The tradeoff, stated rather than hidden: if this test is the only thing that
+# would kill some feature-engineering mutant, that mutant is reported as a
+# survivor here. Given it is a SQLite cache-hit assertion on a callback helper,
+# that is unlikely — but it is a real limitation, recorded in
+# docs/TEST_QUALITY.md. The test's own runtime is tracked separately.
+pytest_add_cli_args = [
+    "--deselect",
+    "tests/unit/test_callbacks_helpers.py::TestRunForecastOutlook::test_sqlite_cache_hit",
+]
+
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true

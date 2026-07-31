@@ -1,0 +1,62 @@
+name: Mutation testing
+
+# Deliberately NOT part of PR CI.
+#
+# This is advisory. There is no threshold and no gate, because a threshold set
+# before the baseline is understood is how mutation testing gets switched off
+# three weeks later. The conditions under which it becomes a gate are written
+# down in docs/TEST_QUALITY.md.
+#
+# It answers the question coverage cannot: would the suite NOTICE if the code
+# were wrong?
+
+on:
+  schedule:
+    # Mondays 06:00 UTC — before the working week, after the weekend's merges.
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      module:
+        description: 'Single target to mutate, e.g. models/skill.py (blank = all seven)'
+        required: false
+        type: string
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mutate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      - name: Run mutation testing
+        run: |
+          python scripts/mutation_test.py \
+            ${{ inputs.module && format('--module {0}', inputs.module) || '' }} \
+            --json mutation-report.json \
+            --markdown mutation-report.md
+
+      # The score table and every logic survivor's diff, readable without
+      # downloading anything.
+      - name: Publish report
+        if: always()
+        run: cat mutation-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report
+          path: |
+            mutation-report.json
+            mutation-report.md
+          retention-days: 90
+          if-no-files-found: warn

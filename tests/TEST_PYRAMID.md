@@ -128,12 +128,43 @@ Common fixtures are defined in `tests/conftest.py`:
 | `mock_noaa_alerts_response` | Mocked NOAA alerts |
 | `feature_df` | Merged + engineered features |
 
+## Is the suite any good? (mutation testing)
+
+Everything above measures **how much** is tested. None of it measures whether
+the tests would **notice** if the code were wrong — and a suite can be 97%
+covered and still assert nothing that matters.
+
+Mutation testing answers the second question by breaking the code on purpose
+and checking whether the suite fails. A **survivor** is a mutant nothing
+caught: a line that can be broken with CI green.
+
+```bash
+python scripts/mutation_test.py                        # all targets
+python scripts/mutation_test.py --module models/skill.py
+python scripts/mutation_test.py --skip-run             # re-report only
+```
+
+Scope is the seven decision-critical modules in `[tool.mutmut] only_mutate`
+(pyproject.toml) — pure logic where a silently wrong number reaches a published
+result. Measured baselines, the survivor ledger, and the rules for reading a
+mutation score are in [`docs/TEST_QUALITY.md`](../docs/TEST_QUALITY.md).
+
+The relationship to coverage, concretely: `models/ensemble.py` is **85%**
+line-covered and scores **61.6%** on behavioural mutants. Coverage is a floor,
+not a verdict.
+
 ## Quality Gates (CI)
 
 Before merge:
-1. All unit tests pass
-2. All integration tests pass
-3. All E2E tests pass
-4. Zero syntax errors (`python -m py_compile`)
-5. No hardcoded secrets detected
+1. All unit, integration, and E2E tests pass (one instrumented run)
+2. Total coverage ≥ 70% over `data/models/simulation/personas/components`
+3. Changed-lines coverage reported by `diff-cover` (advisory — see PR comment)
+4. No hardcoded secrets detected
+5. `ruff check` and `ruff format --check` pass
 6. MAPE thresholds met (H2) — rollback grade blocks deploy
+
+Not a gate: mutation score. It runs weekly and on demand, and is advisory —
+see `docs/TEST_QUALITY.md` for the conditions under which that changes.
+
+Coverage artefacts on every run: `htmlcov/` (line-level HTML), `coverage.xml`,
+`junit.xml`, and a PR comment with the per-file table.
