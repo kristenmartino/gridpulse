@@ -80,6 +80,17 @@ MIN_SEED_H = 168
 
 DEFAULT_REGIONS = ["PJM", "MISO", "ERCOT", "ISONE"]
 
+#: Pre-registered in docs/DIRECT_MULTIHORIZON_PREREGISTRATION.md before the
+#: fleet run. Difficulty = mean of the two arms' WAPE (symmetric, sharing no
+#: term with the delta). NOT to be re-tuned to fit a result.
+HARD_BA_WAPE_THRESHOLD = 5.00
+
+#: CV folds for the study only. `train_xgboost` fits its FINAL model on all
+#: rows after cross-validating, so n_splits changes the reported cv_scores and
+#: nothing else — the fitted model and its predictions are identical. Halving
+#: it is a free ~50% speedup on a 306-pair fleet run.
+STUDY_CV_SPLITS = 2
+
 
 def _non_autoregressive_cols(feats: pd.DataFrame) -> list[str]:
     """Feature columns that are known at issue time for any future hour.
@@ -185,7 +196,7 @@ def study_region(region: str, api_key: str, *, n_windows: int) -> dict[str, Any]
 
         # -- control: production's own recursive protocol -------------------
         try:
-            rec_model = train_xgboost(feats.iloc[train_sl])
+            rec_model = train_xgboost(feats.iloc[train_sl], n_splits=STUDY_CV_SPLITS)
             seed = feats["demand_mw"].to_numpy(dtype=float)[:origin]
             future = feats.iloc[test_sl].copy()
             rec = recursive_autoregressive_forecast(rec_model, seed, future, predict_xgboost)
@@ -199,7 +210,7 @@ def study_region(region: str, api_key: str, *, n_windows: int) -> dict[str, Any]
             if direct_train.empty:
                 raise ValueError("no direct training rows")
             fit_frame = direct_train.rename(columns={"target": "demand_mw"})
-            dir_model = train_xgboost(fit_frame)
+            dir_model = train_xgboost(fit_frame, n_splits=STUDY_CV_SPLITS)
             dir_pred = _direct_forecast(dir_model, feats, origin, FORECAST_H)
         except Exception as e:
             w["direct_error"] = str(e)[:150]
@@ -241,6 +252,14 @@ def study_region(region: str, api_key: str, *, n_windows: int) -> dict[str, Any]
         "horizon_h": FORECAST_H,
         "n_windows_scored": len(scored),
         "verdict": v,
+        # Minimum detectable effect at this window count. Reported because the
+        # 10-BA run's two largest effects sat BELOW their own MDE and read as
+        # "inconclusive" — the test could not see them, which is a different
+        # statement from "no effect".
+        "mde_pts": round(2 * v["stderr"], 4) if v.get("stderr") else None,
+        "detectable": (
+            bool(abs(v["mean"]) >= 2 * v["stderr"]) if v.get("stderr") and v.get("mean") else None
+        ),
         "satisficing": sat,
         "ship": bool(v["decisive"] and v["winner"] == "treatment" and sat["passed"]),
         "recursive_mean": {k: _mean("recursive", k) for k in ("wape", "mape", "bias_pct")},
@@ -286,7 +305,55 @@ def main() -> int:
             json.dump({"regions": results}, fh, indent=2)
 
     scored = [r for r in results if "verdict" in r]
+
     if scored:
+        # ---- pre-registered pooled test (the well-powered unit) -----------
+        from models.rolling_eval import verdict as _verdict
+
+        hard_d: list[float] = []
+        easy_d: list[float] = []
+        for r in scored:
+            difficulty = (r["recursive_mean"]["wape"] + r["direct_mean"]["wape"]) / 2
+            bucket = hard_d if difficulty >= HARD_BA_WAPE_THRESHOLD else easy_d
+            bucket.extend(w["delta_wape"] for w in r["windows"] if w.get("delta_wape") is not None)
+        v_hard, v_easy = _verdict(hard_d), _verdict(easy_d)
+        separation = (v_hard["mean"] or 0) - (v_easy["mean"] or 0)
+        criteria = {
+            "1_hard_positive_decisive": bool(
+                v_hard["decisive"] and v_hard["winner"] == "treatment"
+            ),
+            "2_easy_not_positive_decisive": not (
+                v_easy["decisive"] and v_easy["winner"] == "treatment"
+            ),
+            "3_separation_ge_0.5pts": bool(separation >= 0.5),
+        }
+        print("\n== PRE-REGISTERED POOLED TEST ==")
+        print(
+            json.dumps(
+                {
+                    "threshold_wape": HARD_BA_WAPE_THRESHOLD,
+                    "hard": {
+                        "n_windows": v_hard["n"],
+                        **{
+                            k: v_hard[k]
+                            for k in ("mean", "median", "stderr", "decisive", "winner", "reason")
+                        },
+                    },
+                    "easy": {
+                        "n_windows": v_easy["n"],
+                        **{
+                            k: v_easy[k]
+                            for k in ("mean", "median", "stderr", "decisive", "winner", "reason")
+                        },
+                    },
+                    "separation_pts": round(separation, 4),
+                    "criteria": criteria,
+                    "CONFIRMED": all(criteria.values()),
+                },
+                indent=2,
+            )
+        )
+
         print("\n== SUMMARY ==")
         print(
             json.dumps(
