@@ -28,6 +28,9 @@ env/
 htmlcov/
 coverage.xml
 .coverage
+junit.xml
+diff-cover.html
+diff-cover.md
 
 # Linting
 .ruff_cache/

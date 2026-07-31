@@ -19,7 +19,8 @@
 - [ ] Type hints on all new functions
 - [ ] Docstrings on all new public functions
 - [ ] `ruff check` and `ruff format` pass
-- [ ] Coverage thresholds maintained (data/ ≥90%, models/ ≥85%, simulation/ ≥90%)
+- [ ] Coverage gate holds (global ≥70% over data/models/simulation/personas/components)
+- [ ] Changed-lines coverage reviewed — see the `diff-cover` step summary on this PR
 - [ ] PRD.md and TECHNICAL_SPEC.md updated if implementation deviates
 
 ## Screenshots / Charts

@@ -46,8 +46,14 @@ warn_return_any = true
 warn_unused_configs = true
 
 [tool.coverage.run]
-source = ["data", "models", "simulation", "personas"]
+# Keep this list identical to the --cov flags in .github/workflows/ci.yml.
+# `components` was measured by CI but missing here, so a local `coverage
+# report` disagreed with the number the PR gate enforced.
+source = ["data", "models", "simulation", "personas", "components"]
 omit = ["tests/*", "app.py"]
+# Required by python-coverage-comment-action: the runner's absolute paths must
+# not leak into .coverage, or the action cannot map lines back to the diff.
+relative_files = true
 
 [tool.coverage.report]
 fail_under = 70
