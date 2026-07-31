@@ -32,6 +32,13 @@ junit.xml
 diff-cover.html
 diff-cover.md
 
+# Mutation testing — mutants/ is the throwaway tree mutmut copies the source
+# into; reports are regenerated (baseline lives in docs/TEST_QUALITY.md).
+mutants/
+.mutmut-cache
+mutation-report.json
+mutation-report.md
+
 # Linting
 .ruff_cache/
 .mypy_cache/
