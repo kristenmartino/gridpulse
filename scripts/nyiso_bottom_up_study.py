@@ -59,10 +59,21 @@ import numpy as np
 import pandas as pd
 
 from scripts.arima_order_exog_study import ARCHIVE_LAG_DAYS, _archive_weather
+from scripts.caiso_zonal_source import CAISO_ZONE_COORDS, fetch_caiso_zonal_load
 from scripts.error_analysis import MIN_TRAIN_H, _fit_predict_xgb, make_day_ahead_safe
 from scripts.nyiso_zonal_probe import ZONE_COORDS, fetch_zonal_load
 
 HOLDOUT_H = 168
+
+#: Zonal sources, keyed by ISO. PJM and ISO-NE are deliberately absent: both
+#: gate zonal load behind registration (PJM Data Miner 2 and the ISO-NE web
+#: services API both return HTTP 401 without a key, verified 2026-07-31), and
+#: every open ISO-NE static path tried returned 404. NYISO's fully-open archive
+#: is the exception among ISOs, not the rule.
+ZONAL_SOURCES = {
+    "NYISO": (fetch_zonal_load, ZONE_COORDS),
+    "CAISO": (fetch_caiso_zonal_load, CAISO_ZONE_COORDS),
+}
 
 #: The BA-level weather point the top-down arm uses — production's own NYISO
 #: coordinate, so the control is what production actually runs.
@@ -87,7 +98,7 @@ def _featurise(load: pd.Series, weather: pd.DataFrame) -> pd.DataFrame:
     return make_day_ahead_safe(feats).dropna(subset=["demand_mw"]).reset_index(drop=True)
 
 
-def study(months: int, windows: int) -> dict[str, Any]:
+def study(months: int, windows: int, iso: str = "NYISO") -> dict[str, Any]:
     from models.evaluation import compute_mape
     from models.rolling_eval import (
         bias_pct,
@@ -101,16 +112,18 @@ def study(months: int, windows: int) -> dict[str, Any]:
     end = datetime.now(UTC) - timedelta(days=ARCHIVE_LAG_DAYS)
     start = end - timedelta(days=months * 31)
 
-    print("  fetching zonal load ...", flush=True)
-    zl = fetch_zonal_load(months)
+    fetch_fn, coords_map = ZONAL_SOURCES[iso]
+    print(f"  fetching {iso} zonal load ...", flush=True)
+    zl = fetch_fn(months)
     if zl.empty:
         return {"skipped": "no zonal load"}
-    zones = [z for z in ZONE_COORDS if z in zl.columns]
+    zones = [z for z in coords_map if z in zl.columns]
     total = zl[zones].sum(axis=1)
 
     print("  fetching weather (1 BA point + 11 zone points) ...", flush=True)
-    ba_weather = _archive_weather(BA_COORDS["lat"], BA_COORDS["lon"], start, end)
-    zone_weather = {z: _archive_weather(*ZONE_COORDS[z], start, end) for z in zones}
+    ba = REGION_COORDINATES[iso]
+    ba_weather = _archive_weather(ba["lat"], ba["lon"], start, end)
+    zone_weather = {z: _archive_weather(*coords_map[z], start, end) for z in zones}
 
     # Feature frames: one for the total (BA weather), one per zone (own weather).
     top = _featurise(total, ba_weather)
@@ -226,7 +239,8 @@ def study(months: int, windows: int) -> dict[str, Any]:
         treatment_mape=_mean("bottom_up", "mape"),
     )
     return {
-        "target": "sum of NYISO zones (not EIA D — see module docstring)",
+        "iso": iso,
+        "target": f"sum of {iso} zones (not EIA D — see module docstring)",
         "n_zones": len(zones),
         "n_windows_scored": len(scored),
         "verdict": v,
@@ -249,6 +263,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--months", type=int, default=4)
     ap.add_argument("--windows", type=int, default=6)
+    ap.add_argument("--iso", default="NYISO", choices=sorted(ZONAL_SOURCES))
     ap.add_argument("--out", default="docs/NYISO_BOTTOM_UP_STUDY.json")
     args = ap.parse_args()
 
@@ -256,7 +271,7 @@ def main() -> int:
         print("EIA_API_KEY not set")
         return 2
 
-    res = study(args.months, args.windows)
+    res = study(args.months, args.windows, iso=args.iso)
     print("\n== RESULT ==")
     print(json.dumps({k: v for k, v in res.items() if k != "windows"}, indent=2))
     with open(args.out, "w") as fh:
