@@ -19,6 +19,32 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-30 — #230 direct multi-horizon: not a rewrite, possibly a per-BA
+choice.** [`docs/DIRECT_MULTIHORIZON_STUDY.md`](docs/DIRECT_MULTIHORIZON_STUDY.md).
+
+10 BAs × 5 windows at 168h. **One decisive win (PJM +1.124) and one decisive
+loss (SPP −1.206) that cancel; 5 better / 5 worse; 1 of 10 ships.** Mean +0.646
+vs median +0.091 — the outlier-domination gap the harness flags.
+
+**The conditional signal is the real finding:** direct helps where recursion is
+already struggling. corr(mean-of-arms WAPE, Δ) = **+0.737** on a symmetric
+axis; harder half mean **+1.350** (4/5 better), easier half −0.058 (1/5).
+Exactly what error accumulation predicts. **But the threshold was chosen after
+seeing the data, and SPP is a decisive counterexample inside the harder half.**
+
+**Bias is why it is not free:** direct −1.848% vs recursive −0.636% mean — it
+under-forecasts ~3× more, the expensive direction.
+
+**Recommendation:** don't rewrite; don't discard. Next test is a 51-BA run with
+the threshold *pre-registered*, and if it survives, per-BA strategy selection
+rather than a rewrite — ADR-010's serve-path gate is already shaped to carry it.
+
+**Process note worth keeping.** The first version sampled 14 training horizons
+and let `horizon_h` interpolate; trees split rather than interpolate, so
+unsampled horizons were mis-served. That version measured **−0.757** on PJM.
+Training on all 168 flipped it to **+0.754** — a 1.5-point swing from my own
+sampling choice, which would have rejected #230 on an implementation artifact.
+
 **2026-07-30 — BTM solar: not supported. Two of three predictions fail.**
 [`docs/BTM_SOLAR_PROBE.md`](docs/BTM_SOLAR_PROBE.md). Probed residuals rather
 than building features — the explicit lesson from the cooling pack.
