@@ -1828,9 +1828,24 @@ class TestRunForecastOutlook:
 
     @patch("data.cache.get_cache")
     def test_sqlite_cache_hit(self, mock_get_cache, demand_df, weather_df):
-        from components.callbacks import _run_forecast_outlook
+        # The read guard requires cache_version AND data_hash to match; a payload
+        # missing either falls through to inline training, which still satisfies
+        # a bare "predictions is an ndarray" assertion. That is exactly how this
+        # test silently stopped covering the cache path for three months (the
+        # guard landed in a618374, the payload was never updated) while costing
+        # ~36s of real XGBoost training per run. The train_xgboost guard below
+        # makes a fall-through fail loudly instead of passing slowly.
+        import components.callbacks as cb
+        from components.callbacks import (
+            _CACHE_VERSION,
+            _compute_data_hash,
+            _run_forecast_outlook,
+        )
 
+        data_hash = _compute_data_hash(demand_df, weather_df, "ERCOT")
         sqlite_result = {
+            "cache_version": _CACHE_VERSION,
+            "data_hash": data_hash,
             "predictions": [30000, 31000],
             "timestamps": ["2024-07-01 01:00:00", "2024-07-01 02:00:00"],
         }
@@ -1838,9 +1853,20 @@ class TestRunForecastOutlook:
         mock_cache.get.return_value = sqlite_result
         mock_get_cache.return_value = mock_cache
 
-        result = _run_forecast_outlook(demand_df, weather_df, 24, "xgboost", "ERCOT")
+        with patch(
+            "models.xgboost_model.train_xgboost",
+            side_effect=AssertionError("SQLite cache hit must not reach model training"),
+        ):
+            result = _run_forecast_outlook(demand_df, weather_df, 24, "xgboost", "ERCOT")
+
+        mock_cache.get.assert_called_once_with("forecast:ERCOT:24:xgboost")
         assert "predictions" in result
         assert isinstance(result["predictions"], np.ndarray)
+        np.testing.assert_array_equal(result["predictions"], np.array([30000, 31000]))
+        assert isinstance(result["timestamps"], pd.DatetimeIndex)
+
+        # The SQLite hit primes the in-memory cache so the next call skips SQLite.
+        assert ("ERCOT", 24, "xgboost") in cb._PREDICTION_CACHE
 
     @patch("data.cache.get_cache")
     @patch("data.preprocessing.merge_demand_weather")

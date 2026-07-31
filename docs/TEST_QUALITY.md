@@ -203,24 +203,14 @@ These bound what the score can prove. None of them are silent.
    mutant that only such a test would catch is reported as a false survivor.
    Affects at least `tests/unit/test_stable_hash_reproducibility.py`.
 
-2. **One test is deselected.**
-   `test_callbacks_helpers.py::TestRunForecastOutlook::test_sqlite_cache_hit`
-   takes **36.8s** standalone — 76% of the whole 2,690-test unit suite's
-   runtime, ~121s under instrumentation. It touches
-   `data/feature_engineering.py` incidentally, so mutmut re-ran it for every one
-   of that module's 904 mutants, which does not finish. It is deselected in
-   `[tool.mutmut] pytest_add_cli_args`. Consequence: any feature-engineering
-   mutant only that test would kill is reported as a survivor. Tracked
-   separately as its own fix; when it is fast, delete the deselect and this note.
-
-3. **Equivalent mutants are counted as survivors.** No tool can identify them
+2. **Equivalent mutants are counted as survivors.** No tool can identify them
    automatically. They are a permanent floor under 100%, which is one reason
    there is no target score.
 
-4. **Unit tests only.** Integration and e2e tests are not in the selection —
+3. **Unit tests only.** Integration and e2e tests are not in the selection —
    they need infrastructure the `mutants/` tree does not have.
 
-5. **Threading is pinned to one thread per pool.** `scripts/mutation_test.py`
+4. **Threading is pinned to one thread per pool.** `scripts/mutation_test.py`
    sets `OMP_NUM_THREADS=1` and friends before invoking mutmut. Without it,
    forking a parent with a live threaded BLAS pool deadlocks the workers — they
    sit at 0% CPU indefinitely and mutmut's wall-clock timeout never fires
