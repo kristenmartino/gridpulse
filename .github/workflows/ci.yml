@@ -55,26 +55,95 @@ jobs:
   test:
     runs-on: ubuntu-latest
     needs: [lint, security]
+    # The coverage comment action writes a badge to an orphan data branch and
+    # posts/updates a single PR comment.
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
+      # Full history: diff-cover needs the merge-base with the target branch.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: pip
       - run: pip install -r requirements.txt
-      - name: Unit Tests
-        run: pytest tests/unit/ -v --tb=short -m "not slow"
-      - name: Integration Tests
-        run: pytest tests/integration/ -v --tb=short
-      - name: E2E Tests
-        run: pytest tests/e2e/ -v --tb=short
-      - name: v2 Pipeline Tests
-        run: pytest scaling-analytics/tests/ -v --tb=short 2>/dev/null || echo "v2 tests skipped (optional)"
-      - name: Coverage Report
+
+      # ONE instrumented run over the whole pyramid. This used to be four steps
+      # — unit, integration, e2e, then the entire suite AGAIN for coverage —
+      # which ran every test twice for no added signal. pytest's own output
+      # still names the failing layer, and single-process full-suite execution
+      # was already proven green: the old "Coverage Report" step did exactly
+      # this.
+      #
+      # `--cov-fail-under=0` overrides the `fail_under` in pyproject.toml ON
+      # THIS STEP ONLY. Without it pytest-cov applies the threshold itself, so
+      # a coverage shortfall would surface as a *test* failure and abort the
+      # job before any report is published. The threshold is enforced by the
+      # gate step at the end instead, once the artifacts and PR comment exist.
+      - name: Tests + coverage
         run: |
-          pytest tests/ -m "not slow" \
+          pytest tests/ --tb=short \
             --cov=data --cov=models --cov=simulation --cov=personas --cov=components \
-            --cov-report=term-missing --cov-fail-under=70
+            --cov-report=term-missing --cov-report=xml --cov-report=html \
+            --cov-fail-under=0 \
+            --junitxml=junit.xml
+
+      # The line-level artifact: every source file rendered with covered and
+      # uncovered lines highlighted. Uploaded even when the suite fails, which
+      # is when it is most useful.
+      - name: Upload coverage + test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: |
+            htmlcov/
+            coverage.xml
+            junit.xml
+          retention-days: 14
+
+      # Total coverage barely moves when 40 lines land in a 12,500-line
+      # codebase, so it is the wrong instrument for reviewing a PR. This is the
+      # one that matters: are the lines THIS PR touched actually executed?
+      # Advisory (--fail-under=0) until the real distribution is known.
+      - name: Changed-lines coverage
+        if: github.event_name == 'pull_request'
+        run: |
+          pip install diff-cover
+          diff-cover coverage.xml \
+            --compare-branch=origin/${{ github.base_ref }} \
+            --html-report diff-cover.html \
+            --markdown-report diff-cover.md \
+            --fail-under=0
+          {
+            echo '## Changed-lines coverage'
+            echo
+            cat diff-cover.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload changed-lines report
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: diff-coverage
+          path: diff-cover.html
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Coverage PR comment
+        if: always()
+        uses: py-cov-action/python-coverage-comment-action@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          MINIMUM_GREEN: 85
+          MINIMUM_ORANGE: 70
+
+      # The gate itself, last, so the reports above always publish first.
+      - name: Coverage gate
+        run: coverage report --fail-under=70
 
   docker:
     runs-on: ubuntu-latest

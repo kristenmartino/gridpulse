@@ -43,5 +43,8 @@ holidays>=0.55
 pytest>=8.0.0
 pytest-cov>=5.0.0
 pytest-mock>=3.14.0
+# Changed-lines coverage — the signal that matters on a PR, since total
+# coverage barely moves when 40 lines land in a 12,500-line codebase.
+diff-cover>=9.0.0
 ruff>=0.5.0
 mypy>=1.10.0
