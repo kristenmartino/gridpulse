@@ -330,8 +330,14 @@ def verdict(
 
     out["decisive"] = True
     out["winner"] = "treatment" if mean > 0 else "control"
+    # `stderr` is 0 when every window produced the identical delta. The branch
+    # above already handles that for `t`; this string divided by it anyway and
+    # raised ZeroDivisionError, so a treatment that improved every window by
+    # exactly the same amount crashed the verdict instead of winning it.
+    spread = (
+        f" ({abs(mean) / stderr:.1f}x stderr)" if stderr > 0 else " (identical in every window)"
+    )
     out["reason"] = (
-        f"{out['winner']} wins {consistency:.0%} of {n} windows, "
-        f"mean {mean:+.3f} pts ({abs(mean) / stderr:.1f}x stderr)"
+        f"{out['winner']} wins {consistency:.0%} of {n} windows, mean {mean:+.3f} pts{spread}"
     )
     return out

@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import ast
 import json
+import os
 import re
 import subprocess
 import sys
@@ -155,6 +156,16 @@ def _run_suite(test_path: str | list[str], timeout: int) -> tuple[bool, list[str
     seconds, while a genuine survivor pays the full suite runtime. That
     asymmetry is the right way round — survivors are the interesting result and
     deserve the complete check.
+
+    **PYTHONDONTWRITEBYTECODE is not optional here.** CPython invalidates a
+    ``.pyc`` on (mtime, size), both at one-second resolution for mtime. Many
+    mutations preserve length exactly — ``round(x, 3)`` -> ``round(x, 4)``,
+    ``history[-1]`` -> ``history[-2]``, ``max(0, ..)`` -> ``max(1, ..)`` — and
+    this loop writes, runs, and restores in well under a second. Same size plus
+    same mtime-second means the stale bytecode is reused and the mutation never
+    takes effect, so the run reports ``confirmed`` for a mutant that was never
+    actually applied. That failure mode is silent and biased in one direction:
+    it can only manufacture false survivors, never false kills.
     """
     paths = [test_path] if isinstance(test_path, str) else list(test_path)
     proc = subprocess.run(
@@ -174,6 +185,7 @@ def _run_suite(test_path: str | list[str], timeout: int) -> tuple[bool, list[str
         text=True,
         timeout=timeout,
         check=False,
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     out = proc.stdout + proc.stderr
     if proc.returncode == 0:
