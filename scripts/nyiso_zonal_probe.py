@@ -76,6 +76,50 @@ ZONE_COORDS: dict[str, tuple[float, float]] = {
     "WEST": (42.89, -78.88),  # Buffalo
 }
 
+#: NYISO's 11 zones aggregated into 5 by geographic contiguity, to mirror
+#: CAISO's large contiguous utility territories. Fixed in
+#: docs/SUPERZONE_PREREGISTRATION.md before the run; not to be re-grouped to
+#: fit a result.
+SUPER_ZONES: dict[str, tuple[str, ...]] = {
+    "WEST": ("WEST", "GENESE"),
+    "CENTRAL": ("CENTRL", "MHK VL"),
+    "NORTH_CAPITAL": ("NORTH", "CAPITL"),
+    "LOWER_HUDSON": ("HUD VL", "MILLWD", "DUNWOD"),
+    "METRO": ("N.Y.C.", "LONGIL"),
+}
+
+#: Super-zone weather point = mean of its members' coordinates, so a
+#: super-zone gets exactly one weather input, as CAISO's TAC areas do.
+SUPER_ZONE_COORDS: dict[str, tuple[float, float]] = {
+    name: (
+        sum(ZONE_COORDS[z][0] for z in members) / len(members),
+        sum(ZONE_COORDS[z][1] for z in members) / len(members),
+    )
+    for name, members in SUPER_ZONES.items()
+}
+
+
+def fetch_superzone_load(months: int) -> pd.DataFrame:
+    """The same NYISO load, summed into the 5 pre-registered super-zones.
+
+    Identical source and hours as `fetch_zonal_load` — only the column
+    grouping differs, so a comparison between them isolates zone count rather
+    than data availability.
+    """
+    zl = fetch_zonal_load(months)
+    if zl.empty:
+        return zl
+    out = pd.DataFrame(index=zl.index)
+    for name, members in SUPER_ZONES.items():
+        present = [z for z in members if z in zl.columns]
+        if len(present) != len(members):
+            # Partial membership would silently change what the super-zone
+            # means; better to drop it than to sum a different thing.
+            continue
+        out[name] = zl[list(present)].sum(axis=1)
+    return out.dropna(how="any")
+
+
 #: Zones treated as "downstate" for the load-mix test — the metropolitan load
 #: pocket whose weather differs most from the upstate zones.
 DOWNSTATE = ("N.Y.C.", "LONGIL", "DUNWOD", "MILLWD", "HUD VL")
