@@ -237,6 +237,145 @@ class TestCoerceDemandArtifacts:
         assert exclusions == []
         pd.testing.assert_frame_equal(cleaned, frame)
 
+    # ------------------------------------------------------------------
+    # Below: the series-level behaviour mutation testing found unpinned
+    # (docs/TEST_QUALITY.md — 40 confirmed survivors here, the largest
+    # cluster in the codebase).
+    #
+    # The cases above all use inputs that TWO signals catch, so they cannot
+    # tell whether the third is wired up, and they assert on the exclusion
+    # COUNT rather than on what the exclusion says. Both gaps matter: the
+    # day-ahead signal is the only one that catches a stuck partial, and the
+    # payload is rendered verbatim on the region tiles, in the operating
+    # summary, and on /api/v1/grid/summary.
+    # ------------------------------------------------------------------
+
+    def test_the_day_ahead_signal_survives_the_plumbing(self):
+        """A stuck partial that ONLY signal 3 can catch.
+
+        Every other coercion test here uses a reading that signals 1 or 2
+        already catch, so the whole ``forecast_mw`` path — reading the column,
+        indexing it per row, passing it through as ``day_ahead_mw`` — could be
+        cut out entirely and the suite would stay green. That is the exact
+        shape of the #309 finding this signal was added for: IID frozen at 339
+        is above the near-zero floor and has no step to detect, and only the
+        day-ahead ratio sees it.
+
+        340 against a 1000 MW median is 34% — well above the 10% near-zero
+        floor. The prior reading is 800, so the drop is 58% and the step
+        signal (which needs >60%) stays silent. Only 340 < 50% of the BA's own
+        1000 MW day-ahead forecast marks it.
+        """
+        rows = _steady(1000.0, 24, df_mw=1000.0) + [(800.0, 1000.0), (340.0, 1000.0)]
+
+        _, exclusions = coerce_demand_artifacts(_frame(rows))
+        assert len(exclusions) == 1, "the day-ahead signal must reach the series function"
+        assert "day-ahead" in exclusions[0]["reason"]
+
+        # Same reading, no day-ahead column: nothing else can see it.
+        _, without = coerce_demand_artifacts(_frame(rows).drop(columns=["forecast_mw"]))
+        assert without == [], "proves signals 1 and 2 are blind here, so signal 3 did the work"
+
+    def test_the_disclosure_payload_is_exact(self):
+        """``ts``/``mw``/``reason`` are rendered verbatim, so pin all three.
+
+        The existing tests assert a count and a substring, which leaves the
+        timestamp unasserted entirely — it could be dropped to ``None`` and
+        nothing would notice, putting "as of None" on the region tile.
+
+        The reading carries decimals on purpose. With a whole number the
+        2-decimal rounding is invisible, and ``round(x, 2)`` could become
+        ``round(x, 3)`` unnoticed — real frames are float64 and do carry
+        fractional MW.
+        """
+        rows = _steady(1000.0, 24, df_mw=1000.0) + [(800.0, 1000.0), (340.456, 1000.0)]
+
+        _, exclusions = coerce_demand_artifacts(_frame(rows))
+
+        assert exclusions == [
+            {
+                "ts": NOW.isoformat(),
+                "mw": 340.46,
+                "reason": "34% of the BA's own day-ahead forecast",
+            }
+        ]
+
+    def test_the_near_zero_reason_reports_the_share_of_the_median(self):
+        """Signal 1's disclosure names the median it was measured against.
+
+        Reached by keeping the reading above 50% of its day-ahead forecast, so
+        the day-ahead branch does not claim the reason first.
+        """
+        rows = _steady(1000.0, 25, df_mw=1000.0) + [(50.0, 60.0)]
+
+        _, exclusions = coerce_demand_artifacts(_frame(rows))
+
+        assert exclusions[0]["reason"] == "near-zero vs 24h median (5%)"
+
+    def test_the_step_collapse_reason_reports_the_drop_and_the_level(self):
+        """Signal 2's disclosure carries two numbers, and both are computed.
+
+        ``drop`` is ``1 - current/prev`` — a sign flip or a swapped operator
+        renders a plausible-looking percentage that is simply wrong, on a
+        surface whose entire job is explaining an exclusion to an operator.
+        """
+        rows = _steady(1000.0, 25, df_mw=1000.0) + [(300.0, 500.0)]
+
+        _, exclusions = coerce_demand_artifacts(_frame(rows))
+
+        assert exclusions[0]["reason"] == "70% single-hour drop to 30% of the daily median"
+
+    def test_a_frame_without_timestamps_still_discloses(self):
+        """The ``ts`` fallback is a real path, not dead defensive code.
+
+        GCS-fallback frames are rebuilt from parquet and do not always carry a
+        ``timestamp`` column, so the ``str(ts)`` branch runs in production. It
+        was entirely unexercised — the exclusion still has to be well-formed
+        for ``/api/v1/grid/summary`` to serialise it.
+        """
+        frame = _frame(_steady(3300.0, 29) + [(730.0, 3515.0)]).drop(columns=["timestamp"])
+
+        _, exclusions = coerce_demand_artifacts(frame)
+
+        assert len(exclusions) == 1
+        assert exclusions[0]["ts"] == "None", "no timestamp, but the field is still a string"
+        assert exclusions[0]["mw"] == 730.0
+
+    def test_the_reason_thresholds_are_exclusive_at_the_edge(self):
+        """Which reason an operator is shown is decided by strict ``<``.
+
+        Both selection thresholds could be relaxed to ``<=`` with the suite
+        green, which mislabels an exclusion at exactly the boundary — the
+        reading would still be excluded, but the disclosure would name the
+        wrong signal, sending whoever reads it to the wrong upstream cause.
+        """
+        # Exactly 50% of the day-ahead forecast: NOT the day-ahead reason.
+        rows = _steady(6000.0, 25, df_mw=6000.0) + [(500.0, 1000.0)]
+        _, at_day_ahead_edge = coerce_demand_artifacts(_frame(rows))
+        assert at_day_ahead_edge[0]["reason"] == "near-zero vs 24h median (8%)"
+
+        # Exactly 10% of the 24h median: NOT the near-zero reason.
+        rows = _steady(6000.0, 25, df_mw=6000.0) + [(600.0, 1000.0)]
+        _, at_near_zero_edge = coerce_demand_artifacts(_frame(rows))
+        assert at_near_zero_edge[0]["reason"] == "90% single-hour drop to 10% of the daily median"
+
+    def test_prev_is_the_newest_real_reading_not_an_older_one(self):
+        """The step signal compares against the LAST real hour.
+
+        ``history[-1]`` mutated to ``history[-2]`` or ``history[+1]`` reaches
+        back to the 1000 MW plateau instead of the 500 MW hour immediately
+        before, turning a legitimate 50% decline into an apparent 75% collapse
+        and excluding a real reading.
+
+        250 after 500 is a 50% step — under the 60% threshold, so nothing
+        should fire. Measured against 1000 it would look like 75% and would.
+        """
+        rows = _steady(1000.0, 24, df_mw=1000.0) + [(500.0, 1000.0), (250.0, 400.0)]
+
+        _, exclusions = coerce_demand_artifacts(_frame(rows))
+
+        assert exclusions == [], "a 50% decline from the previous real hour is not a collapse"
+
 
 class TestIsRealPositive:
     """Promoted verbatim from _callbacks_us_grid — behavior identical."""
