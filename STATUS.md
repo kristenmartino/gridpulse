@@ -19,6 +19,36 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-07-31 — granularity is not the driver either. Three mechanisms, three
+refutations.** [`docs/SUPERZONE_STUDY.md`](docs/SUPERZONE_STUDY.md).
+
+Pre-registered prediction **failed**: halving NYISO 11 → 5 zones left the gain
+unchanged, **+0.745 vs +0.729**, both decisive, both 100% sign consistency.
+Five weather points did as much as eleven.
+
+| | NYISO 11 | NYISO 5 | CAISO 5 |
+|---|---:|---:|---:|
+| gain | +0.729 | **+0.745** | +0.283 |
+| verdict | decisive | **decisive** | inconclusive |
+
+At **equal zone count** NYISO gains decisively and CAISO does not. Not granularity.
+
+**Three candidate mechanisms, all contradicted:** weather diversity (CAISO has
+more spread, gains less), granularity (5 = 11 on NYISO), component
+heterogeneity (CAISO inter-zone corr **0.412** vs NYISO **0.826** — less
+correlated, gains less).
+
+**Untested observation that survives:** CAISO's zones are not comparable —
+SCE 0.48, PGE 0.42, SDGE 0.09, **MWD 0.01, VEA 0.004**. Two are rounding
+errors, each contributing its own model error for no signal. Bottom-up may
+need comparably-sized components. **Not tested** — the pre-registration forbade
+re-grouping after seeing results, and that is exactly what dropping MWD/VEA
+would be. Needs its own pre-registration.
+
+**Still do not build zonal ingestion.** A robust one-ISO effect with no working
+explanation and one failed replication is not a foundation. This run's value is
+negative: zone count is off the candidate list.
+
 **2026-07-31 — bottom-up does NOT generalise, and the mechanism is
 contradicted.** [`docs/ZONAL_GENERALISATION.md`](docs/ZONAL_GENERALISATION.md).
 

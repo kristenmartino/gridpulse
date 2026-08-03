@@ -61,7 +61,12 @@ import pandas as pd
 from scripts.arima_order_exog_study import ARCHIVE_LAG_DAYS, _archive_weather
 from scripts.caiso_zonal_source import CAISO_ZONE_COORDS, fetch_caiso_zonal_load
 from scripts.error_analysis import MIN_TRAIN_H, _fit_predict_xgb, make_day_ahead_safe
-from scripts.nyiso_zonal_probe import ZONE_COORDS, fetch_zonal_load
+from scripts.nyiso_zonal_probe import (
+    SUPER_ZONE_COORDS,
+    ZONE_COORDS,
+    fetch_superzone_load,
+    fetch_zonal_load,
+)
 
 HOLDOUT_H = 168
 
@@ -73,7 +78,14 @@ HOLDOUT_H = 168
 ZONAL_SOURCES = {
     "NYISO": (fetch_zonal_load, ZONE_COORDS),
     "CAISO": (fetch_caiso_zonal_load, CAISO_ZONE_COORDS),
+    # Same NYISO data, 11 zones summed into 5 by geographic contiguity. The
+    # BA-level weather point and every other setting are unchanged, so a
+    # comparison against "NYISO" isolates zone count.
+    "NYISO5": (fetch_superzone_load, SUPER_ZONE_COORDS),
 }
+
+#: ISOs whose zonal source is NYISO's, for the BA-level weather coordinate.
+_BA_COORD_KEY = {"NYISO": "NYISO", "NYISO5": "NYISO", "CAISO": "CAISO"}
 
 #: The BA-level weather point the top-down arm uses — production's own NYISO
 #: coordinate, so the control is what production actually runs.
@@ -121,7 +133,7 @@ def study(months: int, windows: int, iso: str = "NYISO") -> dict[str, Any]:
     total = zl[zones].sum(axis=1)
 
     print("  fetching weather (1 BA point + 11 zone points) ...", flush=True)
-    ba = REGION_COORDINATES[iso]
+    ba = REGION_COORDINATES[_BA_COORD_KEY[iso]]
     ba_weather = _archive_weather(ba["lat"], ba["lon"], start, end)
     zone_weather = {z: _archive_weather(*coords_map[z], start, end) for z in zones}
 
