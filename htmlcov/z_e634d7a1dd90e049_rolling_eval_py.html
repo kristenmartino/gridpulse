@@ -54,8 +54,8 @@
             </div>
         </aside>
         <h2>
-            <span class="text">96 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">94<span class="text"> run</span></button>
+            <span class="text">97 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">95<span class="text"> run</span></button>
             <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">2<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_e634d7a1dd90e049_skill_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.2">coverage.py v7.15.2</a>,
-            created at 2026-08-02 20:35 +0000
+            created at 2026-08-03 12:42 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -412,11 +412,17 @@
     <p class="pln"><span class="n"><a id="t330" href="#t330">330</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t331" href="#t331">331</a></span><span class="t">    <span class="nam">out</span><span class="op">[</span><span class="str">"decisive"</span><span class="op">]</span> <span class="op">=</span> <span class="key">True</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t332" href="#t332">332</a></span><span class="t">    <span class="nam">out</span><span class="op">[</span><span class="str">"winner"</span><span class="op">]</span> <span class="op">=</span> <span class="str">"treatment"</span> <span class="key">if</span> <span class="nam">mean</span> <span class="op">></span> <span class="num">0</span> <span class="key">else</span> <span class="str">"control"</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t333" href="#t333">333</a></span><span class="t">    <span class="nam">out</span><span class="op">[</span><span class="str">"reason"</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t334" href="#t334">334</a></span><span class="t">        <span class="fst">f"</span><span class="op">{</span><span class="nam">out</span><span class="op">[</span><span class="str">'winner'</span><span class="op">]</span><span class="op">}</span><span class="fst"> wins </span><span class="op">{</span><span class="nam">consistency</span><span class="op">:</span><span class="fst">.0%</span><span class="op">}</span><span class="fst"> of </span><span class="op">{</span><span class="nam">n</span><span class="op">}</span><span class="fst"> windows, </span><span class="fst">"</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t335" href="#t335">335</a></span><span class="t">        <span class="fst">f"</span><span class="fst">mean </span><span class="op">{</span><span class="nam">mean</span><span class="op">:</span><span class="fst">+.3f</span><span class="op">}</span><span class="fst"> pts (</span><span class="op">{</span><span class="nam">abs</span><span class="op">(</span><span class="nam">mean</span><span class="op">)</span> <span class="op">/</span> <span class="nam">stderr</span><span class="op">:</span><span class="fst">.1f</span><span class="op">}</span><span class="fst">x stderr)</span><span class="fst">"</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t336" href="#t336">336</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t337" href="#t337">337</a></span><span class="t">    <span class="key">return</span> <span class="nam">out</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t333" href="#t333">333</a></span><span class="t">    <span class="com"># `stderr` is 0 when every window produced the identical delta. The branch</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t334" href="#t334">334</a></span><span class="t">    <span class="com"># above already handles that for `t`; this string divided by it anyway and</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t335" href="#t335">335</a></span><span class="t">    <span class="com"># raised ZeroDivisionError, so a treatment that improved every window by</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t336" href="#t336">336</a></span><span class="t">    <span class="com"># exactly the same amount crashed the verdict instead of winning it.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t337" href="#t337">337</a></span><span class="t">    <span class="nam">spread</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t338" href="#t338">338</a></span><span class="t">        <span class="fst">f"</span><span class="fst"> (</span><span class="op">{</span><span class="nam">abs</span><span class="op">(</span><span class="nam">mean</span><span class="op">)</span> <span class="op">/</span> <span class="nam">stderr</span><span class="op">:</span><span class="fst">.1f</span><span class="op">}</span><span class="fst">x stderr)</span><span class="fst">"</span> <span class="key">if</span> <span class="nam">stderr</span> <span class="op">></span> <span class="num">0</span> <span class="key">else</span> <span class="str">" (identical in every window)"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t339" href="#t339">339</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t340" href="#t340">340</a></span><span class="t">    <span class="nam">out</span><span class="op">[</span><span class="str">"reason"</span><span class="op">]</span> <span class="op">=</span> <span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t341" href="#t341">341</a></span><span class="t">        <span class="fst">f"</span><span class="op">{</span><span class="nam">out</span><span class="op">[</span><span class="str">'winner'</span><span class="op">]</span><span class="op">}</span><span class="fst"> wins </span><span class="op">{</span><span class="nam">consistency</span><span class="op">:</span><span class="fst">.0%</span><span class="op">}</span><span class="fst"> of </span><span class="op">{</span><span class="nam">n</span><span class="op">}</span><span class="fst"> windows, mean </span><span class="op">{</span><span class="nam">mean</span><span class="op">:</span><span class="fst">+.3f</span><span class="op">}</span><span class="fst"> pts</span><span class="op">{</span><span class="nam">spread</span><span class="op">}</span><span class="fst">"</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t342" href="#t342">342</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t343" href="#t343">343</a></span><span class="t">    <span class="key">return</span> <span class="nam">out</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -426,7 +432,7 @@
             <a class="nav" href="z_e634d7a1dd90e049_skill_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.2">coverage.py v7.15.2</a>,
-            created at 2026-08-02 20:35 +0000
+            created at 2026-08-03 12:42 +0000
         </p>
     </div>
 </footer>
