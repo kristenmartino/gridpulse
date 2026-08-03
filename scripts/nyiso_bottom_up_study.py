@@ -59,7 +59,12 @@ import numpy as np
 import pandas as pd
 
 from scripts.arima_order_exog_study import ARCHIVE_LAG_DAYS, _archive_weather
-from scripts.caiso_zonal_source import CAISO_ZONE_COORDS, fetch_caiso_zonal_load
+from scripts.caiso_zonal_source import (
+    CAISO3_ZONE_COORDS,
+    CAISO_ZONE_COORDS,
+    fetch_caiso3_load,
+    fetch_caiso_zonal_load,
+)
 from scripts.error_analysis import MIN_TRAIN_H, _fit_predict_xgb, make_day_ahead_safe
 from scripts.nyiso_zonal_probe import (
     SUPER_ZONE_COORDS,
@@ -82,10 +87,13 @@ ZONAL_SOURCES = {
     # BA-level weather point and every other setting are unchanged, so a
     # comparison against "NYISO" isolates zone count.
     "NYISO5": (fetch_superzone_load, SUPER_ZONE_COORDS),
+    # Same CAISO data with MWD (1.0% of load) and VEA (0.4%) folded into SCE.
+    # Tests whether bottom-up needs comparably-sized components.
+    "CAISO3": (fetch_caiso3_load, CAISO3_ZONE_COORDS),
 }
 
 #: ISOs whose zonal source is NYISO's, for the BA-level weather coordinate.
-_BA_COORD_KEY = {"NYISO": "NYISO", "NYISO5": "NYISO", "CAISO": "CAISO"}
+_BA_COORD_KEY = {"NYISO": "NYISO", "NYISO5": "NYISO", "CAISO": "CAISO", "CAISO3": "CAISO"}
 
 #: The BA-level weather point the top-down arm uses — production's own NYISO
 #: coordinate, so the control is what production actually runs.

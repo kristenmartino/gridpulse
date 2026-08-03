@@ -19,6 +19,33 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-03 — component viability fails too. Six mechanisms, six refutations;
+the effect is real, replicated, and unexplained.**
+[`docs/COMPONENT_VIABILITY_STUDY.md`](docs/COMPONENT_VIABILITY_STUDY.md).
+
+**Not confirmed on either pre-registered criterion.** Folding CAISO's two
+negligible areas (MWD 1.0%, VEA 0.4%) into SCE moved the gain **+0.283 →
++0.348** — inconclusive (t=1.375, MDE 0.507), against a required ≥+0.50.
+
+| | CAISO 5 | CAISO 3 | NYISO 5 | NYISO 11 |
+|---|---:|---:|---:|---:|
+| gain | +0.283 | +0.348 | **+0.745** | **+0.729** |
+| pure-load channel | +0.023 | +0.039 | +0.261 | +0.349 |
+
+**Sharpest statement:** the pure-load-decomposition channel works on NYISO and
+is **dead on CAISO**, an order of magnitude apart, stable across every grouping
+tried on both sides.
+
+**Six explanations, six refutations:** anchor staleness (+0.014), weather
+diversity (CAISO more spread, less gain), granularity (5=11), heterogeneity
+(CAISO less correlated, less gain), component viability (this run), and lossy
+zonal data — CAISO's zone sum vs its own published total is **0.000% WAPE,
+ratio 1.0000**, arithmetically exact, so nothing is lost at source.
+
+**Stopping rule now binding — no more regroupings.** Different evidence needed:
+a third ISO (PJM/ISO-NE, gated behind free registration, **needs a human**), or
+a winter run. **Do not build zonal ingestion.**
+
 **2026-07-31 — granularity is not the driver either. Three mechanisms, three
 refutations.** [`docs/SUPERZONE_STUDY.md`](docs/SUPERZONE_STUDY.md).
 

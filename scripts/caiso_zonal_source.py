@@ -43,6 +43,46 @@ CAISO_ZONE_COORDS: dict[str, tuple[float, float]] = {
     "MWD-TAC": (33.90, -117.30),  # Metropolitan Water District — pumping load
 }
 
+#: CAISO-3: the two negligible areas folded into their geographic neighbour.
+#: Fixed in docs/COMPONENT_VIABILITY_PREREGISTRATION.md before the run. MWD is
+#: Southern California pumping load and VEA sits on CAISO's southeastern edge,
+#: both adjacent to SCE's footprint.
+CAISO3_GROUPS: dict[str, tuple[str, ...]] = {
+    "SCE_PLUS": ("SCE-TAC", "MWD-TAC", "VEA-TAC"),
+    "PGE": ("PGE-TAC",),
+    "SDGE": ("SDGE-TAC",),
+}
+
+#: Weather stays at each group's PRIMARY member's point. The test is about not
+#: modelling dead components separately, not about moving SCE's weather — so
+#: MWD and VEA are folded into SCE's load while SCE keeps its own coordinate.
+CAISO3_ZONE_COORDS: dict[str, tuple[float, float]] = {
+    "SCE_PLUS": CAISO_ZONE_COORDS["SCE-TAC"],
+    "PGE": CAISO_ZONE_COORDS["PGE-TAC"],
+    "SDGE": CAISO_ZONE_COORDS["SDGE-TAC"],
+}
+
+
+def fetch_caiso3_load(months: int) -> pd.DataFrame:
+    """The same CAISO load, regrouped into 3 comparably-sized components.
+
+    Identical source and hours as :func:`fetch_caiso_zonal_load` — only the
+    column grouping differs, so a comparison isolates component viability
+    rather than data availability.
+    """
+    zl = fetch_caiso_zonal_load(months)
+    if zl.empty:
+        return zl
+    out = pd.DataFrame(index=zl.index)
+    for name, members in CAISO3_GROUPS.items():
+        present = [z for z in members if z in zl.columns]
+        if len(present) != len(members):
+            # Partial membership would change what the component means.
+            continue
+        out[name] = zl[list(present)].sum(axis=1)
+    return out.dropna(how="any")
+
+
 #: Days per OASIS request. The endpoint rejects much longer spans.
 CHUNK_DAYS = 30
 
