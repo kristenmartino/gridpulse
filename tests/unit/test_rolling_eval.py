@@ -375,6 +375,120 @@ class TestVerdict:
         assert v["worst_window"] == -0.4
         assert v["best_window"] == 2.2
 
+    # ------------------------------------------------------------------
+    # Below: found by mutation testing (docs/TEST_QUALITY.md). The tests
+    # above pin the DECISION — decisive, winner, a reason substring — and
+    # almost nothing pins the DIAGNOSTICS that justify it. Those numbers are
+    # what an A/B study publishes, so a wrong one is a wrong conclusion
+    # presented with a straight face.
+    # ------------------------------------------------------------------
+
+    def test_identical_deltas_in_every_window_do_not_crash(self):
+        """A treatment that wins every window by the SAME amount is decisive.
+
+        This was a live ZeroDivisionError, not just an untested path. The
+        function deliberately handles ``stderr == 0`` at the top — the comment
+        there names identical deltas explicitly — but the closing reason string
+        divided by ``stderr`` unconditionally. Any four identical non-zero
+        deltas raised, so a perfectly consistent improvement crashed the
+        verdict instead of winning it.
+
+        Only the all-zero case escaped, because ``mean == 0`` returns earlier.
+        That is why ``test_an_exact_no_op_reports_no_difference_not_a_winner``
+        never caught it.
+
+        Reachable: deltas computed from rounded per-window metrics collide
+        exactly, and ``rolling_eval`` is the mandatory route for every model
+        change (CLAUDE.md).
+        """
+        v = verdict([2.0, 2.0, 2.0, 2.0])
+
+        assert v["decisive"] is True
+        assert v["winner"] == "treatment"
+        assert v["stderr"] == 0.0
+        assert v["t"] is None, "a t-statistic needs spread; there is none"
+        assert v["sign_consistency"] == 1.0
+        assert v["reason"] == (
+            "treatment wins 100% of 4 windows, mean +2.000 pts (identical in every window)"
+        )
+
+        # The same shape against the control arm.
+        loss = verdict([-1.5, -1.5, -1.5, -1.5, -1.5, -1.5])
+        assert loss["decisive"] is True
+        assert loss["winner"] == "control"
+
+    def test_the_diagnostic_payload_is_exact(self):
+        """Every reported field, pinned to the value it should carry.
+
+        `mean`/`median`/`stderr`/`t`/`sign_consistency`/`worst_window`/
+        `best_window` are all published by a study, and every one of them
+        could be re-rounded, nulled, or — for `t` — computed as
+        ``mean * stderr`` instead of ``mean / stderr``, with the suite green.
+        A t-statistic that is a product rather than a quotient is not a
+        rounding difference; it is a different claim.
+
+        The deltas carry six decimals deliberately. With the tidy fixtures
+        used elsewhere in this class every statistic lands on a short decimal,
+        so the documented 4-dp (3-dp for `t` and consistency) rounding is
+        invisible and could drift unnoticed. Seven windows also makes
+        `sign_consistency` a repeating 6/7 rather than a clean fraction.
+        """
+        v = verdict([2.123456, 2.234567, 2.345678, -0.456789, 1.987654, 2.111111, 2.222222])
+
+        assert v == {
+            "decisive": True,
+            "winner": "treatment",
+            "n": 7,
+            "mean": 1.7954,
+            "median": 2.1235,
+            "stderr": 0.3778,
+            "t": 4.752,
+            "sign_consistency": 0.857,
+            "worst_window": -0.4568,
+            "best_window": 2.3457,
+            "reason": "treatment wins 86% of 7 windows, mean +1.795 pts (4.8x stderr)",
+        }
+
+    def test_sign_consistency_is_zero_when_there_is_no_difference(self):
+        """The no-op path reports 0% consistency, not 100%.
+
+        ``consistency = 1.0 if mean != 0 else 0.0`` — the else arm is what
+        stops an exact no-op from being reported as a perfectly consistent
+        result. ``test_an_exact_no_op_...`` asserts the reason but not this
+        field, so flipping the arm to 1.0 went unnoticed.
+        """
+        v = verdict([0.0, 0.0, 0.0, 0.0])
+
+        assert v["reason"] == "no difference"
+        assert v["sign_consistency"] == 0.0, "no difference is not perfect agreement"
+
+    def test_a_mean_of_exactly_one_is_still_a_difference(self):
+        """Guards the ``mean != 0`` test against becoming ``mean != 1``.
+
+        A one-point-per-window improvement is an ordinary result, and it is
+        the single input where those two spellings disagree.
+        """
+        v = verdict([1.0, 1.0, 1.0, 1.0])
+
+        assert v["sign_consistency"] == 1.0
+        assert v["decisive"] is True
+        assert v["winner"] == "treatment"
+
+    def test_outlier_domination_is_detected_at_a_median_of_one(self):
+        """The outlier guard tests ``median != 0``, not ``median != 1``.
+
+        Three +1.0 windows and one −20.0: the mean is negative, the median is
+        exactly +1.0, and they disagree in sign — the ISONE tail-risk shape.
+        A median of 1.0 is unremarkable, and it is where the mutated
+        comparison stops recognising the shape and lets the outlier through.
+        """
+        v = verdict([1.0, 1.0, 1.0, -20.0])
+
+        assert v["median"] == 1.0
+        assert v["mean"] < 0, "the outlier drags the mean across zero"
+        assert v["decisive"] is False
+        assert "disagree in sign" in v["reason"]
+
     def test_no_windows_at_all(self):
         v = verdict([])
         assert v["decisive"] is False
