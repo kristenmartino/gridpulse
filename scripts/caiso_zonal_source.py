@@ -63,14 +63,14 @@ CAISO3_ZONE_COORDS: dict[str, tuple[float, float]] = {
 }
 
 
-def fetch_caiso3_load(months: int) -> pd.DataFrame:
+def fetch_caiso3_load(months: int, end: datetime | None = None) -> pd.DataFrame:
     """The same CAISO load, regrouped into 3 comparably-sized components.
 
     Identical source and hours as :func:`fetch_caiso_zonal_load` — only the
     column grouping differs, so a comparison isolates component viability
     rather than data availability.
     """
-    zl = fetch_caiso_zonal_load(months)
+    zl = fetch_caiso_zonal_load(months, end)
     if zl.empty:
         return zl
     out = pd.DataFrame(index=zl.index)
@@ -87,9 +87,9 @@ def fetch_caiso3_load(months: int) -> pd.DataFrame:
 CHUNK_DAYS = 30
 
 
-def fetch_caiso_zonal_load(months: int) -> pd.DataFrame:
+def fetch_caiso_zonal_load(months: int, end: datetime | None = None) -> pd.DataFrame:
     """Hourly actual load per CAISO TAC area, chunked over OASIS."""
-    end = datetime.now(UTC) - timedelta(days=ARCHIVE_LAG_DAYS)
+    end = end or (datetime.now(UTC) - timedelta(days=ARCHIVE_LAG_DAYS))
     start = end - timedelta(days=months * 31)
 
     frames: list[pd.DataFrame] = []

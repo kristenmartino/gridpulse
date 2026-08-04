@@ -118,7 +118,9 @@ def _featurise(load: pd.Series, weather: pd.DataFrame) -> pd.DataFrame:
     return make_day_ahead_safe(feats).dropna(subset=["demand_mw"]).reset_index(drop=True)
 
 
-def study(months: int, windows: int, iso: str = "NYISO") -> dict[str, Any]:
+def study(
+    months: int, windows: int, iso: str = "NYISO", end_date: str | None = None
+) -> dict[str, Any]:
     from models.evaluation import compute_mape
     from models.rolling_eval import (
         bias_pct,
@@ -129,12 +131,18 @@ def study(months: int, windows: int, iso: str = "NYISO") -> dict[str, Any]:
         wape,
     )
 
-    end = datetime.now(UTC) - timedelta(days=ARCHIVE_LAG_DAYS)
+    # An explicit end targets a season rather than "now"; the winter run asks
+    # whether the bottom-up effect is a summer artifact.
+    end = (
+        datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=UTC)
+        if end_date
+        else datetime.now(UTC) - timedelta(days=ARCHIVE_LAG_DAYS)
+    )
     start = end - timedelta(days=months * 31)
 
     fetch_fn, coords_map = ZONAL_SOURCES[iso]
     print(f"  fetching {iso} zonal load ...", flush=True)
-    zl = fetch_fn(months)
+    zl = fetch_fn(months, end)
     if zl.empty:
         return {"skipped": "no zonal load"}
     zones = [z for z in coords_map if z in zl.columns]
@@ -260,6 +268,7 @@ def study(months: int, windows: int, iso: str = "NYISO") -> dict[str, Any]:
     )
     return {
         "iso": iso,
+        "window_end": end.strftime("%Y-%m-%d"),
         "target": f"sum of {iso} zones (not EIA D — see module docstring)",
         "n_zones": len(zones),
         "n_windows_scored": len(scored),
@@ -284,6 +293,9 @@ def main() -> int:
     ap.add_argument("--months", type=int, default=4)
     ap.add_argument("--windows", type=int, default=6)
     ap.add_argument("--iso", default="NYISO", choices=sorted(ZONAL_SOURCES))
+    ap.add_argument(
+        "--end", default=None, help="window end YYYY-MM-DD (default: now - archive lag)"
+    )
     ap.add_argument("--out", default="docs/NYISO_BOTTOM_UP_STUDY.json")
     args = ap.parse_args()
 
@@ -291,7 +303,7 @@ def main() -> int:
         print("EIA_API_KEY not set")
         return 2
 
-    res = study(args.months, args.windows, iso=args.iso)
+    res = study(args.months, args.windows, iso=args.iso, end_date=args.end)
     print("\n== RESULT ==")
     print(json.dumps({k: v for k, v in res.items() if k != "windows"}, indent=2))
     with open(args.out, "w") as fh:

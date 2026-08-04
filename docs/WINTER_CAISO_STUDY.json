@@ -1,0 +1,179 @@
+{
+  "iso": "CAISO",
+  "window_end": "2026-03-01",
+  "target": "sum of CAISO zones (not EIA D \u2014 see module docstring)",
+  "n_zones": 5,
+  "n_windows_scored": 6,
+  "verdict": {
+    "decisive": false,
+    "winner": null,
+    "n": 6,
+    "mean": 0.0152,
+    "median": -0.026,
+    "stderr": 0.1011,
+    "t": 0.15,
+    "sign_consistency": 0.333,
+    "worst_window": -0.288,
+    "best_window": 0.4699,
+    "reason": "mean +0.015 and median -0.026 disagree in sign \u2014 outlier window(s) dominate; report as tail risk, not as a win"
+  },
+  "mde_pts": 0.2022,
+  "detectable": false,
+  "satisficing": {
+    "passed": true,
+    "failures": []
+  },
+  "ship": false,
+  "top_down_mean": {
+    "wape": 2.3261,
+    "mape": 2.3213,
+    "bias_pct": 0.3143
+  },
+  "bottom_up_mean": {
+    "wape": 2.3109,
+    "mape": 2.3061,
+    "bias_pct": 0.4768
+  },
+  "ablation_bottom_up_ba_weather": {
+    "n_windows": 6,
+    "wape": 2.257,
+    "gain_vs_topdown_pts": 0.069,
+    "full_gain_pts": 0.0152,
+    "share_of_gain_from_load_decomposition": 4.543,
+    "verdict": {
+      "decisive": false,
+      "winner": null,
+      "n": 6,
+      "mean": 0.0691,
+      "median": -0.0024,
+      "stderr": 0.0903,
+      "t": 0.764,
+      "sign_consistency": 0.5,
+      "worst_window": -0.1146,
+      "best_window": 0.5045,
+      "reason": "mean +0.069 and median -0.002 disagree in sign \u2014 outlier window(s) dominate; report as tail risk, not as a win"
+    }
+  },
+  "windows": [
+    {
+      "window": 0,
+      "top_down": {
+        "wape": 2.5579,
+        "mape": 2.5958,
+        "bias_pct": 1.1334
+      },
+      "bottom_up": {
+        "wape": 2.5445,
+        "mape": 2.581,
+        "bias_pct": 1.1397
+      },
+      "bottom_up_ba_weather": {
+        "wape": 2.4974,
+        "mape": 2.5311,
+        "bias_pct": 1.0259
+      },
+      "delta_wape": 0.0134,
+      "delta_wape_ba_weather": 0.0605
+    },
+    {
+      "window": 1,
+      "top_down": {
+        "wape": 3.7631,
+        "mape": 3.7074,
+        "bias_pct": -1.7649
+      },
+      "bottom_up": {
+        "wape": 3.2932,
+        "mape": 3.2156,
+        "bias_pct": -1.4043
+      },
+      "bottom_up_ba_weather": {
+        "wape": 3.2586,
+        "mape": 3.2163,
+        "bias_pct": -1.3837
+      },
+      "delta_wape": 0.4699,
+      "delta_wape_ba_weather": 0.5045
+    },
+    {
+      "window": 2,
+      "top_down": {
+        "wape": 2.1474,
+        "mape": 2.1248,
+        "bias_pct": 0.6174
+      },
+      "bottom_up": {
+        "wape": 2.1695,
+        "mape": 2.1684,
+        "bias_pct": 1.0734
+      },
+      "bottom_up_ba_weather": {
+        "wape": 2.1786,
+        "mape": 2.1805,
+        "bias_pct": 0.9564
+      },
+      "delta_wape": -0.0221,
+      "delta_wape_ba_weather": -0.0312
+    },
+    {
+      "window": 3,
+      "top_down": {
+        "wape": 1.9954,
+        "mape": 2.0202,
+        "bias_pct": 1.6301
+      },
+      "bottom_up": {
+        "wape": 2.2834,
+        "mape": 2.3127,
+        "bias_pct": 2.1221
+      },
+      "bottom_up_ba_weather": {
+        "wape": 2.11,
+        "mape": 2.1389,
+        "bias_pct": 1.9226
+      },
+      "delta_wape": -0.288,
+      "delta_wape_ba_weather": -0.1146
+    },
+    {
+      "window": 4,
+      "top_down": {
+        "wape": 1.7955,
+        "mape": 1.7967,
+        "bias_pct": 0.0041
+      },
+      "bottom_up": {
+        "wape": 1.8255,
+        "mape": 1.8199,
+        "bias_pct": 0.128
+      },
+      "bottom_up_ba_weather": {
+        "wape": 1.8221,
+        "mape": 1.8105,
+        "bias_pct": -0.327
+      },
+      "delta_wape": -0.03,
+      "delta_wape_ba_weather": -0.0266
+    },
+    {
+      "window": 5,
+      "top_down": {
+        "wape": 1.6972,
+        "mape": 1.6826,
+        "bias_pct": 0.2655
+      },
+      "bottom_up": {
+        "wape": 1.7492,
+        "mape": 1.739,
+        "bias_pct": -0.1982
+      },
+      "bottom_up_ba_weather": {
+        "wape": 1.6755,
+        "mape": 1.6643,
+        "bias_pct": -0.3529
+      },
+      "delta_wape": -0.052,
+      "delta_wape_ba_weather": 0.0217
+    }
+  ]
+}

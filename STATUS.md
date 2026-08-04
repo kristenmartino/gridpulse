@@ -19,6 +19,32 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-04 — the zonal effect is a COOLING-SEASON phenomenon. First mechanism
+to survive; recommend closing the line.**
+[`docs/WINTER_RUN_STUDY.md`](docs/WINTER_RUN_STUDY.md).
+
+Pre-registered prediction 2 confirmed — NYISO's gain collapses in winter:
+
+| | summer | winter |
+|---|---:|---:|
+| **NYISO gain** | **+0.729** decisive | **+0.149** inconclusive |
+| NYISO top-down WAPE | 3.958 | **2.237** |
+| CAISO gain | +0.283 | +0.015 |
+
+**Mechanism, coherent:** winter error is ~40% lower before any decomposition —
+NY heats with gas/oil, so winter *electric* load is far less
+temperature-sensitive. Steep summer AC response → zones diverge → splitting
+pays. Shallow winter response → nothing to exploit. Same shape as the probe's
+finding that diversity mattered in cool/hot bands and vanished in the mid band.
+
+**It does not close the cross-ISO gap:** at matched season NYISO +0.729 vs
+CAISO +0.283. Seasonality explains within-ISO variation, not between-ISO.
+
+**Recommendation: CLOSE the zonal line.** The motivating +0.729 exists only in
+cooling season, on one ISO, unexplained across ISOs — so the annualised ceiling
+is a seasonal fraction of a one-ISO effect. Reopening entry point would be a
+third ISO in summer (PJM/ISO-NE, needs credentials a human must create).
+
 **2026-08-03 — component viability fails too. Six mechanisms, six refutations;
 the effect is real, replicated, and unexplained.**
 [`docs/COMPONENT_VIABILITY_STUDY.md`](docs/COMPONENT_VIABILITY_STUDY.md).

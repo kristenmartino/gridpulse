@@ -99,14 +99,14 @@ SUPER_ZONE_COORDS: dict[str, tuple[float, float]] = {
 }
 
 
-def fetch_superzone_load(months: int) -> pd.DataFrame:
+def fetch_superzone_load(months: int, end: datetime | None = None) -> pd.DataFrame:
     """The same NYISO load, summed into the 5 pre-registered super-zones.
 
     Identical source and hours as `fetch_zonal_load` — only the column
     grouping differs, so a comparison between them isolates zone count rather
     than data availability.
     """
-    zl = fetch_zonal_load(months)
+    zl = fetch_zonal_load(months, end)
     if zl.empty:
         return zl
     out = pd.DataFrame(index=zl.index)
@@ -127,9 +127,14 @@ DOWNSTATE = ("N.Y.C.", "LONGIL", "DUNWOD", "MILLWD", "HUD VL")
 HOLDOUT_H = 168
 
 
-def fetch_zonal_load(months: int) -> pd.DataFrame:
-    """Hourly zonal load from NYISO's monthly archives (5-min data, averaged)."""
-    end = datetime.now(UTC) - timedelta(days=ARCHIVE_LAG_DAYS)
+def fetch_zonal_load(months: int, end: datetime | None = None) -> pd.DataFrame:
+    """Hourly zonal load from NYISO's monthly archives (5-min data, averaged).
+
+    ``end`` targets a window other than "now minus the archive lag" — needed
+    for the winter run, which asks whether the bottom-up effect is a summer
+    artifact.
+    """
+    end = end or (datetime.now(UTC) - timedelta(days=ARCHIVE_LAG_DAYS))
     frames: list[pd.DataFrame] = []
     ym = end.replace(day=1)
     for _ in range(months):
