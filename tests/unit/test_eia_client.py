@@ -1701,8 +1701,17 @@ class TestCallBudget:
             assert 0 <= slept <= EIA_MAX_BACKOFF_S
 
     def test_budget_exhaustion_is_logged_not_silent(self, clock, monkeypatch):
+        """The budget pins its own value rather than reading the production one.
+
+        At the shipped 120s the retry ladder finishes first, so the budget
+        never binds — which is the point of that value. This test is about the
+        mechanism firing *when* the budget is the binding constraint, so it
+        sets one that is. Reading the production default here is what made an
+        earlier version of this test flip red purely because the default moved.
+        """
         import data.eia_client as ec
 
+        monkeypatch.setattr(ec, "EIA_CALL_BUDGET_S", 20.0)
         monkeypatch.setattr("requests.get", _FlakyTransport(clock, fail_every=1))
         fake_log = MagicMock()
         monkeypatch.setattr(ec, "log", fake_log)

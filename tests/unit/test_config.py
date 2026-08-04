@@ -204,3 +204,38 @@ class TestScoringRuntimeTiers:
         import config
 
         assert config.EIA_CALL_BUDGET_S > config.EIA_READ_TIMEOUT_S > config.EIA_CONNECT_TIMEOUT_S
+
+    def test_eia_call_budget_fits_the_whole_retry_ladder(self):
+        """The budget must not cut a call off mid-ladder — this shipped broken.
+
+        `EIA_CALL_BUDGET_S` went out at 40s against `MAX_RETRIES` (5) x
+        `EIA_READ_TIMEOUT_S` (12s) = 60s of reads before any backoff, so every
+        call died after ~3 attempts. Under partial degradation a call often
+        needs 4-5, so seven hard-failed on the 23:00 tick of 2026-08-04,
+        tripped the circuit breaker, and pushed the whole fleet onto
+        last-known GCS data — against an EIA three times healthier than the
+        run before it. `/health` still read 51/51, because forecasts were
+        produced from stale inputs.
+
+        The budget is meant to bound a call that is genuinely failing, not to
+        truncate one that is about to succeed. Anything below this floor
+        converts the cost control into an availability regression.
+        """
+        import config
+        from data.eia_client import MAX_RETRIES
+
+        reads = MAX_RETRIES * config.EIA_READ_TIMEOUT_S
+        # Backoff doubles from INITIAL_BACKOFF_SECONDS, capped per sleep, and
+        # there is one sleep fewer than there are attempts.
+        from data.eia_client import INITIAL_BACKOFF_SECONDS
+
+        backoff, worst_backoff = INITIAL_BACKOFF_SECONDS, 0.0
+        for _ in range(MAX_RETRIES - 1):
+            worst_backoff += min(backoff, config.EIA_MAX_BACKOFF_S)
+            backoff *= 2
+
+        assert reads + worst_backoff <= config.EIA_CALL_BUDGET_S, (
+            f"budget {config.EIA_CALL_BUDGET_S}s cannot fit {MAX_RETRIES} attempts "
+            f"({reads}s of reads + {worst_backoff}s of backoff) — calls will be cut "
+            "off mid-ladder and fail-fast the fleet onto stale data"
+        )
