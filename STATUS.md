@@ -102,6 +102,7 @@ instrumentation half was correct and is what shipped here; its cross-run
 archive cache is held pending measurement against that instrumentation.
 
 ---
+
 **2026-08-04 — the zonal effect is a COOLING-SEASON phenomenon. First mechanism
 to survive; recommend closing the line.**
 [`docs/WINTER_RUN_STUDY.md`](docs/WINTER_RUN_STUDY.md).
