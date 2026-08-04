@@ -100,6 +100,8 @@ The web service is **stateless and idempotent**. It never fetches from EIA, Open
 
 This separation is the single biggest reliability decision in the project. It means the web tier survives any failure of the external data sources — they fail asynchronously in the scoring job, not in the user's tab.
 
+**A scoring run can now finish partially, on purpose (2026-08-04).** It used to be all-or-killed: `run()` submitted all 51 BAs and, if Cloud Run hit the `--task-timeout` first, the process was SIGKILLed. That cost more than it sounds, because per-BA Redis writes are incremental but the run-level bookkeeping is not — on 2026-08-04 two killed ticks had *already scored ~49 of 51 BAs* and recorded none of it, since `write_meta("last_scored")` and the fleet rollup sit after the fan-out. `last_scored` went stale for ~2 hours over work that had been done. Past `SCORING_SOFT_DEADLINE_FRACTION` (0.85) of the timeout, workers now stop starting new BAs and return immediately, so the run drains its queue and always reaches its epilogue: freshness meta written (with `deadline_hit` and `regions_deadline_skipped`, so the state is disclosed rather than implied), fleet rollup done, an alertable `scoring_deadline_shed`, exit 0. Skipped BAs keep serving their previous forecast under its 24h Redis TTL — they age, they don't disappear. Three tiers guard the runtime: **0.70 warn** (`scoring_runtime_creep`), **0.85 shed**, 1.00 hard kill, which we should no longer reach.
+
 ## §3 — Scoring + training pipelines
 
 Two jobs, two cadences, two outputs.

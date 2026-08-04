@@ -1,0 +1,20 @@
+{
+  "displayName": "GridPulse — scoring-job shed BAs at the soft deadline",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The `gridpulse-scoring-job` emitted a **`scoring_deadline_shed`** log: the run hit `SCORING_SOFT_DEADLINE_FRACTION` of its Cloud Run `--task-timeout` and stopped starting new BAs, so some were skipped without being scored.\n\n**This is the guard working, not the failure.** Before it existed the task was simply SIGKILLed at the timeout — and on 2026-08-04 both killed executions had ALREADY scored ~49-51 of 51 BAs, but `write_meta(\"last_scored\")` and the fleet rollup sit after the fan-out, so neither run recorded any of it. `last_scored` stayed pinned at 16:22 until 20:01, past the 90-minute `/health` staleness threshold, for work that had actually been done. A shedding run instead completes, writes an honest freshness meta (`deadline_hit`, `regions_deadline_skipped`), and exits 0.\n\nIt still means runtime is at the ceiling and BAs are going unscored. Skipped BAs keep serving their previous forecast under its 24h Redis TTL, so they age rather than disappear.\n\n**Runbook:**\n1. Read `skipped_regions` and `regions_scored` off this log. If `regions_scored` fell below `SCORING_MIN_OK_REGIONS` (40), the separate `scoring_partial_failure` alert fires too and deep `/health` is degraded.\n2. Find where the time went — `gcloud logging read 'jsonPayload.event=\"scoring_phase_rollup\"' --limit 5`. If `fetch` leads, this is upstream, not our own creep: follow the total-outage vs partial-degradation branch in `docs/SCHEDULED_JOBS.md`, and check `jsonPayload.event=\"eia_client_stats\"` for the EIA latency distribution.\n3. **Do not raise `--task-timeout`** to make shedding stop. `task-timeout x (max-retries + 1)` must stay under the hourly cadence and at 1800 x 2 = 3600s it already has zero margin — the 2026-08-04 overlap (19:00's retry finishing at 20:01, after 20:00 had started) is what that costs. Reduce runtime, or raise `PRECOMPUTE_MAX_WORKERS` + `--cpu`.\n4. Shedding order follows `phases.ordered_regions`, which is deterministic — so a *persistently* shedding job starves the same tail BAs every hour. If this alert repeats, that is the thing to fix, not the deadline.\n5. Kill switch: flip `soft_deadline` off in `config.FEATURE_FLAGS`, or set `SCORING_SOFT_DEADLINE_FRACTION=0` (env var, no rebuild). Both restore the pre-2026-08-04 behaviour — including being SIGKILLed with nothing recorded."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "scoring_deadline_shed log emitted",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"gridpulse-scoring-job\" AND jsonPayload.event=\"scoring_deadline_shed\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "3600s" },
+    "autoClose": "604800s"
+  }
+}

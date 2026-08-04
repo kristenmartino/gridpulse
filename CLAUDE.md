@@ -353,6 +353,32 @@ engage — this is what failed the scoring job on 2026-06-04 during a 2h EIA
    recover mid-run), bounding total runtime during an outage. Per-process
    state, resets every fresh job run.
 
+**Partial degradation is a DIFFERENT failure class (added 2026-08-04 after
+#389).** Rules 1 and 2 above bound a *total* outage. They do nothing when an
+upstream is merely slow and flaky — 8–15% of calls failing, the rest fine —
+because the breaker counts **consecutive** hard failures and `record_success()`
+resets that counter, so interleaved successes keep it closed by construction.
+On 2026-08-04 every EIA call eventually succeeded (zero
+`eia_max_retries_exceeded`, zero fallbacks) and the scoring job still burned
+~800s → two SIGKILLs at the 1800s task timeout, paying full retry price for
+work that landed. Three rules follow:
+
+3. **Bound what ONE call can cost**, not just how many times it retries.
+   `EIA_CALL_BUDGET_S` is a wall-clock ceiling across every attempt and sleep,
+   with each attempt's read timeout clamped to the time remaining. Lowering the
+   retry count alone does not help: 3 attempts at a 30s timeout is still ~96s.
+   Split connect and read timeouts — a scalar makes a dead connect cost what a
+   multi-MB body may.
+4. **Bound what ONE RUN can cost, and always reach the epilogue.** A job that
+   is SIGKILLed loses its bookkeeping even when the work is done: both killed
+   ticks had scored ~49/51 BAs, but `write_meta("last_scored")` sits after the
+   fan-out, so neither recorded any of it. Shed work at a soft deadline
+   (`SCORING_SOFT_DEADLINE_FRACTION`), write the meta, exit 0.
+5. **Do not answer a slow dependency by refusing to call it.** Making the
+   breaker trip on a failure *rate* would trade fresh data we can still get for
+   last-known-good. Make retries cheap instead. Two characterization tests in
+   `tests/unit/test_eia_client.py` pin this decision.
+
 ### Feature engineering
 All features are backward-looking only (no future data leakage).
 Temperature in °F, wind in mph, CDD/HDD baseline = 65°F.
