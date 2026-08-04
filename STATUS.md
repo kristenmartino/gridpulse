@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-07-28
+# Status — updated 2026-08-04
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -19,6 +19,89 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-04 — production incident: EIA partial degradation killed two scoring
+ticks, and every defense we had was keyed to the wrong failure shape.**
+[#389](https://github.com/kristenmartino/gridpulse/issues/389).
+
+`api.eia.gov` began returning 502/504 and 30s read timeouts at ~16:00 UTC.
+Runtime went 1004 → 1283 → **two ticks KILLED at the 1800s cap** → 1792s (8s of
+margin, on a retry) → 1375s → 1317s. Nothing shipped that day; the deployed
+image was 5 days old.
+
+**The decisive evidence is what did NOT happen: 0 `eia_max_retries_exceeded`,
+0 `eia_gcs_fallback`, 0 `eia_stale_fallback`, 0 `eia_rate_limited`, 0
+`eia_circuit_tripped`.** Every call eventually *succeeded* on retry. No data
+was ever lost and EIA never throttled us. The job spent its entire budget
+paying retry tax on calls that would have worked.
+
+Third scoring-job timeout, third distinct cause — and this one has no defense:
+
+| | 2026-06-01 (#171) | 2026-06-04 (#174) | 2026-08-04 |
+|---|---|---|---|
+| cause | our runtime crept into the ceiling | upstream **vanished** | upstream got **slow and flaky** |
+| defense built | creep alert at 70% | consecutive-failure breaker | — |
+
+**Why the #174 breaker cannot help.** It counts *consecutive* hard failures
+against a threshold of 3, and `record_failure()` only fires when the whole
+retry budget is exhausted while `record_success()` zeroes the counter. A call
+that timed out four times and succeeded on the fifth burns ~134s and registers
+as a **success**. The breaker keys on the *shape* of failure; this failure has
+only a *rate*.
+
+**Four more findings, each its own defect:**
+- **No headroom ever existed.** #171's acceptance criterion — healthy run
+  "well under half the task timeout, target `<600s`" — was **never met**;
+  baseline is ~820s. Nothing could have caught that: the creep alarm's
+  threshold is `0.70 × 1800 = 1260s`, so it **defends the ceiling, not the
+  criterion**. A run at 820s is 37% over the criterion and 0% of the way to
+  the alarm.
+- **The killed runs had already done the work.** Both reached ~49–51 of 51 BAs,
+  and per-BA Redis writes are incremental — but `write_meta("last_scored")`
+  sits *after* the fan-out, so neither recorded any of it. `last_scored` stayed
+  pinned at 16:22 until 20:01: **~2 hours of deep-health degraded for work that
+  had actually been done.**
+- **The runs overlapped.** `--task-timeout × (--max-retries + 1)` = 3600s
+  against an hourly cadence is zero margin. The 19:00 retry finished at 20:01,
+  after 20:00 had started — two scoring processes against a dependency that
+  was failing because it was overloaded. The `deploy-prod.yml` comment
+  asserting runs "can't overlap" was wrong.
+- **The runbook told on-call to do nothing.** `docs/SCHEDULED_JOBS.md` said
+  that on `Read timed out`, "since #174 the EIA circuit breaker self-mitigates
+  this ... wait it out." False under partial degradation, and the documented
+  response while two ticks died.
+
+**Shipped:** per-phase instrumentation + `eia_client_stats` (the EIA latency
+distribution the 30s timeout had never been sized against); a **per-call
+wall-clock budget** — worst case 169s → 40s measured, which models every hour
+of the incident back under the creep threshold; a **soft deadline** at 85% so a
+squeezed run writes its meta and exits 0 instead of being SIGKILLed with
+nothing recorded; and the runbook rewritten to branch on total-outage vs
+partial-degradation, with the log signature that distinguishes them.
+
+**Deliberately NOT done: making the breaker trip on a failure rate.** Zero data
+was lost — a breaker tripping at 8–15% would fail-fast the remaining BAs onto
+last-known-good, trading fresh data we could actually get for runtime the
+budget recovers more cheaply. Two characterization tests exist so nobody
+"fixes" that into tripping.
+
+**Open question — the fix is modelled, not proven.** EIA was already recovering
+when this landed, so no before/after is attributable. The real proof arrives at
+the next upstream wobble. And #171's `<600s` criterion is still unmet: the next
+lever is fanning scoring across parallel Cloud Run tasks, which needs design
+first because `run()`'s fleet-wide steps (`last_scored`, gate-status merge,
+benchmark rollup) are genuinely fleet-scoped.
+
+**A note on #389's diagnosis, which was wrong.** A concurrent session, working
+**without production access**, attributed the alert to ADR-012 making the ERA5
+archive leg ~12× heavier. The runtime record refutes it: daily medians across
+the flips (07-22/07-23) are flat — 762/745/768/781/965 before, 838/824/830/826
+after — and 07-21, *pre*-flip, has a higher median and max than any post-flip
+day until the incident. The archive leg plausibly costs ~50–70s and is worth
+reclaiming, but it did not move the median and is not why the alert fired. Its
+instrumentation half was correct and is what shipped here; its cross-run
+archive cache is held pending measurement against that instrumentation.
+
+---
 **2026-08-04 — the zonal effect is a COOLING-SEASON phenomenon. First mechanism
 to survive; recommend closing the line.**
 [`docs/WINTER_RUN_STUDY.md`](docs/WINTER_RUN_STUDY.md).
@@ -1147,6 +1230,17 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
 **The production-readiness campaign keeps proving its own value:** PR-G3's deep `/health` (shipped 2026-05-29) caught a total forecast outage on its first production run — invisible to the `curl / → 200` check it replaced. Strongest STAR story in the set.
 
 ## Blocked / waiting on
+
+- **Two alert policies need a human `gcloud` apply, after the next deploy**
+  ([#389](https://github.com/kristenmartino/gridpulse/issues/389), #267) —
+  `scoring_deadline_shed_alert.json` (new) and
+  `scoring_partial_failure_alert.json` (committed-and-inert since 2026-07-08).
+  Both are in `_KNOWN_UNAPPLIED`; the recipe is in `docs/monitoring/README.md`.
+  Apply them **after** the soft-deadline image ships — applying sooner would
+  create an alert on an event nothing emits, which is the state that test
+  exists to catch. Worth noting `scoring_partial_failure` could never have
+  fired under a timeout anyway: a SIGKILLed run never reaches its `log.error`.
+  The soft deadline is what makes a squeezed run report itself.
 
 - **Forecast tab chart 1–4h gap between actual end and forecast start**
   ([#129](https://github.com/kristenmartino/gridpulse/issues/129)) —
