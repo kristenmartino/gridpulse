@@ -21,7 +21,7 @@ same settled truth, whose number was closer?
 
 | | |
 |---|---|
-| **Official arm** | The earliest day-ahead forecast we observed the BA publish for the target hour (§12.1) |
+| **Official arm** | The earliest day-ahead forecast we observed the BA publish for the target hour — **provided we saw it before the hour settled** (§12.1, §12.9; hours first seen later are dropped as `stale_capture`) |
 | **GridPulse arm** | Our **ensemble's** forecast for that same hour — always the ensemble, which on a substituted BA is not the series we serve (limit 6) |
 | **Truth** | EIA's settled value for that hour — the *same* value grades both |
 
@@ -137,7 +137,9 @@ operator. Picking one value to score would invite a fair objection either
 way, so the official side is scored **twice, on the same hours, against the
 same settled truth**:
 
-- **`official`** — as-issued: the earliest day-ahead forecast we observed.
+- **`official`** — as-issued: the earliest day-ahead forecast we observed,
+  restricted to hours we saw within `FRESH_CAPTURE_LAG_HOURS` of the target
+  (#358 — a backfilled first sighting is already post-revision).
   The fair comparison, and the primary one.
 - **`official_revised`** — as-revised: EIA's current value, which for a
   revising BA carries hindsight our forecast never had. The conservative
@@ -345,7 +347,16 @@ number per BA is not a supportable format.
 8. **Both arms inherit EIA's settled values.** If a settled value is itself
    wrong, both arms are graded against the same wrong number. Shared bias,
    not differential bias, but not zero.
-9. **A published row may be one we already grade failing.** Our drift
+9. **Backfilled hours are excluded, and the exclusion is not neutral.**
+   An hour first seen more than `FRESH_CAPTURE_LAG_HOURS` (3h) after it passed
+   cannot supply an "as-issued" forecast: its `first_seen_df` is already
+   post-revision. Those hours are dropped as `stale_capture` (#358). Where any
+   were dropped, `stale_capture_impact` publishes how their removal moved
+   **both** arms, because the direction is not uniform — it favours the
+   operator where its revisions improve its forecast and favours us where they
+   worsen it. The drop is evaluated before the stub rules, so per-reason counts
+   are not comparable to payloads published before this change.
+10. **A published row may be one we already grade failing.** Our drift
    monitor grades every model on a rolling 7-day window against the band for
    its own horizon, and a row can be `rollback` there while appearing on this
    page as an ordinary comparison. Since #348 that grade travels with the
@@ -391,6 +402,26 @@ justification than one that gets stricter. The point of writing the rules
 down first is that we do not get to discover them after seeing the result.
 
 ### Change log
+
+**2026-08-04 — `stale_capture` exclusion ([#358]).** *Direction: measured, not
+predicted, and not uniform.* Hours first seen after they had already passed
+were being scored on the as-issued arm carrying post-revision values. They are
+now dropped.
+
+This **is** a drop-rule change, so §14 applies in full. Rather than state a
+single fleet direction — which would be wrong for roughly half the fleet, since
+revisions improve some BAs' forecasts and worsen others' — every affected lead
+now publishes `stale_capture_impact`: the same hours rescored *without* the
+filter, so the shift in both arms is visible per BA and stays true as windows
+roll. Positive means the exclusion improved that arm's MAPE.
+
+The rule is **stricter**, and it removes hours where the official arm was
+enjoying hindsight. Where a BA's revisions improve its forecast, that costs the
+operator and helps us; where they worsen it, the reverse. Both cases are
+published rather than summarised.
+
+[#358]: https://github.com/kristenmartino/gridpulse/issues/358
+
 
 **2026-07-28 — per-row `serve_grade` and served-series disclosure ([#348]).**
 *Direction: moves our own number by exactly nothing.* No drop rule, exclusion,

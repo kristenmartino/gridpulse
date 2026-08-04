@@ -744,17 +744,49 @@ class TestStaleCaptureImpact:
             )
         return out
 
-    def test_impact_is_published_when_hours_were_excluded(self):
+    def test_impact_block_is_produced_with_real_numbers(self):
+        """Added after mutation testing: forcing the helper to always return
+        None passed the whole suite, because the original test exercised
+        `pair_hours` and never asserted the block itself."""
+        from models.benchmark import _stale_capture_impact
+
         recs = self._mixed()
         gp = {_normalize_ts(r.timestamp): 1050.0 for r in recs}
-        payload = compute_benchmark_payload("TEST", recs, None, "clean")
-        # No horizon payload → no GridPulse predictions → nothing scoreable;
-        # the helper is exercised directly instead.
-        pairs_all, _ = pair_hours(recs, gp, None, exclude_stale_capture=False)
-        pairs_fresh, drops = pair_hours(recs, gp, None)
+        fresh_pairs, drops = pair_hours(recs, gp, None)
         assert drops["stale_capture"] == 100
-        assert len(pairs_all) - len(pairs_fresh) == 100
-        assert payload["region"] == "TEST"
+
+        impact = _stale_capture_impact(
+            recs,
+            gp,
+            None,
+            score_arm(fresh_pairs, "gridpulse"),
+            score_arm(fresh_pairs, "official"),
+        )
+        assert impact is not None, "the block must be published when hours were excluded"
+        assert impact["n_hours_excluded"] == 100
+        # The stale hours carried a far worse official value (1400 vs a
+        # settled 1100), so removing them must IMPROVE the official arm —
+        # a positive shift under the documented sign convention.
+        assert impact["official_mape_shift_pts"] > 0
+        assert "positive means the exclusion improved" in impact["note"]
+
+    def test_the_impact_sign_convention_is_documented_and_correct(self):
+        """A flipped sign here would tell a reader the exclusion hurt us when
+        it helped — on a page whose argument is that its numbers mean what
+        they say."""
+        from models.benchmark import _stale_capture_impact
+
+        recs = self._mixed()
+        gp = {_normalize_ts(r.timestamp): 1050.0 for r in recs}
+        fresh_pairs, _ = pair_hours(recs, gp, None)
+        all_pairs, _ = pair_hours(recs, gp, None, exclude_stale_capture=False)
+        impact = _stale_capture_impact(
+            recs, gp, None, score_arm(fresh_pairs, "gridpulse"), score_arm(fresh_pairs, "official")
+        )
+        expected = (
+            score_arm(all_pairs, "official")["mape"] - score_arm(fresh_pairs, "official")["mape"]
+        )
+        assert impact["official_mape_shift_pts"] == pytest.approx(expected, abs=0.001)
 
     def test_excluding_stale_hours_changes_the_official_arm(self):
         """The whole point: those hours carried post-revision values on the
