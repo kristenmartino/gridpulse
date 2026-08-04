@@ -43,13 +43,13 @@
 | data/redis\_client.py                 |       84 |        9 |     89% |   196-204 |
 | data/session\_diff.py                 |      152 |        5 |     97% |98, 120, 125, 179-180 |
 | data/user\_prefs.py                   |      127 |       28 |     78% |94-100, 183, 188-192, 210, 237, 249-261, 263 |
-| data/vintage.py                       |      150 |        5 |     97% |115, 181, 237, 349, 375 |
+| data/vintage.py                       |      150 |        4 |     97% |115, 181, 237, 382 |
 | data/weather\_aggregate.py            |       44 |        3 |     93% |63, 78, 109 |
 | data/weather\_client.py               |      255 |       22 |     91% |119-120, 174-188, 300, 303-305, 504-506 |
 | data/weather\_normals.py              |      120 |        7 |     94% |94, 130-132, 257, 259-260 |
 | models/\_\_init\_\_.py                |        0 |        0 |    100% |           |
 | models/arima\_model.py                |      182 |       28 |     85% |95-99, 123-127, 163-211, 329-331, 400, 402 |
-| models/benchmark.py                   |      162 |        9 |     94% |172, 191, 342, 347-348, 386, 389-390, 594 |
+| models/benchmark.py                   |      176 |        9 |     95% |172, 191, 365, 370-371, 409, 412-413, 667 |
 | models/drift.py                       |      277 |       17 |     94% |145, 160, 203, 206, 315, 358, 360, 374, 448-449, 603, 650-651, 656, 689, 710-711 |
 | models/ensemble.py                    |       46 |        3 |     93% |103-104, 119 |
 | models/evaluation.py                  |       92 |        3 |     97% |156, 184, 206 |
@@ -67,7 +67,7 @@
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
-| **TOTAL**                             | **8547** |  **954** | **89%** |           |
+| **TOTAL**                             | **8561** |  **953** | **89%** |           |
 
 
 ## Setup coverage badge
