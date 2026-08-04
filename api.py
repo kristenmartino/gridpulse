@@ -607,6 +607,10 @@ _EXPORTED_BENCHMARK_LEAD_FIELDS = (
     # #348: our own live grade for the series this row scores. Same model,
     # same lead — not a healthier neighbouring measurement.
     "serve_grade",
+    # #358: how excluding backfilled hours moved this BA's numbers. Published
+    # because the direction is not uniform across the fleet, so a single
+    # methodology sentence would be wrong for roughly half of it.
+    "stale_capture_impact",
 )
 
 #: Every metric block travels with the statistic that produced it. §8 of the
@@ -637,6 +641,11 @@ _BENCHMARK_NOTES = [
     "operators' documented 17-41h submission window — see the methodology's "
     "limits before quoting a lead.",
     "Excluded BAs are published with their reason rather than omitted.",
+    "Hours first seen more than a few hours after they passed are excluded "
+    "(stale_capture): their earliest-observed forecast is a post-revision "
+    "value, so scoring it as 'as-issued' would collapse the distinction the "
+    "dual official arm exists to draw. Where any were excluded, "
+    "stale_capture_impact reports how their removal moved both arms.",
     "Rows carry serve_grade — our own rolling grade for the exact series "
     "scored, at the same horizon. A row graded 'rollback' is one we already "
     "know is failing, and it is marked rather than presented as an ordinary "

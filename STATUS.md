@@ -103,6 +103,31 @@ archive cache is held pending measurement against that instrumentation.
 
 ---
 
+**2026-08-04 — #358: backfilled hours cannot supply an as-issued forecast.**
+The official arm is `first_seen_df`, documented as "the earliest day-ahead
+forecast we observed". For an hour first seen *after* it passed — the seed
+backfill, or any reseed — that value is already post-revision, so scoring it
+as as-issued collapsed the distinction the dual arm (#341) exists to draw.
+
+Shipped a `stale_capture` drop (lag > `FRESH_CAPTURE_LAG_HOURS`), counted in
+the published `excluded_hours`, evaluated **before** the stub rules because it
+disqualifies the official arm's *provenance* — so per-reason counts are no
+longer comparable to pre-#358 payloads.
+
+**§14 answered with data, not a prediction:** each lead publishes
+`stale_capture_impact` — the same hours rescored *without* the filter. The
+direction is not uniform (revisions improve some BAs' forecasts and worsen
+others'), so a single fleet sentence would be wrong for about half the fleet.
+
+**Not necessarily self-healed:** the issue expected the seed to age out of the
+30-day window, but #313 documented vintage windows re-pinned through
+2026-07-17 — inside today's window. The API exposes no capture-lag evidence,
+so **publishing the count is the measurement**; it lands on the next tick.
+
+One definition of capture lag now: `data.vintage.capture_lag_hours` is public
+and imported rather than reimplemented, pinned by a test — the
+`OFFICIAL_DOCUMENTED_LEAD_H` lesson applied.
+
 **2026-08-04 — the zonal effect is a COOLING-SEASON phenomenon. First mechanism
 to survive; recommend closing the line.**
 [`docs/WINTER_RUN_STUDY.md`](docs/WINTER_RUN_STUDY.md).

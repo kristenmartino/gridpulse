@@ -476,6 +476,7 @@
               <li>Hours where EIA published the forecast <em>as</em> the actual are excluded &mdash; scoring them would credit the operator with a perfect prediction on hours it never made.</li>
               <li>The operator's column is the <em>earliest day-ahead forecast we observed</em>, not necessarily the first they issued: a revision landing before we first saw the hour is invisible to us.</li>
               <li>Only settled actuals count. First-published values run up to ~70% wrong on high-revision feeds.</li>
+              <li>Hours we first saw <em>after</em> they had already passed are excluded: their earliest-observed forecast is already a post-revision value, so scoring it as &ldquo;as-issued&rdquo; would erase the distinction the two operator columns exist to draw.</li>
               <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight.</li>
               <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
               <li>A row marked <span class="flag">rollback</span> is one our own drift monitor already grades as failing at that horizon &mdash; the number stands, but we would not defend the forecast behind it.</li>
@@ -486,7 +487,7 @@
           <div class="panel">
             <h3>Read the rules yourself</h3>
             <ul>
-              <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_METHODOLOGY.md" target="_blank" rel="noopener">Methodology</a> &mdash; every rule, and nine known limits</li>
+              <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_METHODOLOGY.md" target="_blank" rel="noopener">Methodology</a> &mdash; every rule, and ten known limits</li>
               <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_SCOREABILITY.md" target="_blank" rel="noopener">Scoreability</a> &mdash; which BAs qualify, and why not</li>
               <li><a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BENCHMARK_PROVENANCE.md" target="_blank" rel="noopener">Provenance</a> &mdash; what we measured about our own inputs</li>
             </ul>

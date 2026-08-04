@@ -24,6 +24,7 @@ from models.benchmark import (
     HEADLINE_LEAD,
     MIN_PAIRED_HOURS,
     OFFICIAL_DOCUMENTED_LEAD_H,
+    _normalize_ts,
     compute_benchmark_payload,
     fleet_rollup,
     gridpulse_predictions,
@@ -38,11 +39,16 @@ from models.benchmark import (
 class _Rec:
     """Minimal stand-in for data.vintage.VintageRecord."""
 
-    def __init__(self, ts, first_seen_df, last_d, was_placeholder=False):
+    def __init__(self, ts, first_seen_df, last_d, was_placeholder=False, captured_at=None):
         self.timestamp = ts
         self.first_seen_df = first_seen_df
         self.last_d = last_d
         self.was_placeholder = was_placeholder
+        # Default FRESH (captured at the target hour). `captured_at` is a
+        # required field on the real VintageRecord, so only this stub can omit
+        # it — and an hour that was never seen fresh has no business on the
+        # as-issued arm (#358), which the stale tests below exercise.
+        self.captured_at = captured_at if captured_at is not None else ts
 
 
 def _records(n=300, *, df=1000.0, actual=1000.0, placeholder=False):
@@ -606,3 +612,207 @@ def test_official_documented_lead_is_declared_exactly_once():
     assert declarations == ["models/benchmark.py"], (
         f"expected a single declaration, found {declarations}"
     )
+
+
+class TestStaleCapture:
+    """#358 — a backfilled hour cannot supply an "as-issued" forecast.
+
+    The official arm is documented throughout as *"the earliest day-ahead
+    forecast we observed"*. For an hour first seen long after it passed — the
+    first tick's ~700-hour backfill, or any reseed — `first_seen_df` is a
+    POST-revision value. Scoring it on the as-issued arm silently collapses
+    the as-issued/as-revised distinction the dual arm exists to draw.
+    """
+
+    def _stale(self, hours_late: float, n=300):
+        """Records whose capture lag exceeds the freshness threshold."""
+        from datetime import datetime, timedelta
+
+        out = []
+        for i in range(n):
+            ts = f"2026-07-{1 + i // 24:02d}T{i % 24:02d}:00:00Z"
+            cap = datetime.fromisoformat(ts.replace("Z", "+00:00")) + timedelta(hours=hours_late)
+            out.append(_Rec(ts, 1000.0, 1100.0, captured_at=cap.isoformat()))
+        return out
+
+    def test_backfilled_hours_are_dropped_and_counted(self):
+        from data.vintage import FRESH_CAPTURE_LAG_HOURS
+
+        recs = self._stale(FRESH_CAPTURE_LAG_HOURS + 24)
+        pairs, drops = pair_hours(recs, {_normalize_ts(r.timestamp): 1050.0 for r in recs})
+        assert pairs == []
+        assert drops["stale_capture"] == len(recs)
+
+    def test_fresh_hours_survive(self):
+        from data.vintage import FRESH_CAPTURE_LAG_HOURS
+
+        recs = self._stale(FRESH_CAPTURE_LAG_HOURS)  # exactly at the boundary
+        pairs, drops = pair_hours(recs, {_normalize_ts(r.timestamp): 1050.0 for r in recs})
+        assert drops["stale_capture"] == 0
+        assert len(pairs) == len(recs)
+
+    def test_the_boundary_is_inclusive_not_exclusive(self):
+        """At exactly FRESH_CAPTURE_LAG_HOURS the record is fresh; one hour
+        later it is not. Pinned because an off-by-one here silently changes
+        every published drop count."""
+        from data.vintage import FRESH_CAPTURE_LAG_HOURS
+
+        at = self._stale(FRESH_CAPTURE_LAG_HOURS, n=24)
+        past = self._stale(FRESH_CAPTURE_LAG_HOURS + 1, n=24)
+        gp = {_normalize_ts(r.timestamp): 1050.0 for r in at}
+        assert pair_hours(at, gp)[1]["stale_capture"] == 0
+        assert pair_hours(past, gp)[1]["stale_capture"] == 24
+
+    def test_an_unmeasurable_lag_counts_as_stale(self):
+        """A record whose capture time will not parse cannot be SHOWN fresh,
+        and the official arm's whole claim is freshness — so it is dropped
+        rather than waved through."""
+        recs = [_Rec("2026-07-01T00:00:00Z", 1000.0, 1100.0, captured_at="not-a-timestamp")]
+        pairs, drops = pair_hours(recs, {_normalize_ts(recs[0].timestamp): 1050.0})
+        assert pairs == []
+        assert drops["stale_capture"] == 1
+
+    def test_the_filter_can_be_disabled_for_impact_measurement(self):
+        """`exclude_stale_capture=False` reproduces the pre-#358 scoring, which
+        is how the payload measures the direction this change moves our own
+        number (methodology §14) rather than predicting it."""
+        recs = self._stale(48)
+        gp = {_normalize_ts(r.timestamp): 1050.0 for r in recs}
+        pairs, drops = pair_hours(recs, gp, exclude_stale_capture=False)
+        assert drops["stale_capture"] == 0
+        assert len(pairs) == len(recs)
+
+    def test_provenance_is_checked_before_the_stub_rules(self):
+        """Evaluation order matters — the counts are disjoint, so an hour that
+        is BOTH backfilled and a stub lands in exactly one bucket. Provenance
+        wins: if the value was never as-issued, whether it later equalled the
+        settled figure is moot."""
+        recs = self._stale(48, n=24)
+        for r in recs:
+            r.last_d = r.first_seen_df  # also an unresolved stub
+        pairs, drops = pair_hours(recs, {_normalize_ts(r.timestamp): 1050.0 for r in recs})
+        assert drops["stale_capture"] == 24
+        assert drops["unresolved_stub"] == 0
+
+    def test_capture_lag_has_exactly_one_definition(self):
+        """The OFFICIAL_DOCUMENTED_LEAD_H lesson: a second implementation of
+        capture lag would drift from the classifier's. `models.benchmark`
+        imports the one in `data.vintage` rather than recomputing it."""
+        import ast
+        from pathlib import Path
+
+        src = Path("models/benchmark.py").read_text()
+        assert "from data.vintage import" in src and "capture_lag_hours" in src
+        tree = ast.parse(src)
+        defined = [
+            n.name
+            for n in ast.walk(tree)
+            if isinstance(n, ast.FunctionDef) and "capture_lag" in n.name
+        ]
+        assert defined == [], f"benchmark.py redefines capture lag: {defined}"
+
+
+class TestStaleCaptureImpact:
+    """§14 requires stating which direction a rule change moves our number.
+
+    The payload measures it rather than predicting it, because the direction
+    is NOT uniform: the issue records SOCO improving 1.84% → 1.76% under
+    revisions and FMPP worsening 28.36% → 28.46%. A single fleet-level claim
+    would be wrong for roughly half the fleet.
+    """
+
+    def _mixed(self, n_fresh=200, n_stale=100):
+        from datetime import datetime, timedelta
+
+        out = []
+        for i in range(n_fresh + n_stale):
+            ts = f"2026-07-{1 + i // 24:02d}T{i % 24:02d}:00:00Z"
+            base = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            stale = i >= n_fresh
+            # Stale hours carry a different official value AND a different
+            # ERROR MAGNITUDE. A first pass used 1200 against a fresh 1000 with
+            # last_d 1100 — both |error| = 100, so the arm's MAPE was
+            # identical and the test asserted nothing. 1400 makes the stale
+            # hours genuinely worse, which is what the exclusion must move.
+            out.append(
+                _Rec(
+                    ts,
+                    1400.0 if stale else 1000.0,
+                    1100.0,
+                    captured_at=(base + timedelta(hours=48 if stale else 0)).isoformat(),
+                )
+            )
+        return out
+
+    def test_impact_block_is_produced_with_real_numbers(self):
+        """Added after mutation testing: forcing the helper to always return
+        None passed the whole suite, because the original test exercised
+        `pair_hours` and never asserted the block itself."""
+        from models.benchmark import _stale_capture_impact
+
+        recs = self._mixed()
+        gp = {_normalize_ts(r.timestamp): 1050.0 for r in recs}
+        fresh_pairs, drops = pair_hours(recs, gp, None)
+        assert drops["stale_capture"] == 100
+
+        impact = _stale_capture_impact(
+            recs,
+            gp,
+            None,
+            score_arm(fresh_pairs, "gridpulse"),
+            score_arm(fresh_pairs, "official"),
+        )
+        assert impact is not None, "the block must be published when hours were excluded"
+        assert impact["n_hours_excluded"] == 100
+        # The stale hours carried a far worse official value (1400 vs a
+        # settled 1100), so removing them must IMPROVE the official arm —
+        # a positive shift under the documented sign convention.
+        assert impact["official_mape_shift_pts"] > 0
+        assert "positive means the exclusion improved" in impact["note"]
+
+    def test_the_impact_sign_convention_is_documented_and_correct(self):
+        """A flipped sign here would tell a reader the exclusion hurt us when
+        it helped — on a page whose argument is that its numbers mean what
+        they say."""
+        from models.benchmark import _stale_capture_impact
+
+        recs = self._mixed()
+        gp = {_normalize_ts(r.timestamp): 1050.0 for r in recs}
+        fresh_pairs, _ = pair_hours(recs, gp, None)
+        all_pairs, _ = pair_hours(recs, gp, None, exclude_stale_capture=False)
+        impact = _stale_capture_impact(
+            recs, gp, None, score_arm(fresh_pairs, "gridpulse"), score_arm(fresh_pairs, "official")
+        )
+        expected = (
+            score_arm(all_pairs, "official")["mape"] - score_arm(fresh_pairs, "official")["mape"]
+        )
+        assert impact["official_mape_shift_pts"] == pytest.approx(expected, abs=0.001)
+
+    def test_excluding_stale_hours_changes_the_official_arm(self):
+        """The whole point: those hours carried post-revision values on the
+        as-issued arm, so removing them must move that arm's score."""
+        recs = self._mixed()
+        gp = {_normalize_ts(r.timestamp): 1050.0 for r in recs}
+        all_pairs, _ = pair_hours(recs, gp, None, exclude_stale_capture=False)
+        fresh_pairs, _ = pair_hours(recs, gp, None)
+        assert (
+            score_arm(all_pairs, "official")["mape"] != score_arm(fresh_pairs, "official")["mape"]
+        )
+
+    def test_no_impact_block_when_nothing_was_excluded(self):
+        """A window that has rolled past its seed excludes nothing, and that
+        is worth distinguishing from a measured zero."""
+        from models.benchmark import _stale_capture_impact
+
+        recs = [
+            _Rec(f"2026-07-{1 + i // 24:02d}T{i % 24:02d}:00:00Z", 1000.0, 1100.0)
+            for i in range(300)
+        ]
+        gp = {_normalize_ts(r.timestamp): 1050.0 for r in recs}
+        pairs, _ = pair_hours(recs, gp, None)
+        assert (
+            _stale_capture_impact(
+                recs, gp, None, score_arm(pairs, "gridpulse"), score_arm(pairs, "official")
+            )
+            is None
+        )
