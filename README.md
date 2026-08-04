@@ -63,7 +63,7 @@
 | models/xgboost\_model.py              |       72 |        2 |     97% |    61, 78 |
 | personas/\_\_init\_\_.py              |        0 |        0 |    100% |           |
 | personas/config.py                    |       13 |        0 |    100% |           |
-| personas/welcome.py                   |       90 |        3 |     97% |47, 51, 97 |
+| personas/welcome.py                   |       90 |        3 |     97% |47, 49, 97 |
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
