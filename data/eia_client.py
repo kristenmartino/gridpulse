@@ -504,6 +504,12 @@ def drain_latency_stats() -> dict[str, float] | None:
 
     Returns None when no successful request was recorded, so a caller can
     skip the log line entirely rather than publish an empty one.
+
+    The lock is here for the read-and-clear pair, not for ``append``: a sample
+    recorded between the two would otherwise be dropped. It is defensive —
+    CPython's list operations are atomic today, and in practice this is called
+    after the worker pool has joined — so no test claims to pin it, because a
+    window that narrow cannot be hit reliably from one.
     """
     with _latency_lock:
         samples = sorted(_latency_ms)

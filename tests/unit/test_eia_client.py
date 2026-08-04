@@ -1533,18 +1533,26 @@ class TestLatencyStats:
         stats = drain_latency_stats()
         assert stats is not None and stats["n"] == 1
 
-    def test_concurrent_recording_loses_nothing(self):
-        """The counters beside this one are unlocked ints mutated from the
-        4-worker pool; this list must not repeat that."""
+    def test_recording_from_many_threads_loses_nothing(self):
+        """Records land from all 4 scoring workers at once.
+
+        Deliberately NOT sold as a test of ``_latency_lock``: ``list.append``
+        is atomic under CPython, so this passes with the lock removed. The
+        lock's real job is making the drain's read-and-clear a single step,
+        and that window is a few bytecodes wide — it cannot be hit reliably
+        from a test, so no test here claims to pin it. Asserting something
+        that holds with the guard broken is the pattern ``docs/TEST_QUALITY.md``
+        calls out; this asserts only what it actually covers.
+        """
         import threading
 
         from data.eia_client import _record_latency, drain_latency_stats
 
-        def worker():
+        def writer():
             for i in range(500):
                 _record_latency(float(i))
 
-        threads = [threading.Thread(target=worker) for _ in range(8)]
+        threads = [threading.Thread(target=writer) for _ in range(8)]
         for t in threads:
             t.start()
         for t in threads:
