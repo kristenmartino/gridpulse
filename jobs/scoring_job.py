@@ -131,10 +131,26 @@ def _log_region_complete(summary: dict) -> None:
     )
 
 
-def _score_region(region: str) -> dict:
-    """Run all scoring phases for a single region. Returns a summary dict."""
+def _score_region(region: str, deadline: float | None = None) -> dict:
+    """Run all scoring phases for a single region. Returns a summary dict.
+
+    ``deadline`` is a ``time.monotonic()`` instant past which this BA is
+    skipped without touching the network. All 51 futures are submitted to the
+    pool up front, so shedding cannot be done by not-submitting — a worker has
+    to check on pickup. Skipping costs ~0s, which is what lets the run drain
+    its queue and reach its epilogue instead of being killed mid-fan-out.
+    """
     t0 = time.time()
     summary: dict = {"region": region, "ok": False, "phases": {}, "timings": {}}
+
+    if deadline is not None and time.monotonic() >= deadline:
+        # Not a failure — this BA never ran, and its previous forecast is still
+        # live in Redis under the 24h TTL. `_forecast_errored` excludes it for
+        # exactly that reason; `partial_failure` counts it separately.
+        summary["skipped"] = "deadline"
+        summary["phases"]["forecast"] = {"ok": False, "error": "deadline_skipped"}
+        summary["elapsed_s"] = 0.0
+        return summary
 
     def timed(name: str, fn, *args, **kwargs):
         """Run a phase and record its wall time under ``summary["timings"]``.
@@ -542,19 +558,43 @@ def _check_runtime_headroom(elapsed_s: float, rollup: dict[str, dict] | None = N
         log.warning("scoring_runtime_headroom_check_failed", error=str(e))
 
 
+def _soft_deadline() -> float | None:
+    """Monotonic instant past which the run stops starting new BAs.
+
+    None disables shedding — flag off, or the fraction set to 0. Monotonic
+    rather than wall clock on purpose: a container clock step must not extend
+    or collapse the budget.
+    """
+    from config import SCORING_SOFT_DEADLINE_FRACTION, SCORING_TASK_TIMEOUT_S, feature_enabled
+
+    if not feature_enabled("soft_deadline"):
+        return None
+    if SCORING_SOFT_DEADLINE_FRACTION <= 0 or SCORING_TASK_TIMEOUT_S <= 0:
+        return None
+    return time.monotonic() + SCORING_TASK_TIMEOUT_S * SCORING_SOFT_DEADLINE_FRACTION
+
+
 def run() -> int:
     """Run the scoring job end-to-end. Returns an exit code."""
     t0 = time.time()
     regions = phases.ordered_regions(PRECOMPUTE_DEFAULT_REGION)
     log.info("scoring_job_start", regions=regions)
 
+    # 2026-08-04: without this the task is simply SIGKILLed at the timeout, and
+    # a run that had already scored 49 of 51 BAs records NONE of it, because
+    # the freshness meta and fleet rollup below sit after the fan-out.
+    deadline = _soft_deadline()
     results: list[dict] = []
+    shed: list[str] = []
     with ThreadPoolExecutor(max_workers=PRECOMPUTE_MAX_WORKERS) as pool:
-        futures = {pool.submit(_score_region, r): r for r in regions}
+        futures = {pool.submit(_score_region, r, deadline): r for r in regions}
         for fut in as_completed(futures):
             region = futures[fut]
             try:
-                results.append(fut.result())
+                summary = fut.result()
+                if summary.get("skipped") == "deadline":
+                    shed.append(region)
+                results.append(summary)
             except Exception as e:
                 log.warning(
                     "scoring_job_region_crashed",
@@ -568,22 +608,33 @@ def run() -> int:
     def _forecast_errored(r: dict) -> bool:
         # A REAL forecast failure — attempted and failed — as distinct from an
         # expected ``no_model`` skip (an untrained/new BA, which is neither
-        # scored nor a failure). A region that crashed entirely has no ``phases``.
+        # scored nor a failure) or a ``deadline_skipped`` shed (which never ran
+        # at all and still holds a live forecast in Redis). A region that
+        # crashed entirely has no ``phases``.
         if r.get("ok"):
             return False
-        return r.get("phases", {}).get("forecast", {}).get("error") != "no_model"
+        err = r.get("phases", {}).get("forecast", {}).get("error")
+        return err not in ("no_model", "deadline_skipped")
 
     # "Scored" now means the forecast phase produced output (#267): a region that
     # only wrote alerts/weather no longer inflates this count.
     ok_count = sum(1 for r in results if r.get("ok"))
     errored = [r["region"] for r in results if _forecast_errored(r)]
     fail_regions = [r["region"] for r in results if not r.get("ok")]  # incl. no_model
-    # Partial failure = real forecast ERRORS dragged the scored count below the
-    # floor while some regions still succeeded. All-``no_model`` (a fresh deploy
-    # with nothing trained yet) is expected, not a failure. It's not a total
-    # outage either, so Cloud Scheduler retry wouldn't help — but it must be
-    # VISIBLE: emit an alertable ERROR + degrade the freshness meta.
-    partial_failure = bool(errored) and ok_count < SCORING_MIN_OK_REGIONS
+    # Partial failure = real forecast ERRORS *or* deadline shedding dragged the
+    # scored count below the floor while some regions still succeeded.
+    # All-``no_model`` (a fresh deploy with nothing trained yet) is expected,
+    # not a failure. It's not a total outage either, so Cloud Scheduler retry
+    # wouldn't help — but it must be VISIBLE: emit an alertable ERROR + degrade
+    # the freshness meta.
+    #
+    # ``shed`` belongs in this condition and it is easy to leave out. Excluding
+    # shed BAs from ``errored`` is correct — they did not fail — but if that
+    # were the whole change, a run that scored 30/51 purely by deadline would
+    # have ``errored == []``, so ``partial_failure`` would be False and
+    # /health would read OK over 21 stale BAs. Silent, and worse than the
+    # timeout this replaces.
+    partial_failure = bool(errored or shed) and ok_count < SCORING_MIN_OK_REGIONS
 
     phases.write_meta(
         "last_scored",
@@ -593,6 +644,11 @@ def run() -> int:
             "regions_failed": fail_regions,
             "regions_errored": errored,
             "partial_failure": partial_failure,
+            # Disclose shedding rather than let a short run look like a full
+            # one: /health and the grid summary can then say "44/51 scored,
+            # deadline hit" instead of asserting freshness they don't have.
+            "deadline_hit": bool(shed),
+            "regions_deadline_skipped": shed,
             "mode": "scoring-job",
         },
     )
@@ -699,6 +755,27 @@ def run() -> int:
             log.info("eia_client_stats", **eia_stats)
     except Exception as e:  # never let instrumentation fail a run
         log.warning("eia_client_stats_failed", error=str(e))
+    if shed:
+        # Its own event, deliberately not folded into scoring_partial_failure:
+        # that alert means "forecasts are erroring", and this means "we ran out
+        # of time". Same severity, different runbook — one points at the model
+        # path, this one points at runtime.
+        from config import SCORING_SOFT_DEADLINE_FRACTION, SCORING_TASK_TIMEOUT_S
+
+        log.error(
+            "scoring_deadline_shed",
+            regions_scored=ok_count,
+            regions_skipped=len(shed),
+            skipped_regions=shed,
+            elapsed_s=elapsed,
+            soft_deadline_fraction=SCORING_SOFT_DEADLINE_FRACTION,
+            task_timeout_s=SCORING_TASK_TIMEOUT_S,
+            message=(
+                f"Scoring shed {len(shed)} of {len(results)} BAs at the soft "
+                f"deadline ({elapsed}s elapsed) — the run completed and wrote "
+                "what it had instead of being killed. Reduce runtime."
+            ),
+        )
     if partial_failure:
         log.error(
             "scoring_partial_failure",

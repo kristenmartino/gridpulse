@@ -1018,6 +1018,31 @@ SCORING_RUNTIME_CREEP_RUNS = int(os.getenv("SCORING_RUNTIME_CREEP_RUNS", "3"))
 # so this absolute floor tolerates the expected no-model tail without noise.
 SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
 
+# Soft deadline — shed work before Cloud Run SIGKILLs the task (2026-08-04).
+#
+# `run()` submits all 51 BAs to the pool and has no concept of time, so when
+# the task timeout arrives the process is killed outright. On 2026-08-04 that
+# cost more than it looks: both killed executions had ALREADY scored ~49-51 of
+# 51 BAs, and per-BA Redis writes are incremental so that data landed — but
+# `write_meta("last_scored")` and the fleet rollup sit AFTER the fan-out, so
+# neither run recorded any of it. `last_scored` stayed pinned at 16:22 until
+# 20:01, past the 90-minute /health staleness threshold, for work that had
+# actually been done.
+#
+# Past this fraction of the task timeout, workers stop starting new BAs and
+# `run()` proceeds to its epilogue: freshness meta written, fleet rollup done,
+# a `scoring_deadline_shed` ERROR naming what was dropped, exit 0. A squeezed
+# run then reports "44/51 scored, deadline hit" with real data instead of
+# being killed having recorded nothing.
+#
+# Three tiers, and the ordering is load-bearing (asserted in tests):
+#   0.70 warn (scoring_runtime_creep)  <  0.85 shed  <  1.00 hard kill.
+# Set the fraction to 0 to disable shedding entirely via env var, no rebuild.
+SCORING_SOFT_DEADLINE_FRACTION = float(os.getenv("SCORING_SOFT_DEADLINE_FRACTION", "0.85"))
+# How long a shedding run waits for BAs already in flight before giving up on
+# them. They are mid-write, so abandoning them is worse than waiting a little.
+SCORING_DEADLINE_GRACE_S = float(os.getenv("SCORING_DEADLINE_GRACE_S", "120"))
+
 # ---------------------------------------------------------------------------
 # Web-tier operational guard (#253)
 # ---------------------------------------------------------------------------
@@ -1139,6 +1164,15 @@ FEATURE_FLAGS: dict[str, bool] = {
     # off (the path is fail-open to single-point, so off is
     # byte-identical to the pre-ADR-012 behavior).
     "multipoint_weather": True,
+    # 2026-08-04: scoring-job soft deadline. Past
+    # ``SCORING_SOFT_DEADLINE_FRACTION`` of the task timeout, stop starting new
+    # BAs so the run reaches its epilogue — freshness meta, fleet rollup, an
+    # alertable ``scoring_deadline_shed``, exit 0 — instead of being SIGKILLed
+    # having recorded nothing. Ships ON: unlike the studies above this is not a
+    # modelling change with a measurable effect to verify first, it is a
+    # failure-path guard, and flag-off is byte-identical because the deadline
+    # is simply never consulted. Rollback = flip off, or set the fraction to 0.
+    "soft_deadline": True,
 }
 
 

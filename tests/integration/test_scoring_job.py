@@ -11,6 +11,9 @@ returns a success exit code.
 
 from __future__ import annotations
 
+import time
+from unittest.mock import MagicMock
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -713,7 +716,7 @@ class TestScoringPartialFailureSemantics:
         by_region = {o["region"]: o for o in outcomes}
         captured: dict = {}
         monkeypatch.setattr(phases, "ordered_regions", lambda default: regions)
-        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r, deadline=None: by_region[r])
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
@@ -793,7 +796,7 @@ class TestScoringPartialFailureSemantics:
         monkeypatch.setattr(
             phases, "ordered_regions", lambda default: [o["region"] for o in outcomes]
         )
-        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r, deadline=None: by_region[r])
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
@@ -832,7 +835,7 @@ class TestScoringPartialFailureSemantics:
         by_region = {o["region"]: o for o in outcomes}
         captured: dict = {}
         monkeypatch.setattr(phases, "ordered_regions", lambda default: ["A", "B"])
-        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r, deadline=None: by_region[r])
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
@@ -860,7 +863,7 @@ class TestScoringPartialFailureSemantics:
         by_region = {o["region"]: o for o in outcomes}
         captured: dict = {}
         monkeypatch.setattr(phases, "ordered_regions", lambda default: ["PJM"])
-        monkeypatch.setattr(scoring_job, "_score_region", lambda r: by_region[r])
+        monkeypatch.setattr(scoring_job, "_score_region", lambda r, deadline=None: by_region[r])
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
@@ -1240,3 +1243,151 @@ class TestBenchmarkWiring:
 
         monkeypatch.setattr(bench, "compute_benchmark_payload", _boom)
         assert scoring_job.run() == 0
+
+
+class TestScoringSoftDeadline:
+    """The run must record the work it did, even when it runs out of time.
+
+    2026-08-04: both killed executions had already scored ~49-51 of 51 BAs,
+    and per-BA Redis writes are incremental so that data landed — but
+    `write_meta("last_scored")` and the fleet rollup sit AFTER the fan-out, so
+    neither run recorded any of it. `last_scored` stayed pinned at 16:22 until
+    20:01, past the 90-minute /health staleness threshold, for work that had
+    actually been done.
+    """
+
+    def _run(self, monkeypatch, regions, *, scored, fraction=0.85, flag=True):
+        """Run with a deadline that has ALREADY passed for all but `scored`.
+
+        The first `scored` BAs run normally; every later pickup sees a deadline
+        in the past and sheds. Deterministic — no thread timing involved.
+        """
+        import config
+        from jobs import phases, scoring_job
+
+        monkeypatch.setattr(config, "SCORING_SOFT_DEADLINE_FRACTION", fraction)
+        monkeypatch.setattr(config, "SCORING_TASK_TIMEOUT_S", 1800)
+        monkeypatch.setitem(config.FEATURE_FLAGS, "soft_deadline", flag)
+        monkeypatch.setattr(phases, "ordered_regions", lambda default: regions)
+
+        seen: list[str] = []
+        real = scoring_job._score_region
+
+        def fake_score(region, deadline=None):
+            seen.append(region)
+            # Force the shed decision rather than race a wall clock: once
+            # `scored` BAs have been handled, hand the real function a deadline
+            # that is already in the past.
+            if deadline is not None and len(seen) > scored:
+                deadline = time.monotonic() - 1
+            if deadline is not None and time.monotonic() >= deadline:
+                return real(region, deadline)  # exercises the real shed branch
+            return {"region": region, "ok": True, "phases": {"forecast": {"ok": True}}}
+
+        captured: dict = {}
+        monkeypatch.setattr(scoring_job, "_score_region", fake_score)
+        monkeypatch.setattr(
+            phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
+        )
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e, rollup=None: None)
+        code = scoring_job.run()
+        return code, captured.get("last_scored", {})
+
+    def test_shed_run_still_writes_last_scored(self, monkeypatch):
+        """The whole point: reaching the epilogue at all."""
+        code, meta = self._run(monkeypatch, [f"BA{i}" for i in range(10)], scored=6)
+
+        assert meta, "a shedding run must still write the freshness meta"
+        assert meta["regions_scored"] == 6
+        assert meta["deadline_hit"] is True
+        assert len(meta["regions_deadline_skipped"]) == 4
+        assert code == 0
+
+    def test_shed_regions_are_not_counted_as_errors(self, monkeypatch):
+        """A shed BA never ran and still holds a live forecast in Redis."""
+        _, meta = self._run(monkeypatch, [f"BA{i}" for i in range(10)], scored=6)
+
+        assert meta["regions_errored"] == []
+
+    def test_deadline_starvation_below_the_floor_still_alerts(self, monkeypatch):
+        """The hole that excluding shed BAs from `errored` would open.
+
+        Excluding them is right — they did not fail. But if that were the whole
+        change, a run scoring 3/50 purely by deadline would have `errored == []`
+        so `partial_failure` would be False, and /health would read OK over 47
+        stale BAs. Silent, and worse than the timeout it replaces.
+        """
+        code, meta = self._run(monkeypatch, [f"BA{i}" for i in range(50)], scored=3)
+
+        assert meta["regions_scored"] == 3
+        assert meta["partial_failure"] is True, "deadline starvation must be visible"
+        assert code == 0  # a Scheduler retry re-enters the same degraded upstream
+
+    def test_shedding_emits_its_own_event_not_partial_failure(self, monkeypatch):
+        """Different runbooks: one points at the model path, one at runtime.
+
+        A mild shed — 45 of 51 scored, above the `SCORING_MIN_OK_REGIONS` floor
+        of 40 — is a runtime problem only. Firing `scoring_partial_failure`
+        here would page someone toward the forecast path for a healthy one.
+        """
+        from jobs import scoring_job
+
+        fake_log = MagicMock()
+        monkeypatch.setattr(scoring_job, "log", fake_log)
+        self._run(monkeypatch, [f"BA{i}" for i in range(51)], scored=45)
+
+        errors = [c.args[0] for c in fake_log.error.call_args_list]
+        assert "scoring_deadline_shed" in errors
+        assert "scoring_partial_failure" not in errors
+
+    def test_flag_off_is_byte_identical(self, monkeypatch):
+        """Rollback path: no deadline consulted, nothing shed, no new events."""
+        from jobs import scoring_job
+
+        fake_log = MagicMock()
+        monkeypatch.setattr(scoring_job, "log", fake_log)
+        code, meta = self._run(monkeypatch, [f"BA{i}" for i in range(10)], scored=6, flag=False)
+
+        assert meta["regions_scored"] == 10
+        assert meta["deadline_hit"] is False
+        assert meta["regions_deadline_skipped"] == []
+        assert "scoring_deadline_shed" not in [c.args[0] for c in fake_log.error.call_args_list]
+        assert code == 0
+
+    def test_fraction_zero_disables_shedding(self, monkeypatch):
+        """Env-var kill switch, no image rebuild."""
+        _, meta = self._run(monkeypatch, [f"BA{i}" for i in range(10)], scored=6, fraction=0.0)
+
+        assert meta["regions_scored"] == 10
+        assert meta["deadline_hit"] is False
+
+    def test_shed_region_does_no_network_work(self, monkeypatch):
+        """Shedding is only cheap if it skips the fetch — that is the point."""
+        from jobs import phases, scoring_job
+
+        called: list[str] = []
+        monkeypatch.setattr(phases, "fetch_region_data", lambda r: called.append(r))
+
+        summary = scoring_job._score_region("ERCOT", deadline=time.monotonic() - 1)
+
+        assert called == []
+        assert summary["skipped"] == "deadline"
+        assert summary["phases"]["forecast"]["error"] == "deadline_skipped"
+        assert summary["elapsed_s"] == 0.0
+
+    def test_deadline_uses_a_monotonic_clock(self, monkeypatch):
+        """A container wall-clock step must not extend or collapse the budget."""
+        import config
+        from jobs import scoring_job
+
+        monkeypatch.setattr(config, "SCORING_SOFT_DEADLINE_FRACTION", 0.85)
+        monkeypatch.setattr(config, "SCORING_TASK_TIMEOUT_S", 1800)
+        monkeypatch.setitem(config.FEATURE_FLAGS, "soft_deadline", True)
+
+        before = time.monotonic()
+        deadline = scoring_job._soft_deadline()
+
+        # Derived from monotonic(), not time.time() — which is orders of
+        # magnitude larger (a Unix epoch) and would be obvious here.
+        assert deadline is not None
+        assert before <= deadline <= time.monotonic() + 1800 * 0.85

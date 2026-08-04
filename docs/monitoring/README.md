@@ -15,6 +15,7 @@ billing.
 | `cloud_run_job_failure_alert.json` | **Job tier.** Fires when `gridpulse-training-job` or `gridpulse-scoring-job` records a **failed execution** (`run.googleapis.com/job/completed_execution_count{result="failed"}` > 0, summed hourly per job). Fires *after* a timeout. |
 | `scoring_runtime_creep_alert.json` | **Job tier, early warning (#171).** Log-based (`conditionMatchedLog` on `jsonPayload.event="scoring_runtime_creep"`) — fires when the scoring job's `elapsed_s` exceeds `SCORING_RUNTIME_HEADROOM_FRACTION` of the task timeout for `SCORING_RUNTIME_CREEP_RUNS` consecutive runs. Warns on *approach* (~70% of the cap), before a tick is killed — the gap that let 2026-06-01 happen. |
 | `scoring_partial_failure_alert.json` | **Job tier (#267).** Log-based (`jsonPayload.event="scoring_partial_failure"`) — fires when a run forecast fewer than `SCORING_MIN_OK_REGIONS` BAs (default 40/51) but at least one succeeded, so it exits 0. Catches a catastrophic *partial* failure (e.g. 1/51) the failed-execution alert can't see. |
+| `scoring_deadline_shed_alert.json` | **Job tier (2026-08-04).** Log-based (`jsonPayload.event="scoring_deadline_shed"`) — fires when a run hits `SCORING_SOFT_DEADLINE_FRACTION` of its task timeout and stops starting new BAs. This is the guard *working*: the run completes, writes an honest `last_scored` (`deadline_hit`, `regions_deadline_skipped`) and exits 0, instead of being SIGKILLed having recorded nothing — which is what happened to two ticks on 2026-08-04 after they had already scored ~49/51. Still means runtime is at the ceiling and BAs are going unscored. |
 | `web_service_5xx_alert.json` | **Web tier (#253).** Fires when the `gridpulse` service returns sustained 5xx (`run.googleapis.com/request_count{response_code_class="5xx"}` summed > 25 / 5 min). The request-path equivalent of the job-failure alert. |
 | `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when the service sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. |
 | `web_service_uptime_alert.json` | **Web tier (#253).** Fires when the public `/health` uptime check fails from >1 probe location over 10 min (service down or shallow-degraded). Filter is check-id-specific — see the note in the file. |
@@ -85,6 +86,18 @@ email channel. The budget also emails the billing-account admins by default.
 > remove it from `_KNOWN_UNAPPLIED` in
 > `tests/unit/test_monitoring_policies_applied.py` — the test will tell you.
 > Tracked under "Blocked / waiting on" in `STATUS.md`.
+>
+> A second reason to apply it, from 2026-08-04: it could not have fired anyway
+> under a timeout-shaped incident, because a SIGKILLed run never reaches the
+> `log.error` that emits the event. The soft deadline is what makes a squeezed
+> run complete far enough to report itself.
+
+> ⚠ **`scoring_deadline_shed_alert.json` is also NOT applied yet, deliberately.**
+> It filters on `scoring_deadline_shed`, which only exists once the
+> soft-deadline code is **deployed** — applying it sooner would recreate the
+> emitting-into-a-void state above, just from the other direction. Apply it
+> together with `scoring_partial_failure_alert.json` after the image ships, add
+> both rows here, and clear both from `_KNOWN_UNAPPLIED`.
 
 ### Log-based policies were inert until 2026-07-15 — read this before adding one
 
