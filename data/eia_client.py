@@ -11,9 +11,11 @@ API docs: https://www.eia.gov/opendata/documentation.php
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from math import ceil
 from typing import Any
 
 import pandas as pd
@@ -474,6 +476,57 @@ class _EIACircuitBreaker:
 _circuit_breaker = _EIACircuitBreaker(EIA_CIRCUIT_TRIP_THRESHOLD, EIA_CIRCUIT_PROBE_INTERVAL)
 
 
+# Per-run latency of SUCCESSFUL EIA requests, in milliseconds.
+#
+# Nothing has ever logged EIA latency, so the 30s read timeout in
+# `_request_with_backoff` has never been checked against what a healthy
+# response actually costs — and that timeout is the unit of waste when EIA
+# degrades (2026-08-04: ~366 timed-out attempts turned an 800s scoring run
+# into two SIGKILLs at the 1800s cap). Recording the distribution is what
+# lets the timeout be DERIVED from a measured p99 instead of argued for.
+#
+# One aggregate line per run, not ~370 per-request lines: prod runs at
+# LOG_LEVEL=INFO, so a debug-level per-request log would emit nothing at all
+# where it is actually needed. Process-local and reset per run, exactly like
+# the breaker above.
+_latency_ms: list[float] = []
+_latency_lock = threading.Lock()
+
+
+def _record_latency(elapsed_ms: float) -> None:
+    """Record one successful request's latency. Never raises."""
+    with _latency_lock:
+        _latency_ms.append(elapsed_ms)
+
+
+def drain_latency_stats() -> dict[str, float] | None:
+    """Return and clear this run's success-latency percentiles.
+
+    Returns None when no successful request was recorded, so a caller can
+    skip the log line entirely rather than publish an empty one.
+    """
+    with _latency_lock:
+        samples = sorted(_latency_ms)
+        _latency_ms.clear()
+    if not samples:
+        return None
+
+    def _pct(p: float) -> float:
+        # Nearest-rank: index of the smallest sample at or above the p-th
+        # percentile. Exact on small n, which matters — a 51-BA run produces
+        # only a few hundred samples.
+        idx = min(len(samples) - 1, max(0, ceil(p / 100 * len(samples)) - 1))
+        return round(samples[idx], 1)
+
+    return {
+        "n": len(samples),
+        "p50_ms": _pct(50),
+        "p95_ms": _pct(95),
+        "p99_ms": _pct(99),
+        "max_ms": round(samples[-1], 1),
+    }
+
+
 def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
     """
     Fetch all pages from an EIA API endpoint with retry on rate limiting.
@@ -560,9 +613,11 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
 
     for attempt in range(1, max_attempts + 1):
         try:
+            _started = time.monotonic()
             resp = requests.get(url, params=params, timeout=30)
 
             if resp.status_code == 200:
+                _record_latency((time.monotonic() - _started) * 1000)
                 _circuit_breaker.record_success()
                 return resp.json()
             elif resp.status_code == 429:

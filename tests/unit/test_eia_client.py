@@ -1446,3 +1446,108 @@ class TestInterchangeGcsFallback:
 
         pd.testing.assert_frame_equal(df, gcs_df)
         mock_read.assert_called_once_with("interchange", "ERCOT")
+
+
+# ---------------------------------------------------------------------------
+# Success-latency instrumentation (2026-08-04 incident follow-up)
+# ---------------------------------------------------------------------------
+
+
+class TestLatencyStats:
+    """``drain_latency_stats`` — the measurement the 30s read timeout never had.
+
+    On 2026-08-04 a partial EIA degradation turned an ~800s scoring run into
+    two SIGKILLs at the 1800s cap, and the cost unit was the hardcoded 30s read
+    timeout. Nothing logged EIA latency, so there was no measured p99 to size a
+    lower timeout against. These tests pin that the distribution is recorded and
+    that draining it hands ownership to the caller exactly once.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear(self):
+        from data.eia_client import drain_latency_stats
+
+        drain_latency_stats()
+        yield
+        drain_latency_stats()
+
+    def test_returns_none_when_nothing_recorded(self):
+        from data.eia_client import drain_latency_stats
+
+        # None, not an empty dict — the caller skips the log line entirely
+        # rather than publishing percentiles over zero samples.
+        assert drain_latency_stats() is None
+
+    def test_percentiles_over_a_known_distribution(self):
+        from data.eia_client import _record_latency, drain_latency_stats
+
+        for ms in range(1, 101):  # 1..100 ms
+            _record_latency(float(ms))
+
+        stats = drain_latency_stats()
+
+        assert stats["n"] == 100
+        # Nearest-rank on n=100 puts p50 at the 50th sample, p99 at the 99th.
+        assert stats["p50_ms"] == pytest.approx(50.0)
+        assert stats["p95_ms"] == pytest.approx(95.0)
+        assert stats["p99_ms"] == pytest.approx(99.0)
+        assert stats["max_ms"] == pytest.approx(100.0)
+
+    def test_unsorted_input_still_yields_ordered_percentiles(self):
+        """Requests complete out of order across 4 worker threads."""
+        from data.eia_client import _record_latency, drain_latency_stats
+
+        for ms in [900.0, 10.0, 50.0, 5000.0, 20.0]:
+            _record_latency(ms)
+
+        stats = drain_latency_stats()
+
+        assert stats["p50_ms"] <= stats["p95_ms"] <= stats["p99_ms"] <= stats["max_ms"]
+        assert stats["max_ms"] == pytest.approx(5000.0)
+
+    def test_single_sample_does_not_index_out_of_range(self):
+        from data.eia_client import _record_latency, drain_latency_stats
+
+        _record_latency(12.5)
+
+        stats = drain_latency_stats()
+
+        assert stats == {"n": 1, "p50_ms": 12.5, "p95_ms": 12.5, "p99_ms": 12.5, "max_ms": 12.5}
+
+    def test_drain_clears_so_runs_do_not_accumulate(self):
+        """Process-local and per-run, like the circuit breaker beside it."""
+        from data.eia_client import _record_latency, drain_latency_stats
+
+        _record_latency(1.0)
+        assert drain_latency_stats()["n"] == 1
+        assert drain_latency_stats() is None
+
+    def test_successful_request_records_a_sample(self):
+        from data.eia_client import _request_with_backoff, drain_latency_stats
+
+        with patch("requests.get") as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, content=b"{}")
+            mock_get.return_value.json.return_value = {"response": {"data": []}}
+            _request_with_backoff("https://api.eia.gov/v2/x", {})
+
+        stats = drain_latency_stats()
+        assert stats is not None and stats["n"] == 1
+
+    def test_concurrent_recording_loses_nothing(self):
+        """The counters beside this one are unlocked ints mutated from the
+        4-worker pool; this list must not repeat that."""
+        import threading
+
+        from data.eia_client import _record_latency, drain_latency_stats
+
+        def worker():
+            for i in range(500):
+                _record_latency(float(i))
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert drain_latency_stats()["n"] == 4000

@@ -717,7 +717,7 @@ class TestScoringPartialFailureSemantics:
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
-        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e, rollup=None: None)
         code = scoring_job.run()
         return code, captured.get("last_scored", {})
 
@@ -797,7 +797,7 @@ class TestScoringPartialFailureSemantics:
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
-        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e, rollup=None: None)
 
         scoring_job.run()
 
@@ -836,7 +836,7 @@ class TestScoringPartialFailureSemantics:
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
-        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e, rollup=None: None)
 
         scoring_job.run()
 
@@ -864,7 +864,7 @@ class TestScoringPartialFailureSemantics:
         monkeypatch.setattr(
             phases, "write_meta", lambda key, extra=None: captured.setdefault(key, extra)
         )
-        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e: None)
+        monkeypatch.setattr(scoring_job, "_check_runtime_headroom", lambda e, rollup=None: None)
         # Last-known published map already hides CPLW (not re-scored this run).
         monkeypatch.setattr(
             "data.redis_client.redis_get",
