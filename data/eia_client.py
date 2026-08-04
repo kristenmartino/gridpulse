@@ -11,6 +11,7 @@ API docs: https://www.eia.gov/opendata/documentation.php
 
 from __future__ import annotations
 
+import random
 import threading
 import time
 from collections.abc import Callable
@@ -26,7 +27,11 @@ from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
     EIA_BASE_URL,
+    EIA_CALL_BUDGET_S,
+    EIA_CONNECT_TIMEOUT_S,
     EIA_ENDPOINTS,
+    EIA_MAX_BACKOFF_S,
+    EIA_READ_TIMEOUT_S,
     REGION_COORDINATES,
 )
 from data.cache import get_cache
@@ -598,6 +603,26 @@ def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
     return all_records
 
 
+# Below this much budget left, another attempt is not worth starting: the
+# clamped read timeout would be short enough to manufacture its own failure.
+_MIN_ATTEMPT_SECONDS = 1.0
+
+
+def _sleep_before_retry(backoff: float, deadline: float) -> float:
+    """Sleep between attempts, then return the next backoff value.
+
+    Capped at ``EIA_MAX_BACKOFF_S`` and at the time left in the call budget, so
+    backoff can never be the thing that overruns the ceiling. Jittered across
+    the full interval because 51 BAs x 4 workers retrying an overloaded EIA in
+    lockstep is a thundering herd against a dependency that is already
+    struggling — the failure mode this whole function is being bounded for.
+    """
+    window = min(backoff, EIA_MAX_BACKOFF_S, max(0.0, deadline - time.monotonic()))
+    if window > 0:
+        time.sleep(random.uniform(0, window))
+    return backoff * 2
+
+
 def _request_with_backoff(url: str, params: dict) -> dict | None:
     """Make an HTTP GET with exponential backoff on 429/5xx.
 
@@ -607,6 +632,15 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
     last-known data and the job completes within its task budget instead of
     timing out. While tripped, a call that is let through is a single-attempt
     recovery probe rather than the full retry budget.
+
+    Bounded by a per-call wall-clock budget (``EIA_CALL_BUDGET_S``) as well as
+    an attempt count. The breaker only helps when EIA fails *consecutively*; on
+    2026-08-04 it degraded *partially* — every call eventually succeeded, so
+    the breaker stayed closed by design and the run paid ~5 x 30s of retry for
+    work that landed anyway, until two hourly ticks were killed at the 1800s
+    task timeout. The budget is what bounds that case: each attempt's read
+    timeout is clamped to the time remaining, so a call cannot overrun its
+    ceiling no matter how the attempt arithmetic evolves.
     """
     if not _circuit_breaker.allow_request():
         log.debug("eia_circuit_open_skip", url=url)
@@ -616,11 +650,22 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
     # full retry budget, so a continued outage stays cheap.
     max_attempts = 1 if _circuit_breaker.tripped else MAX_RETRIES
     backoff = INITIAL_BACKOFF_SECONDS
+    deadline = time.monotonic() + EIA_CALL_BUDGET_S
 
     for attempt in range(1, max_attempts + 1):
+        remaining = deadline - time.monotonic()
+        # Below a second there is no time left for a meaningful attempt; a
+        # sub-second read timeout would only manufacture a failure.
+        if remaining <= _MIN_ATTEMPT_SECONDS:
+            log.warning("eia_call_budget_exhausted", url=url, attempts=attempt - 1)
+            break
         try:
             _started = time.monotonic()
-            resp = requests.get(url, params=params, timeout=30)
+            resp = requests.get(
+                url,
+                params=params,
+                timeout=(EIA_CONNECT_TIMEOUT_S, min(EIA_READ_TIMEOUT_S, remaining)),
+            )
 
             if resp.status_code == 200:
                 _record_latency((time.monotonic() - _started) * 1000)
@@ -629,13 +674,11 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
             elif resp.status_code == 429:
                 log.warning("eia_rate_limited", attempt=attempt, backoff=backoff)
                 if attempt < max_attempts:
-                    time.sleep(backoff)
-                    backoff *= 2
+                    backoff = _sleep_before_retry(backoff, deadline)
             elif resp.status_code >= 500:
                 log.warning("eia_server_error", status=resp.status_code, attempt=attempt)
                 if attempt < max_attempts:
-                    time.sleep(backoff)
-                    backoff *= 2
+                    backoff = _sleep_before_retry(backoff, deadline)
             else:
                 # Sanitize response body to avoid leaking API keys in logs
                 import re
@@ -649,8 +692,7 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
         except requests.RequestException as e:
             log.error("eia_request_exception", error=str(e), attempt=attempt)
             if attempt < max_attempts:
-                time.sleep(backoff)
-                backoff *= 2
+                backoff = _sleep_before_retry(backoff, deadline)
 
     _circuit_breaker.record_failure()
     log.error("eia_max_retries_exceeded", url=url)

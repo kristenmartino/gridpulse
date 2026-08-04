@@ -937,6 +937,40 @@ INITIAL_BACKOFF_SECONDS = 1.0
 MAX_RETRIES = 4
 RATE_LIMIT_ALERT_THRESHOLD = 3  # consecutive 429s before alerting
 
+# EIA request cost control (2026-08-04 incident).
+#
+# `data.eia_client._request_with_backoff` used a single hardcoded
+# `timeout=30` and five attempts, so ONE hard-failing call cost
+# ~5x30s + (2+4+8+16) = ~180s. That is fine during a total outage — the
+# circuit breaker trips after 3 consecutive hard failures and everything
+# after is ~free. It is NOT fine under partial degradation, where calls
+# eventually succeed, the breaker stays closed by design, and the run pays
+# full retry price for work that ultimately lands. On 2026-08-04 ~366
+# timed-out attempts turned an ~800s scoring run into two SIGKILLs at the
+# 1800s task timeout.
+#
+# The lever is the per-call budget, not the retry count: 3 attempts at 30s
+# is still ~96s. `EIA_CALL_BUDGET_S` is a hard ceiling on one logical call
+# across every attempt and sleep, so the worst case stays bounded however
+# the attempt arithmetic later changes.
+#
+# On the read timeout: too LOW is not free. A 5000-row EIA page is a
+# multi-MB body, and a timeout under the real p99 manufactures failures out
+# of healthy-but-slow responses, routing real data to `_last_known_good()`
+# — it would CREATE the stale-data outcome that 2026-08-04 notably avoided.
+# 12s is ~4x a healthy p50 with room above p99. Check it against the
+# `eia_client_stats` log (p50/p95/p99 per run) before moving it again;
+# that log exists because this constant had never been measured.
+#
+# Connect and read are split because a single scalar applies to both, and
+# a dead TCP connect has no business costing what a slow body may.
+# 3.05 follows requests' own guidance of just over a multiple of 3, the
+# TCP retransmit window.
+EIA_CONNECT_TIMEOUT_S = float(os.getenv("EIA_CONNECT_TIMEOUT_S", "3.05"))
+EIA_READ_TIMEOUT_S = float(os.getenv("EIA_READ_TIMEOUT_S", "12.0"))
+EIA_CALL_BUDGET_S = float(os.getenv("EIA_CALL_BUDGET_S", "40.0"))
+EIA_MAX_BACKOFF_S = float(os.getenv("EIA_MAX_BACKOFF_S", "8.0"))
+
 # EIA API key management:
 # - dev/staging:  EIA_API_KEY in .env file
 # - production:   GCP Secret Manager → `eia-api-key`

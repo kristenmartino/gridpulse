@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
+import requests
 
 from data.eia_client import (
     EIA_CIRCUIT_PROBE_INTERVAL,
@@ -1559,3 +1560,220 @@ class TestLatencyStats:
             t.join()
 
         assert drain_latency_stats()["n"] == 4000
+
+
+# ---------------------------------------------------------------------------
+# Per-call cost control (2026-08-04 EIA partial-degradation incident)
+# ---------------------------------------------------------------------------
+
+
+class _FakeClock:
+    """Monotonic clock whose only advance is the sleeps the code asks for.
+
+    Lets the budget arithmetic be exercised exactly, in zero wall time. A read
+    timeout is also charged as elapsed time, because that is what a timed-out
+    request actually costs and it is the whole subject here.
+    """
+
+    def __init__(self):
+        self.now = 1000.0
+        self.slept: list[float] = []
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, secs):
+        self.slept.append(secs)
+        self.now += secs
+
+    def advance(self, secs):
+        self.now += secs
+
+
+class _FlakyTransport:
+    """Deterministic partial degradation: every Nth call fails, rest succeed.
+
+    Reproduces 2026-08-04's regime exactly (``fail_every=8`` is 12.5%) without
+    randomness. A timeout also advances the fake clock by the read timeout it
+    was handed, so a caller can measure what the failures actually cost.
+    """
+
+    def __init__(self, clock, fail_every=8, mode="timeout"):
+        self.clock, self.fail_every, self.mode = clock, fail_every, mode
+        self.calls = 0
+        self.timeouts: list[float] = []
+
+    def __call__(self, url, params=None, timeout=None):
+        self.calls += 1
+        self.timeouts.append(timeout)
+        if self.calls % self.fail_every == 0:
+            if self.mode == "timeout":
+                # A read timeout costs its full read budget in wall time.
+                self.clock.advance(timeout[1] if isinstance(timeout, tuple) else timeout)
+                raise requests.Timeout("read timed out")
+            return MagicMock(status_code=502, content=b"")
+        resp = MagicMock(status_code=200, content=b"{}")
+        resp.json.return_value = {"response": {"data": [], "total": 0}}
+        return resp
+
+
+@pytest.fixture
+def clock(monkeypatch):
+    c = _FakeClock()
+    monkeypatch.setattr("data.eia_client.time", c)
+    return c
+
+
+class TestCallBudget:
+    """One EIA call must cost a bounded amount of wall time.
+
+    The breaker bounds a TOTAL outage. Nothing bounded a partial one: on
+    2026-08-04 every call eventually succeeded, so the breaker stayed closed
+    by design and each failing attempt still cost the hardcoded 30s read
+    timeout. ~366 of them turned an ~800s run into two SIGKILLs at the 1800s
+    task timeout.
+    """
+
+    def test_timeout_is_a_connect_read_tuple_not_a_scalar(self, clock):
+        """A scalar applies the same value to connect AND read.
+
+        Reverting to one number silently restores the expensive dead-connect
+        case, and nothing else in the suite would notice.
+        """
+        from config import EIA_CONNECT_TIMEOUT_S, EIA_READ_TIMEOUT_S
+        from data.eia_client import _request_with_backoff
+
+        with patch("requests.get") as mock_get:
+            mock_get.return_value = MagicMock(status_code=200, content=b"{}")
+            mock_get.return_value.json.return_value = {}
+            _request_with_backoff("https://api.eia.gov/v2/x", {})
+
+        timeout = mock_get.call_args.kwargs["timeout"]
+        assert isinstance(timeout, tuple)
+        assert timeout == (EIA_CONNECT_TIMEOUT_S, EIA_READ_TIMEOUT_S)
+
+    def test_total_wall_time_stays_inside_the_budget(self, clock, monkeypatch):
+        from config import EIA_CALL_BUDGET_S
+        from data.eia_client import _request_with_backoff
+
+        transport = _FlakyTransport(clock, fail_every=1)  # everything times out
+        monkeypatch.setattr("requests.get", transport)
+        start = clock.now
+
+        assert _request_with_backoff("https://api.eia.gov/v2/x", {}) is None
+
+        assert clock.now - start <= EIA_CALL_BUDGET_S
+
+    def test_read_timeout_is_clamped_to_the_remaining_budget(self, clock, monkeypatch):
+        """A later attempt must not be handed more read budget than is left.
+
+        Backoff is jittered, so with the production budget whether the clamp
+        bites is random — pinning it needs a case where it MUST. Zero jitter
+        and a 20s budget give exact arithmetic: attempt 1 spends the full 12s
+        read window, leaving 8s, so attempt 2 is handed 8s and not 12s.
+        """
+        import data.eia_client as ec
+        from config import EIA_READ_TIMEOUT_S
+
+        monkeypatch.setattr(ec, "EIA_CALL_BUDGET_S", 20.0)
+        monkeypatch.setattr(ec.random, "uniform", lambda a, b: 0.0)
+        transport = _FlakyTransport(clock, fail_every=1)
+        monkeypatch.setattr("requests.get", transport)
+        start = clock.now
+
+        ec._request_with_backoff("https://api.eia.gov/v2/x", {})
+
+        reads = [t[1] for t in transport.timeouts]
+        assert reads[0] == pytest.approx(EIA_READ_TIMEOUT_S)
+        assert reads[1] == pytest.approx(20.0 - EIA_READ_TIMEOUT_S)
+        assert clock.now - start <= 20.0
+
+    def test_backoff_is_jittered_and_capped(self, clock, monkeypatch):
+        from config import EIA_MAX_BACKOFF_S
+        from data.eia_client import _request_with_backoff
+
+        monkeypatch.setattr("requests.get", _FlakyTransport(clock, fail_every=1, mode="502"))
+
+        _request_with_backoff("https://api.eia.gov/v2/x", {})
+
+        assert clock.slept, "expected at least one backoff sleep"
+        for slept in clock.slept:
+            assert 0 <= slept <= EIA_MAX_BACKOFF_S
+
+    def test_budget_exhaustion_is_logged_not_silent(self, clock, monkeypatch):
+        import data.eia_client as ec
+
+        monkeypatch.setattr("requests.get", _FlakyTransport(clock, fail_every=1))
+        fake_log = MagicMock()
+        monkeypatch.setattr(ec, "log", fake_log)
+
+        ec._request_with_backoff("https://api.eia.gov/v2/x", {})
+
+        events = [c.args[0] for c in fake_log.warning.call_args_list]
+        assert "eia_call_budget_exhausted" in events
+
+    def test_a_4xx_still_returns_immediately_without_recording_failure(self, clock, monkeypatch):
+        """Budget work must not disturb the #174 invariant: 4xx is our bug."""
+        from data.eia_client import _circuit_breaker, _request_with_backoff
+
+        resp = MagicMock(status_code=404, content=b"", text="nope")
+        monkeypatch.setattr("requests.get", lambda *a, **k: resp)
+
+        assert _request_with_backoff("https://api.eia.gov/v2/x", {}) is None
+        assert _circuit_breaker._consecutive_failures == 0
+        assert clock.slept == []
+
+
+class TestPartialDegradationIsNotABreakerProblem:
+    """Characterization tests — these encode a DECISION, not just behaviour.
+
+    The instinct after 2026-08-04 is "make the breaker trip on a failure
+    rate". That is the wrong instrument and these pin why. Zero data was lost
+    that day: every call succeeded on retry, and a breaker tripping at 8-15%
+    would have fail-fasted the remaining BAs onto stale-cache/GCS last-known
+    data — trading fresh data we could actually get for runtime that the call
+    budget recovers more cheaply. Do not "fix" these tests into tripping.
+    """
+
+    def test_interleaved_failures_do_not_trip_the_consecutive_breaker(self, clock, monkeypatch):
+        from data.eia_client import _circuit_breaker, _request_with_backoff
+
+        # 12.5% of attempts fail — 2026-08-04's regime. Each call retries past
+        # its one bad attempt and succeeds, so no call exhausts its budget.
+        monkeypatch.setattr("requests.get", _FlakyTransport(clock, fail_every=8))
+
+        for _ in range(40):
+            assert _request_with_backoff("https://api.eia.gov/v2/x", {}) is not None
+
+        assert _circuit_breaker.tripped is False
+
+    def test_partial_degradation_never_reaches_the_fallback_chain(self, clock, monkeypatch):
+        """The observable signature of 2026-08-04, asserted.
+
+        `eia_max_retries_exceeded` at ZERO while exceptions are high is what
+        distinguishes partial degradation from an outage — and it is the
+        discriminator the runbook now branches on.
+        """
+        import data.eia_client as ec
+
+        monkeypatch.setattr("requests.get", _FlakyTransport(clock, fail_every=8))
+        fake_log = MagicMock()
+        monkeypatch.setattr(ec, "log", fake_log)
+
+        for _ in range(40):
+            ec._request_with_backoff("https://api.eia.gov/v2/x", {})
+
+        errors = [c.args[0] for c in fake_log.error.call_args_list]
+        assert "eia_request_exception" in errors  # degradation was real
+        assert "eia_max_retries_exceeded" not in errors  # yet nothing was lost
+
+    def test_a_true_outage_still_trips_the_breaker(self, clock, monkeypatch):
+        """The #174 behaviour the budget work must not weaken."""
+        from data.eia_client import _circuit_breaker, _request_with_backoff
+
+        monkeypatch.setattr("requests.get", _FlakyTransport(clock, fail_every=1))
+
+        for _ in range(3):
+            _request_with_backoff("https://api.eia.gov/v2/x", {})
+
+        assert _circuit_breaker.tripped is True
