@@ -352,32 +352,95 @@ creation) — confirm `gcloud beta monitoring channels describe <id>
      --region=us-east1`.
    - **Repeated timeouts** (≥2 consecutive ticks; logs show "Terminating
      task because it has reached the maximum timeout" and each attempt
-     reaches only a *partial* BA set) → the run has outgrown its
-     `--task-timeout`, not a data fault. Bump it live (`gcloud run jobs
-     update gridpulse-scoring-job --region=us-east1 --task-timeout=<n>`),
-     force a make-up run, then make the bump durable in
-     `deploy-prod.yml` + `deploy-dev.yml` so CI doesn't revert it. The
-     healthy budget is the last good `scoring_job_complete elapsed_s=…`
-     log line — keep ≥2× headroom, stay under the hourly cadence. First
-     hit 2026-06-01 (854s crept over the 900s cap → 1800s; [#171](https://github.com/kristenmartino/gridpulse/issues/171));
+     reaches only a *partial* BA set) → **diagnose before you touch anything;
+     the first two times this happened the right lever was different each
+     time.** Work the "why it timed out" branch below first. Only if the cause
+     is genuinely our own work growing — not upstream — is the timeout the
+     right knob, and even then read the cadence rule first. First hit
+     2026-06-01 (854s crept over the 900s cap → 1800s; [#171](https://github.com/kristenmartino/gridpulse/issues/171));
      the training job hit the same wall 2026-05-03.
      **Proactive since 2026-07-04 ([#171](https://github.com/kristenmartino/gridpulse/issues/171)):** a
      `scoring_runtime_creep` alert should reach you *before* an outright
      timeout — it fires when `elapsed_s` exceeds 70% of the `--task-timeout`
      for 3 consecutive runs (`docs/monitoring/scoring_runtime_creep_alert.json`),
      turning a creeping runtime into a scheduled fix, not a surprise 3am page.
-     **When you bump `--task-timeout`, also bump `SCORING_TASK_TIMEOUT_S` in
-     `config.py`** or the alarm silences itself against a stale ceiling.
-     **But first check *why* it timed out** — `grep` the failed execution for
-     `eia_server_error status=504` / `eia_request_exception ... Read timed
-     out` / `eia_max_retries_exceeded`. If present, the cause is an **upstream
-     EIA outage, not runtime creep** — do **not** bump the timeout (a bigger
-     ceiling won't help when EIA is down). Since [#174](https://github.com/kristenmartino/gridpulse/issues/174) the EIA circuit
-     breaker self-mitigates this (fail-fast to last-known GCS data after a few
-     consecutive failures), so an EIA outage should now self-heal on the next
-     tick rather than recur; if it *doesn't*, EIA is hard-down — wait it out,
-     `last_scored` will catch up when EIA recovers. This bit us 2026-06-04
-     (03:00–04:00 UTC, EIA 504s; normal runtime was a healthy ~700s).
+     Note its blind spot: it only evaluates on runs that **complete**, and the
+     streak resets on any non-breaching run — so killed ticks contribute
+     nothing and the alert can arrive *after* the first timeouts, as it did
+     2026-08-04.
+     **But first check *why* it timed out.** Read `top_phases` off the
+     `scoring_runtime_creep` log, or `jsonPayload.event="scoring_phase_rollup"`
+     (emitted every run). If `fetch` leads, it is upstream, not our own creep —
+     and there are **two upstream shapes that need opposite responses**. Count
+     them:
+
+     ```bash
+     for e in eia_request_exception eia_max_retries_exceeded \
+              eia_circuit_tripped eia_gcs_fallback; do
+       printf '%s: ' "$e"
+       gcloud logging read "resource.type=\"cloud_run_job\" AND jsonPayload.event=\"$e\"" \
+         --project=nextera-portfolio --freshness=2h --format='value(timestamp)' | wc -l
+     done
+     ```
+
+     - **Total outage** — `eia_circuit_tripped` present, `eia_gcs_fallback` /
+       `eia_stale_fallback` non-zero. The [#174](https://github.com/kristenmartino/gridpulse/issues/174)
+       breaker is working: it fail-fasts to last-known GCS data after a few
+       *consecutive* hard failures, so runtime stays bounded and the next tick
+       self-heals. **Wait it out**; `last_scored` catches up when EIA recovers.
+       Bit us 2026-06-04 (03:00–04:00 UTC, EIA 504s; normal runtime ~700s).
+     - **Partial degradation** — exceptions high but `eia_max_retries_exceeded`
+       and the fallbacks at **ZERO**, and **no** `eia_circuit_tripped`. Every
+       call is eventually *succeeding*; the run is paying the full retry budget
+       for calls that work. **The breaker cannot help here** — it counts
+       *consecutive* hard failures and `record_success()` resets that counter,
+       so interleaved successes keep it closed by construction. This does
+       **not** self-heal: runtime scales with the exception rate and keeps
+       climbing. Bit us 2026-08-04 (~16:00 UTC onward, EIA 502/504 + 30s read
+       timeouts; ~800s baseline → two ticks killed at the 1800s cap, one
+       surviving at 1792s). **Act:** raise `PRECOMPUTE_MAX_WORKERS` (below).
+
+     **The live lever (no deploy):** `PRECOMPUTE_MAX_WORKERS` is
+     env-overridable (`config.py`) and is *not* set in either deploy workflow,
+     so it is the only runtime knob you can turn without shipping an image.
+     Raise `--cpu` with it — the compute-heavy phases already oversubscribe at
+     `--cpu 2`, so more workers alone converts a fetch-bound win into a
+     compute-bound loss. Snapshot first
+     (`gcloud run jobs describe … --format=yaml > ~/scoring-job.pre.yaml`),
+     then:
+
+     ```bash
+     gcloud run jobs update gridpulse-scoring-job --region=us-east1 \
+       --update-env-vars=PRECOMPUTE_MAX_WORKERS=8 --cpu=4 --memory=8Gi
+     ```
+
+     ⚠ **`--update-env-vars`, never `--set-env-vars`.** `--set-env-vars`
+     *replaces* the whole env map and would drop `REDIS_HOST`, `REDIS_PORT`,
+     `GCS_BUCKET_NAME`, `GCS_ENABLED`, `ENVIRONMENT`, `LOG_LEVEL` — all set
+     together in `deploy-prod.yml`. A scoring job without `REDIS_HOST` does
+     not run slow; it writes **nothing**, turning a degraded incident into a
+     total outage. Roll back with `--remove-env-vars=PRECOMPUTE_MAX_WORKERS`.
+     Sanity-check `eia_rate_limited` afterwards: it was **zero** on
+     2026-08-04, which is what made more concurrency safe. Under a 429 regime
+     it is not — you would be adding load to something already refusing it.
+     **Any merge to `main` silently reverts this** (CI redeploys with
+     `--set-env-vars` and `--cpu 2`), so freeze prod deploys or land the
+     change in both workflows.
+
+     **The `--task-timeout` rule — why it is almost never the answer here.**
+     `task-timeout × (max-retries + 1)` must stay below the scheduler
+     interval. At `1800 × 2 = 3600s` against an hourly cadence, the scoring
+     job **already has zero margin**, and on 2026-08-04 it went negative: the
+     19:00 execution's retry finished at 20:01, *after* the 20:00 execution
+     had started — two scoring processes at once, hammering a dependency that
+     was failing because it was overloaded. Raising the ceiling makes that
+     overlap a permanent config property rather than bad luck. (The
+     `deploy-prod.yml` comment claiming runs "can't overlap" predates this and
+     is wrong.) The **training** job may bump freely — `--max-retries 0` on a
+     daily cadence has no overlap hazard — which is the real shape of the
+     rule: it is about the ratio to the schedule, not about EIA. If you do
+     raise it, bump `SCORING_TASK_TIMEOUT_S` in `config.py` to match, or the
+     creep alarm silences itself against a stale ceiling.
    - Systemic (all regions) → check `/health?deep=1`, suspect a
      data-source or feature-pipeline fault (cf. #161), roll back the
      image via `latest.json` if code-caused.

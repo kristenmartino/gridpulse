@@ -37,6 +37,13 @@ _KNOWN_UNAPPLIED: dict[str, str] = {
         "#267 — committed but never applied; tracked under 'Blocked / waiting on' "
         "in STATUS.md. Needs a human gcloud apply."
     ),
+    "scoring_deadline_shed_alert.json": (
+        "2026-08-04 — applying it before the soft-deadline code is DEPLOYED would "
+        "create an alert on an event nothing can emit, which is the same "
+        "emitting-into-a-void state this test exists to catch. Apply together "
+        "with scoring_partial_failure_alert.json once the image ships; both "
+        "need a human gcloud apply."
+    ),
 }
 
 #: Live-id line format in the README table, e.g. `alertPolicies/5813319064717268577`.

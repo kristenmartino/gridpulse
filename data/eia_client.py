@@ -11,9 +11,12 @@ API docs: https://www.eia.gov/opendata/documentation.php
 
 from __future__ import annotations
 
+import random
+import threading
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from math import ceil
 from typing import Any
 
 import pandas as pd
@@ -24,7 +27,11 @@ from config import (
     CACHE_TTL_SECONDS,
     EIA_API_KEY,
     EIA_BASE_URL,
+    EIA_CALL_BUDGET_S,
+    EIA_CONNECT_TIMEOUT_S,
     EIA_ENDPOINTS,
+    EIA_MAX_BACKOFF_S,
+    EIA_READ_TIMEOUT_S,
     REGION_COORDINATES,
 )
 from data.cache import get_cache
@@ -474,6 +481,63 @@ class _EIACircuitBreaker:
 _circuit_breaker = _EIACircuitBreaker(EIA_CIRCUIT_TRIP_THRESHOLD, EIA_CIRCUIT_PROBE_INTERVAL)
 
 
+# Per-run latency of SUCCESSFUL EIA requests, in milliseconds.
+#
+# Nothing has ever logged EIA latency, so the 30s read timeout in
+# `_request_with_backoff` has never been checked against what a healthy
+# response actually costs — and that timeout is the unit of waste when EIA
+# degrades (2026-08-04: ~366 timed-out attempts turned an 800s scoring run
+# into two SIGKILLs at the 1800s cap). Recording the distribution is what
+# lets the timeout be DERIVED from a measured p99 instead of argued for.
+#
+# One aggregate line per run, not ~370 per-request lines: prod runs at
+# LOG_LEVEL=INFO, so a debug-level per-request log would emit nothing at all
+# where it is actually needed. Process-local and reset per run, exactly like
+# the breaker above.
+_latency_ms: list[float] = []
+_latency_lock = threading.Lock()
+
+
+def _record_latency(elapsed_ms: float) -> None:
+    """Record one successful request's latency. Never raises."""
+    with _latency_lock:
+        _latency_ms.append(elapsed_ms)
+
+
+def drain_latency_stats() -> dict[str, float] | None:
+    """Return and clear this run's success-latency percentiles.
+
+    Returns None when no successful request was recorded, so a caller can
+    skip the log line entirely rather than publish an empty one.
+
+    The lock is here for the read-and-clear pair, not for ``append``: a sample
+    recorded between the two would otherwise be dropped. It is defensive —
+    CPython's list operations are atomic today, and in practice this is called
+    after the worker pool has joined — so no test claims to pin it, because a
+    window that narrow cannot be hit reliably from one.
+    """
+    with _latency_lock:
+        samples = sorted(_latency_ms)
+        _latency_ms.clear()
+    if not samples:
+        return None
+
+    def _pct(p: float) -> float:
+        # Nearest-rank: index of the smallest sample at or above the p-th
+        # percentile. Exact on small n, which matters — a 51-BA run produces
+        # only a few hundred samples.
+        idx = min(len(samples) - 1, max(0, ceil(p / 100 * len(samples)) - 1))
+        return round(samples[idx], 1)
+
+    return {
+        "n": len(samples),
+        "p50_ms": _pct(50),
+        "p95_ms": _pct(95),
+        "p99_ms": _pct(99),
+        "max_ms": round(samples[-1], 1),
+    }
+
+
 def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
     """
     Fetch all pages from an EIA API endpoint with retry on rate limiting.
@@ -539,6 +603,26 @@ def _paginated_fetch(endpoint: str, params: dict) -> list[dict]:
     return all_records
 
 
+# Below this much budget left, another attempt is not worth starting: the
+# clamped read timeout would be short enough to manufacture its own failure.
+_MIN_ATTEMPT_SECONDS = 1.0
+
+
+def _sleep_before_retry(backoff: float, deadline: float) -> float:
+    """Sleep between attempts, then return the next backoff value.
+
+    Capped at ``EIA_MAX_BACKOFF_S`` and at the time left in the call budget, so
+    backoff can never be the thing that overruns the ceiling. Jittered across
+    the full interval because 51 BAs x 4 workers retrying an overloaded EIA in
+    lockstep is a thundering herd against a dependency that is already
+    struggling — the failure mode this whole function is being bounded for.
+    """
+    window = min(backoff, EIA_MAX_BACKOFF_S, max(0.0, deadline - time.monotonic()))
+    if window > 0:
+        time.sleep(random.uniform(0, window))
+    return backoff * 2
+
+
 def _request_with_backoff(url: str, params: dict) -> dict | None:
     """Make an HTTP GET with exponential backoff on 429/5xx.
 
@@ -548,6 +632,15 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
     last-known data and the job completes within its task budget instead of
     timing out. While tripped, a call that is let through is a single-attempt
     recovery probe rather than the full retry budget.
+
+    Bounded by a per-call wall-clock budget (``EIA_CALL_BUDGET_S``) as well as
+    an attempt count. The breaker only helps when EIA fails *consecutively*; on
+    2026-08-04 it degraded *partially* — every call eventually succeeded, so
+    the breaker stayed closed by design and the run paid ~5 x 30s of retry for
+    work that landed anyway, until two hourly ticks were killed at the 1800s
+    task timeout. The budget is what bounds that case: each attempt's read
+    timeout is clamped to the time remaining, so a call cannot overrun its
+    ceiling no matter how the attempt arithmetic evolves.
     """
     if not _circuit_breaker.allow_request():
         log.debug("eia_circuit_open_skip", url=url)
@@ -557,24 +650,35 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
     # full retry budget, so a continued outage stays cheap.
     max_attempts = 1 if _circuit_breaker.tripped else MAX_RETRIES
     backoff = INITIAL_BACKOFF_SECONDS
+    deadline = time.monotonic() + EIA_CALL_BUDGET_S
 
     for attempt in range(1, max_attempts + 1):
+        remaining = deadline - time.monotonic()
+        # Below a second there is no time left for a meaningful attempt; a
+        # sub-second read timeout would only manufacture a failure.
+        if remaining <= _MIN_ATTEMPT_SECONDS:
+            log.warning("eia_call_budget_exhausted", url=url, attempts=attempt - 1)
+            break
         try:
-            resp = requests.get(url, params=params, timeout=30)
+            _started = time.monotonic()
+            resp = requests.get(
+                url,
+                params=params,
+                timeout=(EIA_CONNECT_TIMEOUT_S, min(EIA_READ_TIMEOUT_S, remaining)),
+            )
 
             if resp.status_code == 200:
+                _record_latency((time.monotonic() - _started) * 1000)
                 _circuit_breaker.record_success()
                 return resp.json()
             elif resp.status_code == 429:
                 log.warning("eia_rate_limited", attempt=attempt, backoff=backoff)
                 if attempt < max_attempts:
-                    time.sleep(backoff)
-                    backoff *= 2
+                    backoff = _sleep_before_retry(backoff, deadline)
             elif resp.status_code >= 500:
                 log.warning("eia_server_error", status=resp.status_code, attempt=attempt)
                 if attempt < max_attempts:
-                    time.sleep(backoff)
-                    backoff *= 2
+                    backoff = _sleep_before_retry(backoff, deadline)
             else:
                 # Sanitize response body to avoid leaking API keys in logs
                 import re
@@ -588,8 +692,7 @@ def _request_with_backoff(url: str, params: dict) -> dict | None:
         except requests.RequestException as e:
             log.error("eia_request_exception", error=str(e), attempt=attempt)
             if attempt < max_attempts:
-                time.sleep(backoff)
-                backoff *= 2
+                backoff = _sleep_before_retry(backoff, deadline)
 
     _circuit_breaker.record_failure()
     log.error("eia_max_retries_exceeded", url=url)

@@ -169,3 +169,38 @@ class TestConstants:
     def test_staleness_thresholds(self):
         assert STALENESS_THRESHOLDS_SECONDS["weather"] == 7200
         assert STALENESS_THRESHOLDS_SECONDS["generation"] == 300
+
+
+class TestScoringRuntimeTiers:
+    """The three scoring-runtime tiers must stay ordered (2026-08-04).
+
+    warn (`SCORING_RUNTIME_HEADROOM_FRACTION`) < shed
+    (`SCORING_SOFT_DEADLINE_FRACTION`) < 1.0 hard kill. Invert any pair and the
+    guard silently stops working: shed below warn means BAs are dropped before
+    anyone is told runtime is high, and a shed fraction at or above 1.0 means
+    Cloud Run SIGKILLs the task first — which is the exact 2026-08-04 failure
+    the deadline exists to prevent.
+    """
+
+    def test_warn_fires_before_shedding(self):
+        import config
+
+        assert 0 < config.SCORING_RUNTIME_HEADROOM_FRACTION < config.SCORING_SOFT_DEADLINE_FRACTION
+
+    def test_shedding_happens_before_the_hard_kill(self):
+        import config
+
+        assert config.SCORING_SOFT_DEADLINE_FRACTION < 1.0
+
+    def test_grace_leaves_room_inside_the_task_timeout(self):
+        """In-flight BAs get a grace window; it has to fit in what is left."""
+        import config
+
+        remaining = config.SCORING_TASK_TIMEOUT_S * (1 - config.SCORING_SOFT_DEADLINE_FRACTION)
+        assert remaining >= config.SCORING_DEADLINE_GRACE_S
+
+    def test_eia_call_budget_exceeds_one_read_attempt(self):
+        """A budget below one read timeout would allow zero real attempts."""
+        import config
+
+        assert config.EIA_CALL_BUDGET_S > config.EIA_READ_TIMEOUT_S > config.EIA_CONNECT_TIMEOUT_S

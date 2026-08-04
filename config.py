@@ -937,6 +937,40 @@ INITIAL_BACKOFF_SECONDS = 1.0
 MAX_RETRIES = 4
 RATE_LIMIT_ALERT_THRESHOLD = 3  # consecutive 429s before alerting
 
+# EIA request cost control (2026-08-04 incident).
+#
+# `data.eia_client._request_with_backoff` used a single hardcoded
+# `timeout=30` and five attempts, so ONE hard-failing call cost
+# ~5x30s + (2+4+8+16) = ~180s. That is fine during a total outage — the
+# circuit breaker trips after 3 consecutive hard failures and everything
+# after is ~free. It is NOT fine under partial degradation, where calls
+# eventually succeed, the breaker stays closed by design, and the run pays
+# full retry price for work that ultimately lands. On 2026-08-04 ~366
+# timed-out attempts turned an ~800s scoring run into two SIGKILLs at the
+# 1800s task timeout.
+#
+# The lever is the per-call budget, not the retry count: 3 attempts at 30s
+# is still ~96s. `EIA_CALL_BUDGET_S` is a hard ceiling on one logical call
+# across every attempt and sleep, so the worst case stays bounded however
+# the attempt arithmetic later changes.
+#
+# On the read timeout: too LOW is not free. A 5000-row EIA page is a
+# multi-MB body, and a timeout under the real p99 manufactures failures out
+# of healthy-but-slow responses, routing real data to `_last_known_good()`
+# — it would CREATE the stale-data outcome that 2026-08-04 notably avoided.
+# 12s is ~4x a healthy p50 with room above p99. Check it against the
+# `eia_client_stats` log (p50/p95/p99 per run) before moving it again;
+# that log exists because this constant had never been measured.
+#
+# Connect and read are split because a single scalar applies to both, and
+# a dead TCP connect has no business costing what a slow body may.
+# 3.05 follows requests' own guidance of just over a multiple of 3, the
+# TCP retransmit window.
+EIA_CONNECT_TIMEOUT_S = float(os.getenv("EIA_CONNECT_TIMEOUT_S", "3.05"))
+EIA_READ_TIMEOUT_S = float(os.getenv("EIA_READ_TIMEOUT_S", "12.0"))
+EIA_CALL_BUDGET_S = float(os.getenv("EIA_CALL_BUDGET_S", "40.0"))
+EIA_MAX_BACKOFF_S = float(os.getenv("EIA_MAX_BACKOFF_S", "8.0"))
+
 # EIA API key management:
 # - dev/staging:  EIA_API_KEY in .env file
 # - production:   GCP Secret Manager → `eia-api-key`
@@ -983,6 +1017,31 @@ SCORING_RUNTIME_CREEP_RUNS = int(os.getenv("SCORING_RUNTIME_CREEP_RUNS", "3"))
 # normal run scores ~48-51 (a few untrained/new BAs legitimately have no model),
 # so this absolute floor tolerates the expected no-model tail without noise.
 SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
+
+# Soft deadline — shed work before Cloud Run SIGKILLs the task (2026-08-04).
+#
+# `run()` submits all 51 BAs to the pool and has no concept of time, so when
+# the task timeout arrives the process is killed outright. On 2026-08-04 that
+# cost more than it looks: both killed executions had ALREADY scored ~49-51 of
+# 51 BAs, and per-BA Redis writes are incremental so that data landed — but
+# `write_meta("last_scored")` and the fleet rollup sit AFTER the fan-out, so
+# neither run recorded any of it. `last_scored` stayed pinned at 16:22 until
+# 20:01, past the 90-minute /health staleness threshold, for work that had
+# actually been done.
+#
+# Past this fraction of the task timeout, workers stop starting new BAs and
+# `run()` proceeds to its epilogue: freshness meta written, fleet rollup done,
+# a `scoring_deadline_shed` ERROR naming what was dropped, exit 0. A squeezed
+# run then reports "44/51 scored, deadline hit" with real data instead of
+# being killed having recorded nothing.
+#
+# Three tiers, and the ordering is load-bearing (asserted in tests):
+#   0.70 warn (scoring_runtime_creep)  <  0.85 shed  <  1.00 hard kill.
+# Set the fraction to 0 to disable shedding entirely via env var, no rebuild.
+SCORING_SOFT_DEADLINE_FRACTION = float(os.getenv("SCORING_SOFT_DEADLINE_FRACTION", "0.85"))
+# How long a shedding run waits for BAs already in flight before giving up on
+# them. They are mid-write, so abandoning them is worse than waiting a little.
+SCORING_DEADLINE_GRACE_S = float(os.getenv("SCORING_DEADLINE_GRACE_S", "120"))
 
 # ---------------------------------------------------------------------------
 # Web-tier operational guard (#253)
@@ -1105,6 +1164,15 @@ FEATURE_FLAGS: dict[str, bool] = {
     # off (the path is fail-open to single-point, so off is
     # byte-identical to the pre-ADR-012 behavior).
     "multipoint_weather": True,
+    # 2026-08-04: scoring-job soft deadline. Past
+    # ``SCORING_SOFT_DEADLINE_FRACTION`` of the task timeout, stop starting new
+    # BAs so the run reaches its epilogue — freshness meta, fleet rollup, an
+    # alertable ``scoring_deadline_shed``, exit 0 — instead of being SIGKILLed
+    # having recorded nothing. Ships ON: unlike the studies above this is not a
+    # modelling change with a measurable effect to verify first, it is a
+    # failure-path guard, and flag-off is byte-identical because the deadline
+    # is simply never consulted. Rollback = flip off, or set the fraction to 0.
+    "soft_deadline": True,
 }
 
 

@@ -730,6 +730,27 @@ reason it is wrong will look, from the outside, exactly like a test that is
 slow for a good reason. The only way to tell them apart is to check what it
 runs, not how long it runs.*
 
+### 21. "Tell me about a defense that was working, and still didn't help."
+**The third scoring-job timeout, and the first with no defense at all (2026-08-04, [#389](https://github.com/kristenmartino/gridpulse/issues/389)).**
+
+Situation: The `scoring_runtime_creep` alert fired — the early-warning guardrail I'd built after #171 precisely so a creeping runtime became a scheduled fix rather than a 3am page. It fired correctly. It was also already too late: by the time it went off, two hourly ticks had been killed at the 1800s Cloud Run cap.
+
+Investigation: The runtime record said this wasn't creep. Daily medians had been flat at ~820s for three weeks, including that morning. Only the tail had broken — 1004s, 1283s, two kills, then a 1792s run that survived by 8 seconds. `api.eia.gov` had started returning 502/504 and 30s read timeouts at ~16:00 UTC. Nothing of ours had shipped in five days.
+
+The decisive evidence was what was **absent**: zero `eia_max_retries_exceeded`, zero GCS fallbacks, zero stale fallbacks, zero rate limits, zero circuit trips. **Every call eventually succeeded.** No data was ever lost. The job had spent its entire budget paying retry tax on calls that worked.
+
+That explained why the #174 circuit breaker — built after a *total* EIA outage — never fired. It counts *consecutive* hard failures, and `record_success()` zeroes the counter. A call that timed out four times and succeeded on the fifth burns ~134s and registers as a success. The breaker keys on the **shape** of a failure; this failure had only a **rate**.
+
+Action: The tempting fix was to make the breaker rate-aware. I argued against my own instinct and didn't. Zero data was lost that day — a breaker tripping at 8–15% would have fail-fasted the remaining BAs onto last-known-good, trading fresh data we could actually *get* for runtime recoverable more cheaply elsewhere: a silent freshness regression no alert would catch. The correct response to a *slow* dependency is to make retries cheap, not to stop fetching. So the real fix was a hardcoded `30` on one line — replaced with split connect/read timeouts and a per-call wall-clock budget. Measured on a fake clock: worst case 169s → 40s. Modelled against the incident's own hourly exception counts (a model that reproduces the observed 1792s to within 4%), every hour lands back under the alert threshold.
+
+Two things I'd have missed without digging. The killed runs had **already scored ~49 of 51 BAs** — per-BA Redis writes are incremental — but the freshness meta is written *after* the fan-out, so neither run recorded any of it. Two hours of degraded health for work that was done. That's now a soft deadline: the run sheds remaining BAs, writes what it has, and exits 0. And the runbook actively told on-call to **wait it out**, citing the breaker's self-mitigation — the documented response, while two ticks died.
+
+I also had to overrule a concurrent session. It had opened an issue attributing the alert to a weather change that made one fetch 12× heavier. Plausible, carefully argued, and wrong: it had no production access, and the medians across that change's ship date are flat. Its instrumentation half was genuinely good and I shipped it rather than rewriting it; its cache is held until that same instrumentation can size it.
+
+Result: Four commits, 31 new tests, every new guard verified by re-applying its mutation. Two of those tests are *characterization* tests that encode the decision not to trip the breaker, so nobody "fixes" it later without reading why.
+
+**Lesson to convey**: *A defense keyed to the shape of a failure cannot see a failure that has only a rate — and the alert built to warn you early inherits the same blind spot, because it only evaluates the runs that survive. What generalizes across all three of these incidents isn't any dependency-specific guard; it's the budget. Bound what one call can cost, bound what one run can cost, and make the run always reach the point where it records what it did.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
