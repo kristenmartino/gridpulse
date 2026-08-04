@@ -954,6 +954,33 @@ RATE_LIMIT_ALERT_THRESHOLD = 3  # consecutive 429s before alerting
 # across every attempt and sleep, so the worst case stays bounded however
 # the attempt arithmetic later changes.
 #
+# THE BUDGET MUST FIT THE WHOLE RETRY LADDER. This shipped at 40s and was
+# raised to 120s the same evening, because 40s was the failure it was
+# written to prevent. `MAX_RETRIES` (5) x `EIA_READ_TIMEOUT_S` (12s) is 60s
+# of reads before any backoff, so a 40s budget cut every call off after
+# ~3 attempts. Under partial degradation a call often needs 4-5. Measured on
+# the 23:00 tick of 2026-08-04, against an EIA THREE TIMES healthier than the
+# run before it (15 exceptions/hr vs 47):
+#
+#   |                          | 22:00 (no budget) | 23:00 (budget 40s) |
+#   |--------------------------|------------------:|-------------------:|
+#   | eia_page_fetched         |               267 |                  1 |
+#   | eia_max_retries_exceeded |                 0 |                  7 |
+#   | eia_circuit_tripped      |                 0 |                  1 |
+#   | eia_gcs_fallback         |                 0 |                152 |
+#   | elapsed_s                |              1604 |                736 |
+#
+# Seven hard failures tripped the breaker, 145 further calls fail-fasted, and
+# the fleet ran on last-known GCS data. The runtime "improvement" was the cost
+# of not fetching. `/health` still read healthy 51/51, because forecasts were
+# produced — from stale inputs. Exactly the silent freshness regression the
+# note below warns about, reached through the other door.
+#
+# Floor for any future value: `MAX_RETRIES x EIA_READ_TIMEOUT_S` plus the
+# capped backoff sum (~22s worst case), i.e. ~82s today. 120s leaves headroom
+# and still bounds a call at two thirds of the old ~180s. A test pins this
+# relationship — lower any one of these and it will tell you.
+#
 # On the read timeout: too LOW is not free. A 5000-row EIA page is a
 # multi-MB body, and a timeout under the real p99 manufactures failures out
 # of healthy-but-slow responses, routing real data to `_last_known_good()`
@@ -968,7 +995,7 @@ RATE_LIMIT_ALERT_THRESHOLD = 3  # consecutive 429s before alerting
 # TCP retransmit window.
 EIA_CONNECT_TIMEOUT_S = float(os.getenv("EIA_CONNECT_TIMEOUT_S", "3.05"))
 EIA_READ_TIMEOUT_S = float(os.getenv("EIA_READ_TIMEOUT_S", "12.0"))
-EIA_CALL_BUDGET_S = float(os.getenv("EIA_CALL_BUDGET_S", "40.0"))
+EIA_CALL_BUDGET_S = float(os.getenv("EIA_CALL_BUDGET_S", "120.0"))
 EIA_MAX_BACKOFF_S = float(os.getenv("EIA_MAX_BACKOFF_S", "8.0"))
 
 # EIA API key management:
