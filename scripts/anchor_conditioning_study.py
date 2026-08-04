@@ -103,11 +103,11 @@ def _load_vintage(region: str) -> list[VintageRecord]:
 
 def _fresh_records(records: list[VintageRecord]) -> list[VintageRecord]:
     """Fresh-captured records (capture lag ≤ 3h) with usable truth + DF."""
-    from data.vintage import FRESH_CAPTURE_LAG_HOURS, _capture_lag_hours
+    from data.vintage import FRESH_CAPTURE_LAG_HOURS, capture_lag_hours
 
     out = []
     for r in records:
-        lag = _capture_lag_hours(r)
+        lag = capture_lag_hours(r)
         if lag is None or lag > FRESH_CAPTURE_LAG_HOURS:
             continue
         if not (np.isfinite(r.last_d) and r.last_d > 0):

@@ -341,8 +341,15 @@ CLASS_CLEAN_REVISED_FRACTION = 0.1
 CLASS_CLEAN_MEAN_REVISION_PCT = 2.0
 
 
-def _capture_lag_hours(record: VintageRecord) -> float | None:
-    """Hours between the target hour and when we first saw it."""
+def capture_lag_hours(record: VintageRecord) -> float | None:
+    """Hours between the target hour and when we first saw it.
+
+    Public because the benchmark scores on the same notion (#358): an hour
+    first seen long after it passed cannot supply an "as-issued" forecast.
+    Reimplementing it there would put two definitions of capture lag in the
+    codebase, which is the drift `OFFICIAL_DOCUMENTED_LEAD_H` already taught
+    us to avoid — one declaration, imported, pinned by a test.
+    """
     target = canonical_hour(record.timestamp)
     captured = canonical_hour(record.captured_at)
     if target is None or captured is None:
@@ -370,7 +377,7 @@ def classify_region(records: list[VintageRecord]) -> dict[str, Any]:
     fresh: list[VintageRecord] = []
     backfilled_revised = 0
     for r in records:
-        lag = _capture_lag_hours(r)
+        lag = capture_lag_hours(r)
         if lag is None:
             continue
         if lag <= FRESH_CAPTURE_LAG_HOURS:

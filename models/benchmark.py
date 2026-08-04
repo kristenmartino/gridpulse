@@ -256,6 +256,8 @@ def pair_hours(
     vintage_records: list[Any],
     gridpulse_by_ts: dict[str, float],
     revised_df_by_ts: dict[str, float] | None = None,
+    *,
+    exclude_stale_capture: bool = True,
 ) -> tuple[list[PairedHour], dict[str, int]]:
     """Join the two arms on target hour, dropping every unfair hour.
 
@@ -278,6 +280,15 @@ def pair_hours(
       reality. This is the sharper of the two stub predicates.
     * ``first_seen_placeholder`` — flagged ``D == DF`` at first sight.
       Dropped conservatively even when later corrected.
+    * ``stale_capture`` — the hour was first seen more than
+      ``FRESH_CAPTURE_LAG_HOURS`` after it passed, so its ``first_seen_df`` is
+      a POST-revision value. Putting it on the as-issued arm collapses the
+      as-issued/as-revised distinction the dual arm exists to draw (#358).
+      Evaluated right after ``no_df`` because it disqualifies the official
+      arm's *provenance* — a more fundamental objection than "the settled
+      value still equals it". That ordering moves some hours out of the stub
+      buckets and into this one; the counts stay disjoint, but they are not
+      comparable to payloads published before #358.
     * ``no_gridpulse`` — we have no matured prediction for the hour. Both
       arms are always scored on the SAME hour set; a one-sided score would
       compare a 30-day official record against a 1-day GridPulse one. Note
@@ -285,18 +296,30 @@ def pair_hours(
       unscored, so the sample is conditioned on OUR availability too.
     """
     out: list[PairedHour] = []
+    from data.vintage import FRESH_CAPTURE_LAG_HOURS, capture_lag_hours
+
     drops = {
         "unresolved_stub": 0,
         "first_seen_placeholder": 0,
         "unsettled": 0,
         "no_df": 0,
         "no_gridpulse": 0,
+        "stale_capture": 0,
     }
     for r in vintage_records:
         official = r.first_seen_df
         if not np.isfinite(official):
             drops["no_df"] += 1
             continue
+        if exclude_stale_capture:
+            lag = capture_lag_hours(r)
+            # An unparseable timestamp cannot be shown fresh, and the official
+            # arm's whole claim is that its value was seen before the hour
+            # settled — so an unmeasurable lag is treated as stale rather than
+            # waved through.
+            if lag is None or lag > FRESH_CAPTURE_LAG_HOURS:
+                drops["stale_capture"] += 1
+                continue
         actual = r.last_d
         if not np.isfinite(actual) or actual <= 0:
             drops["unsettled"] += 1
@@ -428,6 +451,47 @@ def serve_grade(
     }
 
 
+def _stale_capture_impact(
+    vintage_records: list[Any],
+    gridpulse_by_ts: dict[str, float],
+    revised_df_by_ts: dict[str, float] | None,
+    gridpulse_now: dict[str, Any],
+    official_now: dict[str, Any],
+) -> dict[str, Any] | None:
+    """How the #358 exclusion moved this BA's published numbers.
+
+    Rescoring the same lead WITHOUT the filter is the only honest way to
+    answer the methodology's §14 requirement continuously: the direction is
+    not uniform across BAs (it favours the operator where its revisions
+    improve its forecast and favours us where they worsen it), so a single
+    fleet statement would be wrong for roughly half the fleet.
+
+    ``None`` when nothing was excluded — the common case once a vintage window
+    has rolled past its seed, and worth distinguishing from "measured zero".
+    """
+    pairs, drops = pair_hours(
+        vintage_records, gridpulse_by_ts, revised_df_by_ts, exclude_stale_capture=False
+    )
+    n_stale = len(pairs) - int(gridpulse_now.get("n") or 0)
+    if n_stale <= 0 or len(pairs) < MIN_PAIRED_HOURS:
+        return None
+    without = {"gridpulse": score_arm(pairs, "gridpulse"), "official": score_arm(pairs, "official")}
+    return {
+        "n_hours_excluded": n_stale,
+        # Positive = the exclusion IMPROVED that arm's published MAPE.
+        "gridpulse_mape_shift_pts": round(
+            float(without["gridpulse"]["mape"] - gridpulse_now["mape"]), 3
+        ),
+        "official_mape_shift_pts": round(
+            float(without["official"]["mape"] - official_now["mape"]), 3
+        ),
+        "note": (
+            "same hours rescored without the stale-capture filter; positive "
+            "means the exclusion improved that arm's MAPE"
+        ),
+    }
+
+
 # ── payload ──────────────────────────────────────────────────
 
 
@@ -477,9 +541,10 @@ def compute_benchmark_payload(
         return payload
 
     for lead in (HEADLINE_LEAD, CONSERVATIVE_LEAD):
+        gridpulse_by_ts_for_lead = gridpulse_predictions(horizon_payload, model, lead)
         pairs, drops = pair_hours(
             vintage_records,
-            gridpulse_predictions(horizon_payload, model, lead),
+            gridpulse_by_ts_for_lead,
             revised_df_by_ts,
         )
         if len(pairs) < MIN_PAIRED_HOURS:
@@ -519,6 +584,14 @@ def compute_benchmark_payload(
             "excluded_hours": drops,
             "observed_lead_h": None if observed is None else round(observed, 2),
             "lead_basis": "observed" if observed is not None else "nominal",
+            # #358 §14: methodology requires stating which direction a rule
+            # change moves our own number. Rather than predict it, or measure
+            # it once and let it rot, the payload carries it — the same hours
+            # rescored WITHOUT the stale-capture filter, so the delta is
+            # published per BA, per tick, and stays true as windows roll.
+            "stale_capture_impact": _stale_capture_impact(
+                vintage_records, gridpulse_by_ts_for_lead, revised_df_by_ts, gridpulse, official
+            ),
             # #348: our own rolling grade for THIS row's series. A row we
             # already grade `rollback` was being published as an ordinary
             # comparison — the one unflattering fact on the page that wasn't
