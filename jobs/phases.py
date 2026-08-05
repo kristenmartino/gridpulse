@@ -26,9 +26,12 @@ Design:
 from __future__ import annotations
 
 import json
+import threading
 import time
 import traceback
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -44,6 +47,69 @@ from config import (
 )
 
 log = structlog.get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Sub-phase timing (#389 follow-up)
+# ---------------------------------------------------------------------------
+# `scoring_job.timed` measures whole phases, which is how we learned `forecast`
+# is 60.1% of worker time. It cannot say WHICH PART of forecast, and that gap
+# has now cost two wrong optimisation targets: local profiling with real SPA
+# pickles puts the entire predict path at ~3.4s/BA against a phase that
+# measures ~60s/BA in production. An 18x discrepancy is not something to
+# reason about from a laptop — the missing steps (notably the multi-point
+# weather overlay, ADR-012) are only exercised with production-shaped inputs.
+#
+# So: measure it where it runs. One tick answers it.
+#
+# Deliberately kept OUT of `summary["timings"]`. `_phase_rollup` sums every
+# key it finds there, so injecting `forecast.*` alongside `forecast` would
+# double-count and silently corrupt the very percentage (60.1%) this exists to
+# refine. Sub-steps ride in `summary["subtimings"]` and roll up separately.
+#
+# Thread-local because the scoring job runs PRECOMPUTE_MAX_WORKERS regions
+# concurrently through one process; a module-global dict would interleave.
+_substeps = threading.local()
+
+
+@contextmanager
+def collect_substeps() -> Iterator[dict[str, float]]:
+    """Collect sub-step timings recorded inside this block, for this thread.
+
+    Nests safely: an inner collector shadows the outer one and restores it on
+    exit, so a caller can scope collection to a single phase without knowing
+    whether it is itself nested.
+    """
+    store: dict[str, float] = {}
+    prev = getattr(_substeps, "current", None)
+    _substeps.current = store
+    try:
+        yield store
+    finally:
+        _substeps.current = prev
+
+
+@contextmanager
+def substep(name: str) -> Iterator[None]:
+    """Record wall time for one sub-step under the active collector.
+
+    A no-op when no collector is active, so every call site is safe outside
+    the scoring job (tests, the training job, the dev inline path) and costs
+    one `getattr` there.
+
+    Accumulates rather than overwrites: a name used in a loop (per model, per
+    horizon) reports the total across iterations, which is the number worth
+    having. Timed in a `finally` so a raising sub-step is as visible as a slow
+    one — the same reason `scoring_job.timed` does.
+    """
+    t = time.perf_counter()
+    try:
+        yield
+    finally:
+        store = getattr(_substeps, "current", None)
+        if store is not None:
+            store[name] = round(store.get(name, 0.0) + (time.perf_counter() - t), 3)
+
 
 # Redis keys + TTL kept in sync with components/callbacks.py consumers.
 REDIS_TTL = 86400
@@ -907,34 +973,37 @@ def _build_future_feature_frame(
 
     non_time_cols = [c for c in feature_cols if c not in future_df.columns]
     numeric_cols = [c for c in non_time_cols if c in hist.columns]
-    if numeric_cols:
-        group_means = hist.groupby(["_hour", "_dow"])[numeric_cols].mean()
-        future_hour = future_df["timestamp"].dt.hour
-        future_dow = future_df["timestamp"].dt.dayofweek
-        last_row = featured.iloc[-1]
-        for col in numeric_cols:
-            values = np.empty(horizon, dtype=float)
-            for i in range(horizon):
-                key = (future_hour.iloc[i], future_dow.iloc[i])
-                if key in group_means.index:
-                    values[i] = group_means.loc[key, col]
-                else:
-                    values[i] = float(last_row[col]) if col in last_row.index else 0.0
-            future_df[col] = values
+    with substep("frame_climatology"):
+        if numeric_cols:
+            group_means = hist.groupby(["_hour", "_dow"])[numeric_cols].mean()
+            future_hour = future_df["timestamp"].dt.hour
+            future_dow = future_df["timestamp"].dt.dayofweek
+            last_row = featured.iloc[-1]
+            for col in numeric_cols:
+                values = np.empty(horizon, dtype=float)
+                for i in range(horizon):
+                    key = (future_hour.iloc[i], future_dow.iloc[i])
+                    if key in group_means.index:
+                        values[i] = group_means.loc[key, col]
+                    else:
+                        values[i] = float(last_row[col]) if col in last_row.index else 0.0
+                future_df[col] = values
 
-    for col in feature_cols:
-        if col not in future_df.columns:
-            future_df[col] = 0
+        for col in feature_cols:
+            if col not in future_df.columns:
+                future_df[col] = 0
 
     # Overlay actual Open-Meteo forecast where available. For hours
     # beyond the forecast horizon (~day 16+), climatology stays.
-    if weather_df is not None and not weather_df.empty:
-        future_df = _overlay_weather_forecast(future_df, featured, weather_df, horizon)
+    with substep("frame_weather_overlay"):
+        if weather_df is not None and not weather_df.empty:
+            future_df = _overlay_weather_forecast(future_df, featured, weather_df, horizon)
 
     # #283 Phase 2: past the Open-Meteo boundary, swap the recent-28d climatology
     # weather for the (day_of_year, hour) weather-normal. No-op when the flag is
     # off / the artifact isn't built, so a flag-off run is byte-identical to today.
-    future_df = _overlay_weather_normal_tail(future_df, featured, weather_df, horizon)
+    with substep("frame_normal_tail"):
+        future_df = _overlay_weather_normal_tail(future_df, featured, weather_df, horizon)
 
     return future_df
 
@@ -1481,17 +1550,21 @@ def predict_and_write_forecast(
         # ADR-009 seam 2 (SARIMAX consistency): forecast_start must resolve
         # from the SAME frame the features anchored on, or substituted hours
         # land outside the Kalman gap window and get re-forecast.
-        forecast_start = _resolve_forecast_start(featured, data.anchor_frame)
+        with substep("resolve_start"):
+            forecast_start = _resolve_forecast_start(featured, data.anchor_frame)
 
         # Pass the raw weather DataFrame so the future-feature builder can
         # overlay actual Open-Meteo forecast values (next ~16 days) onto
         # the climatology baseline. See ``_overlay_weather_forecast``.
-        future_df = _build_future_feature_frame(
-            featured,
-            FORECAST_HORIZON_HOURS,
-            weather_df=data.weather_df,
-            start_ts=forecast_start,
-        )
+        # `future_frame` is the wrapper total; the three `frame_*` sub-steps
+        # inside it partition it.
+        with substep("future_frame"):
+            future_df = _build_future_feature_frame(
+                featured,
+                FORECAST_HORIZON_HOURS,
+                weather_df=data.weather_df,
+                start_ts=forecast_start,
+            )
         future_ts = future_df["timestamp"]
 
         # Run every model defensively — a single per-model failure can't
@@ -1499,9 +1572,19 @@ def predict_and_write_forecast(
         # aren't loaded (e.g. training job hasn't produced their pickle yet).
         predictions_by_model: dict[str, np.ndarray] = {}
         for name, model in models.items():
-            preds = _predict_one(
-                name, model, featured, future_df, FORECAST_HORIZON_HOURS, start_ts=forecast_start
-            )
+            # Per-model, not one `predict` total: the three have completely
+            # different cost shapes (XGBoost recurses 384 steps, Prophet and
+            # SARIMAX forecast the gap+720 in one call), so a combined number
+            # would hide which one to go after.
+            with substep(f"predict_{name}"):
+                preds = _predict_one(
+                    name,
+                    model,
+                    featured,
+                    future_df,
+                    FORECAST_HORIZON_HOURS,
+                    start_ts=forecast_start,
+                )
             if preds is None or len(preds) < FORECAST_HORIZON_HOURS:
                 continue
             # Hard physical floor: demand is strictly non-negative. Prophet's
@@ -1548,9 +1631,10 @@ def predict_and_write_forecast(
                 # Floored inputs make the weighted blend non-negative already;
                 # clip again so the guarantee survives any future change to
                 # ensemble_combine. (#281)
-                ensemble_preds = np.maximum(
-                    ensemble_combine(predictions_by_model, ensemble_weights), 0.0
-                )
+                with substep("ensemble"):
+                    ensemble_preds = np.maximum(
+                        ensemble_combine(predictions_by_model, ensemble_weights), 0.0
+                    )
             except Exception as exc:  # pragma: no cover — defensive
                 log.warning("scoring_ensemble_failed", region=region, error=str(exc))
                 ensemble_preds = None
@@ -1573,7 +1657,8 @@ def predict_and_write_forecast(
         if "demand_mw" in featured.columns:
             recent_demand = featured["demand_mw"].tail(_GUARD_RECENT_ROWS).to_numpy(dtype=float)
             for name, series in series_to_guard.items():
-                guard = _horizon_guard_for_series(series, recent_demand)
+                with substep("horizon_guard"):
+                    guard = _horizon_guard_for_series(series, recent_demand)
                 if guard is not None:
                     horizon_guard[name] = guard
                     log.warning(
@@ -1593,17 +1678,22 @@ def predict_and_write_forecast(
         primary = predictions_by_model[primary_name]
 
         scored_at = datetime.now(UTC).isoformat()
+        # 720 rows x (timestamp isoformat + one float per model) built one dict
+        # at a time. Cheap per row, but it is the only O(horizon) Python loop
+        # left in the phase after the models return, so it is worth naming
+        # rather than assuming.
         fl: list[dict[str, Any]] = []
-        for i in range(FORECAST_HORIZON_HOURS):
-            row: dict[str, Any] = {
-                "timestamp": future_ts.iloc[i].isoformat(),
-                "predicted_demand_mw": float(primary[i]),
-            }
-            for name, preds in predictions_by_model.items():
-                row[name] = float(preds[i])
-            if ensemble_preds is not None:
-                row["ensemble"] = float(ensemble_preds[i])
-            fl.append(row)
+        with substep("build_rows"):
+            for i in range(FORECAST_HORIZON_HOURS):
+                row: dict[str, Any] = {
+                    "timestamp": future_ts.iloc[i].isoformat(),
+                    "predicted_demand_mw": float(primary[i]),
+                }
+                for name, preds in predictions_by_model.items():
+                    row[name] = float(preds[i])
+                if ensemble_preds is not None:
+                    row["ensemble"] = float(ensemble_preds[i])
+                fl.append(row)
 
         redis_payload: dict[str, Any] = {
             "region": region,
@@ -1618,7 +1708,8 @@ def predict_and_write_forecast(
         # replaces the headline series a reader consumes, and hiding the models
         # would destroy the evidence for why it happened. `served_series` is the
         # disclosure — nothing may present this as a model forecast.
-        substitution = _baseline_substitution(region, data.demand_df, len(fl))
+        with substep("baseline_substitution"):
+            substitution = _baseline_substitution(region, data.demand_df, len(fl))
         if substitution is not None:
             values, skill_block = substitution
             for i, row in enumerate(fl):
@@ -1667,11 +1758,15 @@ def predict_and_write_forecast(
         # except below returns ok=False, and the region is counted as failed,
         # not scored (#268 → #267). A forecast that computed but never landed in
         # Redis must not read as a success.
-        persist(
-            redis_key(f"forecast:{region}:1h"),
-            redis_payload,
-            ttl=REDIS_TTL,
-        )
+        # The 720-row payload is the largest single write the job makes, and it
+        # is JSON-serialised inside persist() — so this covers serialisation,
+        # not just network time.
+        with substep("redis_write"):
+            persist(
+                redis_key(f"forecast:{region}:1h"),
+                redis_payload,
+                ttl=REDIS_TTL,
+            )
         models_in_row = sorted(predictions_by_model.keys())
         if ensemble_preds is not None:
             models_in_row.append("ensemble")
