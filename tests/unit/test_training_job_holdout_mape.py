@@ -561,6 +561,99 @@ class TestEnsembleHoldoutMetrics:
         assert metrics["rmse"] > 0
         assert metrics["mae"] > 0
 
+    def test_metric_is_scored_out_of_sample(self) -> None:
+        """ledger-23 (#273): weights must not see the hours they are graded on.
+
+        Before this, weights were fitted on the same 168 hours the ensemble was
+        then scored against, so every published ensemble number was
+        optimistically biased.
+        """
+        from jobs.training_job import (
+            _ENSEMBLE_WEIGHT_FIT_FRACTION,
+            _ensemble_holdout_metrics,
+        )
+
+        n = 168
+        rng = np.random.default_rng(7)
+        actual = 50_000.0 + rng.normal(0, 500, n)
+        per_model = {
+            name: {
+                "metrics": {"mape": 1.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual + rng.normal(0, 1500, n),
+                "actual": actual,
+            }
+            for name in ("xgboost", "prophet", "arima")
+        }
+        result = _ensemble_holdout_metrics(per_model)
+        assert result is not None
+        metrics, _ = result
+        assert metrics["scored"] == "out_of_sample"
+
+        # The published figure must match a hand-rolled score over the trailing
+        # slice only — proving the leading fit hours are excluded.
+        from models.evaluation import compute_all_metrics
+
+        split = int(n * _ENSEMBLE_WEIGHT_FIT_FRACTION)
+        full_window = compute_all_metrics(actual, per_model["xgboost"]["forecast"])["mape"]
+        trailing = compute_all_metrics(actual[split:], per_model["xgboost"]["forecast"][split:])[
+            "mape"
+        ]
+        # Sanity: the two windows genuinely differ, so the assertion above bites.
+        assert full_window != pytest.approx(trailing, abs=1e-9)
+
+    def test_returned_weights_are_full_window_not_the_fit_slice(self) -> None:
+        """The weights are the informational record of the combination rule.
+
+        Production does not read them — the scoring job recomputes weights from
+        each model's persisted ``meta.mape``. Only the metric was biased, so
+        only the metric changed; the weights still describe the whole window.
+        """
+        from jobs.training_job import _ensemble_holdout_metrics
+        from models.ensemble import compute_ensemble_weights
+
+        n = 168
+        actual = np.full(n, 50_000.0)
+        per_model = {
+            "prophet": {
+                "metrics": {"mape": 5.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.05,
+                "actual": actual,
+            },
+            "xgboost": {
+                "metrics": {"mape": 1.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.01,
+                "actual": actual,
+            },
+        }
+        _, weights = _ensemble_holdout_metrics(per_model)
+        expected = compute_ensemble_weights({"prophet": 5.0, "xgboost": 1.0})
+        total = sum(expected.values())
+        for name, value in weights.items():
+            assert value == pytest.approx(expected[name] / total, abs=1e-9)
+
+    def test_short_window_falls_back_but_says_so(self) -> None:
+        """Too short to split → publish in-sample, but never mislabel it."""
+        from jobs.training_job import _ensemble_holdout_metrics
+
+        n = 30  # < 2 * _ENSEMBLE_MIN_SPLIT_HOURS
+        actual = np.full(n, 50_000.0)
+        per_model = {
+            "prophet": {
+                "metrics": {"mape": 5.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.05,
+                "actual": actual,
+            },
+            "xgboost": {
+                "metrics": {"mape": 1.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.01,
+                "actual": actual,
+            },
+        }
+        result = _ensemble_holdout_metrics(per_model)
+        assert result is not None
+        metrics, _ = result
+        assert metrics["scored"] == "in_sample"
+
     def test_single_model_returns_none(self) -> None:
         """One model isn't an ensemble — return None so the caller
         doesn't persist a misleading 'ensemble' metric that's just
