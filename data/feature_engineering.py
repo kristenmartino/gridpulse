@@ -308,12 +308,59 @@ def recursive_autoregressive_forecast(
         float(v) for v in seed_demand if v is not None and not pd.isna(v) and v > 0
     ]
     preds: list[float] = []
+
+    # Per-step row construction, tuned 2026-08-05. `predict_xgboost` is 49.4%
+    # of the scoring job's forecast phase (888.8s of 1,636.3s,
+    # `scoring_phase_rollup`), and ~41% of THIS loop is pandas, not the model:
+    # 763 ms/BA serial splits ~317 ms row-building / ~328 ms predict, and of
+    # that 317 ms roughly 279 ms was the per-column `row[col] = val` loop —
+    # ~21 separate DataFrame __setitem__ calls per step, each one re-touching
+    # the block manager. Two changes, no contract change:
+    #
+    #   1. One positional `.iloc` assignment instead of ~21 __setitem__ calls.
+    #      Column positions are resolved once, on the first step; the snapshot's
+    #      KEY SET is constant across steps (only its values move), so this is
+    #      safe. `compute_autoregressive_snapshot` returns floats/NaN only, so
+    #      assigning into the float feature columns cannot change a dtype.
+    #   2. `.ffill().bfill()` dropped. On a ONE-ROW frame both are no-ops --
+    #      they fill along axis 0 and there is no neighbouring row to fill
+    #      from -- so the whole chain only ever did the `.fillna(0)`. This is
+    #      asserted directly in tests rather than taken on trust.
+    #
+    # This function is the documented single source of truth for multi-step
+    # inference, shared by production scoring, the ADR-010 serve-path gate and
+    # holdout evaluation (#195/#186). Its observable behaviour -- the exact
+    # frame handed to `predict_fn` on every step -- must not move. A
+    # differential test captures every row from both implementations and
+    # asserts byte-equality, because "the forecasts still look right" is not
+    # evidence at this seam.
+    # Resolve the autoregressive columns once. Only the snapshot's VALUES move
+    # between steps; its key set is fixed, so one probe call settles it.
+    cols = list(future_df.columns)
+    ar_keys = [k for k in compute_autoregressive_snapshot(history) if k in cols]
+    ar_positions: list[int] = []
+    if ar_keys:
+        # THE DTYPE TRAP, found by the differential test and not before it:
+        # `row[col] = <float>` REPLACED the column and implicitly upcast an int
+        # one to float64. Positional `.iloc` assignment instead writes INTO the
+        # existing block and raises
+        #   TypeError: Invalid value '902.51' for dtype 'int64'
+        # This is reachable in production, not hypothetical: the tail of
+        # `_build_future_feature_frame` does `future_df[col] = 0` for any
+        # feature column it could not fill, which creates an int64 column. Cast
+        # up front so the frame `predict_fn` receives is byte-identical to what
+        # the old implementation produced — which was float64 either way.
+        to_cast = {k: "float64" for k in ar_keys if future_df[k].dtype != np.float64}
+        if to_cast:
+            future_df = future_df.astype(to_cast)
+        ar_positions = [cols.index(k) for k in ar_keys]
+
     for i in range(len(future_df)):
         row = future_df.iloc[[i]].copy()
-        for col, val in compute_autoregressive_snapshot(history).items():
-            if col in row.columns:
-                row[col] = val
-        row = row.ffill().bfill().fillna(0)
+        snapshot = compute_autoregressive_snapshot(history)
+        if ar_positions:
+            row.iloc[0, ar_positions] = [snapshot[k] for k in ar_keys]
+        row = row.fillna(0)
         pred = float(predict_fn(model, row)[0])
         preds.append(pred)
         history.append(pred)
