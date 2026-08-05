@@ -778,6 +778,34 @@ def run() -> int:
             log.info("eia_client_stats", **eia_stats)
     except Exception as e:  # never let instrumentation fail a run
         log.warning("eia_client_stats_failed", error=str(e))
+
+    # Fail-SOFT Redis writes (redis_set) that were dropped this run. The
+    # critical payloads — actuals, weather, forecast, vintage — go through
+    # fail-loud persist() and already fail their phase (#268), so this covers
+    # the secondary ones: generation, interchange, drift, benchmark, backtest,
+    # weather-correlation, alerts and meta. Individually non-fatal by design,
+    # but a run that silently dropped 40 of them is a Redis problem nobody was
+    # being told about — every one of those 15 call sites ignores the returned
+    # False, and until now the only trace was a stdlib-logging warning that
+    # reached Cloud Logging as textPayload, which no log-based alert can match.
+    try:
+        from data.redis_client import drain_write_failures
+
+        wf = drain_write_failures()
+        if wf:
+            log.error(
+                "redis_write_failures",
+                **wf,
+                message=(
+                    f"{wf['count']} fail-soft Redis writes were dropped this run "
+                    f"({wf['by_kind']}). Secondary payloads only — actuals/weather/"
+                    "forecast/vintage are fail-loud — but the affected surfaces are "
+                    "serving stale or absent data without any phase reporting failure."
+                ),
+            )
+    except Exception as e:  # never let instrumentation fail a run
+        log.warning("redis_write_failures_check_failed", error=str(e))
+
     if shed:
         # Its own event, deliberately not folded into scoring_partial_failure:
         # that alert means "forecasts are erroring", and this means "we ran out

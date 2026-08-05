@@ -15,6 +15,7 @@ billing.
 | `cloud_run_job_failure_alert.json` | **Job tier.** Fires when `gridpulse-training-job` or `gridpulse-scoring-job` records a **failed execution** (`run.googleapis.com/job/completed_execution_count{result="failed"}` > 0, summed hourly per job). Fires *after* a timeout. |
 | `scoring_runtime_creep_alert.json` | **Job tier, early warning (#171).** Log-based (`conditionMatchedLog` on `jsonPayload.event="scoring_runtime_creep"`) — fires when the scoring job's `elapsed_s` exceeds `SCORING_RUNTIME_HEADROOM_FRACTION` of the task timeout for `SCORING_RUNTIME_CREEP_RUNS` consecutive runs. Warns on *approach* (~70% of the cap), before a tick is killed — the gap that let 2026-06-01 happen. |
 | `scoring_partial_failure_alert.json` | **Job tier (#267).** Log-based (`jsonPayload.event="scoring_partial_failure"`) — fires when a run forecast fewer than `SCORING_MIN_OK_REGIONS` BAs (default 40/51) but at least one succeeded, so it exits 0. Catches a catastrophic *partial* failure (e.g. 1/51) the failed-execution alert can't see. |
+| `redis_write_failures_alert.json` | **Job tier (2026-08-05).** Log-based (`jsonPayload.event="redis_write_failures"`) — fires when a run dropped one or more *fail-soft* Redis writes. Secondary payloads only (generation, interchange, drift, benchmark, backtest, weather-correlation, alerts, meta); the critical ones use fail-loud `persist()`. Needed because all 15 `redis_set` call sites ignore the returned `False` by design, so a dropped write changes nothing observable — no phase fails, the region still counts as scored, the run still exits 0. |
 | `scoring_deadline_shed_alert.json` | **Job tier (2026-08-04).** Log-based (`jsonPayload.event="scoring_deadline_shed"`) — fires when a run hits `SCORING_SOFT_DEADLINE_FRACTION` of its task timeout and stops starting new BAs. This is the guard *working*: the run completes, writes an honest `last_scored` (`deadline_hit`, `regions_deadline_skipped`) and exits 0, instead of being SIGKILLed having recorded nothing — which is what happened to two ticks on 2026-08-04 after they had already scored ~49/51. Still means runtime is at the ceiling and BAs are going unscored. |
 | `web_service_5xx_alert.json` | **Web tier (#253).** Fires when the `gridpulse` service returns sustained 5xx (`run.googleapis.com/request_count{response_code_class="5xx"}` summed > 25 / 5 min). The request-path equivalent of the job-failure alert. |
 | `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when the service sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. |
@@ -91,6 +92,14 @@ email channel. The budget also emails the billing-account admins by default.
 > under a timeout-shaped incident, because a SIGKILLed run never reaches the
 > `log.error` that emits the event. The soft deadline is what makes a squeezed
 > run complete far enough to report itself.
+
+> ⚠ **`redis_write_failures_alert.json` is NOT applied yet, deliberately** —
+> same reason: it filters on `redis_write_failures`, which only exists once the
+> emitting code ships. It covers *fail-soft* `redis_set` drops (secondary
+> payloads only; `actuals`/`weather`/`forecast`/`vintage` use fail-loud
+> `persist()` and already fail their phase, #268). Before 2026-08-05 such a drop
+> left only a **stdlib-logging** warning — `textPayload`, no `jsonPayload.event`,
+> unmatched by any policy.
 
 > ⚠ **`scoring_deadline_shed_alert.json` is also NOT applied yet, deliberately.**
 > It filters on `scoring_deadline_shed`, which only exists once the

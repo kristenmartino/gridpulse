@@ -37,6 +37,12 @@ _KNOWN_UNAPPLIED: dict[str, str] = {
         "#267 — committed but never applied; tracked under 'Blocked / waiting on' "
         "in STATUS.md. Needs a human gcloud apply."
     ),
+    "redis_write_failures_alert.json": (
+        "2026-08-05 — filters on `redis_write_failures`, which only exists once "
+        "the emitting code is DEPLOYED. Applying first would recreate the "
+        "emitting-into-a-void state this test exists to catch. Apply with the "
+        "other two pending policies after the image ships."
+    ),
     "scoring_deadline_shed_alert.json": (
         "2026-08-04 — applying it before the soft-deadline code is DEPLOYED would "
         "create an alert on an event nothing can emit, which is the same "

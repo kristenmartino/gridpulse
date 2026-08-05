@@ -1,0 +1,20 @@
+{
+  "displayName": "GridPulse — Redis fail-soft writes dropped",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The `gridpulse-scoring-job` emitted a **`redis_write_failures`** log: one or more *fail-soft* Redis writes (`redis_set`) were dropped during a run.\n\n**What this is NOT.** The critical payloads — `actuals`, `weather`, `forecast`, `vintage` — go through the **fail-loud** `persist()` twin, which raises `RedisWriteError` and fails the phase, so a forecast that computed but could not persist already does not count as scored (#268). This alert covers the *secondary* payloads: generation, interchange, drift, drift_horizon, benchmark, backtest, weather-correlation, alerts, and `meta:*`.\n\n**Why it needs an alert at all.** Each of those 15 call sites ignores the `False` that `redis_set` returns, by design — a Redis blip should degrade to the warming state, not crash a callback. The consequence is that a dropped secondary write changes nothing anyone can see: no phase fails, the region still counts as scored, the run still exits 0. Before 2026-08-05 the only trace was a **stdlib-logging** warning, which reaches Cloud Logging as `textPayload` with no `jsonPayload.event` — so no log-based policy could match it. That is the same defect that left the job-tier alerts inert until 2026-07-15 (see README).\n\n**Runbook:**\n1. Read `count` and `by_kind` off the log line. `by_kind` groups by key prefix, so `{\"alerts\": 51}` means every BA's alerts write failed while everything else was fine — a different problem from `{\"drift\": 2}`.\n2. A handful scattered across kinds is usually a transient blip; `redis_set` is fail-soft precisely so that degrades rather than breaks. Check whether the next tick is clean before acting.\n3. **Sustained or fleet-wide** means Redis itself. Check memory headroom first: `redis.googleapis.com/stats/memory/usage_ratio` on `wattcast-cache`. The instance is **Basic 1 GB with `persistenceConfig: DISABLED`** and its `redisConfigs` are unset, so the effective `maxmemory-policy` is the Memorystore default — confirm it with `CONFIG GET maxmemory-policy` from a VPC-attached client before assuming eviction will save you. Under `noeviction`, writes fail at the limit rather than evicting.\n4. Memory usage grew 92 MB → 145 MB over the 30 days to 2026-08-05 with key count flat at ~974 — payload enrichment, not a leak, and roughly 16 months of runway. If that trend steepens, this alert is the thing that will fire first.\n5. If the affected surfaces matter more than fail-soft implies, the fix is to switch those specific call sites to `persist()` — not to change `redis_set`, whose fail-soft contract the web tier depends on."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "redis_write_failures log emitted",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND jsonPayload.event=\"redis_write_failures\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "3600s" },
+    "autoClose": "604800s"
+  }
+}

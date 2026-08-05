@@ -473,3 +473,102 @@ class TestInitRace:
 
         assert rc._get_redis() is not None
         assert rc._redis_last_attempt == 0.0
+
+
+class TestWriteFailureVisibility:
+    """A dropped fail-soft write must be *visible*, even though it stays non-fatal.
+
+    `redis_set` is deliberately fail-soft (#268/#313): the web tier degrades to
+    the warming state rather than crashing, and the critical payloads use the
+    fail-loud `persist()` twin instead. That design is not changed here.
+
+    What was wrong is that a dropped write left no usable trace. All 15 job
+    call sites ignore the returned False, and the only signal was a **stdlib
+    logging** warning — which arrives in Cloud Logging as `textPayload` with no
+    `jsonPayload.event`, so no log-based alert policy can match it. That is the
+    same defect docs/monitoring/README.md records for the job logs, which sat
+    inert until 2026-07-15.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clear(self):
+        import data.redis_client as rc
+
+        rc.drain_write_failures()
+        yield
+        rc.drain_write_failures()
+
+    def test_failed_write_emits_a_structlog_event_not_just_stdlib(self, monkeypatch):
+        """`jsonPayload.event` is the only thing an alert policy can filter on."""
+        import data.redis_client as rc
+
+        class _Boom:
+            def setex(self, *a, **kw):
+                raise RuntimeError("redis down")
+
+        monkeypatch.setattr(rc, "_get_redis", lambda: _Boom())
+        fake_log = MagicMock()
+        monkeypatch.setattr(rc, "_log", fake_log)
+
+        assert rc.redis_set("gridpulse:alerts:ERCOT", {"a": 1}) is False
+
+        call = next(c for c in fake_log.error.call_args_list if c.args[0] == "redis_write_failed")
+        assert call.kwargs["key"] == "gridpulse:alerts:ERCOT"
+
+    def test_failures_are_counted_and_grouped_by_kind(self, monkeypatch):
+        import data.redis_client as rc
+
+        class _Boom:
+            def setex(self, *a, **kw):
+                raise RuntimeError("redis down")
+
+        monkeypatch.setattr(rc, "_get_redis", lambda: _Boom())
+        monkeypatch.setattr(rc, "_log", MagicMock())
+
+        for k in ("gridpulse:alerts:ERCOT", "gridpulse:alerts:PJM", "gridpulse:meta:last_scored"):
+            rc.redis_set(k, {})
+
+        stats = rc.drain_write_failures()
+        assert stats["count"] == 3
+        # Grouped by key kind — 51 BAs of raw keys would be unreadable in a log.
+        assert stats["by_kind"] == {"alerts": 2, "meta": 1}
+
+    def test_drain_clears_so_runs_do_not_accumulate(self, monkeypatch):
+        import data.redis_client as rc
+
+        rc._write_failures.append("gridpulse:drift:ERCOT")
+        assert rc.drain_write_failures()["count"] == 1
+        assert rc.drain_write_failures() is None
+
+    def test_successful_write_records_nothing(self, monkeypatch):
+        import data.redis_client as rc
+
+        monkeypatch.setattr(rc, "_get_redis", lambda: MagicMock())
+        assert rc.redis_set("gridpulse:alerts:ERCOT", {"a": 1}) is True
+        assert rc.drain_write_failures() is None
+
+    def test_absent_client_is_not_counted_as_a_failure(self, monkeypatch):
+        """No REDIS_HOST is dev mode, not an outage — counting it would make
+        every local run look like a production incident."""
+        import data.redis_client as rc
+
+        monkeypatch.setattr(rc, "_get_redis", lambda: None)
+        assert rc.redis_set("gridpulse:alerts:ERCOT", {"a": 1}) is False
+        assert rc.drain_write_failures() is None
+
+    def test_fail_soft_contract_is_unchanged(self, monkeypatch):
+        """The point of this change is visibility, NOT converting fail-soft to
+        fail-loud — `persist()` is the fail-loud twin and stays the way the
+        critical writes opt in."""
+        import data.redis_client as rc
+
+        class _Boom:
+            def setex(self, *a, **kw):
+                raise RuntimeError("redis down")
+
+        monkeypatch.setattr(rc, "_get_redis", lambda: _Boom())
+        monkeypatch.setattr(rc, "_log", MagicMock())
+
+        assert rc.redis_set("gridpulse:alerts:ERCOT", {}) is False  # returns, never raises
+        with pytest.raises(rc.RedisWriteError):
+            rc.persist("gridpulse:forecast:ERCOT:1h", {})
