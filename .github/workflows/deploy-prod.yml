@@ -202,6 +202,29 @@ jobs:
           # Verified by migrating gridpulse-training-job by hand first: with
           # --clear-vpc-connector the annotation flips to network-interfaces.
           #
+          # `--clear-vpc-connector` IS ON THE SERVICE ONLY, and that asymmetry
+          # is gcloud's, not a mistake (2026-08-05):
+          #
+          #   gcloud run deploy        supports --clear-vpc-connector
+          #   gcloud run jobs update   supports --clear-vpc-connector
+          #   gcloud run jobs deploy   DOES NOT
+          #     ERROR: (gcloud.run.jobs.deploy) unrecognized arguments:
+          #     --clear-vpc-connector (did you mean '--vpc-connector'?)
+          #
+          # Putting it on the job steps failed the whole deploy AFTER the
+          # service step had already succeeded — so production ended up with a
+          # migrated service and a scoring job still on the connector, which is
+          # the worst of both states and exactly what a read-back catches and a
+          # green checkmark does not.
+          #
+          # The two production jobs were migrated once, by hand, with
+          # `gcloud run jobs update --clear-vpc-connector --network default
+          # --subnet default --vpc-egress private-ranges-only`. With the
+          # annotation gone, plain `jobs deploy --network/--subnet` is
+          # idempotent and correct forever after. If a job is ever recreated
+          # carrying a connector, its deploy will fail with the "can not be used
+          # together" error above — run the one-time `jobs update` again.
+          #
           # DELETE THE CONNECTOR ONLY AFTER THIS DEPLOYS AND IS VERIFIED. All six
           # deploy targets must be off it first, or the next deploy of whatever
           # still references it fails. Verify with:
@@ -320,7 +343,6 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --clear-vpc-connector \
             --network default \
             --subnet default \
             --vpc-egress private-ranges-only \
@@ -376,7 +398,6 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --clear-vpc-connector \
             --network default \
             --subnet default \
             --vpc-egress private-ranges-only \

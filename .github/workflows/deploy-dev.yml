@@ -129,7 +129,6 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --clear-vpc-connector \
             --network default \
             --subnet default \
             --vpc-egress private-ranges-only \
@@ -148,7 +147,6 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --clear-vpc-connector \
             --network default \
             --subnet default \
             --vpc-egress private-ranges-only \
