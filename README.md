@@ -58,16 +58,16 @@
 | models/pricing.py                     |       32 |        0 |    100% |           |
 | models/prophet\_model.py              |       74 |        4 |     95% |208, 231-238 |
 | models/rolling\_eval.py               |       97 |        2 |     98% |  159, 174 |
-| models/skill.py                       |       52 |        2 |     96% |   41, 179 |
+| models/skill.py                       |       52 |        1 |     98% |        41 |
 | models/training.py                    |      100 |        2 |     98% |   184-185 |
 | models/xgboost\_model.py              |       73 |        2 |     97% |    75, 99 |
 | personas/\_\_init\_\_.py              |        0 |        0 |    100% |           |
 | personas/config.py                    |       13 |        0 |    100% |           |
-| personas/welcome.py                   |       90 |        3 |     97% |47, 51, 97 |
+| personas/welcome.py                   |       90 |        3 |     97% |47, 49, 97 |
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
-| **TOTAL**                             | **8547** |  **950** | **89%** |           |
+| **TOTAL**                             | **8547** |  **949** | **89%** |           |
 
 
 ## Setup coverage badge
