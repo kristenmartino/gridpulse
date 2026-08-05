@@ -1200,6 +1200,18 @@ FEATURE_FLAGS: dict[str, bool] = {
     # failure-path guard, and flag-off is byte-identical because the deadline
     # is simply never consulted. Rollback = flip off, or set the fraction to 0.
     "soft_deadline": True,
+    # #389: serve the deep-history (ERA5 archive) weather leg from the
+    # cross-run GCS cache instead of re-fetching an identical window every
+    # hourly tick. The window is fixed for a whole UTC day and ERA5T is not
+    # revised intra-day, so a hit returns the same values the fetch would.
+    # NOT a fix for the 2026-08-04 alert — the runtime record refutes that
+    # reading (medians are flat across the ADR-011/012 flips). This reclaims
+    # part of the `fetch` phase, measured at 13.0% of worker time; the archive
+    # leg's own share is estimated, not measured, so treat the saving as
+    # unverified until a `scoring_phase_rollup` before/after says otherwise.
+    # Rollback = flip off; the path is fail-open, so off is byte-identical
+    # to the pre-#389 behavior.
+    "weather_archive_cache": True,
 }
 
 

@@ -305,6 +305,175 @@ def _try_multipoint_archive(
         return None
 
 
+# ── Cross-run archive cache (#389) ───────────────────────────
+#
+# The deep-history leg asks for a window that is fixed for a whole UTC day
+# — ``[today-past_days, today-ARCHIVE_LAG_DAYS]`` — yet the hourly scoring
+# job re-fetches it every tick, because Cloud Run Jobs get a FRESH container
+# per run and the SQLite cache dies with it. That is 24 identical downloads
+# a day, per BA.
+#
+# The response is ~0.28 MB single-point and ~3.40 MB at 12 points — a
+# SYNTHETIC measurement, a response built at production shape (87 days × 17
+# variables), not a production reading. Parse+aggregate is only ~0.18 s of
+# it, so what a cross-run cache reclaims is wire time and upstream latency.
+#
+# What this is NOT. An earlier reading of the 2026-08-04 `scoring_runtime_creep`
+# alert blamed ADR-012 for making this leg ~12× heavier. **The runtime record
+# refutes that**: daily medians are flat across the 07-22/07-23 flips
+# (762/745/768/781/965 before, 838/824/830/826 after), and the alert was
+# caused by EIA retry tax under partial upstream degradation. This cache is
+# not a fix for that incident and must not be cited as one. It reclaims part
+# of the `fetch` phase, which `scoring_phase_rollup` puts at 13.0% of worker
+# time; the archive leg's own share of that 13% is ESTIMATED (~50-70s summed),
+# never measured, so the saving stays unverified until a before/after rollup
+# says otherwise. Roughly 1% of summed worker time — real, and nowhere near
+# #171's remaining 68s gap on its own.
+#
+# GCS is the store because it already persists weather parquet per region
+# and survives container recycles (Redis holds live serving payloads, and
+# ~2 000 rows × 17 float columns × 51 BAs does not belong there).
+#
+# Freshness: within one UTC day every tick asks for the SAME window, and
+# Open-Meteo serves that window from ERA5/ERA5T. ERA5T is revised to final
+# ERA5 on a ~2-3 month lag, never intra-day, so re-fetching an hour later
+# returns the same values. A window that has MOVED (the first tick of a new
+# UTC day) fails the coverage check below and is re-fetched — so the cache
+# can only ever serve the window that was asked for.
+#
+# Fail-open at every seam, like the rest of this module (the #161 lesson):
+# any trouble returns None and the untouched fetch path runs.
+
+
+def _archive_cache_type(multipoint: bool) -> str:
+    """GCS ``data_type`` for the cached archive segment.
+
+    Single-point and aggregated multi-point frames are different data and
+    must never be served for each other — same reasoning as the ``_mp``
+    suffix on the SQLite cache key.
+    """
+    return "weather_archive_mp" if multipoint else "weather_archive"
+
+
+def _archive_window_covered(df: pd.DataFrame, archive_start: str, archive_end: str) -> bool:
+    """Does ``df`` span the requested ``[archive_start, archive_end]`` days?
+
+    Compared at DAY granularity: the archive endpoint returns whole days,
+    and requiring an exact final hour would spuriously miss if the upstream
+    trimmed a partial hour. A frame from a previous UTC day ends one day
+    short and correctly fails.
+    """
+    if df is None or df.empty or "timestamp" not in df.columns:
+        return False
+    ts = pd.to_datetime(df["timestamp"], utc=True, errors="coerce").dropna()
+    if ts.empty:
+        return False
+    want_start = pd.Timestamp(archive_start, tz="UTC").date()
+    want_end = pd.Timestamp(archive_end, tz="UTC").date()
+    return ts.min().date() <= want_start and ts.max().date() >= want_end
+
+
+def _read_cached_archive(
+    region: str, multipoint: bool, archive_start: str, archive_end: str
+) -> pd.DataFrame | None:
+    """Serve the archive segment from GCS when it covers the window.
+
+    Returns None — meaning "fetch it" — when the flag is off, GCS is
+    unavailable, nothing is stored yet, or the stored frame is for an older
+    window. Never raises.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("weather_archive_cache"):
+        return None
+    try:
+        from data.gcs_store import read_parquet
+
+        df = read_parquet(_archive_cache_type(multipoint), region)
+    except Exception as e:  # pragma: no cover - defensive; GCS owns its own
+        log.warning("weather_archive_cache_read_failed", region=region, error=str(e))
+        return None
+    if df is None or df.empty:
+        return None
+    if not _archive_window_covered(df, archive_start, archive_end):
+        log.info("weather_archive_cache_stale", region=region, multipoint=multipoint)
+        return None
+
+    # Trim to the requested window. A cached frame can only ever be a
+    # superset (an older run used the same past_days), and the stitch
+    # downstream expects the archive leg to stop at the boundary.
+    ts = pd.to_datetime(df["timestamp"], utc=True)
+    window = (ts >= pd.Timestamp(archive_start, tz="UTC")) & (
+        ts < pd.Timestamp(archive_end, tz="UTC") + pd.Timedelta(days=1)
+    )
+    out = df.loc[window].reset_index(drop=True)
+    if out.empty:
+        return None
+    log.info(
+        "weather_archive_cache_hit",
+        region=region,
+        multipoint=multipoint,
+        rows=len(out),
+    )
+    return out
+
+
+def _write_cached_archive(df: pd.DataFrame | None, region: str, multipoint: bool) -> None:
+    """Persist a freshly-fetched archive segment. Fire-and-forget, never raises."""
+    from config import feature_enabled
+
+    if df is None or df.empty or not feature_enabled("weather_archive_cache"):
+        return
+    try:
+        from data.gcs_store import write_parquet
+
+        write_parquet(df, _archive_cache_type(multipoint), region)
+    except Exception as e:  # pragma: no cover - defensive
+        log.warning("weather_archive_cache_write_failed", region=region, error=str(e))
+
+
+def _resolve_archive(
+    region: str,
+    mp_coords: list[list[float]] | None,
+    archive_start: str,
+    archive_end: str,
+) -> pd.DataFrame | None:
+    """The deep-history leg: cache → multi-point → single-point → None.
+
+    ``mp_coords`` is the BA's footprint cells when multi-point is ACTIVE for
+    this fetch (flag on, cells present, and the forecast leg succeeded at
+    multi-point), else None. Returns None only when the archive is
+    genuinely unavailable, in which case the caller keeps the forecast-only
+    result — unchanged behavior.
+    """
+    multipoint = mp_coords is not None
+
+    cached = _read_cached_archive(region, multipoint, archive_start, archive_end)
+    if cached is not None:
+        return cached
+
+    archive_df: pd.DataFrame | None = None
+    if mp_coords is not None:
+        # Already aggregated; None on any multi-point trouble.
+        archive_df = _try_multipoint_archive(mp_coords, archive_start, archive_end, region)
+
+    if archive_df is None:
+        # Not attempted, or multi-point failed. Retry SINGLE-POINT before
+        # degrading: #161 was precisely about losing deep history, so a
+        # multi-point hiccup must not skip straight to forecast-only.
+        try:
+            archive_df = _fetch_archive_endpoint(region, archive_start, archive_end)
+        except requests.RequestException as e:
+            log.warning("weather_archive_failed_forecast_only", region=region, error=str(e))
+            return None
+        # A single-point retry must not be stored under the multi-point key.
+        _write_cached_archive(archive_df, region, multipoint=False)
+        return archive_df
+
+    _write_cached_archive(archive_df, region, multipoint)
+    return archive_df
+
+
 def _stitch_weather(
     archive_df: pd.DataFrame | None,
     forecast_df: pd.DataFrame,
@@ -518,19 +687,12 @@ def fetch_weather(
     archive_start = (today - timedelta(days=past_days)).isoformat()
     archive_end = (today - timedelta(days=ARCHIVE_LAG_DAYS)).isoformat()
 
-    archive_df: pd.DataFrame | None = None
-    if mp_active:
-        # Already aggregated; None on any multi-point trouble.
-        archive_df = _try_multipoint_archive(mp_coords, archive_start, archive_end, region)
-
-    if archive_df is None:
-        # Not attempted, or multi-point failed. Retry SINGLE-POINT before
-        # degrading: #161 was precisely about losing deep history, so a
-        # multi-point hiccup must not skip straight to forecast-only.
-        try:
-            archive_df = _fetch_archive_endpoint(region, archive_start, archive_end)
-        except requests.RequestException as e:
-            log.warning("weather_archive_failed_forecast_only", region=region, error=str(e))
+    # #389: the window is fixed for the whole UTC day, so this leg is served
+    # from the cross-run GCS cache on 23 of 24 hourly ticks. On a miss it
+    # runs the unchanged multi-point → single-point resolution.
+    archive_df = _resolve_archive(
+        region, mp_coords if mp_active else None, archive_start, archive_end
+    )
 
     # 3. Stitch. Never return empty when forecast had data.
     df = _stitch_weather(archive_df, forecast_df, boundary)
