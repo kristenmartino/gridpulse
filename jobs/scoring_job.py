@@ -128,6 +128,7 @@ def _log_region_complete(summary: dict) -> None:
         ok=summary.get("ok"),
         elapsed_s=summary.get("elapsed_s"),
         timings=dict(sorted((summary.get("timings") or {}).items(), key=lambda kv: -kv[1])),
+        subtimings=dict(sorted((summary.get("subtimings") or {}).items(), key=lambda kv: -kv[1])),
     )
 
 
@@ -141,7 +142,13 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     its queue and reach its epilogue instead of being killed mid-fan-out.
     """
     t0 = time.time()
-    summary: dict = {"region": region, "ok": False, "phases": {}, "timings": {}}
+    summary: dict = {
+        "region": region,
+        "ok": False,
+        "phases": {},
+        "timings": {},
+        "subtimings": {},
+    }
 
     if deadline is not None and time.monotonic() >= deadline:
         # Not a failure — this BA never ran, and its previous forecast is still
@@ -395,14 +402,20 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     has_features = timed("features", phases.engineer_region_features, region_data) is not None
 
     if has_features and loaded_models:
-        fc_res = timed(
-            "forecast",
-            phases.predict_and_write_forecast,
-            region_data,
-            loaded_models,
-            model_mapes,
-            model_metrics=model_metrics,
-        )
+        # #389 follow-up: `forecast` is 60.1% of worker time and the phase-level
+        # number cannot say which part. Collect its sub-steps here. Kept out of
+        # `summary["timings"]` on purpose — `_phase_rollup` sums every key there,
+        # so mixing sub-steps in would double-count against the phase total.
+        with phases.collect_substeps() as _sub:
+            fc_res = timed(
+                "forecast",
+                phases.predict_and_write_forecast,
+                region_data,
+                loaded_models,
+                model_mapes,
+                model_metrics=model_metrics,
+            )
+        summary["subtimings"] = dict(_sub)
         summary["phases"]["forecast"] = {
             "ok": fc_res.ok,
             **(fc_res.details if fc_res.ok else {"error": fc_res.error}),
@@ -455,7 +468,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     return summary
 
 
-def _phase_rollup(results: list[dict]) -> dict[str, dict]:
+def _phase_rollup(results: list[dict], key: str = "timings") -> dict[str, dict]:
     """Fold per-region phase timings into a fleet-wide breakdown.
 
     Returns ``{phase: {total_s, max_s, slowest_region, n}}`` sorted by total
@@ -466,10 +479,16 @@ def _phase_rollup(results: list[dict]) -> dict[str, dict]:
     Note the totals are summed CPU/wall across regions scored concurrently,
     so they exceed the run's wall clock; they rank the phases, they don't
     partition the elapsed time.
+
+    ``key`` selects which per-region timing dict to fold. It stays
+    ``"timings"`` by default; ``"subtimings"`` folds the forecast sub-steps
+    (#389 follow-up) through the identical arithmetic. The two are rolled up
+    and logged SEPARATELY on purpose — summing sub-steps into the phase table
+    would double-count them against their own parent phase.
     """
     agg: dict[str, dict] = {}
     for r in results:
-        for phase, secs in (r.get("timings") or {}).items():
+        for phase, secs in (r.get(key) or {}).items():
             slot = agg.setdefault(
                 phase, {"total_s": 0.0, "max_s": 0.0, "slowest_region": None, "n": 0}
             )
@@ -742,6 +761,10 @@ def run() -> int:
         workers=PRECOMPUTE_MAX_WORKERS,
         regions=len(results),
         phases=phase_rollup,
+        # #389 follow-up: the breakdown INSIDE `forecast`, which is 60.1% of
+        # phase time and until now was one opaque number. Separate field, not
+        # merged into `phases` — see `_phase_rollup`'s `key` docstring.
+        forecast_substeps=_phase_rollup(results, key="subtimings"),
     )
     # The `fetch` phase above is upstream-latency-dominated, so publish the
     # EIA success-latency distribution beside it. This is the measurement the
