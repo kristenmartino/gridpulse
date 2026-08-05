@@ -186,6 +186,22 @@ jobs:
           # Redis before any of this was written: PING True, DBSIZE 974, connect
           # in 24ms. The probe was deleted after.
           #
+          # --clear-vpc-connector is REQUIRED, not decorative (2026-08-05). The
+          # first attempt passed only --network/--subnet/--vpc-egress and the
+          # deploy FAILED outright:
+          #
+          #   ERROR: spec.template.metadata.annotations[run.googleapis.com/
+          #   network-interfaces]: VPC connector and direct VPC can not be used
+          #   together
+          #
+          # Same sticky-annotation rule as --cpu-throttling above, one rung
+          # nastier: `run.googleapis.com/vpc-access-connector` survives on the
+          # live revision because an omitted flag INHERITS, so the incoming
+          # Direct VPC config collides with a connector nobody asked for. The
+          # connector one at least fails loudly instead of silently no-opping.
+          # Verified by migrating gridpulse-training-job by hand first: with
+          # --clear-vpc-connector the annotation flips to network-interfaces.
+          #
           # DELETE THE CONNECTOR ONLY AFTER THIS DEPLOYS AND IS VERIFIED. All six
           # deploy targets must be off it first, or the next deploy of whatever
           # still references it fails. Verify with:
@@ -220,6 +236,7 @@ jobs:
             --max-instances 4 \
             --cpu-boost \
             --cpu-throttling \
+            --clear-vpc-connector \
             --network default \
             --subnet default \
             --vpc-egress private-ranges-only \
@@ -282,6 +299,7 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --clear-vpc-connector \
             --network default \
             --subnet default \
             --vpc-egress private-ranges-only \
@@ -337,6 +355,7 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
+            --clear-vpc-connector \
             --network default \
             --subnet default \
             --vpc-egress private-ranges-only \
