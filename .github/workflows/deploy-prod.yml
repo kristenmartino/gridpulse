@@ -27,16 +27,63 @@ env:
 
 concurrency:
   group: deploy-prod
-  cancel-in-progress: true
+  # cancel-in-progress: FALSE, deliberately (2026-08-05). It used to be true,
+  # and it shipped an OLDER commit to production while main's HEAD was never
+  # deployed — both runs green, nothing to notice.
+  #
+  # cancel-in-progress cancels by workflow START order. Under ``workflow_run``,
+  # start order is CI *completion* order, which has nothing to do with commit
+  # order. On 2026-08-05, #405 and #406 merged minutes apart:
+  #
+  #   CI 319b9de3 (main HEAD, newer) finished 06:50:57 -> deploy 06:50:58 CANCELLED
+  #   CI 345d284a (older)            finished 06:51:27 -> deploy 06:51:29 SUCCEEDED
+  #
+  # 319b9de3's CI happened to be 30s faster, so its deploy started first and was
+  # cancelled by the older commit's. Production ran 345d284a for an hour while
+  # main sat at 319b9de3.
+  #
+  # Queueing instead is safe because the staleness guard below turns the
+  # superseded run into a no-op. Skipping a superseded deploy is correct;
+  # cancelling by arrival time is what inverted the order.
+  cancel-in-progress: false
 
 jobs:
+  # Gate 1 (#146): CI must have SUCCEEDED. ``workflow_run`` delivers failed and
+  # cancelled runs too.
+  # Gate 2 (2026-08-05): the commit CI validated must still be the branch tip.
+  # Order-independent — whichever of two racing deploys runs second finds the
+  # tip has moved past it and skips.
+  guard:
+    name: Guard — is this commit still main's HEAD?
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+      - id: check
+        run: |
+          TIP=$(git rev-parse HEAD)
+          echo "main tip:   $TIP"
+          echo "deploy sha: ${DEPLOY_SHA}"
+          if [ "$TIP" = "${DEPLOY_SHA}" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploying ${DEPLOY_SHA} — it is main's tip."
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping ${DEPLOY_SHA} — main has advanced to ${TIP}. A newer deploy covers it."
+          fi
+
   deploy-production:
     name: Build & Deploy to Cloud Run (Production)
     runs-on: ubuntu-latest
-    # Only deploy when the triggering CI run SUCCEEDED. ``workflow_run``
-    # delivers failed + cancelled runs too; without this guard a red CI
-    # would still deploy.
-    if: github.event.workflow_run.conclusion == 'success'
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true'
     environment: production
     permissions:
       contents: read
