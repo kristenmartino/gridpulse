@@ -21,13 +21,45 @@ env:
 
 concurrency:
   group: deploy-dev
-  cancel-in-progress: true
+  # FALSE, same reason as deploy-prod.yml — see the long note there. Short
+  # version: cancel-in-progress cancels by workflow start order, which under
+  # ``workflow_run`` is CI *completion* order, not commit order. Two merges
+  # landing close together can leave the older one deploying and the newer one
+  # cancelled. Queue instead; the staleness guard no-ops the superseded run.
+  cancel-in-progress: false
 
 jobs:
+  guard:
+    name: Guard — is this commit still dev's HEAD?
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success'
+    permissions:
+      contents: read
+    outputs:
+      proceed: ${{ steps.check.outputs.proceed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 1
+      - id: check
+        run: |
+          TIP=$(git rev-parse HEAD)
+          echo "dev tip:    $TIP"
+          echo "deploy sha: ${DEPLOY_SHA}"
+          if [ "$TIP" = "${DEPLOY_SHA}" ]; then
+            echo "proceed=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Deploying ${DEPLOY_SHA} — it is dev's tip."
+          else
+            echo "proceed=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping ${DEPLOY_SHA} — dev has advanced to ${TIP}. A newer deploy covers it."
+          fi
+
   deploy-dev:
     name: Build & Deploy to Cloud Run (Dev)
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success'
+    needs: guard
+    if: needs.guard.outputs.proceed == 'true'
     permissions:
       contents: read
       id-token: write
