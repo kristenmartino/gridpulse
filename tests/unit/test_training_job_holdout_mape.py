@@ -561,6 +561,154 @@ class TestEnsembleHoldoutMetrics:
         assert metrics["rmse"] > 0
         assert metrics["mae"] > 0
 
+    def test_metric_is_scored_out_of_sample(self) -> None:
+        """ledger-23 (#273): weights must not see the hours they are graded on.
+
+        Before this, weights were fitted on the same 168 hours the ensemble was
+        then scored against, so every published ensemble number was
+        optimistically biased.
+        """
+        from jobs.training_job import (
+            _ENSEMBLE_WEIGHT_FIT_FRACTION,
+            _ensemble_holdout_metrics,
+        )
+        from models.ensemble import compute_ensemble_weights, ensemble_combine
+        from models.evaluation import compute_all_metrics
+
+        n, actual = 168, np.full(168, 50_000.0)
+        split = int(n * _ENSEMBLE_WEIGHT_FIT_FRACTION)
+
+        # Two models with the SAME full-window skill but mirrored halves, so
+        # fit-slice weights and full-window weights land far apart. Without
+        # that asymmetry both estimators coincide and the test cannot see the
+        # bug -- which is exactly how the first version of this test passed
+        # against a mutation that reverted to in-sample scoring.
+        a = np.concatenate([np.full(split, 1.01), np.full(n - split, 1.09)]) * actual
+        b = np.concatenate([np.full(split, 1.09), np.full(n - split, 1.01)]) * actual
+        per_model = {
+            "xgboost": {"metrics": compute_all_metrics(actual, a), "forecast": a, "actual": actual},
+            "prophet": {"metrics": compute_all_metrics(actual, b), "forecast": b, "actual": actual},
+        }
+
+        metrics, _ = _ensemble_holdout_metrics(per_model)
+        assert metrics["scored"] == "out_of_sample"
+
+        def _norm(w):
+            tot = sum(w.values()) or 1.0
+            return {k: v / tot for k, v in w.items()}
+
+        # Recompute the honest number by hand: weights from the LEADING half,
+        # scored on the TRAILING half only.
+        fit_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": compute_all_metrics(actual[:split], a[:split])["mape"],
+                    "prophet": compute_all_metrics(actual[:split], b[:split])["mape"],
+                }
+            )
+        )
+        expected = compute_all_metrics(
+            actual[split:],
+            np.asarray(
+                ensemble_combine({"xgboost": a[split:], "prophet": b[split:]}, fit_w), dtype=float
+            ),
+        )["mape"]
+        assert metrics["mape"] == pytest.approx(expected, abs=1e-9)
+
+        # ...and it must NOT be the in-sample figure the old code published.
+        full_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": per_model["xgboost"]["metrics"]["mape"],
+                    "prophet": per_model["prophet"]["metrics"]["mape"],
+                }
+            )
+        )
+        in_sample = compute_all_metrics(
+            actual, np.asarray(ensemble_combine({"xgboost": a, "prophet": b}, full_w), dtype=float)
+        )["mape"]
+        assert metrics["mape"] != pytest.approx(in_sample, abs=0.05)
+        # The bias had a direction: grading itself on its own answers flattered.
+        assert metrics["mape"] > in_sample
+
+    def test_returned_weights_are_full_window_not_the_fit_slice(self) -> None:
+        """The weights are the informational record of the combination rule.
+
+        Production does not read them -- the scoring job recomputes weights from
+        each model's persisted ``meta.mape``. Only the metric was biased, so
+        only the metric changed; the weights still describe the whole window.
+
+        Uses mirrored halves so fit-slice weights and full-window weights are
+        provably different; with symmetric errors the two coincide and this
+        assertion proves nothing.
+        """
+        from jobs.training_job import (
+            _ENSEMBLE_WEIGHT_FIT_FRACTION,
+            _ensemble_holdout_metrics,
+        )
+        from models.ensemble import compute_ensemble_weights
+        from models.evaluation import compute_all_metrics
+
+        n, actual = 168, np.full(168, 50_000.0)
+        split = int(n * _ENSEMBLE_WEIGHT_FIT_FRACTION)
+        a = np.concatenate([np.full(split, 1.01), np.full(n - split, 1.09)]) * actual
+        b = np.concatenate([np.full(split, 1.09), np.full(n - split, 1.01)]) * actual
+        per_model = {
+            "xgboost": {"metrics": compute_all_metrics(actual, a), "forecast": a, "actual": actual},
+            "prophet": {"metrics": compute_all_metrics(actual, b), "forecast": b, "actual": actual},
+        }
+
+        _, weights = _ensemble_holdout_metrics(per_model)
+
+        def _norm(w):
+            tot = sum(w.values()) or 1.0
+            return {k: v / tot for k, v in w.items()}
+
+        full_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": per_model["xgboost"]["metrics"]["mape"],
+                    "prophet": per_model["prophet"]["metrics"]["mape"],
+                }
+            )
+        )
+        fit_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": compute_all_metrics(actual[:split], a[:split])["mape"],
+                    "prophet": compute_all_metrics(actual[:split], b[:split])["mape"],
+                }
+            )
+        )
+        # The two candidate weightings genuinely differ, so this discriminates.
+        assert full_w["xgboost"] != pytest.approx(fit_w["xgboost"], abs=0.05)
+
+        for name, value in weights.items():
+            assert value == pytest.approx(full_w[name], abs=1e-9)
+
+    def test_short_window_falls_back_but_says_so(self) -> None:
+        """Too short to split → publish in-sample, but never mislabel it."""
+        from jobs.training_job import _ensemble_holdout_metrics
+
+        n = 30  # < 2 * _ENSEMBLE_MIN_SPLIT_HOURS
+        actual = np.full(n, 50_000.0)
+        per_model = {
+            "prophet": {
+                "metrics": {"mape": 5.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.05,
+                "actual": actual,
+            },
+            "xgboost": {
+                "metrics": {"mape": 1.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.01,
+                "actual": actual,
+            },
+        }
+        result = _ensemble_holdout_metrics(per_model)
+        assert result is not None
+        metrics, _ = result
+        assert metrics["scored"] == "in_sample"
+
     def test_single_model_returns_none(self) -> None:
         """One model isn't an ensemble — return None so the caller
         doesn't persist a misleading 'ensemble' metric that's just

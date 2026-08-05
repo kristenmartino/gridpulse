@@ -39,6 +39,17 @@ def _compute_data_hash(region_data: phases.RegionData) -> str:
 
 
 _HOLDOUT_HOURS = 168
+
+#: Leading fraction of the holdout used to FIT the ensemble weights; the
+#: trailing remainder is what the published ensemble metric is scored on
+#: (ledger-23 / #273). Half gives 84h of fitting and 84h of clean scoring —
+#: enough of each to cover three-and-a-half diurnal cycles either side.
+_ENSEMBLE_WEIGHT_FIT_FRACTION = 0.5
+
+#: Minimum hours required on BOTH sides of the split before an out-of-sample
+#: score is attempted. Below this the estimate is noisier than the bias it
+#: removes, so the in-sample figure is published and explicitly labelled.
+_ENSEMBLE_MIN_SPLIT_HOURS = 24
 _MIN_TRAIN_HOURS = 720  # need at least 30 days of training before a 7-day holdout
 # Per-model holdout residuals live longer than an hourly key — training is daily
 # and the interval bands tolerate a slightly stale calibration sample.
@@ -315,6 +326,25 @@ def _ensemble_holdout_metrics(
     combine the FORWARD-LOOKING forecasts, applied here to the
     holdout window so the persisted ensemble metric reflects the
     same combination rule that runs in production.
+
+    **The published metric is scored strictly out-of-sample (ledger-23 /
+    #273).** Previously the weights were fitted on the *same* 168 hours the
+    ensemble was then scored on, so every published ensemble number was
+    optimistically biased: the blend was allowed to see the answers it was
+    graded against. The holdout is now split — weights are fitted on the
+    leading ``_ENSEMBLE_WEIGHT_FIT_FRACTION`` of it and the returned metrics
+    score only the trailing remainder, which no weight saw.
+
+    The returned ``weights`` are still the FULL-window weights, because they
+    are the informational record of the combination rule and are not what
+    production serves: the scoring job recomputes weights from each model's
+    persisted ``meta.mape`` (``jobs/scoring_job.py``) and never reads these.
+    Only the *metric* was biased, so only the metric changes.
+
+    For one release the in-sample figure is logged alongside as
+    ``mape_in_sample`` so the size of the correction is observable rather
+    than inferred — the same pattern used when the XGBoost holdout moved to
+    the recursive protocol.
     """
     import numpy as np
 
@@ -327,7 +357,7 @@ def _ensemble_holdout_metrics(
 
     # Every per-model holdout uses the same train/val split so actuals
     # are identical across models — assert this defensively.
-    actuals = next(iter(valid.values()))["actual"]
+    actuals = np.asarray(next(iter(valid.values()))["actual"], dtype=float)
     for name, payload in valid.items():
         if len(payload["actual"]) != len(actuals):
             log.warning(
@@ -338,18 +368,69 @@ def _ensemble_holdout_metrics(
             )
             return None
 
-    mape_scores = {name: payload["metrics"]["mape"] for name, payload in valid.items()}
-    weights = compute_ensemble_weights(mape_scores)
-    total = sum(weights.values()) or 1.0
-    weights = {k: v / total for k, v in weights.items()}
+    forecasts = {
+        name: np.asarray(payload["forecast"], dtype=float) for name, payload in valid.items()
+    }
 
-    forecasts = {name: payload["forecast"] for name, payload in valid.items()}
-    ensemble_pred = np.asarray(ensemble_combine(forecasts, weights), dtype=float)
+    def _weights_from(mape_scores: dict[str, float]) -> dict[str, float]:
+        w = compute_ensemble_weights(mape_scores)
+        total = sum(w.values()) or 1.0
+        return {k: v / total for k, v in w.items()}
 
-    metrics = compute_all_metrics(actuals, ensemble_pred)
-    if not np.isfinite(metrics["mape"]) or metrics["mape"] <= 0:
-        return None
-    return metrics, weights
+    # Full-window weights: the informational record of the combination rule.
+    full_weights = _weights_from(
+        {name: payload["metrics"]["mape"] for name, payload in valid.items()}
+    )
+
+    split = int(len(actuals) * _ENSEMBLE_WEIGHT_FIT_FRACTION)
+    oos_metrics = None
+    if split >= _ENSEMBLE_MIN_SPLIT_HOURS and (len(actuals) - split) >= _ENSEMBLE_MIN_SPLIT_HOURS:
+        fit_mapes: dict[str, float] = {}
+        for name, pred in forecasts.items():
+            m = compute_all_metrics(actuals[:split], pred[:split])["mape"]
+            if np.isfinite(m) and m > 0:
+                fit_mapes[name] = float(m)
+        # Only fit out-of-sample weights when every member is scoreable on the
+        # fit slice; a partial set would weight a different composition than
+        # the one being scored, which is the P2-16 failure in miniature.
+        if len(fit_mapes) == len(forecasts):
+            oos_weights = _weights_from(fit_mapes)
+            oos_pred = np.asarray(
+                ensemble_combine({n: p[split:] for n, p in forecasts.items()}, oos_weights),
+                dtype=float,
+            )
+            candidate = compute_all_metrics(actuals[split:], oos_pred)
+            if np.isfinite(candidate["mape"]) and candidate["mape"] > 0:
+                oos_metrics = candidate
+
+    in_sample_pred = np.asarray(ensemble_combine(forecasts, full_weights), dtype=float)
+    in_sample_metrics = compute_all_metrics(actuals, in_sample_pred)
+
+    if oos_metrics is None:
+        # Too short to split, or a member unscoreable on the fit slice. Fall
+        # back to the in-sample figure rather than publishing nothing — but
+        # say so, so the number is never silently mistaken for out-of-sample.
+        if not np.isfinite(in_sample_metrics["mape"]) or in_sample_metrics["mape"] <= 0:
+            return None
+        log.info(
+            "ensemble_holdout_in_sample_fallback",
+            n_hours=len(actuals),
+            reason="window_too_short_or_member_unscoreable",
+        )
+        in_sample_metrics["scored"] = "in_sample"
+        return in_sample_metrics, full_weights
+
+    log.info(
+        "ensemble_holdout_out_of_sample",
+        n_fit_hours=split,
+        n_scored_hours=len(actuals) - split,
+        mape=round(oos_metrics["mape"], 3),
+        mape_in_sample=round(in_sample_metrics["mape"], 3)
+        if np.isfinite(in_sample_metrics["mape"])
+        else None,
+    )
+    oos_metrics["scored"] = "out_of_sample"
+    return oos_metrics, full_weights
 
 
 def _train_xgboost(
