@@ -1310,16 +1310,14 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
 
 ## Blocked / waiting on
 
-- **Two alert policies need a human `gcloud` apply, after the next deploy**
-  ([#389](https://github.com/kristenmartino/gridpulse/issues/389), #267) —
-  `scoring_deadline_shed_alert.json` (new) and
-  `scoring_partial_failure_alert.json` (committed-and-inert since 2026-07-08).
-  Both are in `_KNOWN_UNAPPLIED`; the recipe is in `docs/monitoring/README.md`.
-  Apply them **after** the soft-deadline image ships — applying sooner would
-  create an alert on an event nothing emits, which is the state that test
-  exists to catch. Worth noting `scoring_partial_failure` could never have
-  fired under a timeout anyway: a SIGKILLed run never reaches its `log.error`.
-  The soft deadline is what makes a squeezed run report itself.
+- **One alert policy still needs a human `gcloud` apply**
+  ([#417](https://github.com/kristenmartino/gridpulse/pull/417)) —
+  `redis_write_failures_alert.json`, pending only because its event does not
+  exist until #417's image deploys. The other two were **applied 2026-08-05**:
+  `scoring_partial_failure` (`alertPolicies/1942403527399204858`, inert since
+  2026-07-08) and `scoring_deadline_shed`
+  (`alertPolicies/8524477981812373740`). Recipe in `docs/monitoring/README.md`;
+  `tests/unit/test_monitoring_policies_applied.py` will tell you when it is done.
 
 - **Forecast tab chart 1–4h gap between actual end and forecast start**
   ([#129](https://github.com/kristenmartino/gridpulse/issues/129)) —
