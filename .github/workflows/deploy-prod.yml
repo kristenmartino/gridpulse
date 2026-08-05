@@ -212,9 +212,30 @@ jobs:
           #   gcloud compute networks vpc-access connectors delete \
           #     wattcast-connector --region us-east1
           #
+          # --min-instances 0 (was 1, changed 2026-08-05). A pinned instance
+          # billed 24/7 at the min-instance idle rate — MEASURED at 86,444
+          # instance-seconds/day, i.e. exactly one instance always on, which at
+          # 1 vCPU / 2 GiB is ~$19.44/mo.
+          #
+          # It bought nothing, because the /health UPTIME CHECK already keeps an
+          # instance warm: it polls every 300s from several probe locations, and
+          # measured traffic is 92.8 req/h with no idle hours. Cloud Run's
+          # scale-to-zero timeout is ~15 min, far longer than the ~39s gap
+          # between requests. Verified empirically before landing this — 12
+          # samples of `GET /` over 22 minutes, none above 0.3s.
+          #
+          # CONSEQUENCE: the uptime check is now load-bearing for LATENCY, not
+          # just alerting. If it is paused or deleted, this service will scale
+          # to zero and the next visitor waits a real cold start. Measure that
+          # cold start before assuming it is small: `container/startup_latencies`
+          # reports ~976ms, but that is container-ready, NOT user-visible — an
+          # actual first request after a cold revision measured **10.8s**,
+          # because it includes the Dash/Python import. Restore
+          # --min-instances 1 if the uptime check ever goes away.
+          #
           # Cost/DoS ceiling note (#253): --max-instances 4 is the effective
           # spend cap on this --allow-unauthenticated service (~$228/mo pinned
-          # at max vs ~$57 idle, both restated for the sizing above). The
+          # at max vs ~$19 idle, both restated for the sizing above). The
           # web-tier guard backstops it: per-IP rate
           # limiting (API_RATE_LIMIT_PER_MIN / DASH_RATE_LIMIT_PER_MIN, with
           # RATE_LIMIT_EXEMPT_IPS for trusted shared-NAT egress), a pinned-at-max
@@ -232,7 +253,7 @@ jobs:
             --memory 2Gi \
             --cpu 1 \
             --timeout 300 \
-            --min-instances 1 \
+            --min-instances 0 \
             --max-instances 4 \
             --cpu-boost \
             --cpu-throttling \
