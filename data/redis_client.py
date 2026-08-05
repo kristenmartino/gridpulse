@@ -23,7 +23,12 @@ import os
 import threading
 import time
 
+import structlog
+
 logger = logging.getLogger(__name__)
+#: structlog alongside the stdlib logger: only structlog output carries
+#: ``jsonPayload.event``, which is what log-based alert policies match on.
+_log = structlog.get_logger()
 
 _redis_client = None
 #: Monotonic time of the last *failed/absent* connection attempt. Before #268
@@ -191,8 +196,45 @@ def redis_configured() -> bool:
     return bool(os.getenv("REDIS_HOST", ""))
 
 
+#: Failed `redis_set` calls this process. Process-local and drained once per
+#: run, like `data.eia_client`'s latency stats.
+#:
+#: A write failure used to be invisible three times over: `redis_set` swallowed
+#: the exception, all 15 job call sites ignored the returned False, and the one
+#: warning it emitted went through stdlib `logging` — so it arrived in Cloud
+#: Logging as `textPayload` with no `jsonPayload.event`, which no log-based
+#: alert can match. That is the same defect documented in
+#: docs/monitoring/README.md for the job logs (inert until 2026-07-15).
+#: A scoring run could report a region scored while writing nothing.
+_write_failures: list[str] = []
+_write_failure_lock = threading.Lock()
+
+
+def drain_write_failures() -> dict | None:
+    """Return and clear this process's failed-write tally.
+
+    None when nothing failed, so a caller can skip the log line rather than
+    publish an empty one.
+    """
+    with _write_failure_lock:
+        keys = list(_write_failures)
+        _write_failures.clear()
+    if not keys:
+        return None
+    # Key prefix, not the full key: 51 BAs would otherwise make this unreadable.
+    kinds: dict[str, int] = {}
+    for k in keys:
+        kind = k.split(":")[1] if ":" in k else k
+        kinds[kind] = kinds.get(kind, 0) + 1
+    return {"count": len(keys), "by_kind": dict(sorted(kinds.items(), key=lambda kv: -kv[1]))}
+
+
 def redis_set(key: str, value: dict | list, ttl: int = 86400) -> bool:
-    """Write a JSON value to Redis with TTL (default 24h). Returns True on success."""
+    """Write a JSON value to Redis with TTL (default 24h). Returns True on success.
+
+    **Callers must check the return.** False means the value was NOT written;
+    treating it as success is how a run reports data it never persisted.
+    """
     client = _get_redis()
     if client is None:
         return False
@@ -200,7 +242,11 @@ def redis_set(key: str, value: dict | list, ttl: int = 86400) -> bool:
         client.setex(key, ttl, json.dumps(value))
         return True
     except Exception as exc:
-        logger.warning("Redis write error for %s: %s", key, exc)
+        # structlog, not stdlib logging: this needs a `jsonPayload.event` for a
+        # log-based alert to be able to match it at all.
+        _log.error("redis_write_failed", key=key, error=str(exc))
+        with _write_failure_lock:
+            _write_failures.append(key)
         return False
 
 
