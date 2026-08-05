@@ -573,63 +573,119 @@ class TestEnsembleHoldoutMetrics:
             _ensemble_holdout_metrics,
         )
 
-        n = 168
-        rng = np.random.default_rng(7)
-        actual = 50_000.0 + rng.normal(0, 500, n)
-        per_model = {
-            name: {
-                "metrics": {"mape": 1.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
-                "forecast": actual + rng.normal(0, 1500, n),
-                "actual": actual,
-            }
-            for name in ("xgboost", "prophet", "arima")
-        }
-        result = _ensemble_holdout_metrics(per_model)
-        assert result is not None
-        metrics, _ = result
-        assert metrics["scored"] == "out_of_sample"
-
-        # The published figure must match a hand-rolled score over the trailing
-        # slice only — proving the leading fit hours are excluded.
+        from models.ensemble import compute_ensemble_weights, ensemble_combine
         from models.evaluation import compute_all_metrics
 
+        n, actual = 168, np.full(168, 50_000.0)
         split = int(n * _ENSEMBLE_WEIGHT_FIT_FRACTION)
-        full_window = compute_all_metrics(actual, per_model["xgboost"]["forecast"])["mape"]
-        trailing = compute_all_metrics(actual[split:], per_model["xgboost"]["forecast"][split:])[
-            "mape"
-        ]
-        # Sanity: the two windows genuinely differ, so the assertion above bites.
-        assert full_window != pytest.approx(trailing, abs=1e-9)
+
+        # Two models with the SAME full-window skill but mirrored halves, so
+        # fit-slice weights and full-window weights land far apart. Without
+        # that asymmetry both estimators coincide and the test cannot see the
+        # bug -- which is exactly how the first version of this test passed
+        # against a mutation that reverted to in-sample scoring.
+        a = np.concatenate([np.full(split, 1.01), np.full(n - split, 1.09)]) * actual
+        b = np.concatenate([np.full(split, 1.09), np.full(n - split, 1.01)]) * actual
+        per_model = {
+            "xgboost": {"metrics": compute_all_metrics(actual, a), "forecast": a, "actual": actual},
+            "prophet": {"metrics": compute_all_metrics(actual, b), "forecast": b, "actual": actual},
+        }
+
+        metrics, _ = _ensemble_holdout_metrics(per_model)
+        assert metrics["scored"] == "out_of_sample"
+
+        def _norm(w):
+            tot = sum(w.values()) or 1.0
+            return {k: v / tot for k, v in w.items()}
+
+        # Recompute the honest number by hand: weights from the LEADING half,
+        # scored on the TRAILING half only.
+        fit_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": compute_all_metrics(actual[:split], a[:split])["mape"],
+                    "prophet": compute_all_metrics(actual[:split], b[:split])["mape"],
+                }
+            )
+        )
+        expected = compute_all_metrics(
+            actual[split:],
+            np.asarray(
+                ensemble_combine({"xgboost": a[split:], "prophet": b[split:]}, fit_w), dtype=float
+            ),
+        )["mape"]
+        assert metrics["mape"] == pytest.approx(expected, abs=1e-9)
+
+        # ...and it must NOT be the in-sample figure the old code published.
+        full_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": per_model["xgboost"]["metrics"]["mape"],
+                    "prophet": per_model["prophet"]["metrics"]["mape"],
+                }
+            )
+        )
+        in_sample = compute_all_metrics(
+            actual, np.asarray(ensemble_combine({"xgboost": a, "prophet": b}, full_w), dtype=float)
+        )["mape"]
+        assert metrics["mape"] != pytest.approx(in_sample, abs=0.05)
+        # The bias had a direction: grading itself on its own answers flattered.
+        assert metrics["mape"] > in_sample
 
     def test_returned_weights_are_full_window_not_the_fit_slice(self) -> None:
         """The weights are the informational record of the combination rule.
 
-        Production does not read them — the scoring job recomputes weights from
+        Production does not read them -- the scoring job recomputes weights from
         each model's persisted ``meta.mape``. Only the metric was biased, so
         only the metric changed; the weights still describe the whole window.
-        """
-        from jobs.training_job import _ensemble_holdout_metrics
-        from models.ensemble import compute_ensemble_weights
 
-        n = 168
-        actual = np.full(n, 50_000.0)
+        Uses mirrored halves so fit-slice weights and full-window weights are
+        provably different; with symmetric errors the two coincide and this
+        assertion proves nothing.
+        """
+        from jobs.training_job import (
+            _ENSEMBLE_WEIGHT_FIT_FRACTION,
+            _ensemble_holdout_metrics,
+        )
+        from models.ensemble import compute_ensemble_weights
+        from models.evaluation import compute_all_metrics
+
+        n, actual = 168, np.full(168, 50_000.0)
+        split = int(n * _ENSEMBLE_WEIGHT_FIT_FRACTION)
+        a = np.concatenate([np.full(split, 1.01), np.full(n - split, 1.09)]) * actual
+        b = np.concatenate([np.full(split, 1.09), np.full(n - split, 1.01)]) * actual
         per_model = {
-            "prophet": {
-                "metrics": {"mape": 5.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
-                "forecast": actual * 1.05,
-                "actual": actual,
-            },
-            "xgboost": {
-                "metrics": {"mape": 1.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
-                "forecast": actual * 1.01,
-                "actual": actual,
-            },
+            "xgboost": {"metrics": compute_all_metrics(actual, a), "forecast": a, "actual": actual},
+            "prophet": {"metrics": compute_all_metrics(actual, b), "forecast": b, "actual": actual},
         }
+
         _, weights = _ensemble_holdout_metrics(per_model)
-        expected = compute_ensemble_weights({"prophet": 5.0, "xgboost": 1.0})
-        total = sum(expected.values())
+
+        def _norm(w):
+            tot = sum(w.values()) or 1.0
+            return {k: v / tot for k, v in w.items()}
+
+        full_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": per_model["xgboost"]["metrics"]["mape"],
+                    "prophet": per_model["prophet"]["metrics"]["mape"],
+                }
+            )
+        )
+        fit_w = _norm(
+            compute_ensemble_weights(
+                {
+                    "xgboost": compute_all_metrics(actual[:split], a[:split])["mape"],
+                    "prophet": compute_all_metrics(actual[:split], b[:split])["mape"],
+                }
+            )
+        )
+        # The two candidate weightings genuinely differ, so this discriminates.
+        assert full_w["xgboost"] != pytest.approx(fit_w["xgboost"], abs=0.05)
+
         for name, value in weights.items():
-            assert value == pytest.approx(expected[name] / total, abs=1e-9)
+            assert value == pytest.approx(full_w[name], abs=1e-9)
 
     def test_short_window_falls_back_but_says_so(self) -> None:
         """Too short to split → publish in-sample, but never mislabel it."""
