@@ -10,8 +10,10 @@ for Cloud Run log aggregation.
 
 import functools
 import os
+import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import structlog
@@ -308,3 +310,58 @@ class PipelineLogger:
 
 # Module-level singletons
 perf = PerformanceTracker()
+
+
+# ---------------------------------------------------------------------------
+# Sub-step timing (#389)
+# ---------------------------------------------------------------------------
+#
+# Lives here rather than in ``jobs/phases.py`` — where it was introduced — so
+# the DATA layer can record its own sub-steps. ``jobs`` imports ``data``, never
+# the reverse, and the `fetch` phase's breakdown has to be recorded inside
+# ``data.weather_client`` to separate the three Open-Meteo legs. ``jobs.phases``
+# re-exports both names, so every existing call site is unchanged.
+
+
+# Thread-local because the scoring job runs PRECOMPUTE_MAX_WORKERS regions
+# concurrently through one process; a module-global dict would interleave.
+_substeps = threading.local()
+
+
+@contextmanager
+def collect_substeps() -> Iterator[dict[str, float]]:
+    """Collect sub-step timings recorded inside this block, for this thread.
+
+    Nests safely: an inner collector shadows the outer one and restores it on
+    exit, so a caller can scope collection to a single phase without knowing
+    whether it is itself nested.
+    """
+    store: dict[str, float] = {}
+    prev = getattr(_substeps, "current", None)
+    _substeps.current = store
+    try:
+        yield store
+    finally:
+        _substeps.current = prev
+
+
+@contextmanager
+def substep(name: str) -> Iterator[None]:
+    """Record wall time for one sub-step under the active collector.
+
+    A no-op when no collector is active, so every call site is safe outside
+    the scoring job (tests, the training job, the dev inline path) and costs
+    one `getattr` there.
+
+    Accumulates rather than overwrites: a name used in a loop (per model, per
+    horizon) reports the total across iterations, which is the number worth
+    having. Timed in a `finally` so a raising sub-step is as visible as a slow
+    one — the same reason `scoring_job.timed` does.
+    """
+    t = time.perf_counter()
+    try:
+        yield
+    finally:
+        store = getattr(_substeps, "current", None)
+        if store is not None:
+            store[name] = round(store.get(name, 0.0) + (time.perf_counter() - t), 3)

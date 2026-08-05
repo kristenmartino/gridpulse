@@ -1200,6 +1200,27 @@ FEATURE_FLAGS: dict[str, bool] = {
     # failure-path guard, and flag-off is byte-identical because the deadline
     # is simply never consulted. Rollback = flip off, or set the fraction to 0.
     "soft_deadline": True,
+    # #389: serve the deep-history (ERA5 archive) weather leg from the
+    # cross-run GCS cache instead of re-fetching an identical window every
+    # hourly tick. The window is fixed for a whole UTC day and ERA5T is not
+    # revised intra-day, so a hit returns the same values the fetch would.
+    # NOT a fix for the 2026-08-04 alert — the runtime record refutes that
+    # reading (medians are flat across the ADR-011/012 flips). This reclaims
+    # part of the `fetch` phase, measured at 13.0% of worker time; the archive
+    # leg's own share was never measured, only estimated (~50-70s summed).
+    #
+    # SHIPS DARK, and stays dark until that estimate is replaced by a reading.
+    # The same discipline ADR-011 and ADR-012 used: shipped off, flipped on
+    # after the deploy verified. Flag-off is byte-identical — the cache is
+    # simply never consulted — so merging this changes nothing in production.
+    #
+    # To flip it on, read `scoring_phase_rollup.fetch_substeps.weather_archive`
+    # from a live tick. That number IS the whole case for this cache; if it is
+    # small, the honest outcome is deleting the cache rather than enabling it.
+    # Once on, the arms generate themselves: the window moves at 00Z, so the
+    # first tick of each UTC day is a forced cache MISS and the other 23 are
+    # hits — a within-day paired comparison on the same code and the same BAs.
+    "weather_archive_cache": False,
 }
 
 

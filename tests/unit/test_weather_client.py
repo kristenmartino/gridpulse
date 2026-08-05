@@ -206,8 +206,10 @@ class TestFetchWeather:
 
         assert len(result) == 3
         mock_cache.set.assert_called_once()
+        # One GCS write at the DEFAULT flag state: `weather_archive_cache`
+        # ships dark (#389), so the archive segment is not persisted until it
+        # is switched on. TestArchiveCache enables it explicitly.
         mock_write.assert_called_once()
-        # Verify GCS write args: df, data_type, region
         write_args = mock_write.call_args
         assert write_args[0][1] == "weather"
         assert write_args[0][2] == "ERCOT"
@@ -987,3 +989,281 @@ class TestMultipointWeather:
         nbm_calls = [c for c in calls if c["params"].get("models")]
         assert len(nbm_calls) == 1
         assert "," in nbm_calls[0]["params"]["latitude"]
+
+
+# ---------------------------------------------------------------------------
+# #389 — cross-run archive cache
+# ---------------------------------------------------------------------------
+
+
+class TestArchiveCache:
+    """The deep-history leg is served from GCS across job runs (#389).
+
+    The window ``[today-92, today-5]`` is fixed for a whole UTC day, but the
+    hourly scoring job gets a fresh container per run and so re-fetched it 24
+    times a day — ~3.4 MB per BA per tick at 12 points after ADR-012. These
+    tests pin the two properties that make that safe to skip: a hit must only
+    ever serve the window that was ASKED for, and every seam must fail open to
+    the untouched fetch path.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _enable_archive_cache(self, monkeypatch):
+        """The flag ships dark (#389) — these tests are about what it does
+        when it is ON. ``test_flag_off_never_reads_the_cache`` overrides this
+        back to False in its own body, which runs after the fixture."""
+        import config as cfg
+
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "weather_archive_cache", True)
+
+    @staticmethod
+    def _archive_frame(start_date, end_date):
+        """A frame spanning [start_date 00:00, end_date 23:00] UTC hourly."""
+        idx = pd.date_range(
+            pd.Timestamp(start_date, tz="UTC"),
+            pd.Timestamp(end_date, tz="UTC") + pd.Timedelta(hours=23),
+            freq="h",
+        )
+        df = pd.DataFrame({"timestamp": idx})
+        for var in WEATHER_VARIABLES:
+            df[var] = 50.0
+        return df
+
+    @staticmethod
+    def _window(past_days=92, lag=5):
+        from datetime import UTC, datetime, timedelta
+
+        today = datetime.now(UTC).date()
+        return (
+            (today - timedelta(days=past_days)).isoformat(),
+            (today - timedelta(days=lag)).isoformat(),
+        )
+
+    def test_hit_skips_the_archive_fetch(self, monkeypatch):
+        """A cached frame covering today's window serves it — no HTTP call."""
+        import data.weather_client as wc
+
+        start, end = self._window()
+        cached = self._archive_frame(start, end)
+        with (
+            patch("data.gcs_store.read_parquet", return_value=cached),
+            patch("data.weather_client._fetch_archive_endpoint") as mock_fetch,
+            patch("data.weather_client._try_multipoint_archive") as mock_multi,
+        ):
+            out = wc._resolve_archive("ERCOT", None, start, end)
+
+        mock_fetch.assert_not_called()
+        mock_multi.assert_not_called()
+        assert out is not None and not out.empty
+
+    def test_previous_day_window_is_a_miss(self, monkeypatch):
+        """Yesterday's blob ends one day short of today's window — refetch.
+
+        This is what stops the cache from ever serving a window other than
+        the one requested: coverage, not a TTL, decides.
+        """
+        import data.weather_client as wc
+
+        start, end = self._window()
+        stale_end = (pd.Timestamp(end, tz="UTC") - pd.Timedelta(days=1)).date().isoformat()
+        stale = self._archive_frame(start, stale_end)
+        fresh = self._archive_frame(start, end)
+
+        with (
+            patch("data.gcs_store.read_parquet", return_value=stale),
+            patch("data.gcs_store.write_parquet"),
+            patch("data.weather_client._fetch_archive_endpoint", return_value=fresh) as mock_fetch,
+        ):
+            out = wc._resolve_archive("ERCOT", None, start, end)
+
+        mock_fetch.assert_called_once()
+        assert len(out) == len(fresh)
+
+    def test_hit_is_trimmed_to_the_requested_window(self):
+        """A superset blob (an older, longer past_days) is trimmed, not served whole."""
+        import data.weather_client as wc
+
+        start, end = self._window()
+        wider_start = (pd.Timestamp(start, tz="UTC") - pd.Timedelta(days=30)).date().isoformat()
+        with (
+            patch(
+                "data.gcs_store.read_parquet", return_value=self._archive_frame(wider_start, end)
+            ),
+            patch("data.weather_client._fetch_archive_endpoint") as mock_fetch,
+        ):
+            out = wc._resolve_archive("ERCOT", None, start, end)
+
+        mock_fetch.assert_not_called()
+        assert out["timestamp"].min() >= pd.Timestamp(start, tz="UTC")
+        assert out["timestamp"].max() <= pd.Timestamp(end, tz="UTC") + pd.Timedelta(hours=23)
+
+    def test_multipoint_and_single_point_use_separate_keys(self):
+        """An aggregated multi-point frame must never be served as single-point."""
+        import data.weather_client as wc
+
+        assert wc._archive_cache_type(True) != wc._archive_cache_type(False)
+
+        start, end = self._window()
+        seen: list[str] = []
+
+        def _read(data_type, region):
+            seen.append(data_type)
+            return None
+
+        with (
+            patch("data.gcs_store.read_parquet", side_effect=_read),
+            patch("data.gcs_store.write_parquet"),
+            patch(
+                "data.weather_client._try_multipoint_archive",
+                return_value=self._archive_frame(start, end),
+            ),
+        ):
+            wc._resolve_archive("ERCOT", [[41.0, -89.0], [42.0, -88.0]], start, end)
+
+        assert seen == [wc._archive_cache_type(True)]
+
+    def test_single_point_retry_is_not_stored_under_the_multipoint_key(self):
+        """Multi-point failed → the single-point retry result is single-point data."""
+        import data.weather_client as wc
+
+        start, end = self._window()
+        writes: list[str] = []
+
+        with (
+            patch("data.gcs_store.read_parquet", return_value=None),
+            patch(
+                "data.gcs_store.write_parquet",
+                side_effect=lambda df, dt, r: writes.append(dt),
+            ),
+            patch("data.weather_client._try_multipoint_archive", return_value=None),
+            patch(
+                "data.weather_client._fetch_archive_endpoint",
+                return_value=self._archive_frame(start, end),
+            ),
+        ):
+            wc._resolve_archive("ERCOT", [[41.0, -89.0]], start, end)
+
+        assert writes == [wc._archive_cache_type(False)]
+
+    def test_flag_off_never_reads_the_cache(self, monkeypatch):
+        """Rollback is a flag flip: off must be the pre-#389 fetch path."""
+        import config as cfg
+        import data.weather_client as wc
+
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "weather_archive_cache", False)
+        start, end = self._window()
+        with (
+            patch("data.gcs_store.read_parquet") as mock_read,
+            patch("data.gcs_store.write_parquet") as mock_write,
+            patch(
+                "data.weather_client._fetch_archive_endpoint",
+                return_value=self._archive_frame(start, end),
+            ),
+        ):
+            wc._resolve_archive("ERCOT", None, start, end)
+
+        mock_read.assert_not_called()
+        mock_write.assert_not_called()
+
+    def test_gcs_read_error_falls_open_to_fetch(self):
+        """A GCS blow-up must degrade to today's behavior, never propagate."""
+        import data.weather_client as wc
+
+        start, end = self._window()
+        with (
+            patch("data.gcs_store.read_parquet", side_effect=RuntimeError("gcs down")),
+            patch("data.gcs_store.write_parquet"),
+            patch(
+                "data.weather_client._fetch_archive_endpoint",
+                return_value=self._archive_frame(start, end),
+            ) as mock_fetch,
+        ):
+            out = wc._resolve_archive("ERCOT", None, start, end)
+
+        mock_fetch.assert_called_once()
+        assert out is not None
+
+    def test_archive_outage_still_returns_none_for_forecast_only(self):
+        """Cache miss + archive down keeps the pre-#389 forecast-only degrade."""
+        import data.weather_client as wc
+
+        start, end = self._window()
+        with (
+            patch("data.gcs_store.read_parquet", return_value=None),
+            patch(
+                "data.weather_client._fetch_archive_endpoint",
+                side_effect=requests.ConnectionError("archive down"),
+            ),
+        ):
+            assert wc._resolve_archive("ERCOT", None, start, end) is None
+
+    def test_empty_or_malformed_cache_is_a_miss(self):
+        """Junk in the blob must not be mistaken for coverage."""
+        import data.weather_client as wc
+
+        start, end = self._window()
+        for bad in (pd.DataFrame(), pd.DataFrame({"nope": [1, 2]})):
+            assert wc._archive_window_covered(bad, start, end) is False
+
+    def test_unparseable_timestamps_are_a_miss(self):
+        """A blob whose timestamps don't coerce carries no usable coverage."""
+        import data.weather_client as wc
+
+        start, end = self._window()
+        junk = pd.DataFrame({"timestamp": ["not-a-date", "also-not"]})
+        assert wc._archive_window_covered(junk, start, end) is False
+
+    def test_sparse_frame_that_trims_to_nothing_is_a_miss(self):
+        """Spanning the window's ENDS is not the same as covering it.
+
+        A frame holding only rows far outside `[start, end]` passes the
+        min/max bounds check and then trims to zero rows — that must fall
+        through to a fetch, not return an empty archive leg.
+        """
+        import data.weather_client as wc
+
+        start, end = self._window()
+        outside = pd.DataFrame(
+            {
+                "timestamp": [
+                    pd.Timestamp(start, tz="UTC") - pd.Timedelta(days=10),
+                    pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=10),
+                ]
+            }
+        )
+        fresh = self._archive_frame(start, end)
+        with (
+            patch("data.gcs_store.read_parquet", return_value=outside),
+            patch("data.gcs_store.write_parquet"),
+            patch("data.weather_client._fetch_archive_endpoint", return_value=fresh) as mock_fetch,
+        ):
+            out = wc._resolve_archive("ERCOT", None, start, end)
+
+        mock_fetch.assert_called_once()
+        assert len(out) == len(fresh)
+
+    def test_multipoint_aggregate_failure_falls_back_to_single_point(self):
+        """An aggregate blow-up must degrade to the single-point archive.
+
+        `_try_multipoint_archive` returning None is what makes `_resolve_archive`
+        retry single-point rather than drop deep history — the #161 failure.
+        Pre-existing branch, pinned here because #389 put the cache in front of
+        it and a silent change would now be harder to notice.
+        """
+        import data.weather_client as wc
+
+        start, end = self._window()
+        with (
+            patch(
+                "data.weather_client._fetch_archive_endpoint_multi",
+                return_value=[self._archive_frame(start, end)] * 2,
+            ),
+            patch(
+                "data.weather_aggregate.aggregate_weather",
+                side_effect=RuntimeError("grid mismatch"),
+            ),
+        ):
+            assert (
+                wc._try_multipoint_archive([[41.0, -89.0], [42.0, -88.0]], start, end, "ERCOT")
+                is None
+            )

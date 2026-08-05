@@ -124,3 +124,68 @@ class TestRollupSeparation:
     def test_substep_rollup_is_empty_when_nothing_recorded(self):
         results = [{"region": "X", "timings": {"forecast": 1.0}}]
         assert _phase_rollup(results, key="subtimings") == {}
+
+
+class TestFetchSubsteps:
+    """The `fetch` phase's own breakdown (#389).
+
+    `fetch` is 13.0% of worker time and is the one phase whose total is
+    dominated by an upstream we do not control. Sizing any weather-side change
+    against it requires the EIA leg and the three Open-Meteo legs to be
+    separable — otherwise EIA latency variance, which swung runs 660s→1800s on
+    2026-08-04, swamps a ~1% signal.
+    """
+
+    def test_weather_legs_are_named_separately(self, monkeypatch):
+        """One `fetch_weather` call records all three Open-Meteo legs."""
+        import config as cfg
+        import data.weather_client as wc
+
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "nbm_weather", True)
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "multipoint_weather", False)
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "weather_archive_cache", False)
+
+        import pandas as pd
+
+        from config import WEATHER_VARIABLES
+
+        def _frame():
+            df = pd.DataFrame(
+                {"timestamp": pd.date_range("2026-01-01", periods=3, freq="h", tz="UTC")}
+            )
+            for v in WEATHER_VARIABLES:
+                df[v] = 1.0
+            return df
+
+        cache = type("C", (), {"get": lambda *a, **k: None, "set": lambda *a, **k: None})()
+        monkeypatch.setattr(wc, "get_cache", lambda: cache)
+        monkeypatch.setattr(wc, "_fetch_forecast_endpoint", lambda *a, **k: _frame())
+        monkeypatch.setattr(wc, "_fetch_archive_endpoint", lambda *a, **k: _frame())
+        monkeypatch.setattr("data.gcs_store.write_parquet", lambda *a, **k: None)
+
+        with collect_substeps() as store:
+            wc.fetch_weather("ERCOT")
+
+        assert set(store) == {"weather_forecast", "weather_nbm", "weather_archive"}
+
+    def test_fetch_and_forecast_substeps_stay_in_separate_channels(self):
+        """`fetch_subtimings` must not merge into `subtimings`.
+
+        They are not comparable, and one flat dict would invite summing across
+        two different parents — the same double-count trap the forecast
+        sub-steps were deliberately kept out of ``timings`` to avoid.
+        """
+        results = [
+            {
+                "region": "ERCOT",
+                "timings": {"fetch": 30.0, "forecast": 60.0},
+                "subtimings": {"predict_xgboost": 40.0},
+                "fetch_subtimings": {"weather_archive": 5.0, "eia_demand": 20.0},
+            }
+        ]
+        assert set(_phase_rollup(results, key="subtimings")) == {"predict_xgboost"}
+        fetch_roll = _phase_rollup(results, key="fetch_subtimings")
+        assert set(fetch_roll) == {"weather_archive", "eia_demand"}
+        assert fetch_roll["eia_demand"]["total_s"] == 20.0
+        # and neither leaks into the phase-level rollup
+        assert set(_phase_rollup(results)) == {"fetch", "forecast"}

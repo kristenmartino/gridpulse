@@ -129,6 +129,9 @@ def _log_region_complete(summary: dict) -> None:
         elapsed_s=summary.get("elapsed_s"),
         timings=dict(sorted((summary.get("timings") or {}).items(), key=lambda kv: -kv[1])),
         subtimings=dict(sorted((summary.get("subtimings") or {}).items(), key=lambda kv: -kv[1])),
+        fetch_subtimings=dict(
+            sorted((summary.get("fetch_subtimings") or {}).items(), key=lambda kv: -kv[1])
+        ),
     )
 
 
@@ -148,6 +151,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         "phases": {},
         "timings": {},
         "subtimings": {},
+        "fetch_subtimings": {},
     }
 
     if deadline is not None and time.monotonic() >= deadline:
@@ -174,7 +178,14 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         finally:
             summary["timings"][name] = round(time.time() - _t, 2)
 
-    region_data = timed("fetch", phases.fetch_region_data, region)
+    # #389 follow-up: collect the `fetch` breakdown (EIA leg vs the three
+    # Open-Meteo legs). A SEPARATE key from the forecast sub-steps — same
+    # double-count reasoning as there, plus these two phases' sub-steps are
+    # not comparable and merging them into one dict would invite summing
+    # across them.
+    with phases.collect_substeps() as _fetch_sub:
+        region_data = timed("fetch", phases.fetch_region_data, region)
+    summary["fetch_subtimings"] = dict(_fetch_sub)
     if region_data is None:
         summary["phases"]["fetch"] = {"ok": False, "error": "no_data"}
         summary["elapsed_s"] = round(time.time() - t0, 2)
@@ -765,6 +776,11 @@ def run() -> int:
         # phase time and until now was one opaque number. Separate field, not
         # merged into `phases` — see `_phase_rollup`'s `key` docstring.
         forecast_substeps=_phase_rollup(results, key="subtimings"),
+        # #389: the breakdown INSIDE `fetch` — `eia_demand` vs the three
+        # Open-Meteo legs (`weather_forecast` / `weather_nbm` /
+        # `weather_archive`). This is what sizes a weather-side change against
+        # the upstream latency it shares a phase with.
+        fetch_substeps=_phase_rollup(results, key="fetch_subtimings"),
     )
     # The `fetch` phase above is upstream-latency-dominated, so publish the
     # EIA success-latency distribution beside it. This is the measurement the
