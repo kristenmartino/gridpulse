@@ -144,9 +144,7 @@ def _build_alert_cards(alerts, alerts_source, alerts_total=None):
         message = "No active severe-weather alerts (NOAA/NWS live feed)"
     else:
         message = "No active alerts"
-    return [
-        html.P(message, style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"})
-    ]
+    return [html.P(message, style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"})]
 
 
 def _build_stress_breakdown(counts, has_alerts, alerts_source):
@@ -195,15 +193,23 @@ def _build_anomaly_figure(region, timestamps, demand, upper, lower, anom_ts, ano
     if len(timestamps) == 0:
         return _empty_figure("Loading...")
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=timestamps, y=demand, name="Demand", line=dict(color=COLORS["actual"])))
+    fig.add_trace(
+        go.Scatter(x=timestamps, y=demand, name="Demand", line=dict(color=COLORS["actual"]))
+    )
     fig.add_trace(
         go.Scatter(
-            x=timestamps, y=upper, name="Upper (2σ)", line=dict(color="#FF5C7A", dash="dash", width=1)
+            x=timestamps,
+            y=upper,
+            name="Upper (2σ)",
+            line=dict(color="#FF5C7A", dash="dash", width=1),
         )
     )
     fig.add_trace(
         go.Scatter(
-            x=timestamps, y=lower, name="Lower (2σ)", line=dict(color="#FF5C7A", dash="dash", width=1)
+            x=timestamps,
+            y=lower,
+            name="Lower (2σ)",
+            line=dict(color="#FF5C7A", dash="dash", width=1),
         )
     )
     if len(anom_ts) > 0:
@@ -232,7 +238,9 @@ def _build_temp_figure(region, timestamps, values):
         return _empty_figure("Loading...")
     fig = go.Figure()
     fig.add_trace(
-        go.Scatter(x=timestamps, y=values, name="Temperature", line=dict(color=COLORS["temperature"]))
+        go.Scatter(
+            x=timestamps, y=values, name="Temperature", line=dict(color=COLORS["temperature"])
+        )
     )
     for t in _TEMP_REFERENCE_LINES_F:
         fig.add_hline(
@@ -340,7 +348,9 @@ def _render_risk_tab(
             anomaly.get("anomaly_timestamps", []),
             anomaly.get("anomaly_values", []),
         ),
-        _build_temp_figure(region, temperature.get("timestamps", []), temperature.get("values", [])),
+        _build_temp_figure(
+            region, temperature.get("timestamps", []), temperature.get("values", [])
+        ),
         _build_timeline_figure(region),
         weather_context,
     )
@@ -632,7 +642,6 @@ def register_alerts_callbacks(app):
                 "timestamps": recent_w["timestamp"],
                 "values": recent_w["temperature_2m"],
             }
-
 
         # Build weather context from latest reading
         weather_context = html.Div()
