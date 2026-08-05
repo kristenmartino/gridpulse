@@ -26,12 +26,9 @@ Design:
 from __future__ import annotations
 
 import json
-import threading
 import time
 import traceback
-from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -45,6 +42,7 @@ from config import (
     PRECOMPUTE_MAX_WORKERS,
     REGION_COORDINATES,
 )
+from observability import collect_substeps, substep
 
 log = structlog.get_logger()
 
@@ -67,48 +65,10 @@ log = structlog.get_logger()
 # double-count and silently corrupt the very percentage (60.1%) this exists to
 # refine. Sub-steps ride in `summary["subtimings"]` and roll up separately.
 #
-# Thread-local because the scoring job runs PRECOMPUTE_MAX_WORKERS regions
-# concurrently through one process; a module-global dict would interleave.
-_substeps = threading.local()
-
-
-@contextmanager
-def collect_substeps() -> Iterator[dict[str, float]]:
-    """Collect sub-step timings recorded inside this block, for this thread.
-
-    Nests safely: an inner collector shadows the outer one and restores it on
-    exit, so a caller can scope collection to a single phase without knowing
-    whether it is itself nested.
-    """
-    store: dict[str, float] = {}
-    prev = getattr(_substeps, "current", None)
-    _substeps.current = store
-    try:
-        yield store
-    finally:
-        _substeps.current = prev
-
-
-@contextmanager
-def substep(name: str) -> Iterator[None]:
-    """Record wall time for one sub-step under the active collector.
-
-    A no-op when no collector is active, so every call site is safe outside
-    the scoring job (tests, the training job, the dev inline path) and costs
-    one `getattr` there.
-
-    Accumulates rather than overwrites: a name used in a loop (per model, per
-    horizon) reports the total across iterations, which is the number worth
-    having. Timed in a `finally` so a raising sub-step is as visible as a slow
-    one — the same reason `scoring_job.timed` does.
-    """
-    t = time.perf_counter()
-    try:
-        yield
-    finally:
-        store = getattr(_substeps, "current", None)
-        if store is not None:
-            store[name] = round(store.get(name, 0.0) + (time.perf_counter() - t), 3)
+# Sub-step timing lives in ``observability`` so the DATA layer can record its
+# own sub-steps too (#389 follow-up: the `fetch` phase needed them, and
+# ``data/`` must not import ``jobs/``). Re-exported here because every existing
+# call site and test refers to ``jobs.phases.substep``.
 
 
 # Redis keys + TTL kept in sync with components/callbacks.py consumers.
@@ -267,8 +227,15 @@ def fetch_region_data(region: str) -> RegionData | None:
     from data.eia_client import fetch_demand
     from data.weather_client import fetch_weather
 
+    # #389 follow-up: `fetch` is 13.0% of worker time and, like `forecast`
+    # before it, the phase-level number cannot say which part. It is also the
+    # one phase whose total is dominated by an upstream we do not control, so
+    # the EIA leg has to be separable from the three Open-Meteo legs (named
+    # inside ``data.weather_client``) before any weather-side change can be
+    # sized against it.
     try:
-        demand_df = fetch_demand(region)
+        with substep("eia_demand"):
+            demand_df = fetch_demand(region)
     except Exception as e:
         log.warning("job_fetch_demand_failed", region=region, error=str(e))
         return None
@@ -2985,12 +2952,14 @@ __all__ = [
     "PhaseResult",
     "REDIS_TTL",
     "RegionData",
+    "collect_substeps",
     "engineer_region_features",
     "fetch_all_regions",
     "fetch_region_data",
     "ordered_regions",
     "predict_and_write_forecast",
     "safe_phase",
+    "substep",
     "summarize",
     "write_actuals_and_weather",
     "write_alerts",

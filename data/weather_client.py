@@ -31,6 +31,7 @@ from config import (
     WEATHER_VARIABLES,
 )
 from data.cache import get_cache
+from observability import substep
 
 log = structlog.get_logger()
 
@@ -592,21 +593,22 @@ def fetch_weather(
     #    worst case of multi-point is one wasted request, never a worse
     #    outcome than today.
     forecast_frames: list[pd.DataFrame] | None = None
-    if mp_coords:
-        forecast_frames = _try_multipoint_forecast(
-            mp_coords, ARCHIVE_LAG_DAYS + 2, forecast_days, region
-        )
-    mp_active = forecast_frames is not None
+    with substep("weather_forecast"):
+        if mp_coords:
+            forecast_frames = _try_multipoint_forecast(
+                mp_coords, ARCHIVE_LAG_DAYS + 2, forecast_days, region
+            )
+        mp_active = forecast_frames is not None
 
-    if not mp_active:
-        try:
-            forecast_df = _fetch_forecast_endpoint(region, ARCHIVE_LAG_DAYS + 2, forecast_days)
-        except requests.RequestException as e:
-            return _fallback(str(e))
+        if not mp_active:
+            try:
+                forecast_df = _fetch_forecast_endpoint(region, ARCHIVE_LAG_DAYS + 2, forecast_days)
+            except requests.RequestException as e:
+                return _fallback(str(e))
 
-        if forecast_df.empty:
-            return _fallback("empty_forecast_response")
-        forecast_frames = [forecast_df]
+            if forecast_df.empty:
+                return _fallback("empty_forecast_response")
+            forecast_frames = [forecast_df]
 
     # 1b. ADR-011 (#332): NBM-composite enrichment — flag-gated, fail-open.
     #     Any failure (HTTP or composite bug) serves the base frame
@@ -616,49 +618,50 @@ def fetch_weather(
     from config import NBM_MODEL, feature_enabled
 
     if feature_enabled("nbm_weather"):
-        try:
-            now_ts = pd.Timestamp.now(tz="UTC").floor("h")
-            if mp_active:
-                # ADR-012 × ADR-011: composite PER POINT, then aggregate.
-                # Aggregate-then-overlay would be wrong — _composite_nbm's
-                # "any NBM null keeps base" rule is per-cell, so a point
-                # whose NBM is null at some future hour (NBM's ~11.5-day
-                # CONUS horizon, or a border cell) must contribute ITS OWN
-                # base to the average; overlaying after aggregation would
-                # instead overwrite the hour from only the finite points.
-                # It is also the only configuration ADR-011 measured.
-                nbm_frames = _fetch_forecast_endpoint_multi(
-                    mp_coords, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
-                )
-                if _frames_ok(nbm_frames, len(forecast_frames), region, "nbm"):
-                    composited = [
-                        _composite_nbm(base, nbm, now_ts)
-                        for base, nbm in zip(forecast_frames, nbm_frames, strict=True)
-                    ]
-                    forecast_frames = [c for c, _, _ in composited]
+        with substep("weather_nbm"):
+            try:
+                now_ts = pd.Timestamp.now(tz="UTC").floor("h")
+                if mp_active:
+                    # ADR-012 × ADR-011: composite PER POINT, then aggregate.
+                    # Aggregate-then-overlay would be wrong — _composite_nbm's
+                    # "any NBM null keeps base" rule is per-cell, so a point
+                    # whose NBM is null at some future hour (NBM's ~11.5-day
+                    # CONUS horizon, or a border cell) must contribute ITS OWN
+                    # base to the average; overlaying after aggregation would
+                    # instead overwrite the hour from only the finite points.
+                    # It is also the only configuration ADR-011 measured.
+                    nbm_frames = _fetch_forecast_endpoint_multi(
+                        mp_coords, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
+                    )
+                    if _frames_ok(nbm_frames, len(forecast_frames), region, "nbm"):
+                        composited = [
+                            _composite_nbm(base, nbm, now_ts)
+                            for base, nbm in zip(forecast_frames, nbm_frames, strict=True)
+                        ]
+                        forecast_frames = [c for c, _, _ in composited]
+                        log.info(
+                            "weather_nbm_composited",
+                            region=region,
+                            points=len(composited),
+                            n_overlaid=sum(o for _, o, _ in composited),
+                            n_base_kept=sum(k for _, _, k in composited),
+                        )
+                    # shape mismatch → keep the base frames (fail open)
+                else:
+                    nbm_df = _fetch_forecast_endpoint(
+                        region, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
+                    )
+                    forecast_frames[0], n_overlaid, n_kept = _composite_nbm(
+                        forecast_frames[0], nbm_df, now_ts
+                    )
                     log.info(
                         "weather_nbm_composited",
                         region=region,
-                        points=len(composited),
-                        n_overlaid=sum(o for _, o, _ in composited),
-                        n_base_kept=sum(k for _, _, k in composited),
+                        n_overlaid=n_overlaid,
+                        n_base_kept=n_kept,
                     )
-                # shape mismatch → keep the base frames (fail open)
-            else:
-                nbm_df = _fetch_forecast_endpoint(
-                    region, ARCHIVE_LAG_DAYS + 2, forecast_days, model=NBM_MODEL
-                )
-                forecast_frames[0], n_overlaid, n_kept = _composite_nbm(
-                    forecast_frames[0], nbm_df, now_ts
-                )
-                log.info(
-                    "weather_nbm_composited",
-                    region=region,
-                    n_overlaid=n_overlaid,
-                    n_base_kept=n_kept,
-                )
-        except Exception as e:
-            log.warning("weather_nbm_failed", region=region, error=str(e))
+            except Exception as e:
+                log.warning("weather_nbm_failed", region=region, error=str(e))
 
     # ADR-012: collapse K → 1 right after the forecast fetch, so the stitch,
     # empty-guard, cache and GCS write below are untouched. When multi-point
@@ -690,9 +693,10 @@ def fetch_weather(
     # #389: the window is fixed for the whole UTC day, so this leg is served
     # from the cross-run GCS cache on 23 of 24 hourly ticks. On a miss it
     # runs the unchanged multi-point → single-point resolution.
-    archive_df = _resolve_archive(
-        region, mp_coords if mp_active else None, archive_start, archive_end
-    )
+    with substep("weather_archive"):
+        archive_df = _resolve_archive(
+            region, mp_coords if mp_active else None, archive_start, archive_end
+        )
 
     # 3. Stitch. Never return empty when forecast had data.
     df = _stitch_weather(archive_df, forecast_df, boundary)

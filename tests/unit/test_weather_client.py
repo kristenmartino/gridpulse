@@ -206,11 +206,13 @@ class TestFetchWeather:
 
         assert len(result) == 3
         mock_cache.set.assert_called_once()
-        # Two GCS writes: the #389 archive-segment cache (written by the
-        # deep-history leg on a miss) and the stitched weather frame.
-        written = {(c[0][1], c[0][2]) for c in mock_write.call_args_list}
-        assert ("weather", "ERCOT") in written
-        assert ("weather_archive", "ERCOT") in written
+        # One GCS write at the DEFAULT flag state: `weather_archive_cache`
+        # ships dark (#389), so the archive segment is not persisted until it
+        # is switched on. TestArchiveCache enables it explicitly.
+        mock_write.assert_called_once()
+        write_args = mock_write.call_args
+        assert write_args[0][1] == "weather"
+        assert write_args[0][2] == "ERCOT"
 
     @patch("data.weather_client.get_cache")
     def test_api_timeout_falls_back_to_stale_cache(self, mock_get_cache):
@@ -1005,7 +1007,14 @@ class TestArchiveCache:
     the untouched fetch path.
     """
 
-    import datetime as _dt
+    @pytest.fixture(autouse=True)
+    def _enable_archive_cache(self, monkeypatch):
+        """The flag ships dark (#389) — these tests are about what it does
+        when it is ON. ``test_flag_off_never_reads_the_cache`` overrides this
+        back to False in its own body, which runs after the fixture."""
+        import config as cfg
+
+        monkeypatch.setitem(cfg.FEATURE_FLAGS, "weather_archive_cache", True)
 
     @staticmethod
     def _archive_frame(start_date, end_date):
