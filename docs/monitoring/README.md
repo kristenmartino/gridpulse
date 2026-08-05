@@ -74,24 +74,25 @@ noticing (below).
 | web service sustained 5xx | `web_service_5xx_alert.json` | `alertPolicies/14035657251363314798` |
 | web service pinned at max instances | `web_service_max_instances_alert.json` | `alertPolicies/7343953142414788448` |
 | /health uptime check failing (alert) | `web_service_uptime_alert.json` | `alertPolicies/1577408926164424010` |
+| scoring-job partial failure (#267) | `scoring_partial_failure_alert.json` | `alertPolicies/1942403527399204858` |
+| scoring-job shed BAs at the soft deadline | `scoring_deadline_shed_alert.json` | `alertPolicies/8524477981812373740` |
 | Uptime check config — public `/health` | — | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
 | Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | — | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
 
 Five alert policies + the uptime check + the budget are live and bound to the
 email channel. The budget also emails the billing-account admins by default.
 
-> ⚠ **`scoring_partial_failure_alert.json` (#267) is NOT in the table above — it
-> was committed but never applied.** `jobs/scoring_job.py:471` has been emitting
-> the event into a void. **Applying is a manual step outside CI; landing the JSON
-> is not landing the alert.** Apply it (recipe above), add its row here, then
-> remove it from `_KNOWN_UNAPPLIED` in
-> `tests/unit/test_monitoring_policies_applied.py` — the test will tell you.
-> Tracked under "Blocked / waiting on" in `STATUS.md`.
+> ✅ **`scoring_partial_failure_alert.json` (#267) applied 2026-08-05** as
+> `alertPolicies/1942403527399204858`, after sitting committed-and-inert since
+> 2026-07-08 — `jobs/scoring_job.py` emitted the event into a void for four
+> weeks. **Landing the JSON was never landing the alert**, which is why
+> `tests/unit/test_monitoring_policies_applied.py` exists.
 >
-> A second reason to apply it, from 2026-08-04: it could not have fired anyway
-> under a timeout-shaped incident, because a SIGKILLed run never reaches the
-> `log.error` that emits the event. The soft deadline is what makes a squeezed
-> run complete far enough to report itself.
+> It also could not have fired under a timeout-shaped incident even once
+> applied: a SIGKILLed run never reaches the `log.error` that emits the event.
+> The soft deadline (2026-08-04) is what makes a squeezed run complete far
+> enough to report itself — so this alert and that guard only became useful
+> together.
 
 > ⚠ **`redis_write_failures_alert.json` is NOT applied yet, deliberately** —
 > same reason: it filters on `redis_write_failures`, which only exists once the
@@ -101,12 +102,10 @@ email channel. The budget also emails the billing-account admins by default.
 > left only a **stdlib-logging** warning — `textPayload`, no `jsonPayload.event`,
 > unmatched by any policy.
 
-> ⚠ **`scoring_deadline_shed_alert.json` is also NOT applied yet, deliberately.**
-> It filters on `scoring_deadline_shed`, which only exists once the
-> soft-deadline code is **deployed** — applying it sooner would recreate the
-> emitting-into-a-void state above, just from the other direction. Apply it
-> together with `scoring_partial_failure_alert.json` after the image ships, add
-> both rows here, and clear both from `_KNOWN_UNAPPLIED`.
+> ✅ **`scoring_deadline_shed_alert.json` applied 2026-08-05** as
+> `alertPolicies/8524477981812373740`, once the soft-deadline code was
+> confirmed live in the deployed image — not before, because an alert on an
+> event nothing can emit is the same void in the other direction.
 
 ### Log-based policies were inert until 2026-07-15 — read this before adding one
 
