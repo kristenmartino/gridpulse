@@ -572,7 +572,6 @@ class TestEnsembleHoldoutMetrics:
             _ENSEMBLE_WEIGHT_FIT_FRACTION,
             _ensemble_holdout_metrics,
         )
-
         from models.ensemble import compute_ensemble_weights, ensemble_combine
         from models.evaluation import compute_all_metrics
 
