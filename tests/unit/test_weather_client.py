@@ -1232,3 +1232,29 @@ class TestArchiveCache:
 
         mock_fetch.assert_called_once()
         assert len(out) == len(fresh)
+
+    def test_multipoint_aggregate_failure_falls_back_to_single_point(self):
+        """An aggregate blow-up must degrade to the single-point archive.
+
+        `_try_multipoint_archive` returning None is what makes `_resolve_archive`
+        retry single-point rather than drop deep history — the #161 failure.
+        Pre-existing branch, pinned here because #389 put the cache in front of
+        it and a silent change would now be harder to notice.
+        """
+        import data.weather_client as wc
+
+        start, end = self._window()
+        with (
+            patch(
+                "data.weather_client._fetch_archive_endpoint_multi",
+                return_value=[self._archive_frame(start, end)] * 2,
+            ),
+            patch(
+                "data.weather_aggregate.aggregate_weather",
+                side_effect=RuntimeError("grid mismatch"),
+            ),
+        ):
+            assert (
+                wc._try_multipoint_archive([[41.0, -89.0], [42.0, -88.0]], start, end, "ERCOT")
+                is None
+            )
