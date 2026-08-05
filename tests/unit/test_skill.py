@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from models.skill import (
+    BASELINE_SUBSTITUTION_MIN_POINTS,
     SEASONAL_NAIVE_LAG_H,
     mape,
     seasonal_naive_forecast,
@@ -43,6 +44,18 @@ class TestBaseline:
         """A 1-hour-lag baseline is better informed than the 24h-lead forecast
         it judges, which would make every skill score flattering."""
         assert SEASONAL_NAIVE_LAG_H == 24
+
+    def test_a_series_of_exactly_one_lag_is_unmeasurable(self):
+        """``size <= lag_h`` — 24 hours yields no pairs, 25 yields one.
+
+        With exactly ``lag_h`` samples the lagged comparison has nothing to
+        compare: ``y[24:]`` is empty. Relaxing the guard to ``<`` lets that
+        through and ``mape`` of an empty selection returns NaN anyway — the
+        same answer by accident, which is worth pinning precisely because the
+        accident could stop happening.
+        """
+        assert np.isnan(seasonal_naive_mape(np.arange(24, dtype=float)))
+        assert np.isfinite(seasonal_naive_mape(np.arange(25, dtype=float)))
 
     def test_series_shorter_than_the_lag_is_unmeasurable(self):
         assert np.isnan(seasonal_naive_mape(np.arange(10, dtype=float)))
@@ -112,7 +125,110 @@ class TestPayload:
         assert "24h" in skill_payload(5.0, _daily())["baseline"]
 
 
+class TestPayloadIsExact:
+    """The whole Redis block, pinned field by field.
+
+    ``gridpulse:skill:{region}`` is consumed by the substitution policy and
+    published on the Models tab. The tests above check individual flags; every
+    numeric field could be re-rounded or nulled with the suite green —
+    including ``beats_baseline``, which this module's own docstring calls "the
+    field worth acting on".
+    """
+
+    #: 24 h at 100 then 24 h at 125: the lag-24 baseline is |125-100|/125,
+    #: exactly 20%, so every derived number below is exact rather than a
+    #: floating-point tail.
+    SERIES = np.array([100.0] * 24 + [125.0] * 24)
+
+    def test_a_winning_region(self):
+        assert skill_payload(15.0, self.SERIES) == {
+            "model_mape": 15.0,
+            "baseline_mape": 20.0,
+            "baseline": "seasonal-naive lag 24h",
+            "skill": 0.25,
+            "points_vs_baseline": 5.0,
+            "beats_baseline": True,
+            "n_hours": 48,
+        }
+
+    def test_a_losing_region(self):
+        assert skill_payload(25.0, self.SERIES) == {
+            "model_mape": 25.0,
+            "baseline_mape": 20.0,
+            "baseline": "seasonal-naive lag 24h",
+            "skill": -0.25,
+            "points_vs_baseline": -5.0,
+            "beats_baseline": False,
+            "n_hours": 48,
+        }
+
+    def test_matching_the_baseline_is_not_beating_it(self):
+        """``skill > 0``, strictly. A tie does not clear the bar.
+
+        The module exists because a model that merely matches "yesterday, same
+        hour" is adding nothing. Relaxing the comparison to ``>=`` would
+        publish ``beats_baseline: True`` for a model with exactly zero skill —
+        the precise claim this file was written to make impossible.
+        """
+        baseline = seasonal_naive_mape(self.SERIES)
+        tie = skill_payload(baseline, self.SERIES)
+
+        assert tie["skill"] == 0.0
+        assert tie["points_vs_baseline"] == 0.0
+        assert tie["beats_baseline"] is False, "matching the baseline is not beating it"
+
+    def test_the_published_precision_is_pinned(self):
+        """3 decimals on the error figures, 4 on the skill score.
+
+        The fixtures above use round numbers so the win/lose semantics read
+        clearly — which leaves the rounding itself invisible, because 15.0 and
+        20.0 survive any precision. This series produces long decimals on
+        every field so a drifted `round()` shows up.
+        """
+        rng = np.arange(48, dtype=float)
+        series = 100.0 + 10.0 * np.sin(2 * np.pi * rng / 24.0) + rng * 0.37
+
+        payload = skill_payload(5.4321, series)
+
+        assert payload["model_mape"] == 5.432
+        assert payload["baseline_mape"] == 7.866
+        assert payload["points_vs_baseline"] == 2.434
+        assert payload["skill"] == 0.3095
+
+    def test_an_unmeasurable_region_nulls_every_derived_field(self):
+        """Not zero, not False — None, on all four derived fields at once.
+
+        A `beats_baseline` of False would read as "measured, and it lost",
+        which is the confusion that let SEC serve a worse-than-nothing
+        forecast unnoticed. `n_hours` still reports what was seen.
+        """
+        assert skill_payload(15.0, np.arange(10, dtype=float)) == {
+            "model_mape": 15.0,
+            "baseline_mape": None,
+            "baseline": "seasonal-naive lag 24h",
+            "skill": None,
+            "points_vs_baseline": None,
+            "beats_baseline": None,
+            "n_hours": 10,
+        }
+
+
 class TestMape:
+    def test_hours_below_one_mw_still_count(self):
+        """The filter is ``actual > 0``, not ``> 1``.
+
+        Tightened to ``> 1`` it silently drops sub-1-MW hours. GridPulse
+        serves BAs at that scale — SPA's median demand is ~24 MW and the
+        module docstring names SEC as a ~300 MW co-op — so a filter that
+        quietly excludes small hours would flatter exactly the regions whose
+        skill matters most.
+        """
+        actual = np.array([0.5, 100.0])
+        predicted = np.array([1.0, 100.0])
+
+        # The 0.5 MW hour is 100% wrong, the 100 MW hour exact -> mean 50%.
+        assert mape(actual, predicted) == pytest.approx(50.0)
+
     def test_ignores_nonpositive_actuals(self):
         assert mape(np.array([100.0, 0.0, -5.0]), np.array([110.0, 5.0, 5.0])) == pytest.approx(
             10.0
@@ -157,6 +273,40 @@ class TestSubstitutionPolicy:
 
     def test_a_winning_model_is_never_substituted(self):
         assert should_serve_baseline(self._block(+3.5))[0] is False
+
+    def test_a_deficit_of_exactly_the_threshold_substitutes(self):
+        """ "At least this many points" includes the boundary.
+
+        `BASELINE_SUBSTITUTION_MIN_POINTS` documents "must lose ... by at
+        least this many error points", so a deficit of exactly 2.00 qualifies.
+        The comparison is `points > -MIN` -> keep, and relaxing it to `>=`
+        flips the boundary case to keeping the model — with the suite green,
+        because every existing case sits comfortably on one side or the other.
+
+        This is the only rule in the codebase that changes what a user is
+        served, so which side of the line the boundary falls on is a policy
+        decision and belongs in a test rather than in the shape of an
+        inequality.
+        """
+        exactly = should_serve_baseline(self._block(-BASELINE_SUBSTITUTION_MIN_POINTS))
+        assert exactly[0] is True, "a deficit of exactly the threshold is 'at least' the threshold"
+
+        just_inside = should_serve_baseline(self._block(-BASELINE_SUBSTITUTION_MIN_POINTS + 0.01))
+        assert just_inside[0] is False
+
+    def test_a_block_with_no_hours_reports_zero_not_one(self):
+        """`n_hours` missing falls back to 0, and the reason says so.
+
+        `... or 0` mutated to `... or 1` still refuses to substitute, so the
+        decision is unchanged and only the published reason differs — from
+        "only 0h measured" to "only 1h measured". That reason is surfaced to
+        explain why a region was left alone, and inventing an hour of
+        measurement that never happened is a small lie in a field whose whole
+        job is honesty.
+        """
+        _, reason = should_serve_baseline({"points_vs_baseline": -9.0})
+
+        assert reason == "only 0h measured, need 168h"
 
 
 class TestForwardBaseline:
@@ -205,6 +355,59 @@ class TestForwardBaseline:
         out = seasonal_naive_forecast(hist, 24)
         assert np.isfinite(out).all()
         assert out[0] == hist[72 - 24]  # stepped back exactly one further day
+
+    # -- edges the property test above cannot reach ------------------------
+
+    def test_exactly_one_day_of_history_is_enough(self):
+        """The guard is ``size < lag_h``, so 24 hours qualifies and 23 do not.
+
+        ``test_history_shorter_than_a_day_yields_nothing`` uses 10 hours,
+        which is nowhere near the line. Relaxing the guard to ``<=`` would
+        refuse a region that has exactly one clean day — the most likely
+        moment for a newly-onboarded BA to want a baseline.
+        """
+        assert seasonal_naive_forecast(np.arange(24, dtype=float), 3).tolist() == [0.0, 1.0, 2.0]
+        assert seasonal_naive_forecast(np.arange(23, dtype=float), 3).size == 0
+
+    def test_the_stepback_gives_up_rather_than_reading_off_the_start(self):
+        """When no day has that clock hour, return nothing — do not wrap.
+
+        The stepback walks back whole days looking for a real observation. If
+        it runs past the start of the series the function must return an empty
+        array so the caller keeps the model. The out-of-range guard is
+        ``idx < 0 or idx >= y.size``; weakened to ``and`` it can never fire,
+        and a negative index silently wraps to the END of the history — the
+        baseline would then serve the newest hours as if they were the oldest,
+        which is both wrong and undetectable downstream.
+        """
+        # One clean day, but the 06:00 slot is missing: there is no earlier
+        # day to fall back to.
+        hist = np.arange(24, dtype=float)
+        hist[5] = np.nan
+
+        assert seasonal_naive_forecast(hist, 24).size == 0, "give up, never wrap"
+
+    def test_a_missing_hour_in_every_day_gives_up(self):
+        """Same guard, reached via the ``idx >= 0`` loop bound.
+
+        Index 0 is a legitimate source, so the stepback must test it before
+        stopping. With the bound at ``idx > 0`` the loop exits one step early
+        and serves the NaN it was trying to skip.
+        """
+        hist = np.arange(48, dtype=float)
+        hist[24] = np.nan  # that clock hour in the last day
+        hist[0] = np.nan  # ...and in the only earlier day
+
+        assert seasonal_naive_forecast(hist, 24).size == 0
+
+    def test_the_horizon_length_is_exactly_what_was_asked_for(self):
+        """A short array would leave a caller reading uninitialised memory —
+        ``np.empty`` is not zero-filled, so the values would be arbitrary
+        rather than obviously wrong.
+        """
+        hist = np.arange(96, dtype=float)
+        for horizon in (1, 5, 24, 48, 72):
+            assert seasonal_naive_forecast(hist, horizon).size == horizon
 
 
 class TestServingIntegration:
