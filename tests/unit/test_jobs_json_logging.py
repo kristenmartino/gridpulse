@@ -66,9 +66,13 @@ class TestJobsCliConfiguresLogging:
 
     @pytest.mark.parametrize("job", ["scoring", "training"])
     def test_both_jobs_configure(self, job):
+        # **kwargs, not a zero-arg lambda: ``training`` is dispatched with
+        # ``force=`` and a stub that rejected it would surface as exit 1 (the
+        # TypeError is swallowed by main's except-Exception), which looks like
+        # a job failure rather than a signature mismatch.
         with (
             patch.object(jobs_main, "configure_logging") as mock_cfg,
-            patch.dict(jobs_main._ENTRYPOINTS, {job: lambda: 0}, clear=False),
+            patch.dict(jobs_main._ENTRYPOINTS, {job: lambda **kw: 0}, clear=False),
         ):
             assert jobs_main.main([job]) == 0
         mock_cfg.assert_called_once()

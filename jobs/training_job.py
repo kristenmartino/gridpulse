@@ -157,7 +157,21 @@ def _read_cached_arima_order(region: str) -> tuple | None:
     """Pull the previously-selected (order, seasonal_order) from the
     existing arima meta's extra. Returns None if no meta exists or the
     keys aren't present (i.e. the BA hasn't been trained on the
-    cache-aware code path yet)."""
+    cache-aware code path yet).
+
+    **There is no automatic invalidation.** Once an order is cached it is
+    reused indefinitely: no TTL, no age check, no comparison against the
+    current data hash. That is deliberate — the pmdarima stepwise search is
+    the dominant per-BA SARIMAX cost and re-running it daily buys nothing
+    most days — but it does mean a BA whose load shape has genuinely changed
+    keeps a stale ``(p,d,q)(P,D,Q,s)`` until someone intervenes.
+
+    The intervention is ``--force`` (``python -m jobs training --force``),
+    which bypasses this cache and re-runs the search. Whether a *periodic*
+    re-search would pay for itself is unmeasured; it changes served models, so
+    per CLAUDE.md it routes through ``models/rolling_eval.py`` rather than
+    being tuned here.
+    """
     try:
         from models.persistence import get_model_metadata
 
@@ -174,7 +188,7 @@ def _read_cached_arima_order(region: str) -> tuple | None:
         return None
 
 
-def _holdout_metrics_arima(featured_df, region: str) -> dict | None:
+def _holdout_metrics_arima(featured_df, region: str, force: bool = False) -> dict | None:
     """Compute SARIMAX's full holdout metric set on the last 168 hours.
 
     Replaces the earlier ``_holdout_mape_arima`` (MAPE only). See
@@ -189,7 +203,9 @@ def _holdout_metrics_arima(featured_df, region: str) -> dict | None:
         return None
     train_df = featured_df.iloc[:-_HOLDOUT_HOURS]
     val_df = featured_df.iloc[-_HOLDOUT_HOURS:]
-    cached = _read_cached_arima_order(region)
+    # Mirror the production fit: under --force the holdout must re-search too,
+    # or it would score a different (p,d,q) than the model actually served.
+    cached = None if force else _read_cached_arima_order(region)
     cached_order = cached[0] if cached else None
     cached_seasonal_order = cached[1] if cached else None
     try:
@@ -438,24 +454,26 @@ def _train_prophet(
 def _train_arima(
     region_data: phases.RegionData,
     holdout: dict | None = None,
+    force: bool = False,
 ) -> str | None:
     """Best-effort SARIMAX training. Returns the saved version or ``None``.
 
     Holdout-metric extraction mirrors :func:`_train_prophet` — full
     {mape, rmse, mae, r2} dict persisted in ``extra["holdout_metrics"]``.
 
-    The selected ``(order, seasonal_order)`` is stashed in
-    ``extra`` so the next training run can skip the pmdarima
-    auto_arima stepwise search (the dominant per-BA cost). The
-    cache is invalidated automatically if the data changes
-    enough to make the order obsolete — at the limit, a force
-    retrain bypasses it entirely.
+    The selected ``(order, seasonal_order)`` is stashed in ``extra`` so the
+    next training run can skip the pmdarima auto_arima stepwise search (the
+    dominant per-BA SARIMAX cost).
+
+    The cache is **not** invalidated automatically — see
+    :func:`_read_cached_arima_order`. ``force=True`` bypasses it and re-runs
+    the search; that is the only thing that does.
     """
     from models.arima_model import train_arima
 
     region = region_data.region
     assert region_data.featured_df is not None
-    cached = _read_cached_arima_order(region)
+    cached = None if force else _read_cached_arima_order(region)
     cached_order = cached[0] if cached else None
     cached_seasonal_order = cached[1] if cached else None
     try:
@@ -631,7 +649,7 @@ def _train_region(region: str, force: bool = False) -> dict:
     featured = region_data.featured_df
     xgb_holdout = _holdout_metrics_xgboost(featured, region)
     prophet_holdout = _holdout_metrics_prophet(featured, region)
-    arima_holdout = _holdout_metrics_arima(featured, region)
+    arima_holdout = _holdout_metrics_arima(featured, region, force=force)
 
     # Compute ensemble metric BEFORE persisting xgboost so we can
     # stash it in xgboost's extra. xgboost is the canonical "primary"
@@ -681,7 +699,7 @@ def _train_region(region: str, force: bool = False) -> dict:
     summary["models"]["xgboost"] = xgb_version
     prophet_version = _train_prophet(region_data, holdout=prophet_holdout)
     summary["models"]["prophet"] = prophet_version
-    arima_version = _train_arima(region_data, holdout=arima_holdout)
+    arima_version = _train_arima(region_data, holdout=arima_holdout, force=force)
     summary["models"]["arima"] = arima_version
 
     # Persist the ensemble metric into xgboost's meta if both succeeded
@@ -773,8 +791,15 @@ def _partition_regions_for_task(all_regions: list[str]) -> tuple[list[str], int,
     return partition, task_index, task_count
 
 
-def run() -> int:
+def run(force: bool = False) -> int:
     """Run the training job end-to-end. Returns an exit code.
+
+    ``force=True`` (``python -m jobs training --force``) disables BOTH
+    caches that make a normal run cheap: the data-hash resume short-circuit
+    and the cached SARIMAX ``(order, seasonal_order)``. It is the only way to
+    re-run the pmdarima stepwise search, which otherwise never re-runs — see
+    :func:`_read_cached_arima_order`. Expect a substantially longer, more
+    expensive run; the 5h per-task timeout is the ceiling to watch.
 
     Designed to be run by N parallel Cloud Run Job tasks. Each task
     handles its own interleaved slice of the region list; per-region
@@ -805,7 +830,7 @@ def run() -> int:
     results: list[dict] = []
     for region in regions:
         try:
-            results.append(_train_region(region))
+            results.append(_train_region(region, force=force))
         except Exception as e:
             log.warning(
                 "training_job_region_crashed",

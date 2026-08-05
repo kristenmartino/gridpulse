@@ -347,6 +347,23 @@ creation) — confirm `gcloud beta monitoring channels describe <id>
 3. **Mitigate**:
    - Training miss → trigger a make-up run:
      `gcloud run jobs execute gridpulse-training-job --region=us-east1`.
+     A normal run is resume-friendly: it skips any BA whose `data_hash`
+     already matches, so a make-up run only re-fits what actually changed.
+     **To defeat that**, and to re-run the pmdarima order search — which
+     otherwise **never** re-runs, since the cached SARIMAX
+     `(order, seasonal_order)` has no TTL, no age check and no
+     data-hash invalidation — override the args:
+
+     ```bash
+     gcloud run jobs execute gridpulse-training-job --region=us-east1 \
+       --args=-m,jobs,training,--force
+     ```
+
+     Expect a much longer and more expensive run: `--force` disables both
+     caches that make a normal run cheap. Watch the 5h per-task timeout.
+     Whether a *periodic* re-search would pay for itself is unmeasured, and
+     it changes served models, so it belongs in `models/rolling_eval.py`
+     rather than a cron tweak.
    - Scoring miss (single, transient) → the next hourly tick self-heals;
      force one now if urgent: `gcloud run jobs execute gridpulse-scoring-job
      --region=us-east1`.

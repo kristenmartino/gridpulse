@@ -7,6 +7,8 @@ behavior.
 
 from __future__ import annotations
 
+import types
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -403,3 +405,138 @@ class TestTrainingQualityGuard:
         assert float(train_df["demand_mw"].min()) > 1000.0, (
             "a partial-band demand value survived into training targets"
         )
+
+
+class TestForceBypassesTheArimaOrderCache:
+    """``--force`` is the only thing that re-runs the pmdarima order search.
+
+    The cache has no invalidation — no TTL, no age check, no data-hash
+    comparison — so once an order is stored it is reused forever. That is a
+    deliberate cost decision, but before this change the docstring claimed the
+    cache "is invalidated automatically if the data changes enough" and that
+    "a force retrain bypasses it entirely". Neither was true: `force` gated
+    only the data-hash resume, and nothing set it to True. These tests pin the
+    behaviour the documentation now describes.
+    """
+
+    def test_force_skips_the_cached_order(self, monkeypatch):
+        from jobs import training_job
+
+        monkeypatch.setattr(
+            training_job, "_read_cached_arima_order", lambda region: ((9, 9, 9), (9, 9, 9, 24))
+        )
+        seen = {}
+
+        def fake_train_arima(df, cached_order=None, cached_seasonal_order=None, **kw):
+            seen["order"] = cached_order
+            raise RuntimeError("stop after the cache decision")
+
+        import models.arima_model as am
+
+        monkeypatch.setattr(am, "train_arima", fake_train_arima)
+        rd = types.SimpleNamespace(region="ERCOT", featured_df=pd.DataFrame({"demand_mw": [1.0]}))
+
+        training_job._train_arima(rd, force=True)
+
+        assert seen["order"] is None, "force must not pass a cached order"
+
+    def test_default_uses_the_cached_order(self, monkeypatch):
+        """The saving is real and must survive — this is the money path."""
+        from jobs import training_job
+
+        monkeypatch.setattr(
+            training_job, "_read_cached_arima_order", lambda region: ((2, 0, 1), (1, 1, 0, 24))
+        )
+        seen = {}
+
+        def fake_train_arima(df, cached_order=None, cached_seasonal_order=None, **kw):
+            seen["order"] = cached_order
+            raise RuntimeError("stop after the cache decision")
+
+        import models.arima_model as am
+
+        monkeypatch.setattr(am, "train_arima", fake_train_arima)
+        rd = types.SimpleNamespace(region="ERCOT", featured_df=pd.DataFrame({"demand_mw": [1.0]}))
+
+        training_job._train_arima(rd)
+
+        assert seen["order"] == (2, 0, 1)
+
+    def test_holdout_mirrors_the_production_fit(self, monkeypatch):
+        """If the holdout kept the cached order under --force it would score a
+        different (p,d,q) than the model actually served."""
+        from jobs import training_job
+
+        monkeypatch.setattr(
+            training_job, "_read_cached_arima_order", lambda region: ((5, 5, 5), (5, 5, 5, 24))
+        )
+        seen = {}
+
+        def fake_train_arima(df, cached_order=None, cached_seasonal_order=None, **kw):
+            seen["order"] = cached_order
+            raise RuntimeError("stop after the cache decision")
+
+        import models.arima_model as am
+
+        monkeypatch.setattr(am, "train_arima", fake_train_arima)
+        featured = pd.DataFrame({"demand_mw": [float(i) for i in range(1000)]})
+
+        training_job._holdout_metrics_arima(featured, "ERCOT", force=True)
+
+        assert seen["order"] is None
+
+
+class TestForceReachesTheCli:
+    """Before this change ``force`` had no caller that set it True — the
+    escape hatch the docstring pointed at did not exist."""
+
+    def test_force_flag_threads_to_run(self, monkeypatch):
+        import jobs.__main__ as jobs_main
+
+        got = {}
+        monkeypatch.setitem(jobs_main._ENTRYPOINTS, "training", lambda **kw: got.update(kw) or 0)
+
+        assert jobs_main.main(["training", "--force"]) == 0
+        assert got == {"force": True}
+
+    def test_default_is_not_forced(self, monkeypatch):
+        import jobs.__main__ as jobs_main
+
+        got = {}
+        monkeypatch.setitem(jobs_main._ENTRYPOINTS, "training", lambda **kw: got.update(kw) or 0)
+
+        assert jobs_main.main(["training"]) == 0
+        assert got == {"force": False}
+
+    def test_force_is_rejected_for_scoring_not_ignored(self, monkeypatch):
+        """Silently dropping it would let an operator believe they forced a
+        retrain when they had not.
+
+        The entrypoint is stubbed AND asserted un-called: rejection has to
+        happen before dispatch. Without the stub this test would invoke the
+        real scoring job when the guard is removed — so it would still fail,
+        but by hanging on live network work instead of asserting, which is a
+        useless failure mode to leave in the suite.
+        """
+        import jobs.__main__ as jobs_main
+
+        called = []
+        monkeypatch.setitem(jobs_main._ENTRYPOINTS, "scoring", lambda **kw: called.append(kw) or 0)
+
+        assert jobs_main.main(["scoring", "--force"]) == 2
+        assert called == [], "scoring must not run at all when --force is rejected"
+
+    def test_unknown_flag_is_rejected(self, monkeypatch):
+        """A typo'd ``--forse`` must not silently run an ordinary retrain.
+
+        Entrypoint stubbed and asserted un-called, for the same reason as
+        above: if the guard is removed, an unstubbed test would launch the
+        real training job and hang rather than fail.
+        """
+        import jobs.__main__ as jobs_main
+
+        called = []
+        monkeypatch.setitem(jobs_main._ENTRYPOINTS, "training", lambda **kw: called.append(kw) or 0)
+
+        assert jobs_main.main(["training", "--forse"]) == 2
+        assert called == []

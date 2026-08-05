@@ -3,7 +3,7 @@ CLI dispatcher for the GridPulse scheduled jobs.
 
 Usage:
     python -m jobs scoring
-    python -m jobs training
+    python -m jobs training [--force]
 
 Invoked directly by Cloud Run Jobs. Returns the underlying job's exit code
 unchanged so Cloud Scheduler retries only on hard failures.
@@ -31,13 +31,20 @@ def _scoring() -> int:
     return run()
 
 
-def _training() -> int:
+def _training(force: bool = False) -> int:
     from jobs.training_job import run
 
-    return run()
+    return run(force=force)
 
 
-_ENTRYPOINTS: dict[str, Callable[[], int]] = {
+#: Entrypoints taking the ``--force`` flag. ``force`` disables the data-hash
+#: resume AND the cached SARIMAX order search — see
+#: ``jobs.training_job._read_cached_arima_order``, which otherwise never
+#: re-runs. Scoring has no equivalent, so the flag is rejected for it rather
+#: than silently ignored.
+_FORCEABLE = {"training"}
+
+_ENTRYPOINTS: dict[str, Callable[..., int]] = {
     "scoring": _scoring,
     "training": _training,
 }
@@ -56,7 +63,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = list(sys.argv[1:] if argv is None else argv)
     if not args:
-        print("usage: python -m jobs {scoring|training}", file=sys.stderr)
+        print("usage: python -m jobs {scoring|training} [--force]", file=sys.stderr)
         return 2
 
     cmd = args[0].lower()
@@ -68,9 +75,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 2
 
-    log.info("job_cli_start", job=cmd)
+    flags = {a.lower() for a in args[1:]}
+    force = "--force" in flags
+    unknown = flags - {"--force"}
+    if unknown:
+        print(f"unknown flag(s): {', '.join(sorted(unknown))}", file=sys.stderr)
+        return 2
+    if force and cmd not in _FORCEABLE:
+        # Rejected, not ignored: silently dropping it would let an operator
+        # believe they had forced a retrain when they had not.
+        print(f"--force is not supported for '{cmd}'", file=sys.stderr)
+        return 2
+
+    log.info("job_cli_start", job=cmd, force=force)
     try:
-        code = entry()
+        code = entry(force=force) if cmd in _FORCEABLE else entry()
     except Exception:
         log.exception("job_cli_unhandled_error", job=cmd)
         return 1
