@@ -45,7 +45,7 @@
 | data/user\_prefs.py                   |      127 |       28 |     78% |94-100, 183, 188-192, 210, 237, 249-261, 263 |
 | data/vintage.py                       |      150 |        4 |     97% |115, 181, 237, 382 |
 | data/weather\_aggregate.py            |       44 |        3 |     93% |63, 78, 109 |
-| data/weather\_client.py               |      255 |       22 |     91% |119-120, 174-188, 300, 303-305, 504-506 |
+| data/weather\_client.py               |      307 |       19 |     94% |120-121, 175-189, 301, 676-678 |
 | data/weather\_normals.py              |      120 |        7 |     94% |94, 130-132, 257, 259-260 |
 | models/\_\_init\_\_.py                |        0 |        0 |    100% |           |
 | models/arima\_model.py                |      182 |       28 |     85% |95-99, 123-127, 163-211, 329-331, 400, 402 |
@@ -67,7 +67,7 @@
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
-| **TOTAL**                             | **8564** |  **940** | **89%** |           |
+| **TOTAL**                             | **8616** |  **937** | **89%** |           |
 
 
 ## Setup coverage badge
