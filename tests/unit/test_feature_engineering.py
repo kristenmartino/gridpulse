@@ -91,6 +91,73 @@ class TestWindPower:
         result = compute_wind_power(pd.Series([27.0]))
         assert result.iloc[0] > 0.5
 
+    # ------------------------------------------------------------------
+    # The tests above assert RELATIONSHIPS — "is zero", "in (0, 1]",
+    # "> 0.5" — which stay true under most ways of getting the physics
+    # wrong. Mutation testing found 20 survivors here: the rated speed, the
+    # air-density term, the normalisation divide, the cut-in constant and
+    # both threshold comparisons could all be changed with the suite green
+    # (docs/TEST_QUALITY.md).
+    #
+    # The curve is fully determined, so assert the curve.
+    # ------------------------------------------------------------------
+
+    #: Speeds are specified in m/s (the units the physics is written in) and
+    #: converted, so the fixtures stay readable if MPH_TO_MS ever changes.
+    @staticmethod
+    def _mph(ms: float) -> float:
+        from config import MPH_TO_MS
+
+        return ms / MPH_TO_MS
+
+    def test_output_follows_the_cube_law_normalised_at_rated_speed(self):
+        """P ∝ v³, normalised to exactly 1.0 at the 12 m/s rated speed.
+
+        Half the rated speed is one eighth the power — that single ratio pins
+        the exponent, the rated constant and the normalisation divide at once.
+        A multiply instead of a divide, or a rated speed of 13, moves every
+        one of these numbers.
+        """
+        speeds = pd.Series([self._mph(v) for v in (6.0, 9.0, 12.0)])
+
+        power = compute_wind_power(speeds)
+
+        assert power.iloc[0] == pytest.approx((6.0 / 12.0) ** 3)  # 0.125
+        assert power.iloc[1] == pytest.approx((9.0 / 12.0) ** 3)  # 0.421875
+        assert power.iloc[2] == pytest.approx(1.0), "rated speed is the normalisation point"
+
+    def test_cut_in_and_cutout_are_both_inclusive(self):
+        """A turbine AT cut-in is spinning, and AT cutout has not yet tripped.
+
+        The comparisons are `v < cut_in` → 0 and `v > cutout` → 0, so both
+        endpoints produce power. Relaxing either to `<=` / `>=` silently
+        zeroes a boundary hour, and the existing tests use 5 mph and 60 mph —
+        far enough outside that either spelling passes.
+        """
+        at_cut_in = compute_wind_power(pd.Series([self._mph(3.0)]))
+        assert at_cut_in.iloc[0] == pytest.approx((3.0 / 12.0) ** 3), "3 m/s generates"
+
+        just_below = compute_wind_power(pd.Series([self._mph(2.999)]))
+        assert just_below.iloc[0] == 0.0
+
+        at_cutout = compute_wind_power(pd.Series([self._mph(25.0)]))
+        assert at_cutout.iloc[0] == 1.0, "25 m/s has not tripped yet"
+
+        just_above = compute_wind_power(pd.Series([self._mph(25.001)]))
+        assert just_above.iloc[0] == 0.0
+
+    def test_output_is_capped_at_one_and_keeps_the_input_index(self):
+        """Between rated and cutout the cube law would exceed 1.0, so it is
+        clipped — and the result must stay aligned with its input, or every
+        downstream `df[col] = compute_wind_power(...)` silently misaligns.
+        """
+        speeds = pd.Series([self._mph(20.0)], index=[7])
+
+        power = compute_wind_power(speeds)
+
+        assert power.iloc[0] == 1.0
+        assert list(power.index) == [7], "a reset index would scramble the join"
+
 
 class TestSolarCapacityFactor:
     """Solar CF = GHI / 1000, clipped [0, 1]."""
@@ -131,6 +198,98 @@ class TestCyclicalEncoding:
         ts = pd.Series(pd.to_datetime(["2024-01-01", "2024-01-08"]))  # Both Monday
         sin_vals, cos_vals = compute_cyclical_dow(ts)
         assert sin_vals.iloc[0] == pytest.approx(sin_vals.iloc[1])
+
+    # ------------------------------------------------------------------
+    # 44 survivors across these two functions (docs/TEST_QUALITY.md) — the
+    # largest pair in the codebase. The reason is visible above: every
+    # assertion compares the output to ITSELF or to a range.
+    # `test_hour_0_and_24_equal` compares two midnights, which agree under
+    # ANY period, so `/24` could become `/25`. `test_hour_sin_range` holds
+    # for every sine of anything.
+    #
+    # The encoding is exact at the cardinal points, so assert it there.
+    # ------------------------------------------------------------------
+
+    def test_hour_encoding_is_exact_at_the_cardinal_hours(self):
+        """A quarter turn per six hours: 00→(0,1), 06→(1,0), 12→(0,−1), 18→(−1,0).
+
+        These four points fix the period (24), the 2π factor and the
+        sin/cos assignment simultaneously. A period of 25, a 3π factor or a
+        swapped divide all move at least one of them.
+        """
+        ts = pd.Series(pd.to_datetime([f"2026-01-01T{h:02d}:00" for h in (0, 6, 12, 18)]))
+
+        sin_vals, cos_vals = compute_cyclical_hour(ts)
+
+        assert sin_vals.tolist() == pytest.approx([0.0, 1.0, 0.0, -1.0], abs=1e-12)
+        assert cos_vals.tolist() == pytest.approx([1.0, 0.0, -1.0, 0.0], abs=1e-12)
+
+    def test_hour_encoding_lies_on_the_unit_circle(self):
+        """sin² + cos² == 1 for every hour — the property that makes this an
+        *encoding* rather than two unrelated columns. Scaling either component
+        breaks it."""
+        ts = pd.date_range("2026-01-01", periods=48, freq="h")
+
+        sin_vals, cos_vals = compute_cyclical_hour(ts)
+
+        assert np.allclose(sin_vals**2 + cos_vals**2, 1.0)
+
+    def test_dow_encoding_is_exact_and_has_a_seven_day_period(self):
+        """Monday is the origin, (0, 1), and the week closes on itself.
+
+        A period of 8 leaves Monday at (0, 1) — which is why the existing
+        Monday-to-Monday test cannot see it — but moves every other day.
+        """
+        # 2026-01-05 is a Monday.
+        ts = pd.Series(pd.to_datetime([f"2026-01-{5 + d:02d}" for d in range(7)]))
+
+        sin_vals, cos_vals = compute_cyclical_dow(ts)
+
+        assert sin_vals.iloc[0] == pytest.approx(0.0, abs=1e-12)
+        assert cos_vals.iloc[0] == pytest.approx(1.0, abs=1e-12)
+        # Tuesday: one seventh of a turn, not one eighth.
+        assert sin_vals.iloc[1] == pytest.approx(np.sin(2 * np.pi / 7))
+        assert cos_vals.iloc[1] == pytest.approx(np.cos(2 * np.pi / 7))
+        assert np.allclose(sin_vals**2 + cos_vals**2, 1.0)
+
+    def test_both_encoders_preserve_the_index_of_a_series(self):
+        """The results are assigned straight onto the frame, so a dropped or
+        reset index misaligns every row silently rather than raising."""
+        ts = pd.Series(pd.to_datetime(["2026-03-01T05:00", "2026-03-01T06:00"]), index=[11, 12])
+
+        for fn in (compute_cyclical_hour, compute_cyclical_dow):
+            sin_vals, cos_vals = fn(ts)
+            assert list(sin_vals.index) == [11, 12], fn.__name__
+            assert list(cos_vals.index) == [11, 12], fn.__name__
+            assert sin_vals.dtype == float and cos_vals.dtype == float, fn.__name__
+
+    def test_both_encoders_accept_a_datetimeindex(self):
+        """The *other* branch, which nothing reached.
+
+        Both functions take a ``Series`` or a ``DatetimeIndex`` and read the
+        clock field differently in each. Every test here passed a Series, so
+        the ``DatetimeIndex`` half was unexercised — its field lookup and its
+        index assignment could both be nulled with the suite green.
+
+        The distinction is not academic: a Series carries its own index
+        through the arithmetic, so the explicit ``index=`` only matters on
+        this path.
+        """
+        idx = pd.date_range("2026-01-05T00:00", periods=4, freq="h")  # a Monday
+
+        hour_sin, hour_cos = compute_cyclical_hour(idx)
+        dow_sin, dow_cos = compute_cyclical_dow(idx)
+
+        for series in (hour_sin, hour_cos, dow_sin, dow_cos):
+            assert series.index.equals(idx), "the timestamps themselves are the index"
+
+        # Midnight, and the first hour of the day, on the hour encoder.
+        assert hour_sin.iloc[0] == pytest.approx(0.0, abs=1e-12)
+        assert hour_cos.iloc[0] == pytest.approx(1.0, abs=1e-12)
+        assert hour_sin.iloc[1] == pytest.approx(np.sin(2 * np.pi / 24))
+        # All four hours fall on the same Monday.
+        assert dow_sin.tolist() == pytest.approx([0.0] * 4, abs=1e-12)
+        assert dow_cos.tolist() == pytest.approx([1.0] * 4, abs=1e-12)
 
 
 class TestHolidayFlag:
@@ -344,6 +503,107 @@ def _synthetic_demand_df(n: int = 240, seed: int = 42) -> pd.DataFrame:
         + rng.normal(0, 500, size=n)
     )
     return pd.DataFrame({"timestamp": timestamps, "demand_mw": demand})
+
+
+class TestAutoregressiveSnapshotValues:
+    """Absolute values, not parity.
+
+    The class below pins the snapshot against
+    ``add_autoregressive_demand_features`` — a strong invariant, but a
+    *relative* one: both paths could drift the same way and it would still
+    pass. That is why 21 mutants survived here (docs/TEST_QUALITY.md),
+    including window sizes shifting by one hour and the rolling standard
+    deviation switching from sample to population.
+
+    These features seed the recursive forecast, so a wrong window is a wrong
+    starting point for every hour that follows.
+
+    The history is ``1..200``, strictly increasing, so a 24-hour window and a
+    25-hour window can never coincide.
+    """
+
+    HISTORY = [float(i) for i in range(1, 201)]
+
+    def test_lags_and_derived_differences(self):
+        snap = compute_autoregressive_snapshot(self.HISTORY)
+
+        assert snap["demand_lag_1h"] == 200.0
+        assert snap["demand_lag_3h"] == 198.0
+        assert snap["demand_lag_24h"] == 177.0
+        assert snap["demand_lag_168h"] == 33.0
+        assert snap["ramp_rate"] == 1.0  # lag_1 − lag_2
+        assert snap["demand_momentum_short"] == 2.0  # lag_1 − lag_3
+        assert snap["demand_momentum_long"] == 23.0  # lag_1 − lag_24
+
+    def test_rolling_windows_are_exactly_24_72_and_168_hours(self):
+        """Each window's min is its oldest hour — off by one and it moves.
+
+        A 24-hour window over 1..200 spans 177..200; a 25-hour window starts
+        at 176. On smooth synthetic demand the two can round to the same
+        value, which is how the parity test misses this.
+        """
+        snap = compute_autoregressive_snapshot(self.HISTORY)
+
+        assert (snap["demand_roll_24h_min"], snap["demand_roll_24h_max"]) == (177.0, 200.0)
+        assert (snap["demand_roll_72h_min"], snap["demand_roll_72h_max"]) == (129.0, 200.0)
+        assert (snap["demand_roll_168h_min"], snap["demand_roll_168h_max"]) == (33.0, 200.0)
+        assert snap["demand_roll_24h_mean"] == 188.5
+        assert snap["demand_roll_72h_mean"] == 164.5
+        assert snap["demand_roll_168h_mean"] == 116.5
+
+    def test_rolling_window_sizes_also_hold_for_the_maxima(self):
+        """A *descending* history, because the ascending one hides this.
+
+        On ``1..200`` the maximum of any trailing window is the newest hour,
+        so a 24-hour window and a 25-hour window both report 200 and the size
+        is invisible — the minima above pin the size, the maxima do not.
+        Reversing the series swaps which end is extreme, and each window's
+        maximum becomes its oldest hour.
+
+        Recorded because the first version of this class asserted the maxima
+        on the ascending fixture and three window mutations survived it. A
+        fixture can satisfy an assertion without exercising it.
+        """
+        descending = [float(200 - i) for i in range(200)]  # 200 … 1
+
+        snap = compute_autoregressive_snapshot(descending)
+
+        assert snap["demand_roll_24h_max"] == 24.0
+        assert snap["demand_roll_72h_max"] == 72.0
+        assert snap["demand_roll_168h_max"] == 168.0
+        assert snap["demand_roll_24h_min"] == 1.0, "and the minimum is now the newest hour"
+
+    def test_rolling_std_is_the_sample_deviation(self):
+        """``ddof=1``. The population form gives 6.922 over the same window,
+        and nothing distinguished them — a systematic understatement of
+        volatility feeding a model that uses it to size uncertainty."""
+        snap = compute_autoregressive_snapshot(self.HISTORY)
+
+        assert snap["demand_roll_24h_std"] == pytest.approx(
+            float(np.std(np.arange(177, 201, dtype=float), ddof=1))
+        )
+        assert snap["demand_roll_24h_std"] == pytest.approx(7.0710678118654755)
+
+    def test_ratios_divide_the_lag_by_its_window_mean(self):
+        snap = compute_autoregressive_snapshot(self.HISTORY)
+
+        assert snap["demand_ratio_24h"] == pytest.approx(177.0 / 188.5)
+        assert snap["demand_ratio_168h"] == pytest.approx(33.0 / 116.5)
+
+    def test_a_single_observation_has_zero_deviation_not_nan(self):
+        """``len(arr) > 1`` guards ``ddof=1``, which is undefined for one
+        sample. Relaxed to ``>= 1`` numpy returns NaN with a warning, and a
+        NaN feature propagates into the forecast rather than failing."""
+        snap = compute_autoregressive_snapshot([42.0])
+
+        assert snap["demand_roll_24h_std"] == 0.0
+        assert snap["demand_lag_1h"] == 42.0
+
+    def test_an_empty_history_yields_nan_not_a_crash(self):
+        snap = compute_autoregressive_snapshot([])
+
+        assert np.isnan(snap["demand_lag_1h"])
+        assert np.isnan(snap["demand_roll_24h_mean"])
 
 
 class TestAutoregressiveFeaturesNoTargetLeakage:
