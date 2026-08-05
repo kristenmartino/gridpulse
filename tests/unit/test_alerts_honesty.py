@@ -327,6 +327,49 @@ class TestRiskTabSingleRenderPath:
         assert len(out[6].data) == len(mod._HISTORICAL_EVENTS)
 
 
+class TestNoInventedConstantsOnRiskCharts:
+    """P2-29 (#273): the Risk charts must not present invented values as measured."""
+
+    def test_historical_events_carry_no_severity_scores(self):
+        """The 0-100 'Severity Score' axis was editorial judgement, not data."""
+        from components import _callbacks_alerts as mod
+
+        # The constant itself must not smuggle a score back in.
+        for event in mod._HISTORICAL_EVENTS:
+            assert len(event) == 3, f"expected (date, name, region), got {event}"
+            date, name, region = event
+            assert isinstance(date, str) and isinstance(name, str) and isinstance(region, str)
+
+        fig = mod._build_timeline_figure("ERCOT")
+        # Every marker sits on the same baseline — no fabricated magnitude.
+        assert {float(y) for trace in fig.data for y in trace.y} == {0.0}
+        layout = fig.layout.to_plotly_json()
+        assert layout.get("yaxis", {}).get("visible") is False
+        assert "Severity" not in str(layout.get("yaxis", {}).get("title", ""))
+
+    def test_region_events_are_highlighted(self):
+        """Dropping the fake axis must not drop the useful regional signal."""
+        from components import _callbacks_alerts as mod
+
+        fig = mod._build_timeline_figure("ERCOT")
+        symbols = [t.marker.symbol for t in fig.data]
+        # Winter Storm Uri is the ERCOT event in the fixture set.
+        assert symbols.count("diamond") == 1
+        assert symbols.count("circle") == len(mod._HISTORICAL_EVENTS) - 1
+
+    def test_temperature_reference_lines_are_disclosed_as_generic(self):
+        """Unlabelled red lines at 95F implied a per-region assessment."""
+        from components import _callbacks_alerts as mod
+
+        ts = pd.date_range("2026-06-01", periods=48, freq="h", tz="UTC")
+        fig = mod._build_temp_figure("BPAT", ts, list(range(48)))
+        title = str(fig.layout.to_plotly_json().get("title", {}).get("text", ""))
+        assert "not calibrated per region" in title
+        # The lines themselves stay — the fix is disclosure, not deletion.
+        shapes = fig.layout.to_plotly_json().get("shapes", [])
+        assert len(shapes) == len(mod._TEMP_REFERENCE_LINES_F)
+
+
 class TestAlertsWarmingGate:
     def test_redis_miss_under_require_redis_renders_warming(self, callbacks, monkeypatch):
         from components import _callbacks_alerts as mod

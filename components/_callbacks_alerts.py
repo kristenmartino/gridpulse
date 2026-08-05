@@ -77,18 +77,27 @@ def _stress_tone(stress: int | None) -> str:
     return "positive" if stress < 70 else ("negative" if stress >= 85 else "neutral")
 
 
-#: Temperature-exceedance reference lines, °F. Hardcoded and fleet-uniform —
-#: see P2-29 (#273), which tracks sourcing or per-region parameterization.
-_TEMP_EXCEEDANCE_LINES_F = (95, 100, 105)
+#: Temperature reference lines, °F — generic heat levels, NOT region-calibrated
+#: (P2-29 / #273). They are drawn identically for all 51 BAs, so 95°F reads as
+#: a meaningful mark in Florida and as an unreachable one in the Pacific
+#: Northwest. The chart now labels them as generic rather than implying each BA
+#: was assessed. Real per-region parameterization needs the scoring job to
+#: publish per-BA temperature percentiles first — the web tier may not compute
+#: them in the request path (CLAUDE.md web-tier I/O guardrail), and the existing
+#: weather-normal artifact is a (doy, hour) *mean*, which is the wrong statistic
+#: for an exceedance threshold. Tracked separately.
+_TEMP_REFERENCE_LINES_F = (95, 100, 105)
 
-#: Historical extreme events plotted on the timeline. The severity scores are
-#: unsourced editorial values, not measured — P2-29 (#273) tracks sourcing or
-#: dropping them.
+#: Historical extreme events plotted on the timeline, as (date, name, region).
+#: These carried invented 0–100 "severity scores" (95/80/85/40) plotted against
+#: a quantitative axis, which presented editorial judgement as measurement.
+#: The scores are gone (P2-29 / #273); the dates and regions are factual, so
+#: the chart is now a categorical timeline of when they happened.
 _HISTORICAL_EVENTS = (
-    ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
-    ("2022-09-06", "CA Heat Wave", "CAISO", 80),
-    ("2023-07-20", "Heat Dome", "CAISO", 85),
-    ("2024-04-08", "Solar Eclipse", "PJM", 40),
+    ("2021-02-15", "Winter Storm Uri", "ERCOT"),
+    ("2022-09-06", "CA Heat Wave", "CAISO"),
+    ("2023-07-20", "Heat Dome", "CAISO"),
+    ("2024-04-08", "Solar Eclipse", "PJM"),
 )
 
 
@@ -212,46 +221,76 @@ def _build_anomaly_figure(region, timestamps, demand, upper, lower, anom_ts, ano
 
 
 def _build_temp_figure(region, timestamps, values):
-    """Temperature series with the fleet-uniform exceedance reference lines."""
+    """Temperature series with generic heat reference lines.
+
+    The reference lines are fleet-uniform, not region-calibrated (P2-29 /
+    #273), so they are labelled as generic. Drawing an unannotated red line
+    at 95°F on every BA implied each one had been assessed against its own
+    climate; it had not.
+    """
     if len(timestamps) == 0:
         return _empty_figure("Loading...")
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(x=timestamps, y=values, name="Temperature", line=dict(color=COLORS["temperature"]))
     )
-    for t in _TEMP_EXCEEDANCE_LINES_F:
+    for t in _TEMP_REFERENCE_LINES_F:
         fig.add_hline(
             y=t,
             line=dict(color="#FF5C7A", dash="dot", width=1),
             annotation_text=f"{t}°F",
             annotation_position="right",
         )
-    fig.update_layout(**_layout(uirevision=region, yaxis_title="°F"))
+    fig.update_layout(
+        **_layout(
+            uirevision=region,
+            yaxis_title="°F",
+            title=dict(
+                text="Generic heat reference levels — not calibrated per region",
+                font=dict(size=10, color="#A8B3C7"),
+                x=0,
+                xanchor="left",
+                y=0.99,
+                yanchor="top",
+            ),
+        )
+    )
     return fig
 
 
 def _build_timeline_figure(region):
-    """Historical extreme-event timeline, highlighting events in this region."""
+    """Categorical timeline of historical extreme events.
+
+    Events in ``region`` are highlighted. There is deliberately no y-axis:
+    these events used to be plotted against invented 0–100 "severity scores"
+    (P2-29 / #273), which rendered editorial judgement as measurement on a
+    quantitative axis. The dates and regions are factual; the scores were not,
+    so they are gone rather than restated.
+    """
     fig = go.Figure()
-    for date, name, reg, sev in _HISTORICAL_EVENTS:
-        color = COLORS["ensemble"] if reg == region else "#A8B3C7"
+    for date, name, reg in _HISTORICAL_EVENTS:
+        in_region = reg == region
         fig.add_trace(
             go.Scatter(
                 x=[date],
-                y=[sev],
+                y=[0],
                 mode="markers+text",
-                text=[name],
+                text=[f"{name}<br><span style='font-size:9px'>{reg}</span>"],
                 textposition="top center",
-                marker=dict(size=12, color=color),
+                marker=dict(
+                    size=14 if in_region else 10,
+                    color=COLORS["ensemble"] if in_region else "#A8B3C7",
+                    symbol="diamond" if in_region else "circle",
+                ),
                 showlegend=False,
+                hovertemplate=f"{name} · {reg}<br>%{{x}}<extra></extra>",
             )
         )
     fig.update_layout(
         **_layout(
             uirevision=region,
             xaxis_title="Date",
-            yaxis_title="Severity Score",
-            yaxis_range=[0, 100],
+            yaxis=dict(visible=False, range=[-1, 1]),
         )
     )
     return fig
