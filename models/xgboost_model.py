@@ -44,18 +44,32 @@ def train_xgboost(
     target_col: str = "demand_mw",
     params: dict | None = None,
     n_splits: int = 5,
+    cross_validate: bool = True,
 ) -> dict[str, Any]:
     """
-    Train an XGBoost model with TimeSeriesSplit cross-validation.
+    Train an XGBoost model, with optional TimeSeriesSplit cross-validation.
 
     Args:
         df: Feature-engineered DataFrame.
         target_col: Column to forecast.
         params: XGBoost hyperparameters (default: spec configuration).
         n_splits: Number of TimeSeriesSplit folds.
+        cross_validate: Fit the ``n_splits`` CV boosters. Set False when the
+            caller only wants the fitted model and discards ``cv_scores`` —
+            ``cv_scores`` then comes back empty rather than absent, so the
+            return contract is unchanged.
 
     Returns:
         Dict with 'model', 'feature_names', 'feature_importances', 'cv_scores'.
+
+    On ``cross_validate=False``: CV here costs ``n_splits`` extra boosters on
+    top of the final fit, and its ONLY output is ``cv_scores``. The daily
+    training job's backtest walk-forward calls this 12 times per BA and uses
+    just ``["model"]`` — 60 of the ~80 boosters fit per BA were computed and
+    thrown away, roughly 40% of the job's compute for nothing. The training
+    job's own production fit still cross-validates: it reads ``cv_scores`` as
+    a fallback MAPE when the recursive holdout returns None
+    (``jobs/training_job.py``), which feeds the ADR-004 ensemble weights.
     """
     if params is None:
         params = DEFAULT_PARAMS.copy()
@@ -67,30 +81,37 @@ def train_xgboost(
     X = df[feature_cols].values  # noqa: N806
     y = df[target_col].values
 
-    log.info("xgboost_training", features=len(feature_cols), samples=len(X), n_splits=n_splits)
+    log.info(
+        "xgboost_training",
+        features=len(feature_cols),
+        samples=len(X),
+        n_splits=n_splits if cross_validate else 0,
+        cross_validate=cross_validate,
+    )
 
-    # Cross-validation with TimeSeriesSplit (no data leakage)
-    tscv = TimeSeriesSplit(n_splits=n_splits)
     cv_scores = []
+    if cross_validate:
+        # Cross-validation with TimeSeriesSplit (no data leakage)
+        tscv = TimeSeriesSplit(n_splits=n_splits)
 
-    cv_params = params.copy()
-    if early_stopping_rounds:
-        cv_params["early_stopping_rounds"] = early_stopping_rounds
+        cv_params = params.copy()
+        if early_stopping_rounds:
+            cv_params["early_stopping_rounds"] = early_stopping_rounds
 
-    for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
-        # Verify no leakage: all train indices < all val indices
-        assert train_idx.max() < val_idx.min(), "TimeSeriesSplit leakage detected"
+        for fold, (train_idx, val_idx) in enumerate(tscv.split(X)):
+            # Verify no leakage: all train indices < all val indices
+            assert train_idx.max() < val_idx.min(), "TimeSeriesSplit leakage detected"
 
-        X_train, X_val = X[train_idx], X[val_idx]  # noqa: N806
-        y_train, y_val = y[train_idx], y[val_idx]
+            X_train, X_val = X[train_idx], X[val_idx]  # noqa: N806
+            y_train, y_val = y[train_idx], y[val_idx]
 
-        fold_model = XGBRegressor(**cv_params)
-        fold_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            fold_model = XGBRegressor(**cv_params)
+            fold_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
 
-        y_pred = fold_model.predict(X_val)
-        mape = _compute_mape(y_val, y_pred)
-        cv_scores.append(mape)
-        log.debug("xgboost_fold", fold=fold, mape=round(mape, 2))
+            y_pred = fold_model.predict(X_val)
+            mape = _compute_mape(y_val, y_pred)
+            cv_scores.append(mape)
+            log.debug("xgboost_fold", fold=fold, mape=round(mape, 2))
 
     # Train final model on all data (no early stopping — no validation set)
     model = XGBRegressor(**params)
@@ -100,8 +121,9 @@ def train_xgboost(
 
     log.info(
         "xgboost_trained",
-        mean_cv_mape=round(np.mean(cv_scores), 2),
-        std_cv_mape=round(np.std(cv_scores), 2),
+        # np.mean/np.std of [] warn and return nan; report None instead.
+        mean_cv_mape=round(np.mean(cv_scores), 2) if cv_scores else None,
+        std_cv_mape=round(np.std(cv_scores), 2) if cv_scores else None,
         top_features=_top_features(feature_cols, importances, n=5),
     )
 

@@ -215,3 +215,102 @@ class TestComputeShapValues:
         # 200 input rows, max_samples=20 — output should be 20 rows.
         shap_out = compute_shap_values(result, small_feature_df, max_samples=20)
         assert shap_out["shap_values"].shape[0] == 20
+
+
+class TestSkipCrossValidation:
+    """``cross_validate=False`` — the training job's biggest cost lever.
+
+    The backtest walk-forward called ``train_xgboost`` 12 times per BA and used
+    only ``["model"]``, discarding the CV boosters on the next line. That was
+    60 of the ~80 boosters fit per BA. Skipping CV there must produce the SAME
+    fitted model — the backtest MAPE, the residual pool behind the widening
+    confidence band, and the Models-tab diagnostics all derive from that
+    model's predictions, so a change here would silently move published
+    numbers.
+    """
+
+    PARAMS = {
+        "n_estimators": 20,
+        "max_depth": 3,
+        "learning_rate": 0.3,
+        "random_state": 42,
+        "n_jobs": 1,
+        "verbosity": 0,
+    }
+
+    def test_skipping_cv_yields_an_identical_model(self, small_feature_df):
+        """The whole safety argument for the change, asserted.
+
+        The final fit uses all rows and a fixed seed; CV only fits extra
+        throwaway boosters beforehand. Predictions must match exactly.
+        """
+        import numpy as np
+
+        from models.xgboost_model import predict_xgboost, train_xgboost
+
+        with_cv = train_xgboost(small_feature_df, params=dict(self.PARAMS), n_splits=3)
+        without_cv = train_xgboost(
+            small_feature_df, params=dict(self.PARAMS), n_splits=3, cross_validate=False
+        )
+
+        np.testing.assert_array_equal(
+            predict_xgboost(with_cv, small_feature_df),
+            predict_xgboost(without_cv, small_feature_df),
+        )
+        assert with_cv["feature_names"] == without_cv["feature_names"]
+
+    def test_cv_scores_is_empty_not_missing(self, small_feature_df):
+        """Return contract unchanged — callers may still read the key."""
+        from models.xgboost_model import train_xgboost
+
+        result = train_xgboost(
+            small_feature_df, params=dict(self.PARAMS), n_splits=3, cross_validate=False
+        )
+
+        assert "cv_scores" in result
+        assert result["cv_scores"] == []
+
+    def test_default_still_cross_validates(self, small_feature_df):
+        """The production fit depends on this: it uses the CV mean as a
+        fallback MAPE when the recursive holdout returns None, and that MAPE
+        feeds the ADR-004 ensemble weights."""
+        from models.xgboost_model import train_xgboost
+
+        result = train_xgboost(small_feature_df, params=dict(self.PARAMS), n_splits=3)
+
+        assert len(result["cv_scores"]) == 3
+
+    def test_no_fold_boosters_are_fit_when_skipping(self, small_feature_df, monkeypatch):
+        """Pin the actual saving, not just the output.
+
+        Counts XGBRegressor constructions: 1 (final fit only) rather than
+        n_splits + 1. Without this a future refactor could restore the CV
+        cost while every other assertion here still passed.
+        """
+        import models.xgboost_model as xm
+
+        built = []
+        real = xm.XGBRegressor
+
+        def counting(*a, **kw):
+            built.append(1)
+            return real(*a, **kw)
+
+        monkeypatch.setattr(xm, "XGBRegressor", counting)
+        xm.train_xgboost(
+            small_feature_df, params=dict(self.PARAMS), n_splits=5, cross_validate=False
+        )
+        assert len(built) == 1
+
+        built.clear()
+        xm.train_xgboost(small_feature_df, params=dict(self.PARAMS), n_splits=5)
+        assert len(built) == 6  # 5 CV folds + the final fit
+
+    def test_backtest_fold_asks_for_no_cv(self):
+        """The call site is what actually banks the saving."""
+        import inspect
+
+        import components._callbacks_backtest as bt
+
+        src = inspect.getsource(bt._predict_single_fold)
+        assert "train_xgboost(train_df, cross_validate=False)" in src

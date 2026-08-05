@@ -184,6 +184,24 @@ jobs:
         # (skip if data_hash matches) makes a *fresh execution* the
         # right path forward — let the next scheduled run pick up
         # where this one left off, don't waste a retry.
+        #
+        # memory 8Gi -> 4Gi (2026-08-05). MEASURED: peak container memory
+        # utilization over 3 days is 0.155 of the 8Gi limit — 1.24 GiB. 4Gi
+        # leaves it at ~31%, still 3x headroom. The 8Gi was never sized: it is
+        # a restore-to-default (969dd7d, "peak training RSS is comfortably
+        # under 4 GiB") after the 32Gi bump for an OOM whose actual cause —
+        # 547 MB SARIMAX pickles — was fixed by the lean payload in
+        # models/arima_model.py. Saves ~$6.6/mo of a ~$73/mo job.
+        #
+        # CPU stays at 4. Measured utilization is 0.66 mean / 0.82 peak of the
+        # 4 vCPUs, i.e. ~2.6 cores genuinely busy — this is NOT over-provisioned
+        # the way memory was, and cutting to 2 would cost real wall clock.
+        # Break-even for --cpu 2 is a <100% slowdown, plausible but unproven;
+        # measure a fixed 5-BA slice before trying it.
+        #
+        # Watch after this lands: if peak utilization approaches 1.0, an OOM
+        # (exit 137) restarts the task from BA 0 because max-retries is 0 and
+        # the resume is per-execution. Revert to 8Gi rather than debugging it.
         run: |
           gcloud run jobs deploy gridpulse-training-job \
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
@@ -197,7 +215,7 @@ jobs:
             --task-timeout 18000 \
             --tasks 3 \
             --parallelism 3 \
-            --memory 8Gi \
+            --memory 4Gi \
             --cpu 4 \
             --max-retries 0
 
