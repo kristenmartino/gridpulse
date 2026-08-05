@@ -9,12 +9,26 @@ Continues the per-tab split established by:
 
 ## What lives here
 
-Currently a single function: ``_alerts_tab_from_redis``. The Alerts tab
-is structurally a "Redis-only" tab — every view it renders comes from
-the ``gridpulse:alerts:{region}`` payload that the scoring job writes
-each hour. There's no fallback compute path because alert detection
-itself runs in the scoring job, not on the web. That makes this module
-small (~200 lines) and self-contained.
+``_render_risk_tab`` plus the per-widget builders it composes, and the
+two *data* paths that feed it:
+
+* ``_alerts_tab_from_redis`` — production. Reads the
+  ``gridpulse:alerts:{region}`` payload the scoring job writes hourly.
+* the dev/demo fallback inside ``update_alerts_tab`` — computes the same
+  shapes locally from ``demand-store`` / ``weather-store`` when
+  ``REQUIRE_REDIS`` is off.
+
+**One renderer, two data sources (P2-44 / #273).** These two paths used
+to build the tab independently and had drifted into *different designs*:
+production rendered the stress breakdown as emoji plus inline styles
+while dev rendered the ``gp-stress-row`` icon components, and the dev
+path printed a literal ``"None"`` for BAs whose capacity is unreliable.
+The split that remains is the honest one — where the numbers come from —
+and the rendering below it is shared, so the two can no longer diverge.
+
+The docstring previously claimed this module held "a single function"
+with "no fallback compute path"; the dev fallback has computed grid
+stress inline since #265. Corrected here.
 
 When the alerts tab grows additional helpers (severity classifiers,
 event-timeline filters, etc.), they belong here.
@@ -63,32 +77,27 @@ def _stress_tone(stress: int | None) -> str:
     return "positive" if stress < 70 else ("negative" if stress >= 85 else "neutral")
 
 
-def _alerts_tab_from_redis(region):
-    """Redis fast path for update_alerts_tab callback.
+#: Temperature-exceedance reference lines, °F. Hardcoded and fleet-uniform —
+#: see P2-29 (#273), which tracks sourcing or per-region parameterization.
+_TEMP_EXCEEDANCE_LINES_F = (95, 100, 105)
 
-    Returns an 8-tuple (alert_cards, stress_str, stress_label_span, breakdown,
-    fig_anomaly, fig_temp, fig_timeline, weather_context) or None if cache miss.
-    """
-    cached = redis_get(redis_key(f"alerts:{region}"))
-    if cached is None:
-        return None
+#: Historical extreme events plotted on the timeline. The severity scores are
+#: unsourced editorial values, not measured — P2-29 (#273) tracks sourcing or
+#: dropping them.
+_HISTORICAL_EVENTS = (
+    ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
+    ("2022-09-06", "CA Heat Wave", "CAISO", 80),
+    ("2023-07-20", "Heat Dome", "CAISO", 85),
+    ("2024-04-08", "Solar Eclipse", "PJM", 40),
+)
 
-    empty = _empty_figure("Loading...")
-    log.info("alerts_redis_hit", region=region)
-    alerts = cached.get("alerts", [])
-    # Legacy payloads (pre-alerts_source) only ever carried demo content.
-    alerts_source = cached.get("alerts_source", "demo")
-    stress = cached.get("stress_score")
-    stress_label = cached.get("stress_label", "Unavailable")
-    counts = cached.get("alert_counts", {})
-    anomaly = cached.get("anomaly", {})
-    temp_data = cached.get("temperature", {})
 
-    # Build alert cards
-    alert_cards = []
+def _build_alert_cards(alerts, alerts_source, alerts_total=None):
+    """Alert card list, including the provenance disclosure for the source."""
     if alerts:
+        cards = []
         if alerts_source == "demo":
-            alert_cards.append(
+            cards.append(
                 html.P(
                     "Demo data — not a live alert feed",
                     className="gp-demo-disclosure",
@@ -96,7 +105,7 @@ def _alerts_tab_from_redis(region):
                 )
             )
         for a in alerts:
-            alert_cards.append(
+            cards.append(
                 build_alert_card(
                     event=a["event"],
                     headline=a["headline"],
@@ -105,149 +114,128 @@ def _alerts_tab_from_redis(region):
                 )
             )
         if alerts_source == "noaa":
-            alerts_total = int(cached.get("alerts_total", len(alerts)) or len(alerts))
-            more_note = (
-                f" · showing {len(alerts)} of {alerts_total}" if alerts_total > len(alerts) else ""
-            )
-            alert_cards.append(
+            total = int(alerts_total or len(alerts))
+            more_note = f" · showing {len(alerts)} of {total}" if total > len(alerts) else ""
+            cards.append(
                 html.P(
                     f"Live severe-weather alerts · NOAA/NWS{more_note}",
                     className="gp-alerts-source",
                     style={"color": "#A8B3C7", "fontSize": "0.72rem", "textAlign": "center"},
                 )
             )
-    elif alerts_source == "unavailable":
-        alert_cards = [
-            html.P(
-                "Severe-weather alerts (NOAA/NWS) are temporarily unavailable. "
-                "The temperature and demand-anomaly charts below use live "
-                "weather and demand data and are unaffected.",
-                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
-            )
-        ]
-    elif alerts_source == "noaa":
-        alert_cards = [
-            html.P(
-                "No active severe-weather alerts (NOAA/NWS live feed)",
-                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
-            )
-        ]
-    else:
-        alert_cards = [
-            html.P(
-                "No active alerts",
-                style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
-            )
-        ]
+        return cards
 
-    stress_color = _stress_tone(stress)
-    n_crit = counts.get("critical", 0)
-    n_warn = counts.get("warning", 0)
-    n_info = counts.get("info", 0)
-    breakdown_items = []
-    if n_crit:
-        breakdown_items.append(
+    if alerts_source == "unavailable":
+        message = (
+            "Severe-weather alerts (NOAA/NWS) are temporarily unavailable. "
+            "The temperature and demand-anomaly charts below use live "
+            "weather and demand data and are unaffected."
+        )
+    elif alerts_source == "noaa":
+        message = "No active severe-weather alerts (NOAA/NWS live feed)"
+    else:
+        message = "No active alerts"
+    return [
+        html.P(message, style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"})
+    ]
+
+
+def _build_stress_breakdown(counts, has_alerts, alerts_source):
+    """Severity breakdown rows.
+
+    Unified on the ``gp-stress-row`` icon markup (P2-44 / #273). Production
+    previously rendered emoji with inline styles here while dev rendered these
+    rows, so the same tab had two visual languages depending on the data path.
+    """
+    from components.icons import icon as _icon
+
+    rows = []
+    for key, label, icon_name in (
+        ("critical", "Critical", "alert-triangle"),
+        ("warning", "Warning", "alert-circle"),
+        ("info", "Info", "info"),
+    ):
+        n = counts.get(key, 0)
+        if not n:
+            continue
+        rows.append(
             html.Div(
-                f"\U0001f534 Critical: {n_crit}",
-                style={"fontSize": "0.75rem", "color": "#FF5C7A"},
+                [
+                    _icon(
+                        icon_name,
+                        size="xs",
+                        className=f"gp-stress-row__icon gp-stress-row__icon--{key}",
+                    ),
+                    html.Span(f"{label}: {n}"),
+                ],
+                className=f"gp-stress-row gp-stress-row--{key}",
             )
         )
-    if n_warn:
-        breakdown_items.append(
-            html.Div(
-                f"\U0001f7e1 Warning: {n_warn}",
-                style={"fontSize": "0.75rem", "color": "#FFB84D"},
-            )
-        )
-    if n_info:
-        breakdown_items.append(
-            html.Div(
-                f"\U0001f535 Info: {n_info}",
-                style={"fontSize": "0.75rem", "color": "#56B4E9"},
-            )
-        )
-    if not alerts:
-        breakdown_items.append(
+    if not has_alerts:
+        rows.append(
             html.Div(
                 "No alert feed" if alerts_source == "unavailable" else "No active alerts",
-                style={"fontSize": "0.75rem", "color": "#A8B3C7"},
+                className="gp-stress-row gp-stress-row--empty",
             )
         )
-    breakdown = html.Div(breakdown_items)
+    return html.Div(rows)
 
-    # Anomaly detection chart
-    a_ts = pd.to_datetime(anomaly.get("timestamps", []))
-    a_demand = anomaly.get("demand", [])
-    a_upper = anomaly.get("upper", [])
-    a_lower = anomaly.get("lower", [])
-    a_anom_ts = pd.to_datetime(anomaly.get("anomaly_timestamps", []))
-    a_anom_vals = anomaly.get("anomaly_values", [])
 
-    if len(a_ts) > 0:
-        fig_anomaly = go.Figure()
-        fig_anomaly.add_trace(
-            go.Scatter(x=a_ts, y=a_demand, name="Demand", line=dict(color=COLORS["actual"]))
+def _build_anomaly_figure(region, timestamps, demand, upper, lower, anom_ts, anom_vals):
+    """Demand vs ±2σ band, with exceedances marked."""
+    if len(timestamps) == 0:
+        return _empty_figure("Loading...")
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=timestamps, y=demand, name="Demand", line=dict(color=COLORS["actual"])))
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps, y=upper, name="Upper (2σ)", line=dict(color="#FF5C7A", dash="dash", width=1)
         )
-        fig_anomaly.add_trace(
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=timestamps, y=lower, name="Lower (2σ)", line=dict(color="#FF5C7A", dash="dash", width=1)
+        )
+    )
+    if len(anom_ts) > 0:
+        fig.add_trace(
             go.Scatter(
-                x=a_ts,
-                y=a_upper,
-                name="Upper (2σ)",
-                line=dict(color="#FF5C7A", dash="dash", width=1),
+                x=anom_ts,
+                y=anom_vals,
+                mode="markers",
+                name="Anomaly",
+                marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
             )
         )
-        fig_anomaly.add_trace(
-            go.Scatter(
-                x=a_ts,
-                y=a_lower,
-                name="Lower (2σ)",
-                line=dict(color="#FF5C7A", dash="dash", width=1),
-            )
-        )
-        if len(a_anom_ts) > 0:
-            fig_anomaly.add_trace(
-                go.Scatter(
-                    x=a_anom_ts,
-                    y=a_anom_vals,
-                    mode="markers",
-                    name="Anomaly",
-                    marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
-                )
-            )
-        fig_anomaly.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
-    else:
-        fig_anomaly = empty
+    fig.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
+    return fig
 
-    # Temperature chart
-    t_ts = pd.to_datetime(temp_data.get("timestamps", []))
-    t_vals = temp_data.get("values", [])
-    if len(t_ts) > 0:
-        fig_temp = go.Figure()
-        fig_temp.add_trace(
-            go.Scatter(x=t_ts, y=t_vals, name="Temperature", line=dict(color=COLORS["temperature"]))
-        )
-        for t in [95, 100, 105]:
-            fig_temp.add_hline(
-                y=t,
-                line=dict(color="#FF5C7A", dash="dot", width=1),
-                annotation_text=f"{t}°F",
-                annotation_position="right",
-            )
-        fig_temp.update_layout(**_layout(uirevision=region, yaxis_title="°F"))
-    else:
-        fig_temp = empty
 
-    # Historical event timeline (static)
-    events = [
-        ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
-        ("2022-09-06", "CA Heat Wave", "CAISO", 80),
-        ("2023-07-20", "Heat Dome", "CAISO", 85),
-        ("2024-04-08", "Solar Eclipse", "PJM", 40),
-    ]
-    fig_timeline = go.Figure()
-    for date, name, reg, sev in events:
+def _build_temp_figure(region, timestamps, values):
+    """Temperature series with the fleet-uniform exceedance reference lines."""
+    if len(timestamps) == 0:
+        return _empty_figure("Loading...")
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(x=timestamps, y=values, name="Temperature", line=dict(color=COLORS["temperature"]))
+    )
+    for t in _TEMP_EXCEEDANCE_LINES_F:
+        fig.add_hline(
+            y=t,
+            line=dict(color="#FF5C7A", dash="dot", width=1),
+            annotation_text=f"{t}°F",
+            annotation_position="right",
+        )
+    fig.update_layout(**_layout(uirevision=region, yaxis_title="°F"))
+    return fig
+
+
+def _build_timeline_figure(region):
+    """Historical extreme-event timeline, highlighting events in this region."""
+    fig = go.Figure()
+    for date, name, reg, sev in _HISTORICAL_EVENTS:
         color = COLORS["ensemble"] if reg == region else "#A8B3C7"
-        fig_timeline.add_trace(
+        fig.add_trace(
             go.Scatter(
                 x=[date],
                 y=[sev],
@@ -258,7 +246,7 @@ def _alerts_tab_from_redis(region):
                 showlegend=False,
             )
         )
-    fig_timeline.update_layout(
+    fig.update_layout(
         **_layout(
             uirevision=region,
             xaxis_title="Date",
@@ -266,7 +254,78 @@ def _alerts_tab_from_redis(region):
             yaxis_range=[0, 100],
         )
     )
+    return fig
 
+
+def _render_risk_tab(
+    *,
+    region,
+    alerts,
+    alerts_source,
+    stress,
+    stress_label,
+    counts,
+    anomaly,
+    temperature,
+    weather_context,
+    alerts_total=None,
+):
+    """Build the Risk tab's 8-output tuple from already-resolved data.
+
+    The single render path for both the Redis and dev/demo data sources
+    (P2-44 / #273). Callers differ only in where ``alerts`` / ``anomaly`` /
+    ``temperature`` came from; everything below this line is identical.
+
+    ``stress`` of ``None`` renders as an em dash, never the string "None" —
+    ``models.pricing.grid_stress`` returns ``None`` deliberately for BAs
+    without a reliable capacity plate (#254), and the dev path used to print
+    it verbatim.
+    """
+    return (
+        _build_alert_cards(alerts, alerts_source, alerts_total),
+        "—" if stress is None else str(stress),
+        html.Span(stress_label, className=f"kpi-delta {_stress_tone(stress)}"),
+        _build_stress_breakdown(counts, bool(alerts), alerts_source),
+        _build_anomaly_figure(
+            region,
+            anomaly.get("timestamps", []),
+            anomaly.get("demand", []),
+            anomaly.get("upper", []),
+            anomaly.get("lower", []),
+            anomaly.get("anomaly_timestamps", []),
+            anomaly.get("anomaly_values", []),
+        ),
+        _build_temp_figure(region, temperature.get("timestamps", []), temperature.get("values", [])),
+        _build_timeline_figure(region),
+        weather_context,
+    )
+
+
+def _alerts_tab_from_redis(region):
+    """Redis fast path for update_alerts_tab callback.
+
+    Returns an 8-tuple (alert_cards, stress_str, stress_label_span, breakdown,
+    fig_anomaly, fig_temp, fig_timeline, weather_context) or None if cache miss.
+    """
+    cached = redis_get(redis_key(f"alerts:{region}"))
+    if cached is None:
+        return None
+
+    log.info("alerts_redis_hit", region=region)
+    alerts = cached.get("alerts", [])
+    # Legacy payloads (pre-alerts_source) only ever carried demo content.
+    alerts_source = cached.get("alerts_source", "demo")
+    stress = cached.get("stress_score")
+    stress_label = cached.get("stress_label", "Unavailable")
+    counts = cached.get("alert_counts", {})
+    anomaly = dict(cached.get("anomaly", {}))
+    temp_data = cached.get("temperature", {})
+    t_vals = temp_data.get("values", [])
+    anomaly["timestamps"] = pd.to_datetime(anomaly.get("timestamps", []))
+    anomaly["anomaly_timestamps"] = pd.to_datetime(anomaly.get("anomaly_timestamps", []))
+
+    # Cards, breakdown and figures are built by the shared renderer below;
+    # this path's only job is resolving the data out of the payload.
     # Weather context — the full "Current Conditions" card row (temperature +
     # wind + humidity + cloud), built from the scoring job's latest reading. The
     # web tier used to only have the temperature series, so it rendered a lone
@@ -311,15 +370,17 @@ def _alerts_tab_from_redis(region):
             className="g-2",
         )
 
-    return (
-        alert_cards,
-        "—" if stress is None else str(stress),
-        html.Span(stress_label, className=f"kpi-delta {stress_color}"),
-        breakdown,
-        fig_anomaly,
-        fig_temp,
-        fig_timeline,
-        weather_context,
+    return _render_risk_tab(
+        region=region,
+        alerts=alerts,
+        alerts_source=alerts_source,
+        alerts_total=cached.get("alerts_total"),
+        stress=stress,
+        stress_label=stress_label,
+        counts=counts,
+        anomaly=anomaly,
+        temperature=temp_data,
+        weather_context=weather_context,
     )
 
 
@@ -472,208 +533,61 @@ def register_alerts_callbacks(app):
 
         # ── v1 compute fallback (dev/demo only) ─────────────
         from data.demo_data import generate_demo_alerts
-
-        alerts = generate_demo_alerts(region)
-
-        alert_cards = []
-        if alerts:
-            alert_cards.append(
-                html.P(
-                    "Demo data — not a live alert feed",
-                    className="gp-demo-disclosure",
-                    style={"color": "#FFB84D", "fontSize": "0.75rem", "textAlign": "center"},
-                )
-            )
-            for a in alerts:
-                alert_cards.append(
-                    build_alert_card(
-                        event=a["event"],
-                        headline=a["headline"],
-                        severity=a["severity"],
-                        expires=a.get("expires", "")[:16] if a.get("expires") else None,
-                    )
-                )
-        else:
-            alert_cards = [
-                html.P(
-                    "No active alerts",
-                    style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"},
-                )
-            ]
-
-        n_crit = sum(1 for a in alerts if a["severity"] == "critical")
-        n_warn = sum(1 for a in alerts if a["severity"] == "warning")
-        n_info = sum(1 for a in alerts if a["severity"] == "info")
-        # Grid stress = demand ÷ capacity supply tightness, not alert count (#265).
-        # Matches the scoring job's write_alerts; alert counts are context below.
         from models.pricing import grid_stress
 
-        _current_demand = None
+        alerts = generate_demo_alerts(region)
+        counts = {
+            sev: sum(1 for a in alerts if a["severity"] == sev)
+            for sev in ("critical", "warning", "info")
+        }
+
+        # Grid stress = demand / capacity supply tightness, not alert count
+        # (#265). Same helper the scoring job calls, so the two paths cannot
+        # disagree on the definition; they differ only in the demand reading
+        # they have available.
+        current_demand = None
         try:
             _dd = pd.read_json(io.StringIO(demand_json)) if demand_json else None
             if _dd is not None and not _dd.empty and "demand_mw" in _dd:
                 _s = _dd["demand_mw"].dropna()
-                _current_demand = float(_s.iloc[-1]) if len(_s) else None
+                current_demand = float(_s.iloc[-1]) if len(_s) else None
         except Exception:
-            _current_demand = None
-        stress, stress_label = grid_stress(region, _current_demand)
-        stress_color = _stress_tone(stress)
+            current_demand = None
+        stress, stress_label = grid_stress(region, current_demand)
 
-        from components.icons import icon as _icon
-
-        breakdown_items = []
-        if n_crit:
-            breakdown_items.append(
-                html.Div(
-                    [
-                        _icon(
-                            "alert-triangle",
-                            size="xs",
-                            className="gp-stress-row__icon gp-stress-row__icon--critical",
-                        ),
-                        html.Span(f"Critical: {n_crit}"),
-                    ],
-                    className="gp-stress-row gp-stress-row--critical",
-                )
-            )
-        if n_warn:
-            breakdown_items.append(
-                html.Div(
-                    [
-                        _icon(
-                            "alert-circle",
-                            size="xs",
-                            className="gp-stress-row__icon gp-stress-row__icon--warning",
-                        ),
-                        html.Span(f"Warning: {n_warn}"),
-                    ],
-                    className="gp-stress-row gp-stress-row--warning",
-                )
-            )
-        if n_info:
-            breakdown_items.append(
-                html.Div(
-                    [
-                        _icon(
-                            "info",
-                            size="xs",
-                            className="gp-stress-row__icon gp-stress-row__icon--info",
-                        ),
-                        html.Span(f"Info: {n_info}"),
-                    ],
-                    className="gp-stress-row gp-stress-row--info",
-                )
-            )
-        if not alerts:
-            breakdown_items.append(
-                html.Div("No active alerts", className="gp-stress-row gp-stress-row--empty")
-            )
-        breakdown = html.Div(breakdown_items)
-
+        # Anomaly band: compute the +/-2 sigma envelope over the FULL series,
+        # then slice to the displayed 168h window -- so the window is warm at
+        # its start and the bands span the whole demand line rather than
+        # beginning a day late.
+        anomaly = {}
         if demand_json:
             demand_df = pd.read_json(io.StringIO(demand_json))
             demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
-            # Compute the ±2σ band over the full series, then slice to the
-            # displayed 168h window — so the 24h window is warm at the start and
-            # the bands span the whole demand line (not starting a day late).
             roll_mean_full = demand_df["demand_mw"].rolling(24, min_periods=1).mean()
             roll_std_full = demand_df["demand_mw"].rolling(24, min_periods=2).std()
             recent = demand_df.tail(168)
             upper = (roll_mean_full + 2 * roll_std_full).tail(168)
             lower = (roll_mean_full - 2 * roll_std_full).tail(168)
             anomalies = recent[recent["demand_mw"] > upper]
+            anomaly = {
+                "timestamps": recent["timestamp"],
+                "demand": recent["demand_mw"],
+                "upper": upper,
+                "lower": lower,
+                "anomaly_timestamps": anomalies["timestamp"],
+                "anomaly_values": anomalies["demand_mw"],
+            }
 
-            fig_anomaly = go.Figure()
-            fig_anomaly.add_trace(
-                go.Scatter(
-                    x=recent["timestamp"],
-                    y=recent["demand_mw"],
-                    name="Demand",
-                    line=dict(color=COLORS["actual"]),
-                )
-            )
-            fig_anomaly.add_trace(
-                go.Scatter(
-                    x=recent["timestamp"],
-                    y=upper,
-                    name="Upper (2σ)",
-                    line=dict(color="#FF5C7A", dash="dash", width=1),
-                )
-            )
-            fig_anomaly.add_trace(
-                go.Scatter(
-                    x=recent["timestamp"],
-                    y=lower,
-                    name="Lower (2σ)",
-                    line=dict(color="#FF5C7A", dash="dash", width=1),
-                )
-            )
-            if not anomalies.empty:
-                fig_anomaly.add_trace(
-                    go.Scatter(
-                        x=anomalies["timestamp"],
-                        y=anomalies["demand_mw"],
-                        mode="markers",
-                        name="Anomaly",
-                        marker=dict(color="#FF5C7A", size=8, symbol="diamond"),
-                    )
-                )
-            fig_anomaly.update_layout(**_layout(uirevision=region, yaxis_title="MW"))
-        else:
-            fig_anomaly = empty
-
+        temperature = {}
         if weather_json:
             weather_df = pd.read_json(io.StringIO(weather_json))
             weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
             recent_w = weather_df.tail(168)
-            fig_temp = go.Figure()
-            fig_temp.add_trace(
-                go.Scatter(
-                    x=recent_w["timestamp"],
-                    y=recent_w["temperature_2m"],
-                    name="Temperature",
-                    line=dict(color=COLORS["temperature"]),
-                )
-            )
-            for t in [95, 100, 105]:
-                fig_temp.add_hline(
-                    y=t,
-                    line=dict(color="#FF5C7A", dash="dot", width=1),
-                    annotation_text=f"{t}°F",
-                    annotation_position="right",
-                )
-            fig_temp.update_layout(**_layout(uirevision=region, yaxis_title="°F"))
-        else:
-            fig_temp = empty
+            temperature = {
+                "timestamps": recent_w["timestamp"],
+                "values": recent_w["temperature_2m"],
+            }
 
-        events = [
-            ("2021-02-15", "Winter Storm Uri", "ERCOT", 95),
-            ("2022-09-06", "CA Heat Wave", "CAISO", 80),
-            ("2023-07-20", "Heat Dome", "CAISO", 85),
-            ("2024-04-08", "Solar Eclipse", "PJM", 40),
-        ]
-        fig_timeline = go.Figure()
-        for date, name, reg, sev in events:
-            color = COLORS["ensemble"] if reg == region else "#A8B3C7"
-            fig_timeline.add_trace(
-                go.Scatter(
-                    x=[date],
-                    y=[sev],
-                    mode="markers+text",
-                    text=[name],
-                    textposition="top center",
-                    marker=dict(size=12, color=color),
-                    showlegend=False,
-                )
-            )
-        fig_timeline.update_layout(
-            **_layout(
-                uirevision=region,
-                xaxis_title="Date",
-                yaxis_title="Severity Score",
-                yaxis_range=[0, 100],
-            )
-        )
 
         # Build weather context from latest reading
         weather_context = html.Div()
@@ -685,15 +599,16 @@ def register_alerts_callbacks(app):
             except Exception:
                 log.warning("weather_context_build_failed")
 
-        return (
-            alert_cards,
-            str(stress),
-            html.Span(stress_label, className=f"kpi-delta {stress_color}"),
-            breakdown,
-            fig_anomaly,
-            fig_temp,
-            fig_timeline,
-            weather_context,
+        return _render_risk_tab(
+            region=region,
+            alerts=alerts,
+            alerts_source="demo",
+            stress=stress,
+            stress_label=stress_label,
+            counts=counts,
+            anomaly=anomaly,
+            temperature=temperature,
+            weather_context=weather_context,
         )
 
 
