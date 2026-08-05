@@ -79,6 +79,32 @@ noticing (below).
 Five alert policies + the uptime check + the budget are live and bound to the
 email channel. The budget also emails the billing-account admins by default.
 
+> ⚠ **The uptime check is now load-bearing for LATENCY, not just alerting**
+> (2026-08-05). The web service runs `--min-instances 0`; the only thing keeping
+> an instance warm is this check polling `/health` every 300s. Pause or delete
+> it and the service scales to zero, making the next visitor wait a **measured
+> 10.8s** cold start. Restore `--min-instances 1` in `deploy-prod.yml` first if
+> you ever retire it.
+
+### A configured guard is not an active guard — check three things, not one
+
+Three separate controls in this project were **correctly configured and doing
+nothing**, each invisible in the obvious `describe`/`ls` output:
+
+| control | looked like | actually |
+|---|---|---|
+| `scoring_partial_failure_alert.json` (#267) | committed in `docs/monitoring/` | never applied to GCP — the event fired into a void for weeks |
+| `jobs.training_job` ARIMA order cache | docstring promised a `force` escape hatch | `force` had **no caller** that set it True |
+| Artifact Registry cleanup policy | `describe` showed `delete-stale` + `keep-recent-versions` | **`cleanupPolicyDryRun: true`** — evaluated and logged, deleted nothing, while the repo grew to **303 GiB** |
+
+The shared shape: the artifact that declares the intent (a JSON file, a
+docstring, a policy block) is not the thing that enforces it. When you add a
+guard, verify the **enforcement** side separately —
+`gcloud beta monitoring policies list` for an alert,
+`cleanupPolicyDryRun` for a registry policy, an actual caller for a flag.
+`tests/unit/test_monitoring_policies_applied.py` exists for exactly this reason
+on the alerting side; the other two had no equivalent.
+
 > ⚠ **`scoring_partial_failure_alert.json` (#267) is NOT in the table above — it
 > was committed but never applied.** `jobs/scoring_job.py:471` has been emitting
 > the event into a void. **Applying is a manual step outside CI; landing the JSON
