@@ -61,7 +61,7 @@
 | Tagline | See demand sooner. Decide with confidence. |
 | Personas | 4: Grid Operations, Renewables, Trader, Data Scientist |
 | Production URL | https://gridpulse.kristenmartino.ai |
-| Test count | 1,589 passing as of [#119](https://github.com/kristenmartino/gridpulse/pull/119) |
+| Test count | **2,989 collected** — 2,986 passed, 3 skipped, in ~79s. Split: unit 2,762 / integration 204 / e2e 23. Measured 2026-08-05 via `pytest tests/ -q` at `db13c06` (previously "1,589 passing as of #119" — stale by ~1,400). The 3 skips are environment-conditional: `test_scenarios_heuristic.py` skips when no Redis-backed ensemble forecast is reachable. **This number moves most weeks** — re-measure at the merge base rather than citing this row's figure back at it (it went 2,977 → 2,989 across a single intervening PR while this row was being written) |
 
 ## Data sources
 
