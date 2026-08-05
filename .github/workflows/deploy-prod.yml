@@ -169,6 +169,33 @@ jobs:
           # docs/CANONICAL_FACTS.md rather than leaving this comment as the
           # source of truth.
           #
+          # DIRECT VPC EGRESS replaces the Serverless VPC Access connector
+          # (2026-08-05), on all three surfaces here and all three in
+          # deploy-dev.yml. The connector `wattcast-connector` existed solely to
+          # reach Memorystore's private IP, and it ran e2-micro x minInstances=2
+          # CONTINUOUSLY to do it — ~$12-18/mo of always-on VMs whose only job
+          # was to forward packets. Direct VPC egress attaches the revision to
+          # the subnet itself: no connector VMs, no per-instance charge.
+          #
+          # The risk was NOT the flag swap, it was the peering. Memorystore here
+          # is connectMode DIRECT_PEERING (10.101.143.243, reserved range
+          # 10.101.143.240/29), reachable over peering `redis-peer-329456251715`
+          # to a Google-managed network with exportCustomRoutes=False. Whether
+          # Direct VPC egress traverses that peering is a real question and was
+          # NOT assumed — a throwaway Cloud Run Job on Direct VPC egress PINGed
+          # Redis before any of this was written: PING True, DBSIZE 974, connect
+          # in 24ms. The probe was deleted after.
+          #
+          # DELETE THE CONNECTOR ONLY AFTER THIS DEPLOYS AND IS VERIFIED. All six
+          # deploy targets must be off it first, or the next deploy of whatever
+          # still references it fails. Verify with:
+          #   gcloud run services describe gridpulse --region us-east1 \
+          #     --format='value(spec.template.metadata.annotations)' | tr ';' '\n' \
+          #     | grep -i vpc
+          # It must show network-interfaces and NO vpc-access-connector. Then:
+          #   gcloud compute networks vpc-access connectors delete \
+          #     wattcast-connector --region us-east1
+          #
           # Cost/DoS ceiling note (#253): --max-instances 4 is the effective
           # spend cap on this --allow-unauthenticated service (~$228/mo pinned
           # at max vs ~$57 idle, both restated for the sizing above). The
@@ -193,7 +220,9 @@ jobs:
             --max-instances 4 \
             --cpu-boost \
             --cpu-throttling \
-            --vpc-connector wattcast-connector \
+            --network default \
+            --subnet default \
+            --vpc-egress private-ranges-only \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "^@^ENVIRONMENT=production@LOG_LEVEL=INFO@GCS_BUCKET_NAME=nextera-portfolio-energy-cache@GCS_ENABLED=true@REDIS_HOST=${{ secrets.REDIS_HOST }}@REDIS_PORT=6379@REQUIRE_REDIS=true@PRECOMPUTE_ENABLED=false@METRICS_ALLOWED_IPS=${{ secrets.METRICS_ALLOWED_IPS }}"
 
@@ -253,7 +282,9 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --vpc-connector wattcast-connector \
+            --network default \
+            --subnet default \
+            --vpc-egress private-ranges-only \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379,PRECOMPUTE_MAX_WORKERS=8" \
             --command python \
@@ -306,7 +337,9 @@ jobs:
             --image ${{ env.IMAGE }}:${{ env.DEPLOY_SHA }} \
             --region ${{ env.REGION }} \
             --service-account "gridpulse-job@${{ env.PROJECT_ID }}.iam.gserviceaccount.com" \
-            --vpc-connector wattcast-connector \
+            --network default \
+            --subnet default \
+            --vpc-egress private-ranges-only \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "ENVIRONMENT=production,LOG_LEVEL=INFO,GCS_BUCKET_NAME=nextera-portfolio-energy-cache,GCS_ENABLED=true,REDIS_HOST=${{ secrets.REDIS_HOST }},REDIS_PORT=6379" \
             --command python \

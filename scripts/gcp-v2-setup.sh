@@ -37,21 +37,21 @@ gcloud services enable \
 echo "  Done."
 
 # ---------------------------------------------------------------------------
-# Step 2: Create VPC Connector (Cloud Run <-> Memorystore/Cloud SQL)
+# Step 2: (removed) Serverless VPC Connector -> Direct VPC egress
 # ---------------------------------------------------------------------------
+# This step used to create `wattcast-connector` with --min-instances=2, which
+# meant TWO e2-micro VMs billed continuously (~$12-18/mo) whose only job was
+# forwarding packets to Memorystore's private IP. Cloud Run reaches the same
+# VPC with Direct VPC egress and no connector VMs at all:
+#
+#   --network default --subnet default --vpc-egress private-ranges-only
+#
+# That is what both deploy workflows now pass, on all six surfaces. Verified
+# 2026-08-05 to traverse the Memorystore DIRECT_PEERING peering — a throwaway
+# Cloud Run Job on Direct VPC egress PINGed Redis before the change was made
+# (PING True, DBSIZE 974, 24ms connect). Do not reintroduce the connector.
 echo ""
-echo "Step 2: Creating Serverless VPC Connector..."
-if gcloud compute networks vpc-access connectors describe wattcast-connector \
-    --region="${REGION}" &>/dev/null; then
-    echo "  VPC connector already exists. Skipping."
-else
-    gcloud compute networks vpc-access connectors create wattcast-connector \
-        --region="${REGION}" \
-        --range="10.8.0.0/28" \
-        --min-instances=2 \
-        --max-instances=3
-    echo "  Done."
-fi
+echo "Step 2: VPC connectivity — Direct VPC egress (no connector needed)."
 
 # ---------------------------------------------------------------------------
 # Step 3: Create Memorystore (Redis) instance
@@ -174,7 +174,7 @@ echo ""
 echo "Step 8: Updating Cloud Run service with Redis..."
 gcloud run services update gridpulse \
     --region="${REGION}" \
-    --vpc-connector=wattcast-connector \
+    --network=default --subnet=default --vpc-egress=private-ranges-only \
     --set-env-vars "REDIS_HOST=${REDIS_HOST},REDIS_PORT=${REDIS_PORT}" \
     --quiet 2>/dev/null || echo "  Cloud Run service not deployed yet. Will pick up env vars on next deploy."
 
@@ -188,7 +188,7 @@ echo "================================================"
 echo ""
 echo "  Memorystore (Redis): ${REDIS_HOST}:${REDIS_PORT}"
 echo "  Cloud SQL:           wattcast-db (${SQL_IP})"
-echo "  VPC Connector:       wattcast-connector"
+echo "  VPC connectivity:    Direct VPC egress (no connector)"
 echo "  Model Artifacts:     gs://${MODELS_BUCKET}"
 echo ""
 echo "  Add to GitHub secrets:"
