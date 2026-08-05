@@ -83,6 +83,21 @@ class DriftRecord:
     actual: float
     abs_pct_error: float  # |actual - predicted| / |actual| * 100, NaN-safe
     smape: float = float("nan")  # 200*|a-p|/(|a|+|p|); auto-filled below
+    #: How far ahead this prediction actually reached, in hours: 1 means the
+    #: target hour was the first row of the forecast that produced it.
+    #:
+    #: **This window is labelled "1-hour-ahead" and is not uniformly 1h**
+    #: (P2-19 / #273). A forecast starts at ``last_real_demand_hour + 1``, and
+    #: EIA publishes with a 1–4h lag, so the most recent hour that becomes
+    #: matchable at the next tick can sit several rows into the forecast. Every
+    #: record then lands in one pooled statistic under a lead it never had.
+    #:
+    #: ``None`` on records written before this field existed, and on any record
+    #: whose source payload lacked a usable first row — never guessed. The
+    #: pooling is deliberately unchanged for now: this field exists so the lead
+    #: distribution can be *measured* before deciding whether to filter the
+    #: statistic to lead 1 or stratify it by lead.
+    lead_hours: int | None = None
 
     def __post_init__(self) -> None:
         # Frozen dataclass: assign through object.__setattr__. Only fill when
@@ -342,6 +357,16 @@ def build_records_from_actuals(
     N records for N matchable hours: at hourly cadence each tick should
     add exactly one observation per model. Backfilling more would happen
     on first-deploy and could spike record counts oddly.
+
+    **Known gap, now measured (P2-19 / #273).** That same choice silently
+    discards every *other* matchable hour, permanently — the next tick
+    overwrites the payload they came from, so they can never be recovered.
+    And the hour it does keep is not reliably one hour ahead: the forecast
+    starts at ``last_real_demand_hour + 1`` and EIA publishes with a 1–4h
+    lag, so the newest matchable hour can be several rows in. Each record now
+    carries the lead it actually had, in ``DriftRecord.lead_hours``, so the
+    distribution is visible before anyone changes what the pooled statistic
+    means. Behaviour is otherwise unchanged.
     """
     if not previous_forecast or not actuals:
         return {}
@@ -358,6 +383,7 @@ def build_records_from_actuals(
             continue
         if not np.isfinite(actual_mw):
             continue
+        lead = _lead_hours(rows, ts_norm)
         preds = extract_one_hour_ahead_predictions(previous_forecast, ts_norm)
         out: dict[str, DriftRecord] = {}
         for model_name, predicted_mw in preds.items():
@@ -369,9 +395,33 @@ def build_records_from_actuals(
                 predicted=predicted_mw,
                 actual=float(actual_mw),
                 abs_pct_error=err,
+                lead_hours=lead,
             )
         return out
     return {}
+
+
+def _lead_hours(rows: list[dict[str, Any]], target_ts: str) -> int | None:
+    """Hours from a forecast's first row to ``target_ts``, 1-based.
+
+    ``1`` means the target hour WAS the first forecast row. Returns ``None``
+    rather than a guess when the payload has no usable first row or the
+    arithmetic does not produce a sane positive lead — an unknown lead must
+    stay unknown, since the whole point of the field is to stop an assumed
+    lead being read as a measured one.
+    """
+    if not rows:
+        return None
+    try:
+        raw_first = rows[0].get("timestamp", "")
+        if not raw_first:
+            return None
+        first_dt = datetime.fromisoformat(str(raw_first).replace("Z", "+00:00"))
+        target_dt = datetime.fromisoformat(str(target_ts).replace("Z", "+00:00"))
+        lead = int((target_dt - first_dt).total_seconds() // 3600) + 1
+    except (AttributeError, KeyError, TypeError, ValueError):
+        return None
+    return lead if lead >= 1 else None
 
 
 def merge_and_trim(
@@ -472,6 +522,11 @@ def serialize_records(records: list[DriftRecord]) -> list[dict[str, Any]]:
     ``s`` (sMAPE) is written when finite and omitted otherwise — a missing
     ``s`` is recomputed from ``p``/``a`` on deserialize, keeping old payloads
     readable and the JSON free of non-finite values.
+
+    ``l`` (lead hours, P2-19 / #273) follows the same rule: written only when
+    known, absent otherwise. An absent ``l`` deserializes to ``None``, never
+    to a default lead — a record from before the field existed has an unknown
+    lead, not a lead of 1.
     """
     return [
         {
@@ -480,6 +535,7 @@ def serialize_records(records: list[DriftRecord]) -> list[dict[str, Any]]:
             "a": round(r.actual, 2),
             "e": round(r.abs_pct_error, 4),
             **({"s": round(r.smape, 4)} if np.isfinite(r.smape) else {}),
+            **({"l": int(r.lead_hours)} if r.lead_hours is not None else {}),
         }
         for r in records
     ]
@@ -493,6 +549,7 @@ def deserialize_records(rows: list[dict[str, Any]] | None) -> list[DriftRecord]:
     for row in rows:
         try:
             s_raw = row.get("s")
+            l_raw = row.get("l")
             out.append(
                 DriftRecord(
                     timestamp=_normalize_ts(row["ts"]),
@@ -502,6 +559,10 @@ def deserialize_records(rows: list[dict[str, Any]] | None) -> list[DriftRecord]:
                     # Missing/None ``s`` (pre-PR-G9 records) → NaN → the
                     # dataclass recomputes sMAPE from p/a on construction.
                     smape=float(s_raw) if s_raw is not None else float("nan"),
+                    # Missing ``l`` (pre-P2-19 records) → None. Unlike sMAPE
+                    # this CANNOT be recomputed: the payload that produced the
+                    # record is long overwritten. Unknown stays unknown.
+                    lead_hours=int(l_raw) if l_raw is not None else None,
                 )
             )
         except (KeyError, TypeError, ValueError):

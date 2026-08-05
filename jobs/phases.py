@@ -1830,7 +1830,13 @@ def write_drift_metrics(
     secondary signal, not a critical path.
     """
     from data.redis_client import RedisReadError, redis_key, redis_set
-    from models.drift import build_records_from_actuals, compute_drift_payload
+    from models.drift import (
+        _normalize_ts as _normalize_drift_ts,
+    )
+    from models.drift import (
+        build_records_from_actuals,
+        compute_drift_payload,
+    )
 
     if previous_forecast is None:
         return PhaseResult(region=region, ok=True, details={"skipped": "no_previous_forecast"})
@@ -1886,11 +1892,24 @@ def write_drift_metrics(
         models_with_records = sorted(payload["models"].keys())
         sample_model = models_with_records[0] if models_with_records else None
         sample = payload["models"][sample_model] if sample_model else {}
+        # P2-19 (#273): the lead this tick's record actually had, and how many
+        # OTHER matchable hours were dropped to keep one-record-per-tick. Both
+        # are logged rather than acted on — the pooled statistic still calls
+        # itself 1-hour-ahead, and this is the evidence for whether it can.
+        sample_record = next(iter(new_records.values()))
+        n_matchable = sum(
+            1
+            for r in (previous_forecast.get("forecasts") or [])
+            if _normalize_drift_ts(r.get("timestamp", "")) in actuals
+        )
         log.info(
             "drift_updated",
             region=region,
             models=models_with_records,
-            new_record_ts=next(iter(new_records.values())).timestamp,
+            new_record_ts=sample_record.timestamp,
+            lead_hours=sample_record.lead_hours,
+            matchable_hours=n_matchable,
+            dropped_hours=max(0, n_matchable - 1),
             sample_rolling_smape_7d=sample.get("rolling_smape_7d"),
             sample_rolling_mape_7d=sample.get("rolling_mape_7d"),
             sample_low_actual_excluded_7d=sample.get("n_low_actual_excluded_7d"),
@@ -1901,6 +1920,8 @@ def write_drift_metrics(
             details={
                 "models": models_with_records,
                 "new_records": len(new_records),
+                "lead_hours": sample_record.lead_hours,
+                "dropped_hours": max(0, n_matchable - 1),
                 "total_records": sum(m["n_records"] for m in payload["models"].values()),
             },
         )
