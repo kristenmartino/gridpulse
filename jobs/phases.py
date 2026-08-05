@@ -979,14 +979,45 @@ def _build_future_feature_frame(
             future_hour = future_df["timestamp"].dt.hour
             future_dow = future_df["timestamp"].dt.dayofweek
             last_row = featured.iloc[-1]
+
+            # Vectorised (2026-08-05). This was `for col in numeric_cols: for i
+            # in range(horizon)` — ~49 x 720 = 35,280 scalar `.iloc`/`.loc`
+            # lookups into a MultiIndex, per BA, per tick.
+            #
+            # It measured 1,081.9s of summed worker time in production, 33.1%
+            # of the whole forecast phase and its single largest sub-step
+            # (`scoring_phase_rollup.forecast_substeps`, 2026-08-05T14:11).
+            #
+            # A LOCAL BENCHMARK SAID 1.33s/call, i.e. ~68s across 51 BAs, and
+            # on that basis this was dismissed as ~1% and left alone. The
+            # local number was 16x optimistic because the loop is PURE PYTHON
+            # and therefore holds the GIL: at PRECOMPUTE_MAX_WORKERS=8 the
+            # eight regions being scored concurrently serialise against each
+            # other here. A single-threaded benchmark cannot see that, which
+            # is the whole reason the sub-phase instrumentation exists.
+            # Vectorising does not just make this step faster — it stops it
+            # blocking the other seven workers.
+            #
+            # Semantics preserved exactly, including two things a naive
+            # rewrite gets wrong:
+            #   1. A key PRESENT in group_means whose mean is NaN must stay
+            #      NaN. Only a MISSING key falls back to last_row. `reindex`
+            #      alone cannot tell those apart, hence the explicit `missing`
+            #      mask rather than `fillna`.
+            #   2. Assignment stays column-by-column in `numeric_cols` order so
+            #      column insertion order — and therefore the resulting frame's
+            #      column order — is byte-identical to the loop's.
+            future_keys = pd.MultiIndex.from_arrays(
+                [future_hour.to_numpy(), future_dow.to_numpy()],
+                names=["_hour", "_dow"],
+            )
+            aligned = group_means.reindex(future_keys)
+            missing = ~future_keys.isin(group_means.index)
+            any_missing = bool(missing.any())
             for col in numeric_cols:
-                values = np.empty(horizon, dtype=float)
-                for i in range(horizon):
-                    key = (future_hour.iloc[i], future_dow.iloc[i])
-                    if key in group_means.index:
-                        values[i] = group_means.loc[key, col]
-                    else:
-                        values[i] = float(last_row[col]) if col in last_row.index else 0.0
+                values = aligned[col].to_numpy(dtype=float, copy=True)
+                if any_missing:
+                    values[missing] = float(last_row[col]) if col in last_row.index else 0.0
                 future_df[col] = values
 
         for col in feature_cols:
