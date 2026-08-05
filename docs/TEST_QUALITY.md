@@ -1,9 +1,9 @@
 # Test quality — coverage, mutation testing, and what each one can prove
 
-> Baseline measured 2026-07-31; `models/rolling_eval.py`, `data/quality.py`
-> and `models/ensemble.py` re-measured after their fixes landed (#377, #383).
+> **Whole table re-measured 2026-08-05** after #377, #383, #385, #386 and
+> #416 — baseline and adjudication in one pass, so the two agree.
 > Regenerate with `python scripts/mutation_test.py`; re-adjudicate with
-> `python scripts/adjudicate_mutants.py --fast`.
+> `python scripts/adjudicate_mutants.py --fast` (~25 min each).
 
 Most of this repo's tests are agent-written. That is fine, but it means "the
 suite is green" carries less information than usual: a test that asserts
@@ -37,7 +37,7 @@ Survivors are the output. The score is only a summary of them.
 **Two scores are published, because one of them is misleading on its own.**
 mutmut rewrites string constants (`"x"` → `"XXxXX"`) and structlog arguments
 (`log.info(None, ...)`) prolifically. Nothing asserts on either, so they survive
-by construction — 259 of this baseline's 722 survivors are that. The **logic
+by construction — 223 of this baseline's 586 survivors are that. The **logic
 score** drops those from both sides of the ratio. Neither number is the "real"
 one; the gap between them tells you how much of a low score is noise.
 
@@ -51,37 +51,44 @@ and none should try. Adjudication is a human step, and it is the point.
 
 ## Baseline
 
-2,349 mutants scored. Full run ≈ 25 min on an 8-core laptop.
+2,354 mutants scored, **whole table re-measured in one pass**. Full run ≈ 25 min
+on an 8-core laptop.
 
-| module | mutants | killed | logic surv. | noise surv. | score | logic score |
-|---|---:|---:|---:|---:|---:|---:|
-| `data/feature_engineering.py` | 903 | 705 | 141 | 57 | 78.1% | **83.3%** |
-| `models/evaluation.py` | 373 | 272 | 81 | 20 | 72.9% | **77.1%** |
-| `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** |
-| `models/rolling_eval.py` | 322 | 220 | 67 | 35 | 68.3% | **76.7%** |
-| `models/skill.py` | 192 | 130 | 49 | 13 | 67.7% | **72.6%** |
-| `data/quality.py` | 188 | 126 | 50 | 12 | 67.0% | **71.6%** |
-| `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** |
-| **overall** | **2,349** | **1,643** | **447** | **259** | **69.9%** | **78.6%** |
+| module | mutants | killed | logic surv. | noise surv. | score | logic score | |
+|---|---:|---:|---:|---:|---:|---:|---|
+| `data/quality.py` | 188 | 164 | 20 | 4 | 87.2% | **89.1%** | ↑ 71.6% |
+| `models/skill.py` | 192 | 164 | 21 | 7 | 85.4% | **88.6%** | ↑ 72.1% |
+| `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
+| `data/feature_engineering.py` | 903 | 705 | 141 | 57 | 78.1% | **83.3%** | untouched |
+| `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
+| `models/evaluation.py` | 373 | 272 | 81 | 20 | 72.9% | **77.1%** | untouched |
+| `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** | ↑ 61.6% |
+| **overall** | **2,354** | **1,768** | **363** | **223** | **75.1%** | **83.0%** | ↑ 78.6% |
 
-`models/rolling_eval.py`, `data/quality.py` and `models/ensemble.py` are
-re-measured after the fixes below; the other four rows are the original
-baseline.
+Five rounds of fixes (#377, #383, #385, #386, #416) took the overall logic score
+**78.6% → 83.0%** and killed **125** mutants, without changing production
+behaviour anywhere except the one crash #386 fixed. The mutant total rose by 5
+because that fix added lines.
 
-**Two rounds of fixes, and the difference between them is the lesson.** The
-first pinned five decision boundaries in `rolling_eval` and `quality` and moved
-the overall score **0.2 points** (69.3% → 69.5%, six mutants). The second pinned
-four guards in `ensemble` and moved it **0.4 points** (69.5% → 69.9%, ten
-mutants) while moving that module's own logic score **11.7 points**.
+**The most useful number here is not the total.** Compare what equal effort
+bought in different places:
 
-Same effort, very different headline movement — because the second landed on
-the weakest module and the first on one of the better-tested ones. Which is
-exactly why the gate policy below is per-module rather than overall: a
-2,349-mutant denominator makes every real fix look like rounding error.
+| round | scope | overall | that module |
+|---|---|---:|---:|
+| #377 | five decision boundaries in `rolling_eval` / `quality` | +0.2 pts | — |
+| #383 | four guards in `ensemble` | +0.4 pts | **+11.7** |
+| #385 | the `coerce_demand_artifacts` cluster | — | **+17.5** |
+| #416 | the `skill.py` clusters | — | **+16.5** |
+
+A 2,354-mutant denominator makes every real fix look like rounding error, which
+is exactly why the gate policy below is **per-module**. It is also why the
+"logic score" column is the one to read: three modules moved 11–18 points each
+while the headline moved 4.
 
 `simulation/scenario_engine.py` is the clearest illustration of why both
 columns are published: 53.4% raw looks alarming, but 75 of its 111 survivors
-are log-argument rewrites. Its behavioural score is 77.9%, mid-pack.
+are log-argument rewrites. Its behavioural score is 77.9%, mid-pack — and it is
+dormant code besides.
 
 **The score is not perfectly repeatable.** A second run of `models/skill.py`
 alone, from a clean checkout, scored 129/192 rather than 130/192 — one mutant
@@ -100,33 +107,40 @@ equivalent, and would bury the signal.
 
 ## Adjudicated survivors
 
-**All 457 logic survivors have now been machine-verified** with
+**All 363 logic survivors are machine-verified** with
 `scripts/adjudicate_mutants.py`: apply the mutant to the real source, run
-tests, restore. Result:
+tests, restore. Re-run in full against the current tree, so these counts match
+the baseline above rather than trailing it.
 
 | | |
 |---|---:|
-| confirmed (no test notices) | **455** |
+| confirmed (no test notices) | **361** |
 | false survivors (mutmut was wrong) | **2** |
 
 Both false ones are in `ensemble_combine`, both killed by
 `test_stable_hash_reproducibility.py` — the subprocess blind spot of
-limitation 1. **The tool's false-survivor rate is 0.4%, not a third.**
+limitation 1. **The tool's false-survivor rate is 2 in 363, or 0.55%.**
 
-> **This is a point-in-time measurement, and the point has moved.** The 457
-> were adjudicated against the tree *before* the ensemble guards were pinned;
-> **ten of those 455 confirmed survivors are now dead**, leaving 447. The
-> counts and clusters below describe the population as adjudicated, not as it
-> stands — re-running `scripts/adjudicate_mutants.py --fast` regenerates it in
-> about 20 minutes, and `docs/data/` holds the verdicts to diff against.
-> Kept as-measured rather than silently patched, because a ledger that
-> back-edits its own history is not evidence of anything.
+> **This re-run existed to check a specific doubt, and the doubt was
+> unfounded.** #386 found that the adjudicator could reuse stale bytecode:
+> CPython invalidates a `.pyc` on `(mtime, size)` with mtime at one-second
+> resolution, and many mutations preserve length exactly, so an
+> apply/run/restore loop finishing inside a second could test code that was
+> never actually mutated. The failure is silent and **biased in one
+> direction** — it can only manufacture false *survivors*.
+>
+> That put a published number in doubt, so the whole population was
+> re-adjudicated with the fix in place. **It found the same two, in the same
+> function, killed by the same test.** The earlier figure was right; it just
+> had not been *shown* to be right. The rate reads 0.55% rather than 0.44%
+> only because five rounds of fixes shrank the denominator from 457 to 363 —
+> the numerator never moved.
 
 > **Correcting an earlier claim in this file.** A previous revision said
 > "roughly a third of what a mutation run reports is not a gap," from a sample
 > of seven. That sample was chosen *because* the entries looked interesting,
 > which is exactly how you get a biased estimate. Measured over the whole
-> population it is 2 in 457. The lesson survives — adjudicate before acting —
+> population it is 2 in 363. The lesson survives — adjudicate before acting —
 > but the number was wrong and the reasoning behind it was worse.
 
 Verification protocol: apply the mutation **one at a time**, run tests, revert.
@@ -137,35 +151,49 @@ or the test is decorative.
 
 ### Confirmed does not mean broken
 
-`confirmed` means *no test noticed*. It does not rank severity, and the 455 are
-not 455 defects. Two things matter more than the count:
+`confirmed` means *no test noticed*. It does not rank severity, and the 361 are
+not 361 defects. Two things matter more than the count:
 
 **They cluster by untested function, not by independent defect.** The top
 clusters are one missing test each, not dozens of bugs:
 
 | confirmed | site | |
 |---:|---|---|
-| 40 | `data/quality.py::coerce_demand_artifacts` | |
-| 32 | `models/rolling_eval.py::verdict` | |
-| 26 | `simulation/scenario_engine.py::_run_ensemble` | dormant, see below |
-| 24 | `models/ensemble.py::ensemble_combine` | |
+| 26 | `simulation/scenario_engine.py::_run_ensemble` | dormant — see below |
 | 23 | `data/feature_engineering.py::compute_cyclical_dow` | |
+| 21 | `data/feature_engineering.py::compute_autoregressive_snapshot` | |
+| 21 | `data/feature_engineering.py::compute_cyclical_hour` | |
+| 20 | `models/ensemble.py::ensemble_combine` | |
+| 20 | `data/feature_engineering.py::compute_wind_power` | |
+| 18 | `models/evaluation.py::check_long_horizon_sanity` | the #296 guard |
+| 16 | `models/evaluation.py::compute_interval_coverage_drift` | |
 
-`_run_ensemble` survives *everything*, including `forecasts = None` and
+Every cluster that once topped this table has been worked:
+`coerce_demand_artifacts` 40 → 11 (#385), `verdict` 32 → 6 (#386),
+`skill_payload` + `seasonal_naive_forecast` 37 → 13 (#416). What is left is
+concentrated in **`data/feature_engineering.py`** (four of the top eight, 85
+survivors between them) and the dormant scenario engine.
+
+`_run_ensemble` still survives *everything*, including `forecasts = None` and
 `ensemble_combine(None, weights)`. That is not 26 findings. It is one function
-with no test.
+with no test — and one that does not run in production.
 
-**Shape predicts value.** Grouping the 455 by what the mutation actually
+**Shape predicts value.** Grouping the 361 by what the mutation actually
 changed:
 
 | share | shape | what it usually means |
 |---:|---|---|
-| 17.8% | `dtype=float` dropped | defensive coercion — see below, **not** equivalent |
-| 16.9% | arithmetic operator/constant | usually real |
-| 8.6% | control flow (`continue`/`break`/`return`) | usually real — this class produced a fixed gap |
-| 7.9% | `round()` precision | cosmetic unless the rounding is contractual |
-| 7.7% | assignment nulled (`x = None`) | crashes on mutation; concentrated in untested functions |
-| 11.6% | comparison boundaries, `and`/`or`, negation | real — this class produced four fixed gaps |
+| 22.4% | `dtype=float` dropped | defensive coercion — see below, **not** equivalent |
+| 17.2% | arithmetic operator/constant | usually real |
+| 10.0% | control flow (`continue`/`break`/`return`) | usually real — produced a fixed gap in #377 |
+| 12.2% | comparison boundaries, `and`/`or` | real — produced nine fixed gaps across #377/#383/#385/#416 |
+| 7.5% | assignment nulled (`x = None`) | crashes on mutation; concentrated in untested functions |
+| 3.3% | argument dropped | usually a changed default |
+
+The `dtype=float` share **rose** from 17.8% to 22.4% — not because more of them
+appeared, but because the behavioural classes around them were pinned. It is now
+the single largest identifiable group, which makes it the honest next question
+rather than a footnote.
 
 ### The `dtype=float` class is load-bearing, and I nearly got that wrong
 
@@ -204,7 +232,7 @@ prioritisation aid, not a verdict.
 Every one of 1–5 survived all 2,687 unit tests before the fix and fails after
 it.
 
-### Priority: one cluster fixed, one to fix, one to ignore
+### Priority: four clusters fixed, one to ignore, one clearly next
 
 **`models/ensemble.py` — was highest value, now FIXED.** ADR-004 weights feed
 every served forecast, and three guards were unpinned. Each mapped to a
@@ -246,17 +274,40 @@ One mutant in `ensemble_combine` was checked and deliberately left unpinned:
 any non-zero constant gives identical output (verified across 0.333 / 0.667 /
 3.0 / 7.0). **Equivalent** — a test for it would be theatre.
 
-**`data/quality.py::coerce_demand_artifacts` (40) and
-`models/rolling_eval.py::verdict` (32) — next.** Both are live decision code,
-and both have already yielded one confirmed real gap each.
+**`data/quality.py::coerce_demand_artifacts` (40 → 11) — fixed in #385.** The
+day-ahead signal was never exercised through the series function, and the
+disclosure payload was asserted by count and substring only.
 
-**`simulation/scenario_engine.py` (36) — ignore for now.** Nothing in
-`components/`, `jobs/`, `api.py` or `app.py` imports `simulation`. The live
+**`models/rolling_eval.py::verdict` (32 → 6) — fixed in #386,** which turned up
+a **live crash** rather than a test gap: identical deltas in every window raised
+`ZeroDivisionError`. The `stderr == 0` branch was handled deliberately at the
+top of the function and then divided by `stderr` anyway in the closing reason
+string. Four survivors sat in that branch because nothing reached it, and
+nothing reaching it is exactly why the crash went unnoticed.
+
+**`models/skill.py` (49 → 21) — fixed in #416.** The substitution boundary that
+decides whether a region is served a naive forecast, and the edges of the
+projection that replaces the model.
+
+**`simulation/scenario_engine.py` (36) — still deliberately ignored.** Nothing
+in `components/`, `jobs/`, `api.py` or `app.py` imports `simulation`. The live
 Scenarios feature runs a heuristic; issue #127 tracks replacing it with this
 engine. So these are real test gaps in code that **does not run in
 production** — zero operational risk today, and worth re-adjudicating if #127
 lands. A raw mutation score cannot tell you this; it is why the score is not
 a gate.
+
+**What is actually next: `data/feature_engineering.py` (141).** It now holds
+39% of all remaining survivors and four of the top eight clusters
+(`compute_cyclical_dow` 23, `compute_autoregressive_snapshot` 21,
+`compute_cyclical_hour` 21, `compute_wind_power` 20). It is also the module
+where a silent error is hardest to see downstream: 49 features feed every
+model, and `compute_autoregressive_snapshot` seeds the recursive forecast.
+Its 83.3% is mid-table, which is precisely the kind of unremarkable number that
+stops attracting attention.
+
+Second: **`models/evaluation.py` (81)**, where `check_long_horizon_sanity` (18)
+is the #296 guard against degenerate forecasts reaching the serve path.
 
 ### 1. The decision boundaries were not pinned — **fixed**
 
@@ -363,7 +414,7 @@ These bound what the score can prove. None of them are silent.
    | wall clock | 84 min | **4 min** |
 
    **Zero disagreements.** 25x faster for the same answers, which is what made
-   adjudicating all 457 practical rather than aspirational.
+   adjudicating the whole population practical rather than aspirational.
 
    Re-derive the list if tests start spawning processes elsewhere. Running the
    verifier without `--fast` is always the unconditional check.
@@ -445,11 +496,14 @@ It is advisory, and stays that way until all three hold:
    unexplained swings from test ordering or flakiness). One re-run of
    `models/skill.py` already moved by a single mutant, so this is not
    theoretical.
-2. ✅ **Resolved.** The false-survivor rate is **measured at 2/457 (0.4%)**,
-   the blind spot behind it is enumerated (limitation 1), and the deselected
-   slow test that was limitation 2 is gone — re-baselining after it landed
-   changed **no** verdict, so it had been killing zero mutants.
-3. ✅ **Resolved.** All 457 logic survivors are machine-verified, clustered by
+2. ✅ **Resolved, and re-verified.** The false-survivor rate is **measured at
+   2/363 (0.55%)**, the blind spot behind it is enumerated (limitation 1), and
+   the stale-bytecode defect that could have masked more of them is fixed and
+   the whole population re-checked — same two, same function, same killing
+   test. The deselected slow test that was once limitation 2 is gone;
+   re-baselining after it landed changed **no** verdict, so it had been killing
+   zero mutants.
+3. ✅ **Resolved.** All 363 logic survivors are machine-verified, clustered by
    function, and grouped by mutation shape above.
 
 Only (1) is outstanding, and it needs four weeks of scheduled runs rather than

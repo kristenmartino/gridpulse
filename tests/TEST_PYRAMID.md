@@ -150,8 +150,13 @@ result. Measured baselines, the survivor ledger, and the rules for reading a
 mutation score are in [`docs/TEST_QUALITY.md`](../docs/TEST_QUALITY.md).
 
 The relationship to coverage, concretely: `models/ensemble.py` is **85%**
-line-covered and scores **61.6%** on behavioural mutants. Coverage is a floor,
-not a verdict.
+line-covered and scored **61.6%** on behavioural mutants. Pinning its guards
+took that to **73.3%** while coverage did not move at all — the two instruments
+measure different things. Coverage is a floor, not a verdict.
+
+Fleet logic score is **83.0%** across the seven scoped modules; the per-module
+table and the adjudicated survivor ledger are in
+[`docs/TEST_QUALITY.md`](../docs/TEST_QUALITY.md).
 
 ## Quality Gates (CI)
 
