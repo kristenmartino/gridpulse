@@ -286,11 +286,17 @@ def _build_timeline_figure(region):
                 hovertemplate=f"{name} · {reg}<br>%{{x}}<extra></extra>",
             )
         )
+    # Pad the date axis so the first and last event labels are not clipped
+    # against the plot edges — the markers sit at the extremes of the data
+    # range, and the labels are centred above them.
+    dates = sorted(pd.to_datetime([e[0] for e in _HISTORICAL_EVENTS]))
+    pad = pd.Timedelta(days=240)
     fig.update_layout(
         **_layout(
             uirevision=region,
             xaxis_title="Date",
-            yaxis=dict(visible=False, range=[-1, 1]),
+            xaxis=dict(range=[(dates[0] - pad).isoformat(), (dates[-1] + pad).isoformat()]),
+            yaxis=dict(visible=False, range=[-1, 1.6]),
         )
     )
     return fig
