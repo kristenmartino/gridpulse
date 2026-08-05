@@ -40,7 +40,7 @@
 | data/noaa\_client.py                  |      129 |        6 |     95% |212-215, 230-231 |
 | data/preprocessing.py                 |      120 |        2 |     98% |   288-289 |
 | data/quality.py                       |       60 |        4 |     93% |90-91, 126, 130 |
-| data/redis\_client.py                 |       84 |        9 |     89% |   196-204 |
+| data/redis\_client.py                 |      101 |        0 |    100% |           |
 | data/session\_diff.py                 |      152 |        5 |     97% |98, 120, 125, 179-180 |
 | data/user\_prefs.py                   |      127 |       28 |     78% |94-100, 183, 188-192, 210, 237, 249-261, 263 |
 | data/vintage.py                       |      150 |        4 |     97% |115, 181, 237, 382 |
@@ -67,7 +67,7 @@
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
-| **TOTAL**                             | **8547** |  **949** | **89%** |           |
+| **TOTAL**                             | **8564** |  **940** | **89%** |           |
 
 
 ## Setup coverage badge
