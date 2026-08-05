@@ -90,14 +90,31 @@ jobs:
           # of seconds — the wrong trade for ~$57/mo. Do not "fix" the remaining
           # idle cost by scaling to zero without measuring that cold start.
           #
-          # --no-cpu-throttling REMOVED (2026-08-05). It was never justified in
-          # a comment and this tier does no work between requests: the only
-          # background thread (app.py:193) is gated behind PRECOMPUTE_ENABLED,
-          # which is false here and is a dev-only scoring trigger. The web tier
-          # is read-only against Redis by the CLAUDE.md I/O guardrail, so there
-          # is nothing to keep warm. Dropping it moves the service to request-
-          # based billing, where an idle min-instance bills at the reduced idle
-          # rate instead of the full always-allocated rate.
+          # --cpu-throttling, set EXPLICITLY (2026-08-05). This tier does no
+          # work between requests: the only background thread (app.py:193) is
+          # gated behind PRECOMPUTE_ENABLED, which is false here and is a
+          # dev-only scoring trigger. The web tier is read-only against Redis
+          # by the CLAUDE.md I/O guardrail, so there is nothing to keep warm.
+          # Throttling moves the service to request-based billing, where an
+          # idle min-instance bills at the reduced idle rate instead of the
+          # full always-allocated rate.
+          #
+          # IT MUST BE THE POSITIVE FLAG, NOT THE ABSENCE OF THE NEGATIVE ONE.
+          # This bit us the same day: the first attempt merely DELETED
+          # `--no-cpu-throttling` from this command, CI deployed green, and
+          # revision gridpulse-00391-npb came up still carrying
+          # `run.googleapis.com/cpu-throttling: 'false'`. `gcloud run deploy`
+          # MERGES with the live revision — an omitted flag inherits, it does
+          # not reset. The resize beside it landed (1 vCPU / 2Gi) which made
+          # the deploy look like it had worked. Every sticky Cloud Run setting
+          # behaves this way; assert the state you want, never the absence of
+          # the state you don't. Verify with:
+          #   gcloud run revisions describe $(gcloud run services describe \
+          #     gridpulse --region us-east1 \
+          #     --format='value(status.latestReadyRevisionName)') \
+          #     --region us-east1 \
+          #     --format='value(metadata.annotations."run.googleapis.com/cpu-throttling")'
+          # It must read `true`.
           # The saving is EXPECTED BUT NOT YET MEASURED — unlike the resize
           # above, which is arithmetic. Settle it against the BigQuery billing
           # export (dataset nextera-portfolio:billing_export) once it has a full
@@ -128,6 +145,7 @@ jobs:
             --min-instances 1 \
             --max-instances 4 \
             --cpu-boost \
+            --cpu-throttling \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "^@^ENVIRONMENT=production@LOG_LEVEL=INFO@GCS_BUCKET_NAME=nextera-portfolio-energy-cache@GCS_ENABLED=true@REDIS_HOST=${{ secrets.REDIS_HOST }}@REDIS_PORT=6379@REQUIRE_REDIS=true@PRECOMPUTE_ENABLED=false@METRICS_ALLOWED_IPS=${{ secrets.METRICS_ALLOWED_IPS }}"
