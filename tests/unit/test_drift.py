@@ -212,6 +212,64 @@ class TestBuildRecordsFromActuals:
             assert recs[model_name].timestamp == "2026-05-20T14:00:00+00:00"
             assert recs[model_name].actual == pytest.approx(102_000.0)
 
+    def test_records_carry_the_lead_they_actually_had(self):
+        """P2-19 (#273): the window is called 1-hour-ahead and isn't uniformly 1h.
+
+        Both forecast hours are matchable here, so the kept record is the
+        SECOND row — a lead of 2, pooled into a statistic labelled 1h. The
+        field makes that visible instead of assumed.
+        """
+        actuals = {
+            "2026-05-20T13:00:00+00:00": 101_500.0,
+            "2026-05-20T14:00:00+00:00": 102_000.0,
+        }
+        recs = build_records_from_actuals(self._previous_forecast(), actuals)
+        for model_name in ("xgboost", "prophet"):
+            assert recs[model_name].lead_hours == 2
+
+    def test_lead_is_one_when_the_first_row_is_the_match(self):
+        actuals = {"2026-05-20T13:00:00+00:00": 101_500.0}
+        recs = build_records_from_actuals(self._previous_forecast(), actuals)
+        assert recs["xgboost"].lead_hours == 1
+
+    def test_lead_is_none_rather_than_guessed_when_unknowable(self):
+        """An unknown lead must stay unknown — never default to 1."""
+        from models.drift import _lead_hours
+
+        assert _lead_hours([], "2026-05-20T14:00:00+00:00") is None
+        assert _lead_hours([{"timestamp": ""}], "2026-05-20T14:00:00+00:00") is None
+        assert _lead_hours([{"timestamp": "not-a-date"}], "2026-05-20T14:00:00+00:00") is None
+        # Target before the forecast even starts is not a lead of 0 or -1.
+        assert (
+            _lead_hours([{"timestamp": "2026-05-20T14:00:00+00:00"}], "2026-05-20T12:00:00+00:00")
+            is None
+        )
+
+    def test_lead_survives_the_redis_round_trip(self):
+        """And a record written before the field existed stays None."""
+        from models.drift import DriftRecord, deserialize_records, serialize_records
+
+        rec = DriftRecord(
+            timestamp="2026-05-20T14:00:00+00:00",
+            predicted=100.0,
+            actual=101.0,
+            abs_pct_error=1.0,
+            lead_hours=3,
+        )
+        rows = serialize_records([rec])
+        assert rows[0]["l"] == 3
+        assert deserialize_records(rows)[0].lead_hours == 3
+
+        legacy = [{"ts": "2026-05-20T14:00:00+00:00", "p": 100.0, "a": 101.0, "e": 1.0}]
+        assert "l" not in legacy[0]
+        assert deserialize_records(legacy)[0].lead_hours is None
+
+        # A record with no known lead must not write a misleading key.
+        unknown = DriftRecord(
+            timestamp="2026-05-20T15:00:00+00:00", predicted=1.0, actual=1.0, abs_pct_error=0.0
+        )
+        assert "l" not in serialize_records([unknown])[0]
+
     def test_skips_hour_with_no_actual(self):
         # Only the older forecast hour has an actual. The newer one
         # (14:00) is still being awaited from EIA. Use what we have.
