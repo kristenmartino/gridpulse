@@ -751,6 +751,12 @@ Result: Four commits, 31 new tests, every new guard verified by re-applying its 
 
 **Lesson to convey**: *A defense keyed to the shape of a failure cannot see a failure that has only a rate — and the alert built to warn you early inherits the same blind spot, because it only evaluates the runs that survive. What generalizes across all three of these incidents isn't any dependency-specific guard; it's the budget. Bound what one call can cost, bound what one run can cost, and make the run always reach the point where it records what it did.*
 
+**Epilogue (2026-08-05) — I refused to call the fix a win, and the instrumentation moved the next lever.** Alongside the budget we bumped the job to 8 workers on 4 vCPU. The next day two rows in the canonical-facts registry still read **"not yet measured"** against a config that was already live in production — which is precisely the failure that registry exists to prevent, so I went and measured it. Pre-bump: median **807.8s** over n=48. The three runs after the bump went live at 01:44 UTC: **1041.8 / 699.4 / 667.9s**, all 51/51.
+
+That reads like a 17% improvement, and I published it as **inconclusive**. Three reasons: n=3; the window overlaps EIA's own recovery so nothing is cleanly attributable; and the best post-bump run, 667.9s, sits *inside* the pre-bump range, whose minimum was 665.6s. It is indistinguishable from a good day at the old config. That is the same rule `EVALUATION_POLICY.md` applies to model changes — one window is not a verdict — applied to infrastructure, where it's much less habitual.
+
+The part that did pay was the per-phase attribution shipped during the incident. `forecast` is **60.1%** of all worker time (3085.5s of 5131.0s), and effective parallelism is already **7.7×** — 5131s of work retired in 668s of wall clock. So in-container workers are *spent*: turning that knob again buys nothing. The planned next lever had been "fan scoring across parallel tasks"; the data says the reason that would help is more vCPU, not more concurrency, and that the bigger prize is the 720-hour recursive inference that is 60% of the bill. **The measurement I took to confirm a fix ended up re-ordering the roadmap** — and the honest reading of it was the one that looked least impressive.
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
