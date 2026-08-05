@@ -75,7 +75,7 @@ cache counts — is behind the `METRICS_ALLOWED_IPS` allowlist). A billing budge
 a 5xx alert, a pinned-at-max alert, and an uptime check complete it
 (`docs/monitoring/`).
 
-**Why this split:** scoring + training are *expensive* (~5 min and ~3 hr for 51 BAs respectively) and *don't need to be interactive*. Putting them in Cloud Run **Service** would force every web request to wait on them — or rely on a background-thread hack that doesn't survive container recycles. Cloud Run **Jobs** are purpose-built for batch work with proper retries and 5-hour timeouts.
+**Why this split:** scoring + training are *expensive* (~14 min and ~3 hr for 51 BAs respectively) and *don't need to be interactive*. Putting them in Cloud Run **Service** would force every web request to wait on them — or rely on a background-thread hack that doesn't survive container recycles. Cloud Run **Jobs** are purpose-built for batch work with proper retries and 5-hour timeouts.
 
 ## §2 — Request lifecycle (what happens when a user loads the Forecast tab)
 
@@ -150,8 +150,8 @@ flowchart LR
         XGB[XGBoost<br/>non-linear weather→demand<br/>SHAP feature attribution]
     end
 
-    subgraph Ensemble["Inverse-MAPE weighted ensemble"]
-        Weights[weight_i = 1/MAPE_i<br/>normalized to sum=1]
+    subgraph Ensemble["Sharpened inverse-MAPE weighted ensemble"]
+        Weights["weight_i ∝ (1/MAPE_i)³<br/>normalized to sum=1<br/>ENSEMBLE_WEIGHT_EXPONENT = 3"]
         Combined[ensemble forecast<br/>+ 80% empirical CI]
     end
 
@@ -276,7 +276,7 @@ flowchart TB
     subgraph Tabs["5 visible tabs"]
         T1[Overview<br/>mission control · KPIs · hero chart · briefing]
         T2[US Grid<br/>map · polygons · 51-card grid · interchange]
-        T3[Forecast<br/>4 horizons × 4 models · scenarios · drivers]
+        T3[Forecast<br/>3 horizons 24h/7d/30d × 4 models · scenarios · drivers]
         T4[Risk<br/>extreme events · weather alerts · stress indicators]
         T5[Models<br/>backtests · MAPE/RMSE/MAE/R² · per-model diagnostics]
     end
@@ -287,14 +287,15 @@ flowchart TB
     Header --> T4
     Header --> T5
 
-    Personas[Persona affects:<br/>· Default scenario sets<br/>· Alert thresholds<br/>· KPI selection<br/>· Insight narrative tone] -.-> T1
+    Personas["Persona affects (shipped scope):<br/>· Insight-card eyebrow wording<br/>· Which insights are shown, and how many"] -.-> T1
     Personas -.-> T3
-    Personas -.-> T4
 ```
 
 The shell was reduced from **9 tabs originally to 5 visible** in the R3 redesign. The five remaining tabs absorbed content from the deprecated ones (Historical Demand → Forecast, Backtest → Models, Generation/Weather/Simulator → cross-cutting sections inside the visible tabs).
 
-Persona selection doesn't change the data — it changes the *defaults* and the *emphasis*. A trader and a grid operator looking at the same PJM forecast see different KPI selections, different default scenarios pre-populated in the simulator, and different alert thresholds — but the underlying demand series and ensemble forecast are identical.
+Persona selection doesn't change the data — it changes the *emphasis*. A trader and a grid operator looking at the same PJM forecast see the same demand series, the same ensemble forecast, and the same KPI tiles; what differs is the insight card's eyebrow ("Market signal" vs "Operating summary") and which insights are surfaced, filtered by `persona_relevance` and capped by `_PERSONA_MAX_INSIGHTS` ([`components/insights.py`](../components/insights.py)).
+
+**Shipped scope is narrower than the persona config implies.** `personas/config.py` also declares `kpi_metrics` and `alert_threshold` per persona, and `_build_persona_kpis` / `_build_overview_briefing` exist in `components/_callbacks_overview.py` — but none of them have a live call site: the KPI builders are re-exported only for tests, and `alert_threshold` is never read outside its own dataclass. All four personas also declare `default_tab="tab-overview"`, so the default-tab redirect is a no-op in practice. Do not describe persona switching as changing KPI selection, alert thresholds, or scenario sets until that code is wired up or deleted — tracked in [#188](https://github.com/kristenmartino/gridpulse/issues/188) (dead persona config).
 
 ## What's next
 

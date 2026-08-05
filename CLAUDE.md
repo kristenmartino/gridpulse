@@ -255,7 +255,7 @@ models/
   prophet_model.py        → Prophet with weather regressors
   arima_model.py          → SARIMAX with pmdarima auto-order
   xgboost_model.py        → XGBoost with TimeSeriesSplit CV + SHAP
-  ensemble.py             → 1/MAPE weighted combination
+  ensemble.py             → sharpened inverse-MAPE combination, weight ∝ (1/MAPE)³
   evaluation.py           → MAPE, RMSE, MAE, R², residuals, error-by-hour
   skill.py                → skill vs a seasonal-naive baseline (is the model beating "yesterday"?)
   model_service.py        → Forecast service layer: get_forecasts() with trained→simulated fallback

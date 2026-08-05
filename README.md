@@ -27,7 +27,7 @@ GridPulse helps energy teams move from fragmented monitoring to a unified operat
 | **Risk** | Where is operating risk rising? | Severe-weather signals, anomalies, stress indicators, degraded conditions |
 | **Models** | How trustworthy is the forecast? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, SHAP feature importance |
 
-Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) reconfigure the default tab, KPI cards, and welcome briefing — each reflects a different decision-making context for the same underlying data.
+Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) tune the narrative layer: the insight card's framing, and which insights surface and how many. The data, KPI tiles, and forecasts are identical across personas. (Per-persona KPI cards and alert thresholds are declared in `personas/config.py` but not yet wired into the shell — see [#188](https://github.com/kristenmartino/gridpulse/issues/188).)
 
 ---
 
@@ -76,7 +76,7 @@ See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analy
       └───────────┘                 └────────────┘
 ```
 
-**Data flow:** the scoring job runs hourly, fetching EIA + weather, loading the latest pickled models from GCS, and writing forecasts / alerts / diagnostics to Redis. The training job runs daily at 04:00 UTC, retraining each region's models on the last 60 days and persisting them back to GCS. The web service does cache-backed reads only — no API calls or model training in the request path.
+**Data flow:** the scoring job runs hourly, fetching EIA + weather, loading the latest pickled models from GCS, and writing forecasts / alerts / diagnostics to Redis. The training job runs daily at 04:00 UTC, retraining each region's models on the last 90 days and persisting them back to GCS. The web service does cache-backed reads only — no API calls or model training in the request path.
 
 ---
 
@@ -116,7 +116,7 @@ For live EIA data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia
 │   ├── redis_client.py             # Memorystore client (read-only at request time)
 │   ├── cache.py                    # SQLite cache with TTL
 │   ├── preprocessing.py            # Merge, align, interpolate, LTTB downsample
-│   ├── feature_engineering.py      # 43 derived features (CDD/HDD, lags, rolling stats)
+│   ├── feature_engineering.py      # 49 features: 17 raw weather + 32 derived (CDD/HDD, lags, rolling stats)
 │   └── audit.py                    # Forecast audit trail
 ├── models/
 │   ├── model_service.py            # Forecast service abstraction (meta.json-first)
