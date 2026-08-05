@@ -71,9 +71,44 @@ jobs:
 
       - name: Deploy to Cloud Run (Production)
         run: |
+          # SIZING, MEASURED 2026-08-05. Was 2 vCPU / 4Gi. Over 7 days this
+          # service took 3,741 requests/day (0.043 req/s) at CPU utilization
+          # mean 0.001 / peak 0.12 of 2 vCPU, and memory mean 0.087 / peak 0.13
+          # of 4Gi — a peak working set of ~0.24 vCPU and ~532 MB. 1 vCPU / 2Gi
+          # still leaves ~4x headroom on both. Source: Cloud Monitoring
+          # container/{cpu,memory}/utilizations, 3-day window.
+          #
+          # Why this was the largest line item on the bill: --min-instances 1
+          # with --no-cpu-throttling bills the FULL instance at the always-
+          # allocated rate for every second it exists, not just during requests.
+          # container/billable_instance_time read 86,582 instance-s/day —
+          # exactly 1.00 instance pinned on 24/7. At 2 vCPU / 4Gi that is
+          # ~$114/mo to serve 0.04 req/s; at 1 vCPU / 2Gi it is ~$57/mo.
+          #
+          # --min-instances 1 and --cpu-boost STAY. This is a public portfolio
+          # surface and a cold start on a Prophet/cmdstan/XGBoost image is tens
+          # of seconds — the wrong trade for ~$57/mo. Do not "fix" the remaining
+          # idle cost by scaling to zero without measuring that cold start.
+          #
+          # --no-cpu-throttling REMOVED (2026-08-05). It was never justified in
+          # a comment and this tier does no work between requests: the only
+          # background thread (app.py:193) is gated behind PRECOMPUTE_ENABLED,
+          # which is false here and is a dev-only scoring trigger. The web tier
+          # is read-only against Redis by the CLAUDE.md I/O guardrail, so there
+          # is nothing to keep warm. Dropping it moves the service to request-
+          # based billing, where an idle min-instance bills at the reduced idle
+          # rate instead of the full always-allocated rate.
+          # The saving is EXPECTED BUT NOT YET MEASURED — unlike the resize
+          # above, which is arithmetic. Settle it against the BigQuery billing
+          # export (dataset nextera-portfolio:billing_export) once it has a full
+          # day of Detailed-usage rows, and record the number in
+          # docs/CANONICAL_FACTS.md rather than leaving this comment as the
+          # source of truth.
+          #
           # Cost/DoS ceiling note (#253): --max-instances 4 is the effective
-          # spend cap on this --allow-unauthenticated service (~$456/mo pinned
-          # at max vs ~$114 idle). The web-tier guard backstops it: per-IP rate
+          # spend cap on this --allow-unauthenticated service (~$228/mo pinned
+          # at max vs ~$57 idle, both restated for the sizing above). The
+          # web-tier guard backstops it: per-IP rate
           # limiting (API_RATE_LIMIT_PER_MIN / DASH_RATE_LIMIT_PER_MIN, with
           # RATE_LIMIT_EXEMPT_IPS for trusted shared-NAT egress), a pinned-at-max
           # alert, and a billing budget (docs/monitoring/). METRICS_ALLOWED_IPS
@@ -87,13 +122,12 @@ jobs:
             --region ${{ env.REGION }} \
             --platform managed \
             --allow-unauthenticated \
-            --memory 4Gi \
-            --cpu 2 \
+            --memory 2Gi \
+            --cpu 1 \
             --timeout 300 \
             --min-instances 1 \
             --max-instances 4 \
             --cpu-boost \
-            --no-cpu-throttling \
             --vpc-connector wattcast-connector \
             --set-secrets "EIA_API_KEY=eia-api-key:latest" \
             --set-env-vars "^@^ENVIRONMENT=production@LOG_LEVEL=INFO@GCS_BUCKET_NAME=nextera-portfolio-energy-cache@GCS_ENABLED=true@REDIS_HOST=${{ secrets.REDIS_HOST }}@REDIS_PORT=6379@REQUIRE_REDIS=true@PRECOMPUTE_ENABLED=false@METRICS_ALLOWED_IPS=${{ secrets.METRICS_ALLOWED_IPS }}"
