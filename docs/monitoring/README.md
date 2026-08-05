@@ -76,6 +76,7 @@ noticing (below).
 | /health uptime check failing (alert) | `web_service_uptime_alert.json` | `alertPolicies/1577408926164424010` |
 | scoring-job partial failure (#267) | `scoring_partial_failure_alert.json` | `alertPolicies/1942403527399204858` |
 | scoring-job shed BAs at the soft deadline | `scoring_deadline_shed_alert.json` | `alertPolicies/8524477981812373740` |
+| Redis fail-soft writes dropped | `redis_write_failures_alert.json` | `alertPolicies/16314898527819427981` |
 | Uptime check config — public `/health` | — | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
 | Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | — | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
 
@@ -94,13 +95,16 @@ email channel. The budget also emails the billing-account admins by default.
 > enough to report itself — so this alert and that guard only became useful
 > together.
 
-> ⚠ **`redis_write_failures_alert.json` is NOT applied yet, deliberately** —
-> same reason: it filters on `redis_write_failures`, which only exists once the
-> emitting code ships. It covers *fail-soft* `redis_set` drops (secondary
-> payloads only; `actuals`/`weather`/`forecast`/`vintage` use fail-loud
-> `persist()` and already fail their phase, #268). Before 2026-08-05 such a drop
-> left only a **stdlib-logging** warning — `textPayload`, no `jsonPayload.event`,
-> unmatched by any policy.
+> ✅ **`redis_write_failures_alert.json` applied 2026-08-05** as
+> `alertPolicies/16314898527819427981`, once `redis_write_failures` was
+> confirmed present in the **deployed image** (`ee85c2b`) rather than merely on
+> main. It covers *fail-soft* `redis_set` drops — secondary payloads only;
+> `actuals`/`weather`/`forecast`/`vintage` use fail-loud `persist()` and already
+> fail their phase (#268). Before this, such a drop left only a stdlib-logging
+> warning: `textPayload`, no `jsonPayload.event`, unmatched by any policy.
+>
+> **`_KNOWN_UNAPPLIED` is now empty.** Every committed policy is live. If you add
+> one, this table is where it has to land — the test parses it.
 
 > ✅ **`scoring_deadline_shed_alert.json` applied 2026-08-05** as
 > `alertPolicies/8524477981812373740`, once the soft-deadline code was

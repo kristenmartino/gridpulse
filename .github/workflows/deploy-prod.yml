@@ -132,10 +132,30 @@ jobs:
           # exactly 1.00 instance pinned on 24/7. At 2 vCPU / 4Gi that is
           # ~$114/mo to serve 0.04 req/s; at 1 vCPU / 2Gi it is ~$57/mo.
           #
-          # --min-instances 1 and --cpu-boost STAY. This is a public portfolio
-          # surface and a cold start on a Prophet/cmdstan/XGBoost image is tens
-          # of seconds — the wrong trade for ~$57/mo. Do not "fix" the remaining
-          # idle cost by scaling to zero without measuring that cold start.
+          # --cpu-boost STAYS. --min-instances went to 0 later the same day; the
+          # paragraph that used to sit here said it must STAY at 1 and told the
+          # reader not to scale to zero "without measuring that cold start".
+          # That instruction was right, and it was followed — this is what the
+          # measurement found, superseding it:
+          #
+          #   * The cold start is real but ~10.8s, not "tens of seconds". The
+          #     `container/startup_latencies` metric reports ~976ms and is
+          #     MISLEADING for this purpose — it measures container-ready and
+          #     excludes the Dash/Python import. Measure a real first request.
+          #   * It should never be paid, because the /health UPTIME CHECK keeps
+          #     an instance warm: it polls every 300s from several probe
+          #     locations, measured traffic is 92.8 req/h with no idle hours,
+          #     and Cloud Run only scales to zero after ~15 min of quiet.
+          #     Verified before landing: 12 samples of `GET /` over 22 minutes,
+          #     none above 0.3s.
+          #   * `--min-instances 1` was therefore buying warmth monitoring
+          #     already supplied — 86,444 instance-s/day at the min-instance
+          #     idle rate, ~$19.44/mo.
+          #
+          # THE DEPENDENCY THAT CREATES: the uptime check is now load-bearing
+          # for LATENCY, not just alerting. Pause or delete it and the next
+          # visitor pays that 10.8s. Restore --min-instances 1 here first if it
+          # is ever retired.
           #
           # --cpu-throttling, set EXPLICITLY (2026-08-05). This tier does no
           # work between requests: the only background thread (app.py:193) is
