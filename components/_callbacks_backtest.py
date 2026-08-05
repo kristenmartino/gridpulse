@@ -387,7 +387,13 @@ def _predict_single_fold(
         from data.feature_engineering import compute_autoregressive_snapshot
         from models.xgboost_model import predict_xgboost, train_xgboost
 
-        model = train_xgboost(train_df)
+        # cross_validate=False: only ``model["model"]`` is used below, and the
+        # backtest MAPE comes from the recursive fold predictions — never from
+        # ``cv_scores``. Cross-validating here fit 5 extra boosters whose sole
+        # output was discarded on the next line. Across the daily training job
+        # that was 60 of ~80 boosters per BA, ~40% of the job's compute, and it
+        # changes nothing published: same folds, same horizons, same residuals.
+        model = train_xgboost(train_df, cross_validate=False)
         demand_history = train_df["demand_mw"].tolist()
         preds: list[float] = []
         for i in range(n_test):

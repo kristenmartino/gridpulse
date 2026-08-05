@@ -1181,7 +1181,11 @@ class TestPredictSingleFold:
             patch("models.xgboost_model.predict_xgboost", return_value=preds) as m_pred,
         ):
             result = _predict_single_fold("xgboost", train, test)
-            m_train.assert_called_once_with(train)
+            # cross_validate=False is load-bearing, not incidental: this fold
+            # uses only ``model["model"]``, so the CV boosters were pure waste
+            # (60 of ~80 per BA across the daily training job). Asserted on the
+            # call so a revert to the CV-ing default fails here.
+            m_train.assert_called_once_with(train, cross_validate=False)
             # Stepwise autoregressive inference calls predict once per forecast step.
             assert m_pred.call_count == len(test)
             for call_args in m_pred.call_args_list:
