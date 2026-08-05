@@ -88,6 +88,46 @@ else
     echo "   ✅ Repository created."
 fi
 
+# Cleanup policy (2026-08-05). Applied unconditionally, including to an
+# existing repo — this is the fix for a repo that had NO retention config at
+# all and had grown to 319 GB across 398 gridpulse images since 2026-02-28,
+# ~$32/mo at $0.10/GB-mo and rising ~$2.50/mo each month on its own. Every
+# green merge to main and to dev pushes two tags of an ~800 MB
+# Prophet/cmdstan/XGBoost image and nothing ever deleted one.
+#
+# Keep rules take precedence over Delete rules in Artifact Registry, so
+# keep-recent wins for the newest 20 versions regardless of the 30d delete.
+# 20 is chosen to cover realistic rollback depth, NOT to be minimal: the
+# gridpulse Cloud Run service has ~389 revisions and each pins an image
+# digest, so deleting an image makes rollback *to that revision* impossible.
+# Recent revisions are the only ones anyone would roll back to.
+#
+# ALWAYS dry-run before the first real apply on a populated repo:
+#   gcloud artifacts repositories set-cleanup-policies "${REPO_NAME}" \
+#       --location="${REGION}" --policy=<file> --dry-run
+#   gcloud artifacts repositories describe "${REPO_NAME}" \
+#       --location="${REGION}"   # then read cleanupPolicyDryRun
+echo "   Applying cleanup policy..."
+cat > /tmp/ar-cleanup.json << 'ARCLEANUP'
+[
+  {
+    "name": "keep-recent-versions",
+    "action": {"type": "Keep"},
+    "mostRecentVersions": {"keepCount": 20}
+  },
+  {
+    "name": "delete-stale",
+    "action": {"type": "Delete"},
+    "condition": {"olderThan": "30d"}
+  }
+]
+ARCLEANUP
+gcloud artifacts repositories set-cleanup-policies "${REPO_NAME}" \
+    --location="${REGION}" \
+    --policy=/tmp/ar-cleanup.json
+rm /tmp/ar-cleanup.json
+echo "   ✅ Cleanup policy set: keep 20 most recent, delete older than 30d"
+
 # ---------------------------------------------------------------------------
 # Step 5: Store EIA API Key in Secret Manager
 # ---------------------------------------------------------------------------
