@@ -32,14 +32,7 @@ README = MONITORING_DIR / "README.md"
 #: Policies deliberately NOT applied yet, with the reason. To apply one: run the
 #: gcloud recipe in the README, add its row (with live id) to the
 #: applied-policies table, then delete it from this dict.
-_KNOWN_UNAPPLIED: dict[str, str] = {
-    "redis_write_failures_alert.json": (
-        "2026-08-05 — filters on `redis_write_failures`, which only exists once "
-        "the emitting code is DEPLOYED. Applying first would recreate the "
-        "emitting-into-a-void state this test exists to catch. Apply with the "
-        "other two pending policies after the image ships."
-    ),
-}
+_KNOWN_UNAPPLIED: dict[str, str] = {}
 
 #: Live-id line format in the README table, e.g. `alertPolicies/5813319064717268577`.
 _LIVE_ID = re.compile(r"`alertPolicies/\d+`")
