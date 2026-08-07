@@ -1,7 +1,7 @@
 # Test quality — coverage, mutation testing, and what each one can prove
 
-> **Whole table re-measured 2026-08-07** after #377, #383, #385, #386, #416
-> and #426 — baseline and adjudication in one pass, so the two agree.
+> **Whole table re-measured 2026-08-07** after #377, #383, #385, #386, #416,
+> #426 and #434 — baseline and adjudication in one pass, so the two agree.
 > Regenerate with `python scripts/mutation_test.py`; re-adjudicate with
 > `python scripts/adjudicate_mutants.py --fast` (~25 min each).
 
@@ -202,47 +202,89 @@ changed:
 
 | share | shape | what it usually means |
 |---:|---|---|
-| 26.8% | `dtype=float` dropped | defensive coercion — see below, **not** equivalent |
+| 26.6% | `dtype=float` dropped | **closed** — real guards, unreachable input; see below |
 | 11.9% | arithmetic operator/constant | usually real |
 | 10.9% | control flow (`continue`/`break`/`return`) | usually real — produced a fixed gap in #377 |
 | 8.3% | comparison boundaries | real — produced nine fixed gaps across #377/#383/#385/#416 |
 | 7.6% | assignment nulled (`x = None`) | crashes on mutation; concentrated in untested functions |
 | 2.6% | `and` → `or` | often equivalent where NaN propagates anyway |
 
-The `dtype=float` share has risen every round — 17.8% → 22.4% → **26.8%** — and
-the absolute count has barely moved (81 of them). Nothing is multiplying; the
-behavioural classes around them keep getting pinned.
+The `dtype=float` share rose every round — 17.8% → 22.4% → **26.6%** — while
+the absolute count never moved off 81. Nothing was multiplying; the behavioural
+classes around them kept getting pinned.
 
-**This is now the largest single question left in the file, and it is a policy
-one, not a measurement one.** These are real unpinned guards (see below), but
-pinning ~81 defensive coercions means writing ~81 tests that pass object-dtype
-columns into numeric helpers. The alternatives are to do that, to scope them out
-of the count deliberately, or to leave them as a documented floor. Nobody has
-decided, and the score cannot decide it.
+**That class is now closed** (below): the guards are real, the input they guard
+is no longer reachable, and #434 fixed the single line that produced it. They
+are equivalent *in practice*, which means **the actionable population is 223,
+not 304.** Read the remaining shares against that denominator.
 
-### The `dtype=float` class is load-bearing, and I nearly got that wrong
+### The `dtype=float` class — CLOSED, and the fix did not move the score
 
-81 survivors drop `dtype=float` from an `np.asarray(...)`. The obvious reading
-is that they are equivalent: for lists of floats and for int arrays the values
-come out identical, and `compute_mape` returns the same number either way.
+81 survivors drop `dtype=float` from an `np.asarray(...)`. This was the largest
+open question in this file for three revisions. It is now answered, and the
+answer is worth more than the number.
 
-That reading is wrong. On an **object-dtype** array — which pandas produces
-routinely here from mixed or missing EIA data — `np.isfinite` raises
-`TypeError` without the coercion, while `dtype=float` converts `None` to `nan`
-and carries on:
+**They are real guards.** On an **object-dtype** array `np.isfinite` raises
+`TypeError`, while `dtype=float` converts `None` to `nan` and carries on:
 
 ```python
 np.isfinite(np.asarray(obj_col, dtype=None))   # TypeError
 np.asarray(obj_col, dtype=float)               # [100.  nan 200.]
 ```
 
-So they are unpinned **defensive guards**, in the same family as the ensemble
-ones below: low severity (a crash on bad input, not a wrong number), but real,
-and deletable in a refactor with CI green.
+An earlier pass here called them "equivalent noise" and only a direct probe
+caught it. Shape-based triage is a prioritisation aid, not a verdict.
 
-Recorded because the first pass through this class classified it as
-"equivalent noise" and only a direct probe caught it. Shape-based triage is a
-prioritisation aid, not a verdict.
+**But the input they guard is no longer reachable.** A sweep of every way an
+object-dtype numeric column could enter (#434):
+
+| producer | dtype |
+|---|---|
+| `_parse_demand_records` `demand_mw` | float64 always — every value goes through `float(raw)` with a NaN fallback |
+| `_parse_demand_records` `forecast_mw` | float64 **since #434** — the no-forecast branch assigned `None`, building an object column; it was the only such line in the codebase |
+| `recursive_autoregressive_forecast` history | float64 — built with an explicit `float(v)` and a None/NaN filter |
+| `jobs/phases.py` skill path | float64 — `window.to_numpy(dtype=float)` |
+| anywhere assigning `= None` to a numeric column | none remain (grepped across `data/`, `models/`, `jobs/`) |
+| anywhere using `dtype=object` / `astype(object)` | none exist |
+
+**Verdict: equivalent in practice, not in principle.** The guards stay — they
+are correct, and these helpers are importable by code that has not been written
+yet. But no reachable path distinguishes them, so this class is **not
+actionable** and should stop being counted as though it were. That is now an
+evidenced position rather than a preference.
+
+> **The re-measure after #434 was identical: 2,370 / 1,843 / 304, logic 85.8%,
+> and the dtype class still exactly 81.** It had to be — those mutants survive
+> because no *test* passes object dtype, and #434 changed production code, not
+> tests. Recorded because the run could have flattered the story and did not:
+> the reclassification above rests on the reachability sweep, not on any number
+> moving. A fix that makes a whole class of survivor unreachable is invisible
+> to the score that pointed at it.
+
+**The rule this generalises to, which is the durable part:** a large,
+homogeneous mutation class usually points at a *missing invariant upstream*,
+not at N missing tests. 81 near-identical guards was the score showing where
+duplication lived; the fix was one line at the source, not 81 tests. A small,
+heterogeneous cluster is the opposite — that really is N decisions.
+
+### A dead function that three tests pin
+
+`models/skill.py::skill_payload` has **no production caller**. `jobs/phases.py`
+imports `mape`, `skill_score`, `should_serve_baseline` and
+`seasonal_naive_forecast` from that module — but builds the skill block inline
+instead of calling `skill_payload`, and the two have already diverged:
+
+| field | `skill_payload` | the inline block |
+|---|---|---|
+| `beats_baseline` | yes — its docstring calls this "the field worth acting on" | **absent** |
+| `window_days`, `decision` | absent | yes |
+| non-finite guards | `None if not np.isfinite(...)` | none — `round(float(...), 3)` directly |
+
+So #416's `should_serve_baseline` and `seasonal_naive_forecast` work is on the
+serving path, and its `skill_payload` work is not. Recorded plainly rather than
+left to inflate that PR's value. Worth an issue: either call the function or
+delete it, because a tested payload that production does not emit is a
+liability dressed as coverage.
 
 | # | site | mutation | verdict |
 |---|---|---|---|
