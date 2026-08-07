@@ -61,12 +61,12 @@ on an 8-core laptop.
 | `models/skill.py` | 192 | 164 | 21 | 7 | 85.4% | **88.6%** | ↑ 72.1% |
 | `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
 | `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
-| `models/evaluation.py` | 373 | 272 | 81 | 20 | 72.9% | **77.1%** | untouched |
+| `models/evaluation.py` | 373 | 320 | 49 | 4 | 85.8% | **86.7%** | ↑ 77.1% |
 | `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** | ↑ 61.6% |
-| **overall** | **2,370** | **1,843** | **304** | **223** | **77.8%** | **85.8%** | ↑ 83.0% |
+| **overall** | **2,370** | **1,891** | **272** | **207** | **79.8%** | **87.4%** | ↑ 85.8% |
 
-Six rounds of fixes (#377, #383, #385, #386, #416, #426) took the overall logic
-score **78.6% → 85.8%** and killed **200** mutants, without changing production
+Seven rounds of fixes (#377, #383, #385, #386, #416, #426, #442) took the overall
+logic score **78.6% → 87.4%** and killed **248** mutants, without changing production
 behaviour anywhere except the one crash #386 fixed. The mutant total rose from
 2,349 to 2,370: #386's fix added lines, and #423 rewrote
 `recursive_autoregressive_forecast` for performance.
@@ -81,6 +81,7 @@ bought in different places:
 | #385 | the `coerce_demand_artifacts` cluster | — | **+17.5** |
 | #416 | the `skill.py` clusters | — | **+16.5** |
 | #426 | four `feature_engineering` clusters | +2.8 pts | **+6.7** |
+| #442 | the `evaluation` clusters + the unexercised defaults | +1.6 pts | **+9.6** |
 
 A 2,370-mutant denominator makes every real fix look like rounding error, which
 is exactly why the gate policy below is **per-module**. It is also why the
@@ -172,13 +173,11 @@ clusters are one missing test each, not dozens of bugs:
 |---:|---|---|
 | 26 | `simulation/scenario_engine.py::_run_ensemble` | dormant — see below |
 | 20 | `models/ensemble.py::ensemble_combine` | mostly equivalent, see below |
-| 18 | `models/evaluation.py::check_long_horizon_sanity` | the #296 guard |
-| 16 | `models/evaluation.py::compute_interval_coverage_drift` | |
+| 9 | `models/evaluation.py::check_long_horizon_sanity` | the #296 guard — worked in #442 |
 | 14 | `data/feature_engineering.py::compute_heat_index` | |
 | 13 | `data/feature_engineering.py::compute_autoregressive_snapshot` | |
 | 12 | `data/feature_engineering.py::engineer_features` | |
 | 11 | `data/quality.py::coerce_demand_artifacts` | |
-| 10 | `models/evaluation.py::compute_interval_coverage` | |
 | 10 | `models/skill.py::seasonal_naive_forecast` | |
 
 **Every cluster that has ever topped this table has now been worked**, and the
@@ -186,12 +185,12 @@ table has flattened: the largest is 26 (in dead code) where it used to be 40,
 and nothing else clears 20.
 
 Worked so far: `coerce_demand_artifacts` 40 → 11 (#385), `verdict` 32 → 6
-(#386), `skill_payload` + `seasonal_naive_forecast` 37 → 13 (#416), and the
-four `feature_engineering` clusters 85 → 32 (#426).
+(#386), `skill_payload` + `seasonal_naive_forecast` 37 → 13 (#416), the
+four `feature_engineering` clusters 85 → 32 (#426), and the three
+`evaluation` clusters 44 → 21 (#442).
 
-**`models/evaluation.py` is now the largest untouched surface** — three of the
-top ten and 81 survivors, including the #296 degenerate-forecast guard. It is
-the obvious next target.
+**`models/evaluation.py` is now worked** (#442): 81 → 49, and 42 of the 49 that
+remain are the closed `dtype=float` class. Its three clusters went 44 → 21.
 
 `_run_ensemble` still survives *everything*, including `forecasts = None` and
 `ensemble_combine(None, weights)`. That is not 26 findings. It is one function
@@ -209,9 +208,13 @@ changed:
 | 7.6% | assignment nulled (`x = None`) | crashes on mutation; concentrated in untested functions |
 | 2.6% | `and` → `or` | often equivalent where NaN propagates anyway |
 
-The `dtype=float` share rose every round — 17.8% → 22.4% → **26.6%** — while
-the absolute count never moved off 81. Nothing was multiplying; the behavioural
-classes around them kept getting pinned.
+The `dtype=float` share rose every round — 17.8% → 22.4% → 26.6% → **~30%** —
+while the absolute count never moved off 81. Nothing was multiplying; the
+behavioural classes around them kept getting pinned. After #442 that is close
+to the whole story in `models/evaluation.py`: 42 of its 49 remaining survivors
+are this class, and the other 7 are float-boundary variants (`> 1e-10` →
+`>= 1e-10`, `> R2_THRESHOLD` → `>=`) that require landing on an exact float
+equality no real series produces.
 
 **That class is now closed** (below): the guards are real, the input they guard
 is no longer reachable, and #434 fixed the single line that produced it. They
@@ -374,13 +377,35 @@ the training path, so both could drift together. None is a bad test — each pin
 a real invariant — but a mutation that preserves the relationship walks
 straight through. That is a review heuristic independent of this tooling.
 
-**What is actually next: `models/evaluation.py` (81).** It is now the largest
-untouched surface and holds three of the top ten clusters —
-`check_long_horizon_sanity` (18), the #296 guard against degenerate forecasts
-reaching the serve path; `compute_interval_coverage_drift` (16); and
-`compute_interval_coverage` (10). Its 77.1% is the lowest of the modules that
-are neither dormant nor already worked, and these functions decide whether a
-published interval is honest.
+**`models/evaluation.py` (81 → 49) — fixed in #442.** It held three of the top
+ten clusters: `check_long_horizon_sanity` (18), the #296 guard against
+degenerate forecasts reaching the serve path; `compute_interval_coverage_drift`
+(16); and `compute_interval_coverage` (10).
+
+The cause was one sentence long and it is the most transferable finding in this
+document so far: **every existing test passed every parameter explicitly, so
+none of the published defaults were ever executed.** `lower_q=0.10`,
+`upper_q=0.90`, `target_coverage=0.80`, `window_size=168` — each could be
+changed to any value at all with the full suite green. Those four numbers are
+the contract behind the "80% empirical prediction interval" the Forecast tab
+renders; that 80% is `0.10` and `0.90` in this file and nowhere else.
+
+It is a blind spot neither coverage nor a normal review catches. The defaults
+are *covered* — the lines execute on every call. They are simply never
+*exercised*, because a test that passes `lower_q=0.2` is testing the caller's
+number, not the module's. Calling a function the way production calls it —
+with the arguments omitted — is a different test from calling it with the
+arguments spelled out, and the parameterised version silently replaces it.
+
+Two smaller findings from the same round:
+
+- `compute_error_by_hour` had no value assertion at all. Its one test built
+  random inputs and asserted `len(result) == 24` plus a column name, so
+  `abs_errors = None` survived: the Backtest heatmap could render 24 empty
+  cells with CI green.
+- `compute_r2` returns `0.0`, not `1.0`, when the actual series has no
+  variance. Nothing exercised that branch, and flipped it would publish a
+  *perfect* R² for an hour of flat demand off a forecast never tested.
 
 ### 1. The decision boundaries were not pinned — **fixed**
 
