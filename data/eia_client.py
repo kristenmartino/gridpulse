@@ -742,7 +742,22 @@ def _parse_demand_records(records: list[dict], region: str) -> pd.DataFrame:
         result = demand.merge(forecast, on="timestamp", how="left")
     else:
         result = demand.copy()
-        result["forecast_mw"] = None
+        # NaN, not None. The merge branch above already yields float64 with NaN
+        # for unmatched hours, and this branch has to agree with it: assigning
+        # None makes pandas build an OBJECT column, and an object column of
+        # missing numbers is a different thing from a float column of NaNs.
+        #
+        # It is the only place in the codebase that produces one. Everything
+        # downstream survives it — `pd.to_numeric(errors="coerce")` in
+        # data/quality.py and data/vintage.py, a try/except in
+        # models/benchmark.py, an `is None` check in jobs/phases.py, and
+        # `np.asarray(..., dtype=float)` in the metric helpers — but every one
+        # of those is a separate defence against a shape we never needed to
+        # emit, and `np.isfinite` raises on an object array the moment one of
+        # them is dropped. Mutation testing surfaced this: ~81 survivors are
+        # exactly those coercions, unpinned because nothing reachable was ever
+        # object-dtype except by way of this line.
+        result["forecast_mw"] = float("nan")
 
     result = result.sort_values("timestamp").reset_index(drop=True)
     return result
