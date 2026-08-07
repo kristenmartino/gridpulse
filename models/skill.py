@@ -19,6 +19,14 @@ The baseline is deliberately the dumbest defensible one. Seasonal-naive at a
 24-hour lag is available to anyone with the demand feed, needs no model, no
 weather, and no training — so beating it is the minimum bar a forecasting
 product clears, not a target.
+
+``skill_payload`` is the single definition of the published skill block. It
+is nested under ``skill`` inside ``gridpulse:forecast:{region}:1h``, written
+by ``jobs.phases._baseline_substitution`` on the ticks where a region is
+substituted onto the baseline, and passed through verbatim by
+``/api/v1/forecast``. There is no standalone ``gridpulse:skill:{region}``
+key — an earlier draft of this module claimed one, and the continuous
+per-tick publication it anticipated was never built.
 """
 
 from __future__ import annotations
@@ -69,14 +77,34 @@ def skill_score(model_mape: float, baseline_mape: float) -> float | None:
 
 
 def skill_payload(
-    model_mape: float, series: np.ndarray, *, lag_h: int = SEASONAL_NAIVE_LAG_H
+    model_mape: float,
+    series: np.ndarray,
+    *,
+    lag_h: int = SEASONAL_NAIVE_LAG_H,
+    window_days: int | None = None,
 ) -> dict:
-    """Per-region skill block for ``gridpulse:skill:{region}``.
+    """The per-region skill block, nested under ``skill`` in the forecast payload.
 
     ``beats_baseline`` is the field worth acting on. It is explicitly None
     when either side is missing, so a consumer cannot mistake an unmeasured
     region for a passing one — the failure mode that let SEC serve a
     worse-than-nothing forecast without anything noticing.
+
+    Every derived field nulls together, and that is what makes the block safe
+    to hand to ``should_serve_baseline``. A non-finite ``points_vs_baseline``
+    would pass that policy's ``points > -MIN_POINTS`` test — NaN compares
+    False against everything — and fall through to *substitute*, which is the
+    one direction the policy is written to never take on a missing
+    measurement. None short-circuits it at "skill not measurable" instead.
+
+    ``window_days`` records how much history the caller measured over, for a
+    reader who cannot otherwise tell a 7-day number from a 30-day one. It is
+    disclosure, not policy — ``n_hours`` is what gates substitution.
+
+    The served block carries one field this function does not set:
+    ``decision``, the published reason string, which the caller attaches from
+    ``should_serve_baseline`` after the fact because that policy reads this
+    block as its input.
     """
     baseline = seasonal_naive_mape(series, lag_h)
     skill = skill_score(model_mape, baseline)
@@ -88,6 +116,7 @@ def skill_payload(
         "points_vs_baseline": (None if skill is None else round(baseline - model_mape, 3)),
         "beats_baseline": None if skill is None else bool(skill > 0),
         "n_hours": int(np.isfinite(np.asarray(series, dtype=float)).sum()),
+        "window_days": window_days,
     }
 
 
