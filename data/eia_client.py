@@ -131,6 +131,59 @@ class EIAIncompleteFetchError(RuntimeError):
     poison the 24h cache and overwrite the GCS fallback (#269 / P2-06)."""
 
 
+#: One prototype value per column the EIA parsers emit, used to build empty
+#: frames whose dtypes match what a real fetch would have produced.
+#:
+#: The values are deliberately *values*, not dtype strings. ``pd.DataFrame`` is
+#: what decides the dtype for real rows, so letting it decide here too is the
+#: only construction that cannot drift away from the parsers — and the right
+#: answer genuinely moves between pandas versions: 3.0 gives ``str`` for text
+#: and ``datetime64[us, UTC]`` for tz-aware timestamps where 2.x gives
+#: ``object`` and ``[ns]``. A hardcoded map would have to be revisited on every
+#: pandas bump, silently, with no test able to tell you it had gone stale.
+_EMPTY_COLUMN_PROTOTYPES: dict[str, object] = {
+    "timestamp": pd.Timestamp("1970-01-01", tz="UTC"),
+    "demand_mw": float("nan"),
+    "forecast_mw": float("nan"),
+    "generation_mw": float("nan"),
+    "interchange_mw": float("nan"),
+    "region": "",
+    "fuel_type": "",
+    "from_ba": "",
+    "to_ba": "",
+}
+
+
+def _typed_empty(cols: list[str]) -> pd.DataFrame:
+    """A zero-row frame whose dtypes match a real parsed frame's.
+
+    ``pd.DataFrame(columns=cols)`` builds every column as **object**, and an
+    object column of numbers is not the same thing as a float column: numpy
+    refuses it outright, so ``np.isfinite(df["demand_mw"])`` raises
+    ``TypeError`` on a shape that ``df.empty`` and ``isna().all()`` both report
+    as unremarkable. The #174 fallback chain is documented as ending in a
+    *typed* empty; before this it ended in an untyped one.
+
+    That matters most exactly when it is hardest to debug. This frame is the
+    terminal fallback for a **failed upstream fetch** — it is returned when EIA
+    is down and both the stale cache and the GCS parquet have missed — so any
+    consumer it breaks, it breaks only during an outage, on the path with the
+    least test coverage and the most operator pressure.
+
+    Fails open: a column with no registered prototype falls back to the old
+    untyped construction rather than raising, because raising here would turn a
+    degraded fetch into a hard failure. ``test_every_empty_cols_list_is_typed``
+    is what keeps that escape hatch from going quietly unused — it fails in CI
+    if a new column reaches this function without a prototype.
+    """
+    try:
+        prototype = {col: [_EMPTY_COLUMN_PROTOTYPES[col]] for col in cols}
+    except KeyError as exc:
+        log.warning("eia_untyped_empty_frame", column=str(exc), columns=cols)
+        return pd.DataFrame(columns=cols)
+    return pd.DataFrame(prototype).iloc[:0].copy()
+
+
 def _last_known_good(
     cache,
     cache_key: str,
@@ -156,7 +209,7 @@ def _last_known_good(
     if gcs_df is not None and not gcs_df.empty:
         log.info("eia_gcs_fallback", region=region, data_type=data_type, rows=len(gcs_df))
         return gcs_df
-    return pd.DataFrame(columns=empty_cols)
+    return _typed_empty(empty_cols)
 
 
 def _fetch_eia(
@@ -215,7 +268,7 @@ def _fetch_eia(
         log.warning("eia_incomplete_fetch", region=region, data_type=data_type, error=str(exc))
         return _last_known_good(cache, cache_key, data_type, region, empty_cols)
 
-    df = parser(all_records) if all_records else pd.DataFrame(columns=empty_cols)
+    df = parser(all_records) if all_records else _typed_empty(empty_cols)
 
     # A frame with no usable data is a miss, not a result — caching it would
     # blank the surface for 24h and shadow the stale/GCS last-known-good, so fall
@@ -728,7 +781,7 @@ def _parse_demand_records(records: list[dict], region: str) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     if df.empty:
-        return pd.DataFrame(columns=["timestamp", "demand_mw", "forecast_mw", "region"])
+        return _typed_empty(["timestamp", "demand_mw", "forecast_mw", "region"])
 
     # Pivot: D → demand_mw, DF → forecast_mw
     demand = df[df["type"] == "D"][["timestamp", "value", "region"]].rename(

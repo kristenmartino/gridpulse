@@ -11,6 +11,8 @@ isolated with no external dependencies.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -18,7 +20,9 @@ import pandas as pd
 import pytest
 import requests
 
+from data import eia_client
 from data.eia_client import (
+    _EMPTY_COLUMN_PROTOTYPES,
     EIA_CIRCUIT_PROBE_INTERVAL,
     EIA_CIRCUIT_TRIP_THRESHOLD,
     EIA_PAGE_SIZE,
@@ -33,6 +37,7 @@ from data.eia_client import (
     _parse_generation_records,
     _parse_interchange_records,
     _request_with_backoff,
+    _typed_empty,
     fetch_demand,
     fetch_generation_by_fuel,
     fetch_interchange,
@@ -162,6 +167,12 @@ class TestParseDemandRecords:
         df = _parse_demand_records([], "ERCOT")
         assert df.empty
         assert list(df.columns) == ["timestamp", "demand_mw", "forecast_mw", "region"]
+        # `.empty` and `list(df.columns)` are both true of an all-object frame,
+        # so on their own they cannot see the dtype — the same blind spot that
+        # let `isna().all()` miss the no-forecast branch in #434. Assert the
+        # dtype explicitly or this test passes on the shape it exists to reject.
+        assert df["demand_mw"].dtype == "float64"
+        assert df["forecast_mw"].dtype == "float64"
 
     def test_missing_value_field_becomes_nan(self):
         """Records with missing 'value' become NaN (preserved as missing)."""
@@ -217,6 +228,165 @@ class TestParseDemandRecords:
         df = _parse_demand_records(records, "ERCOT")
         # Both demand rows should be present since there's no dedup in parser
         assert len(df) == 2
+
+
+# ---------------------------------------------------------------------------
+# _typed_empty
+# ---------------------------------------------------------------------------
+
+
+#: ``(empty_cols, parser, sample_records)`` for each endpoint that owns an
+#: ``empty_cols`` list, so the parity test below compares each typed-empty
+#: frame against the frame its **own** parser builds from real records.
+_ENDPOINT_CASES = [
+    pytest.param(
+        ["timestamp", "demand_mw", "forecast_mw", "region"],
+        lambda recs: _parse_demand_records(recs, "ERCOT"),
+        [
+            {"period": "2024-01-01T00", "value": 40000, "type": "D"},
+            {"period": "2024-01-01T00", "value": 41000, "type": "DF"},
+        ],
+        id="demand",
+    ),
+    pytest.param(
+        ["timestamp", "fuel_type", "generation_mw", "region"],
+        lambda recs: _parse_generation_records(recs, "ERCOT"),
+        [{"period": "2024-01-01T00", "fueltype": "WND", "value": 5000}],
+        id="generation",
+    ),
+    pytest.param(
+        ["timestamp", "from_ba", "to_ba", "interchange_mw"],
+        _parse_interchange_records,
+        [{"period": "2024-01-01T00", "fromba": "ERCO", "toba": "SWPP", "value": 250}],
+        id="interchange",
+    ),
+]
+
+
+class TestTypedEmptyFrames:
+    """The #174 fallback chain ends in a *typed* empty frame.
+
+    ``pd.DataFrame(columns=[...])`` builds every column as object, and an
+    object column of numbers is not a float column: ``np.isfinite`` raises on
+    it. Because this frame is only returned when a fetch has failed **and**
+    both the stale cache and the GCS parquet have missed, anything it breaks
+    breaks during an outage — the worst time to be debugging a dtype.
+    """
+
+    @pytest.mark.parametrize("cols,parser,records", _ENDPOINT_CASES)
+    def test_dtypes_match_the_real_parser(self, cols, parser, records):
+        """Parity with real output, rather than hardcoded dtype strings.
+
+        Asserting ``== "float64"`` and ``== "str"`` would pin *today's* pandas:
+        3.0 gives ``str``/``datetime64[us, UTC]`` where 2.x gives
+        ``object``/``[ns]``. Comparing against what the parser actually
+        produces keeps the invariant that matters — the two agree — and lets
+        both sides move together on a pandas bump.
+        """
+        real = parser(records)
+        empty = _typed_empty(cols)
+        assert list(empty.columns) == cols
+        for col in cols:
+            assert empty[col].dtype == real[col].dtype, (
+                f"{col}: empty is {empty[col].dtype}, real parse is {real[col].dtype}"
+            )
+
+    @pytest.mark.parametrize("cols,parser,records", _ENDPOINT_CASES)
+    def test_numeric_columns_survive_numpy(self, cols, parser, records):
+        """The property the dtype buys: hand the column to numpy unguarded.
+
+        This is the assertion that actually fails on the old construction —
+        ``np.isfinite`` on an object array raises ``TypeError`` regardless of
+        length, so a zero-row object frame crashes a consumer that a zero-row
+        float frame passes straight through.
+        """
+        empty = _typed_empty(cols)
+        for col in cols:
+            if not str(col).endswith("_mw"):
+                continue
+            assert not np.isfinite(np.asarray(empty[col])).any()
+
+    def test_still_empty_and_ordered(self):
+        """Typing the frame must not change what callers already rely on."""
+        cols = ["timestamp", "demand_mw", "forecast_mw", "region"]
+        empty = _typed_empty(cols)
+        assert empty.empty
+        assert len(empty) == 0
+        assert list(empty.columns) == cols
+
+    def test_every_empty_cols_list_is_typed(self):
+        """Guard the fail-open escape hatch in ``_typed_empty``.
+
+        An unregistered column degrades to the old untyped frame rather than
+        raising, because raising inside the outage fallback would convert a
+        degraded fetch into a hard failure. That is the right runtime
+        behaviour and the wrong thing to leave unwatched: without this test a
+        new endpoint would silently reintroduce object dtype. Read the
+        ``empty_cols=`` lists out of the source so adding one to the client
+        without a prototype fails here.
+        """
+        source = Path(eia_client.__file__).read_text()
+        declared = re.findall(r"empty_cols=\[([^\]]*)\]", source)
+        assert declared, "no empty_cols= lists found — this guard has gone blind"
+        for group in declared:
+            for col in re.findall(r'"([^"]+)"', group):
+                assert col in _EMPTY_COLUMN_PROTOTYPES, (
+                    f"{col!r} is passed as an empty_cols entry but has no prototype in "
+                    f"_EMPTY_COLUMN_PROTOTYPES, so _typed_empty falls back to an "
+                    f"object-dtype frame for it. Add a prototype value."
+                )
+
+    def test_unknown_column_fails_open_instead_of_raising(self):
+        """A missing prototype must not raise — this runs during an outage."""
+        empty = _typed_empty(["timestamp", "not_a_real_column"])
+        assert empty.empty
+        assert list(empty.columns) == ["timestamp", "not_a_real_column"]
+
+
+class TestTotalOutageReturnsTypedFrame:
+    """Drive the real fetchers through a total outage and check what comes back.
+
+    The class above tests ``_typed_empty`` in isolation, which is necessary and
+    **not sufficient**: reverting the three call sites to
+    ``pd.DataFrame(columns=...)`` leaves every one of those tests green, because
+    they call the helper directly. A helper nothing calls is not a fix. These
+    tests go through the public fetchers instead, so they fail if a call site
+    stops using it.
+
+    The scenario is the terminal one in the #174 chain — upstream returns
+    nothing, the cache is cold with no stale entry, and the GCS parquet misses —
+    which is the only way to observe the frame from ``_last_known_good``.
+    """
+
+    @pytest.mark.parametrize(
+        "fetcher,numeric_cols",
+        [
+            pytest.param(fetch_demand, ["demand_mw", "forecast_mw"], id="demand"),
+            pytest.param(fetch_generation_by_fuel, ["generation_mw"], id="generation"),
+            pytest.param(fetch_interchange, ["interchange_mw"], id="interchange"),
+        ],
+    )
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_numeric_columns_are_float_not_object(
+        self, mock_pf, mock_cache_fn, mock_read, fetcher, numeric_cols
+    ):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None  # cold cache, and no stale entry
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = []  # upstream returns nothing
+        mock_read.return_value = None  # GCS misses too
+
+        df = fetcher("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        assert df.empty
+        for col in numeric_cols:
+            assert df[col].dtype == "float64", f"{col} came back as {df[col].dtype}"
+            # The property the dtype exists for: numpy accepts the column raw.
+            # This raises TypeError on an object column no matter how few rows
+            # it has, so it is what makes an outage-path regression visible.
+            np.isfinite(np.asarray(df[col]))
 
 
 # ---------------------------------------------------------------------------

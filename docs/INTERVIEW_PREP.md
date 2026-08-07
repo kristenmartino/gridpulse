@@ -757,6 +757,21 @@ That reads like a 17% improvement, and I published it as **inconclusive**. Three
 
 The part that did pay was the per-phase attribution shipped during the incident. `forecast` is **60.1%** of all worker time (3085.5s of 5131.0s), and effective parallelism is already **7.7×** — 5131s of work retired in 668s of wall clock. So in-container workers are *spent*: turning that knob again buys nothing. The planned next lever had been "fan scoring across parallel tasks"; the data says the reason that would help is more vCPU, not more concurrency, and that the bigger prize is the 720-hour recursive inference that is 60% of the bill. **The measurement I took to confirm a fix ended up re-ordering the roadmap** — and the honest reading of it was the one that looked least impressive.
 
+### 22. "Tell me about a time your own tests would have fooled you."
+**A one-line dtype fix, and the tests that passed with it fully reverted (2026-08-07, follow-up to [#434](https://github.com/kristenmartino/gridpulse/pull/434)).**
+
+Situation: A concurrent session shipped a careful one-line fix — an EIA parse branch assigned `None` where its sibling branch produced `NaN`, so pandas built an *object* column instead of float. The argument was the interesting part. It said the fix made object dtype "unreachable from inside this codebase," and that claim was load-bearing: it was the stated reason for **not** pinning ~81 mutation survivors, all of them defensive numeric coercions that exist only because nothing guaranteed the dtype at the source.
+
+Investigation: The reasoning was sound and the reachability claim was short by three call sites. `pd.DataFrame(columns=[...])` also builds every column as object, and the client had three of those — including the terminal return of the #174 outage-fallback chain, whose own docstring called it "typed-empty." So the shape had been removed from one branch and left in three others, across all three endpoints. Worse placement than the original: those two only execute when a fetch has failed *and* the stale cache *and* the GCS parquet have both missed. The bad frame appears only during an upstream outage — least coverage, most operator pressure.
+
+Then the part worth telling. I wrote the fix, wrote a parametrized test class for it, got 118 green, and ran the mutation — reverted all three call sites. **One test failed.** My new class called the helper directly, so it verified the helper worked while proving nothing about whether anything *used* it. Both outage-path sites were unpinned by construction. I could have shipped a helper wired to nothing and had a green suite say otherwise.
+
+The rewrite drives the real public fetchers through the full outage scenario instead. Re-running both mutations now fails 3 tests and 1 test respectively.
+
+Two judgment calls I'd defend. The helper **fails open** — an unregistered column degrades to the old untyped frame rather than raising, because raising inside the outage fallback converts a degraded fetch into a hard failure — and a test reads the `empty_cols=` lists back out of the source so that escape hatch can't be used silently. And the dtypes are derived by letting pandas build a real row and slicing it to zero, never hardcoded: pandas 3.0 gives `str` and `datetime64[us, UTC]` where 2.x gives `object` and `[ns]`, so a hardcoded map would have rotted on a version bump with no test able to say so.
+
+**Lesson to convey**: *Mutating the helper is not mutating the call site — a unit test on a function proves the function works, not that the fix is connected to anything. And when a piece of reasoning is what licenses you to skip work, that reasoning is the thing to attack: "this is now unreachable" is a claim about every path in the file, not the one you just edited.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
