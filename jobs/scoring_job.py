@@ -132,6 +132,10 @@ def _log_region_complete(summary: dict) -> None:
         fetch_subtimings=dict(
             sorted((summary.get("fetch_subtimings") or {}).items(), key=lambda kv: -kv[1])
         ),
+        # #427: one key each, but per-BA is where a pathological EIA call for a
+        # single region shows up — which a fleet total averages away.
+        generation_subtimings=summary.get("generation_subtimings") or {},
+        interchange_subtimings=summary.get("interchange_subtimings") or {},
     )
 
 
@@ -152,6 +156,8 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         "timings": {},
         "subtimings": {},
         "fetch_subtimings": {},
+        "generation_subtimings": {},
+        "interchange_subtimings": {},
     }
 
     if deadline is not None and time.monotonic() >= deadline:
@@ -178,14 +184,24 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         finally:
             summary["timings"][name] = round(time.time() - _t, 2)
 
-    # #389 follow-up: collect the `fetch` breakdown (EIA leg vs the three
-    # Open-Meteo legs). A SEPARATE key from the forecast sub-steps — same
-    # double-count reasoning as there, plus these two phases' sub-steps are
-    # not comparable and merging them into one dict would invite summing
-    # across them.
-    with phases.collect_substeps() as _fetch_sub:
-        region_data = timed("fetch", phases.fetch_region_data, region)
-    summary["fetch_subtimings"] = dict(_fetch_sub)
+    def timed_with_substeps(name: str, key: str, fn, *args, **kwargs):
+        """``timed``, plus collect this phase's sub-steps into ``summary[key]``.
+
+        One collector PER PHASE, never one shared across phases. That keeps
+        the invariant that makes these readable: a phase's sub-steps sum to
+        (at most) its own phase total, so `generation_substeps.eia_generation`
+        can be checked against `phases.generation`. A shared collector would
+        destroy it. Same double-count reasoning that keeps sub-steps out of
+        ``summary["timings"]`` — `_phase_rollup` sums every key it finds.
+        """
+        with phases.collect_substeps() as sub:
+            res = timed(name, fn, *args, **kwargs)
+        summary[key] = dict(sub)
+        return res
+
+    # #389 follow-up: the `fetch` breakdown — EIA leg vs the three Open-Meteo
+    # legs.
+    region_data = timed_with_substeps("fetch", "fetch_subtimings", phases.fetch_region_data, region)
     if region_data is None:
         summary["phases"]["fetch"] = {"ok": False, "error": "no_data"}
         summary["elapsed_s"] = round(time.time() - t0, 2)
@@ -293,7 +309,9 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         **(benchmark_res.details if benchmark_res.ok else {"error": benchmark_res.error}),
     }
 
-    gen_res = timed("generation", phases.write_generation, region)
+    gen_res = timed_with_substeps(
+        "generation", "generation_subtimings", phases.write_generation, region
+    )
     summary["phases"]["generation"] = {
         "ok": gen_res.ok,
         **(gen_res.details if gen_res.ok else {"error": gen_res.error}),
@@ -302,7 +320,9 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     # V3.α: BA-to-BA interchange snapshot. Independent of generation —
     # a sparse interchange fetch shouldn't fail the broader scoring run,
     # so we ignore the PhaseResult's ok flag for the summary aggregate.
-    ix_res = timed("interchange", phases.write_interchange, region)
+    ix_res = timed_with_substeps(
+        "interchange", "interchange_subtimings", phases.write_interchange, region
+    )
     summary["phases"]["interchange"] = {
         "ok": ix_res.ok,
         **(ix_res.details if ix_res.ok else {"error": ix_res.error}),
@@ -781,6 +801,10 @@ def run() -> int:
         # `weather_archive`). This is what sizes a weather-side change against
         # the upstream latency it shares a phase with.
         fetch_substeps=_phase_rollup(results, key="fetch_subtimings"),
+        # #427: the EIA legs outside `fetch`. Separate fields, one per
+        # phase, so each stays checkable against its own phase total.
+        generation_substeps=_phase_rollup(results, key="generation_subtimings"),
+        interchange_substeps=_phase_rollup(results, key="interchange_subtimings"),
     )
     # The `fetch` phase above is upstream-latency-dominated, so publish the
     # EIA success-latency distribution beside it. This is the measurement the
