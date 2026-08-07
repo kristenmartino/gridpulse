@@ -189,3 +189,125 @@ class TestFetchSubsteps:
         assert fetch_roll["eia_demand"]["total_s"] == 20.0
         # and neither leaks into the phase-level rollup
         assert set(_phase_rollup(results)) == {"fetch", "forecast"}
+
+
+class TestEiaPhaseSubsteps:
+    """`generation` and `interchange` name their EIA call (#427).
+
+    Those phases were 323.4s (10.8%) and 118.6s (4.0%) of worker time with no
+    sub-steps at all, so nothing could say whether the cost was upstream
+    latency or our own pivot/transform work. One named sub-step plus the phase
+    total attributes the phase completely.
+    """
+
+    @staticmethod
+    def _gen_frame():
+        import pandas as pd
+
+        return pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=3, freq="h", tz="UTC"),
+                "fuel_type": ["NG", "WND", "SUN"],
+                "generation_mw": [100.0, 50.0, 25.0],
+            }
+        )
+
+    @staticmethod
+    def _ix_frame():
+        import pandas as pd
+
+        return pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-01-01", periods=2, freq="h", tz="UTC"),
+                "to_ba": ["MISO", "PJM"],
+                "interchange_mw": [-100.0, 50.0],
+            }
+        )
+
+    def test_generation_names_its_eia_call(self, monkeypatch):
+        import jobs.phases as ph
+
+        monkeypatch.setattr(ph, "_has_eia_key", lambda: True)
+        monkeypatch.setattr(
+            "data.eia_client.fetch_generation_by_fuel", lambda *a, **k: self._gen_frame()
+        )
+        monkeypatch.setattr("data.redis_client.redis_set", lambda *a, **k: True)
+
+        with collect_substeps() as store:
+            ph.write_generation("ERCOT")
+
+        assert "eia_generation" in store
+
+    def test_interchange_names_its_eia_call(self, monkeypatch):
+        import jobs.phases as ph
+
+        monkeypatch.setattr(ph, "_has_eia_key", lambda: True)
+        monkeypatch.setattr("data.eia_client.fetch_interchange", lambda *a, **k: self._ix_frame())
+        monkeypatch.setattr("data.redis_client.redis_set", lambda *a, **k: True)
+
+        with collect_substeps() as store:
+            ph.write_interchange("ERCOT")
+
+        assert "eia_interchange" in store
+
+    def test_a_failing_eia_call_is_still_timed(self, monkeypatch):
+        """A slow FAILING fetch is the one you most want to see — it paid the
+        full retry budget and returned nothing. `substep` times in a finally."""
+        import jobs.phases as ph
+
+        monkeypatch.setattr(ph, "_has_eia_key", lambda: True)
+
+        def _boom(*a, **k):
+            raise RuntimeError("eia down")
+
+        monkeypatch.setattr("data.eia_client.fetch_interchange", _boom)
+        with collect_substeps() as store:
+            res = ph.write_interchange("ERCOT")
+
+        assert res.ok is False
+        assert "eia_interchange" in store
+
+    def test_each_phase_gets_its_own_collector(self):
+        """The invariant that makes these readable: a phase's sub-steps belong
+        to that phase alone, so each rolls up against its own total. A shared
+        collector across phases would let `generation`'s legs be summed into
+        `fetch`'s breakdown."""
+        import jobs.scoring_job as sj
+
+        results = [
+            {
+                "region": "ERCOT",
+                "timings": {"fetch": 30.0, "generation": 20.0, "interchange": 5.0},
+                "fetch_subtimings": {"eia_demand": 10.0, "weather_archive": 15.0},
+                "generation_subtimings": {"eia_generation": 18.0},
+                "interchange_subtimings": {"eia_interchange": 4.0},
+            }
+        ]
+        assert set(sj._phase_rollup(results, key="fetch_subtimings")) == {
+            "eia_demand",
+            "weather_archive",
+        }
+        assert set(sj._phase_rollup(results, key="generation_subtimings")) == {"eia_generation"}
+        assert set(sj._phase_rollup(results, key="interchange_subtimings")) == {"eia_interchange"}
+        # and none of them leak into the phase-level rollup
+        assert set(sj._phase_rollup(results)) == {"fetch", "generation", "interchange"}
+
+    def test_substep_never_exceeds_its_phase_total(self):
+        """The checkable property: `eia_generation` <= `phases.generation`.
+
+        Pinned as an arithmetic contract so a future refactor that moves the
+        fetch outside the timed phase shows up as a broken invariant rather
+        than a quietly impossible number.
+        """
+        import jobs.scoring_job as sj
+
+        results = [
+            {
+                "region": "R",
+                "timings": {"generation": 20.0},
+                "generation_subtimings": {"eia_generation": 18.0},
+            }
+        ]
+        phase = sj._phase_rollup(results)["generation"]["total_s"]
+        sub = sj._phase_rollup(results, key="generation_subtimings")["eia_generation"]["total_s"]
+        assert sub <= phase
