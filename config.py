@@ -1236,23 +1236,30 @@ FEATURE_FLAGS: dict[str, bool] = {
     # cross-run GCS cache instead of re-fetching an identical window every
     # hourly tick. The window is fixed for a whole UTC day and ERA5T is not
     # revised intra-day, so a hit returns the same values the fetch would.
+    #
+    # FLIPPED ON 2026-08-07 on the measurement it shipped dark waiting for.
+    # `scoring_phase_rollup.fetch_substeps` (12:07:58Z tick): the archive leg
+    # is **294.0s summed, the LARGEST leg of `fetch`** — 42.6% of it, ahead of
+    # `eia_demand` at 175.3s. 6.1s/BA average over n=48, 13.6s worst (NWMT).
+    #
+    # The estimate this replaces was 50-70s: low by 4.2-5.9x. It was derived
+    # from payload size (3.40 MB at 12 points) on the assumption that wire
+    # time dominates. At 6.1s/BA the cost is ERA5 server-side extraction on
+    # Open-Meteo's free host, so bytes were the wrong proxy entirely.
+    #
     # NOT a fix for the 2026-08-04 alert — the runtime record refutes that
-    # reading (medians are flat across the ADR-011/012 flips). This reclaims
-    # part of the `fetch` phase, measured at 13.0% of worker time; the archive
-    # leg's own share was never measured, only estimated (~50-70s summed).
+    # reading (medians flat across the ADR-011/012 flips; the incident was EIA
+    # retry tax). And the SAVING is still unverified: a hit swaps an
+    # Open-Meteo fetch for a GCS parquet read, which is not free.
     #
-    # SHIPS DARK, and stays dark until that estimate is replaced by a reading.
-    # The same discipline ADR-011 and ADR-012 used: shipped off, flipped on
-    # after the deploy verified. Flag-off is byte-identical — the cache is
-    # simply never consulted — so merging this changes nothing in production.
+    # The verdict comes from the arms this design generates on its own: the
+    # window moves at 00Z, so the first tick of each UTC day is a forced MISS
+    # and the other 23 are hits — a within-day paired contrast on
+    # `fetch_substeps.weather_archive`, same code, same BAs. Per
+    # EVALUATION_POLICY that wants several days, not one window.
     #
-    # To flip it on, read `scoring_phase_rollup.fetch_substeps.weather_archive`
-    # from a live tick. That number IS the whole case for this cache; if it is
-    # small, the honest outcome is deleting the cache rather than enabling it.
-    # Once on, the arms generate themselves: the window moves at 00Z, so the
-    # first tick of each UTC day is a forced cache MISS and the other 23 are
-    # hits — a within-day paired comparison on the same code and the same BAs.
-    "weather_archive_cache": False,
+    # Rollback = flip off; the path is fail-open, so off is byte-identical.
+    "weather_archive_cache": True,
 }
 
 

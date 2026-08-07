@@ -32,6 +32,11 @@ def _base_weather_flags(monkeypatch):
 
     monkeypatch.setitem(cfg.FEATURE_FLAGS, "nbm_weather", False)
     monkeypatch.setitem(cfg.FEATURE_FLAGS, "multipoint_weather", False)
+    # #389 archive cache, same reasoning — and this one has now cost two test
+    # edits across two flag flips (dark, then on). Pinning it here means the
+    # DEFAULT can move again without rewriting what these tests measure;
+    # ``TestArchiveCache`` sets it True for itself.
+    monkeypatch.setitem(cfg.FEATURE_FLAGS, "weather_archive_cache", False)
 
 
 # ---------------------------------------------------------------------------
@@ -206,9 +211,10 @@ class TestFetchWeather:
 
         assert len(result) == 3
         mock_cache.set.assert_called_once()
-        # One GCS write at the DEFAULT flag state: `weather_archive_cache`
-        # ships dark (#389), so the archive segment is not persisted until it
-        # is switched on. TestArchiveCache enables it explicitly.
+        # One GCS write: the module fixture pins `weather_archive_cache` OFF
+        # for the legacy tests, so the archive segment is not persisted on
+        # this path regardless of the shipped default. TestArchiveCache
+        # enables it explicitly for the cache's own cases.
         mock_write.assert_called_once()
         write_args = mock_write.call_args
         assert write_args[0][1] == "weather"
