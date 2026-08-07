@@ -94,9 +94,7 @@ class TestSeedFilteringIsTheOnlyLiveDifference:
         regions see byte-identical published MAPE."""
         test_df = self._test_frame()
         clean = [900.0 + i * 0.1 for i in range(720)]
-        np.testing.assert_array_equal(
-            self._fold(clean, test_df), self._fold(list(clean), test_df)
-        )
+        np.testing.assert_array_equal(self._fold(clean, test_df), self._fold(list(clean), test_df))
 
     def test_zeros_in_the_trailing_window_are_filtered_out(self):
         """A zero inside the trailing 168h MUST change the result — that is the
