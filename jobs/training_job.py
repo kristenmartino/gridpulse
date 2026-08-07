@@ -661,9 +661,35 @@ def _train_region(region: str, force: bool = False) -> dict:
     (~12 min/BA on the slow path), the overhead is negligible.
     """
     t0 = time.time()
-    summary: dict = {"region": region, "ok": False, "models": {}, "backtests": {}}
+    summary: dict = {
+        "region": region,
+        "ok": False,
+        "models": {},
+        "backtests": {},
+        "subtimings": {},
+    }
 
-    region_data = phases.fetch_region_data(region)
+    # #405's sub-phase timing, applied to the training job (2026-08-07). The
+    # scoring job had this and the training job did not, which is why every
+    # statement about where training time goes has been a LOCAL measurement --
+    # and on the scoring job local measurements were wrong three times running,
+    # by up to 16x, because a laptop cannot observe GIL contention across the
+    # concurrent workers. The 96%-of-fold-cost-is-the-fit number behind #433 is
+    # still one of those local numbers. This is how it gets confirmed.
+    #
+    # Same channel discipline as the scoring job: these ride in
+    # `summary["subtimings"]`, never in a dict that something else sums, so a
+    # sub-step can never be double-counted against its own parent.
+    with phases.collect_substeps() as _sub:
+        summary["subtimings"] = _sub
+        return _train_region_inner(region, force, t0, summary)
+
+
+def _train_region_inner(region: str, force: bool, t0: float, summary: dict) -> dict:
+    """Body of :func:`_train_region`, split out so the sub-step collector wraps
+    every exit path including the early returns."""
+    with phases.substep("fetch"):
+        region_data = phases.fetch_region_data(region)
     if region_data is None:
         summary["error"] = "no_data"
         summary["elapsed_s"] = round(time.time() - t0, 2)
@@ -674,9 +700,12 @@ def _train_region(region: str, force: bool = False) -> dict:
     # the ADR-010 gate's reference/truth rows. No vintage write here (the
     # hourly scoring job owns the instrument) and no anchor conditioning
     # (ADR-009 is serving-only).
-    phases.apply_demand_quality_guard(region_data)
+    with phases.substep("quality_guard"):
+        phases.apply_demand_quality_guard(region_data)
 
-    if phases.engineer_region_features(region_data) is None:
+    with phases.substep("features"):
+        _features = phases.engineer_region_features(region_data)
+    if _features is None:
         summary["error"] = "feature_engineering_failed"
         summary["elapsed_s"] = round(time.time() - t0, 2)
         return summary
@@ -728,9 +757,12 @@ def _train_region(region: str, force: bool = False) -> dict:
     # ``extra["holdout_metrics"]``. The ensemble metric is computed
     # off the same predictions and stashed in xgboost's meta extra.
     featured = region_data.featured_df
-    xgb_holdout = _holdout_metrics_xgboost(featured, region)
-    prophet_holdout = _holdout_metrics_prophet(featured, region)
-    arima_holdout = _holdout_metrics_arima(featured, region, force=force)
+    with phases.substep("holdout_xgboost"):
+        xgb_holdout = _holdout_metrics_xgboost(featured, region)
+    with phases.substep("holdout_prophet"):
+        prophet_holdout = _holdout_metrics_prophet(featured, region)
+    with phases.substep("holdout_arima"):
+        arima_holdout = _holdout_metrics_arima(featured, region, force=force)
 
     # Compute ensemble metric BEFORE persisting xgboost so we can
     # stash it in xgboost's extra. xgboost is the canonical "primary"
@@ -776,11 +808,15 @@ def _train_region(region: str, force: bool = False) -> dict:
         ensemble_summary,
     )
 
-    xgb_version = _train_xgboost(region_data, holdout=xgb_holdout)
+    # includes the ADR-010 serve-path gate and the GCS persist
+    with phases.substep("fit_xgboost"):
+        xgb_version = _train_xgboost(region_data, holdout=xgb_holdout)
     summary["models"]["xgboost"] = xgb_version
-    prophet_version = _train_prophet(region_data, holdout=prophet_holdout)
+    with phases.substep("fit_prophet"):
+        prophet_version = _train_prophet(region_data, holdout=prophet_holdout)
     summary["models"]["prophet"] = prophet_version
-    arima_version = _train_arima(region_data, holdout=arima_holdout, force=force)
+    with phases.substep("fit_arima"):
+        arima_version = _train_arima(region_data, holdout=arima_holdout, force=force)
     summary["models"]["arima"] = arima_version
 
     # Persist the ensemble metric into xgboost's meta if both succeeded
@@ -833,7 +869,10 @@ def _train_region(region: str, force: bool = False) -> dict:
 
     # Recompute backtests against the freshly fetched data — these become
     # the values the Validation tab reads out of Redis.
-    bt_res = phases.write_backtests(region_data)
+    # The #433 target: 12 folds/BA, each fitting its own booster. Local
+    # measurement put this at ~29% of the job; this is the production check.
+    with phases.substep("backtests"):
+        bt_res = phases.write_backtests(region_data)
     summary["backtests"] = {
         "ok": bt_res.ok,
         **(bt_res.details if bt_res.ok else {"error": bt_res.error}),
@@ -922,6 +961,26 @@ def run(force: bool = False) -> int:
 
     ok_count = sum(1 for r in results if r.get("ok"))
     fail_regions = [r["region"] for r in results if not r.get("ok")]
+
+    # #405-style sub-phase rollup, per TASK (each task sees only its own
+    # interleaved slice, so these are NOT fleet totals -- multiply by task_count
+    # only if the slices are balanced, which the largest-first stride is
+    # designed to make roughly true but does not guarantee).
+    #
+    # This exists because every claim about where training time goes has so far
+    # been a LOCAL measurement, and on the scoring job those were wrong three
+    # times running by up to 16x. Reuses scoring_job._phase_rollup verbatim so
+    # the two jobs' breakdowns are read the same way.
+    from jobs.scoring_job import _phase_rollup
+
+    log.info(
+        "training_phase_rollup",
+        elapsed_s=round(time.time() - t0, 2),
+        task_index=task_index,
+        task_count=task_count,
+        regions=len(results),
+        substeps=_phase_rollup(results, key="subtimings"),
+    )
 
     # Meta-write coordinator pattern: only task 0 records the
     # last-trained summary. With taskCount>1 the other tasks have an
