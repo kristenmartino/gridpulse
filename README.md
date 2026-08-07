@@ -31,7 +31,7 @@
 | data/audit.py                         |       54 |        0 |    100% |           |
 | data/cache.py                         |      102 |        2 |     98% |  193, 205 |
 | data/demo\_data.py                    |       89 |        0 |    100% |           |
-| data/eia\_client.py                   |      240 |        2 |     99% |  327, 329 |
+| data/eia\_client.py                   |      248 |        2 |     99% |  380, 382 |
 | data/explainability.py                |       44 |        3 |     93% |   204-206 |
 | data/feature\_engineering.py          |      200 |        8 |     96% |59-60, 184, 420, 619-620, 778, 783 |
 | data/forecast\_history.py             |      137 |       11 |     92% |54-55, 116-117, 149, 157, 181-183, 420-421 |
@@ -67,7 +67,7 @@
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
-| **TOTAL**                             | **8614** |  **934** | **89%** |           |
+| **TOTAL**                             | **8622** |  **934** | **89%** |           |
 
 
 ## Setup coverage badge
