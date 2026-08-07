@@ -343,6 +343,52 @@ class TestTypedEmptyFrames:
         assert list(empty.columns) == ["timestamp", "not_a_real_column"]
 
 
+class TestTotalOutageReturnsTypedFrame:
+    """Drive the real fetchers through a total outage and check what comes back.
+
+    The class above tests ``_typed_empty`` in isolation, which is necessary and
+    **not sufficient**: reverting the three call sites to
+    ``pd.DataFrame(columns=...)`` leaves every one of those tests green, because
+    they call the helper directly. A helper nothing calls is not a fix. These
+    tests go through the public fetchers instead, so they fail if a call site
+    stops using it.
+
+    The scenario is the terminal one in the #174 chain — upstream returns
+    nothing, the cache is cold with no stale entry, and the GCS parquet misses —
+    which is the only way to observe the frame from ``_last_known_good``.
+    """
+
+    @pytest.mark.parametrize(
+        "fetcher,numeric_cols",
+        [
+            pytest.param(fetch_demand, ["demand_mw", "forecast_mw"], id="demand"),
+            pytest.param(fetch_generation_by_fuel, ["generation_mw"], id="generation"),
+            pytest.param(fetch_interchange, ["interchange_mw"], id="interchange"),
+        ],
+    )
+    @patch("data.gcs_store.read_parquet")
+    @patch("data.eia_client.get_cache")
+    @patch("data.eia_client._paginated_fetch")
+    def test_numeric_columns_are_float_not_object(
+        self, mock_pf, mock_cache_fn, mock_read, fetcher, numeric_cols
+    ):
+        mock_cache = MagicMock()
+        mock_cache.get.return_value = None  # cold cache, and no stale entry
+        mock_cache_fn.return_value = mock_cache
+        mock_pf.return_value = []  # upstream returns nothing
+        mock_read.return_value = None  # GCS misses too
+
+        df = fetcher("ERCOT", start="2024-01-01T00", end="2024-01-01T23")
+
+        assert df.empty
+        for col in numeric_cols:
+            assert df[col].dtype == "float64", f"{col} came back as {df[col].dtype}"
+            # The property the dtype exists for: numpy accepts the column raw.
+            # This raises TypeError on an object column no matter how few rows
+            # it has, so it is what makes an outage-path regression visible.
+            np.isfinite(np.asarray(df[col]))
+
+
 # ---------------------------------------------------------------------------
 # _parse_generation_records
 # ---------------------------------------------------------------------------
