@@ -16,6 +16,7 @@ import pandas as pd
 import pytest
 
 from models.skill import (
+    BASELINE_SUBSTITUTION_MIN_HOURS,
     BASELINE_SUBSTITUTION_MIN_POINTS,
     SEASONAL_NAIVE_LAG_H,
     mape,
@@ -126,13 +127,22 @@ class TestPayload:
 
 
 class TestPayloadIsExact:
-    """The whole Redis block, pinned field by field.
+    """The whole published block, pinned field by field.
 
-    ``gridpulse:skill:{region}`` is consumed by the substitution policy and
-    published on the Models tab. The tests above check individual flags; every
-    numeric field could be re-rounded or nulled with the suite green —
-    including ``beats_baseline``, which this module's own docstring calls "the
-    field worth acting on".
+    This is the block ``jobs.phases._baseline_substitution`` nests under
+    ``skill`` in ``gridpulse:forecast:{region}:1h``, which
+    ``/api/v1/forecast`` passes through verbatim — so the shape below is a
+    public API surface, not an internal one. It is also the input
+    ``should_serve_baseline`` reads to decide what a region is served.
+
+    The tests above check individual flags; every numeric field could be
+    re-rounded or nulled with the suite green — including ``beats_baseline``,
+    which this module's own docstring calls "the field worth acting on".
+
+    An earlier version of this docstring named a ``gridpulse:skill:{region}``
+    key and the Models tab. Neither exists: the key was never built, and no
+    UI surface reads this block — the shell reads only ``served_series`` and
+    ``served_reason`` from the enclosing payload.
     """
 
     #: 24 h at 100 then 24 h at 125: the lag-24 baseline is |125-100|/125,
@@ -149,6 +159,7 @@ class TestPayloadIsExact:
             "points_vs_baseline": 5.0,
             "beats_baseline": True,
             "n_hours": 48,
+            "window_days": None,
         }
 
     def test_a_losing_region(self):
@@ -160,6 +171,7 @@ class TestPayloadIsExact:
             "points_vs_baseline": -5.0,
             "beats_baseline": False,
             "n_hours": 48,
+            "window_days": None,
         }
 
     def test_matching_the_baseline_is_not_beating_it(self):
@@ -210,7 +222,106 @@ class TestPayloadIsExact:
             "points_vs_baseline": None,
             "beats_baseline": None,
             "n_hours": 10,
+            "window_days": None,
         }
+
+
+class TestTheServedBlock:
+    """The composition production actually emits.
+
+    ``jobs.phases._baseline_substitution`` builds the block with
+    ``skill_payload``, then attaches ``decision`` from
+    ``should_serve_baseline``. Both halves are pure, so the served shape can
+    be pinned here rather than behind the Redis + feature-flag + DataFrame
+    machinery of the job — which is why this file, not an integration test,
+    is where the divergence gets caught.
+
+    Until 2026-08-07 the job hand-rolled its own dict instead of calling
+    ``skill_payload``, and the two had drifted: production emitted no
+    ``beats_baseline`` and no non-finite guards, while the tests above pinned
+    a shape production never served.
+    """
+
+    #: 168 h at 100 then 24 h at 125 — long enough to clear the substitution
+    #: minimum, with the lag-24 baseline erring on exactly the last day: 24
+    #: of 168 scored pairs at 20%, so baseline_mape is 2.857.
+    SERIES = np.array([100.0] * 168 + [125.0] * 24)
+
+    def _serve(self, model_mape, series=None):
+        block = skill_payload(model_mape, self.SERIES if series is None else series, window_days=7)
+        serve, reason = should_serve_baseline(block)
+        block["decision"] = reason
+        return serve, block
+
+    def test_window_days_travels_into_the_block(self):
+        """The one field the job adds to the measurement.
+
+        A reader cannot otherwise tell a 7-day MAPE from a 30-day one, and
+        the job compares a 7-day baseline against a 7-day model deliberately
+        — an earlier analysis mismatched the windows and reversed its own
+        conclusion.
+        """
+        _, block = self._serve(5.0)
+        assert block["window_days"] == 7
+
+    def test_a_losing_region_is_substituted_and_says_why(self):
+        serve, block = self._serve(20.0)
+
+        assert serve is True
+        assert block["beats_baseline"] is False
+        assert block["points_vs_baseline"] < -BASELINE_SUBSTITUTION_MIN_POINTS
+        assert "seasonal-naive" in block["decision"]
+
+    def test_beats_baseline_is_false_wherever_the_block_is_published(self):
+        """Not a redundant assertion — a bound on what the API can show.
+
+        The block is only written on the ticks where substitution fired, and
+        substitution requires a deficit past the threshold, so a published
+        ``beats_baseline: True`` would mean the policy and the measurement
+        disagree about the same numbers. That is the contradiction adding
+        this field to the served payload could have introduced, and it is
+        cheap to forbid.
+        """
+        for model_mape in (18.0, 20.0, 30.0, 99.0):
+            serve, block = self._serve(model_mape)
+            if serve:
+                assert block["beats_baseline"] is False, model_mape
+
+    def test_an_unmeasurable_baseline_keeps_the_model(self):
+        """The hazard the non-finite guards close, at the seam where it lives.
+
+        A window can hold enough observed hours to clear
+        ``BASELINE_SUBSTITUTION_MIN_HOURS`` and still admit no valid lag-24
+        pair — 24h observed alternating with 24h of gap, which is exactly
+        what ``asfreq`` produces for an intermittent feed. The baseline is
+        then NaN.
+
+        The hand-rolled block wrote that straight through as
+        ``points_vs_baseline``, and NaN compares False against everything —
+        including ``points > -MIN_POINTS`` — so the policy fell past its own
+        guards and *substituted* on a measurement that did not exist.
+        ``skill_payload`` nulls the field, which the policy reads as "skill
+        not measurable" and keeps the model.
+
+        Not reachable through today's caller, and the reason is worth
+        stating: the job measures over 7 days, so a window holds at most 168
+        rows, and 168 finite hours in 168 rows means no gaps and a
+        computable baseline — the hours gate fires first. That safety is an
+        accident of two constants in two files being equal
+        (``window_days=7`` in ``jobs/phases.py``,
+        ``BASELINE_SUBSTITUTION_MIN_HOURS = 24 * 7`` here). Widen the window
+        without raising the minimum and the path opens, silently. This test
+        holds the seam closed from the other side.
+        """
+        intermittent = np.tile(np.array([100.0] * 24 + [np.nan] * 24), 7)
+        assert int(np.isfinite(intermittent).sum()) >= BASELINE_SUBSTITUTION_MIN_HOURS
+
+        serve, block = self._serve(99.0, series=intermittent)
+
+        assert block["baseline_mape"] is None
+        assert block["points_vs_baseline"] is None
+        assert serve is False
+        assert block["decision"] == "skill not measurable"
 
 
 class TestMape:

@@ -757,6 +757,23 @@ That reads like a 17% improvement, and I published it as **inconclusive**. Three
 
 The part that did pay was the per-phase attribution shipped during the incident. `forecast` is **60.1%** of all worker time (3085.5s of 5131.0s), and effective parallelism is already **7.7×** — 5131s of work retired in 668s of wall clock. So in-container workers are *spent*: turning that knob again buys nothing. The planned next lever had been "fan scoring across parallel tasks"; the data says the reason that would help is more vCPU, not more concurrency, and that the bigger prize is the 720-hour recursive inference that is 60% of the bill. **The measurement I took to confirm a fix ended up re-ordering the roadmap** — and the honest reading of it was the one that looked least impressive.
 
+### 22. "Tell me about a time a quality metric told you the opposite of the truth."
+**A module scored 88.6% on mutation testing because its best-tested function was the one production never called (2026-08-07).**
+
+Situation: `models/skill.py` answers the question the product exists to answer — does the forecast beat "yesterday, same hour"? After a round of mutation testing it was one of the better-scoring modules in the repo, 72.1% → 88.6% logic score, with exact-payload tests pinning `skill_payload` field by field.
+
+Investigation: `grep -rn "skill_payload"` returned only the test file. The scoring job imported four other symbols from the module and hand-rolled its own copy of the same block inline. The two had drifted: production emitted `window_days` and `decision`, and omitted `beats_baseline` — the field the module's own docstring calls "the field worth acting on." The substitution policy consumed the inline dict and worked only because it happens to read two keys both versions carry. The module docstring also named a Redis key, `gridpulse:skill:{region}`, that was never built; the block actually ships nested inside the forecast payload and is passed through verbatim by the public API.
+
+The uncomfortable part is the causality. The module scored *well* **because** the dead function was well tested. Every mutant of it died — there was a test for each one. The block production actually serves had no direct coverage at all, so it contributed no survivors either. Coverage and mutation testing both answer "is this code tested." Neither answers "is this code reached," and averaged together the dead half flattered the live half.
+
+Action: I kept the function rather than deleting it, which was the closer call. The argument for deletion was that the inline block is what ships. The argument that won: `skill_payload` is a pure function of two arguments, while the inline copy lives inside a private method behind a feature flag, a Redis read, and a DataFrame — deleting the function would have moved nine tests onto a surface needing heavy mocking to test arithmetic. So the job now calls `skill_payload`, the function grew the two fields production needs, and the tests pin the shape that is served.
+
+Before adding `beats_baseline` to a published payload I checked every consumer: the API passes the block through, no UI surface reads it. And because the block is only written on ticks where substitution fired — which requires the model to lose by a threshold — `beats_baseline` is always `False` where it appears. A test now forbids a `True`, since publishing one would mean the policy and the measurement disagreed about the same numbers.
+
+Result: One definition. The non-finite guards came along with it, closing a seam that is currently unreachable *by accident*: the job measures over 7 days and the policy requires 168 hours, so a window can't hold enough observed hours to clear the gate while still being too sparse to compute a baseline. Those two constants are equal, in different files, with nothing connecting them. Widen the window and NaN reaches a `points > -threshold` comparison that is False for NaN, and the policy substitutes on a measurement that does not exist.
+
+**Lesson to convey**: *A per-function quality score is a statement about the tests, not about the system — it silently assumes every function is reachable. Before reading a strong score as reassurance, grep for a caller. And when a well-tested helper and an inline copy of it disagree, the tests will always defend the helper, because the helper is what they import; the divergence can only be found by asking which one runs.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

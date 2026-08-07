@@ -1210,3 +1210,97 @@ class TestWriteGenerationNullHonesty:
         assert result.ok
         payload = fake_redis["gridpulse:generation:ERCOT"]
         assert len(payload["timestamps"]) == 3
+
+
+class TestBaselineSubstitutionBlock:
+    """The skill block ``_baseline_substitution`` publishes.
+
+    The block is nested under ``skill`` in ``gridpulse:forecast:{region}:1h``
+    and passed through verbatim by ``/api/v1/forecast``, so its shape is a
+    public surface. ``tests/unit/test_skill.py`` pins ``skill_payload``, which
+    builds it — but until 2026-08-07 the job hand-rolled its own copy and the
+    two had drifted, with every test defending the copy nothing called.
+
+    These tests cover the seam that divergence hid in: that the job really
+    does compose the published block out of ``skill_payload`` and
+    ``should_serve_baseline``, rather than reproducing either by hand.
+    """
+
+    #: 7 days flat then one day 25% higher — the lag-24 baseline is wrong only
+    #: on the final day, so it beats a deliberately terrible model MAPE.
+    HOURS = 192
+
+    def _run(self, monkeypatch, model_mape=20.0):
+        import config
+        import data.redis_client as rc
+        from jobs import phases
+
+        monkeypatch.setitem(config.FEATURE_FLAGS, "baseline_substitution", True)
+        monkeypatch.setattr(
+            rc,
+            "redis_get",
+            lambda key: {"models": {"ensemble": {"24h": {"rolling_mape_7d": model_mape}}}},
+        )
+        ts = pd.date_range("2026-08-01", periods=self.HOURS, freq="h", tz="UTC")
+        demand = np.array([100.0] * (self.HOURS - 24) + [125.0] * 24)
+        df = pd.DataFrame({"timestamp": ts, "demand_mw": demand})
+        return phases._baseline_substitution("SEC", df, 24)
+
+    def test_the_published_block_carries_every_field(self, monkeypatch):
+        """Pinned as a key set, not field by field.
+
+        The numeric values are ``skill_payload``'s job and are pinned there.
+        What this asserts is the part that drifted: which keys reach Redis.
+        A field dropped here becomes ``null`` in an API response with the
+        whole suite green — dropping ``window_days=7`` from the call site did
+        exactly that, and nothing failed.
+        """
+        result = self._run(monkeypatch)
+        assert result is not None, "a model 6x worse than the baseline must substitute"
+        _, block = result
+
+        assert set(block) == {
+            "model_mape",
+            "baseline_mape",
+            "baseline",
+            "skill",
+            "points_vs_baseline",
+            "beats_baseline",
+            "n_hours",
+            "window_days",
+            "decision",
+        }
+
+    def test_the_window_is_disclosed_as_the_seven_days_it_measures(self, monkeypatch):
+        """``window_days`` is not decoration.
+
+        The job compares a 7-day baseline against the drift instrument's
+        7-day model MAPE deliberately — an earlier analysis mismatched the
+        windows and reversed its own conclusion about which side won. A
+        reader given the numbers without the window cannot check that.
+        """
+        _, block = self._run(monkeypatch)
+        assert block["window_days"] == 7
+        assert block["n_hours"] <= 24 * 7
+
+    def test_beats_baseline_is_published_and_false(self, monkeypatch):
+        """The field the module exists to serve, absent from the hand-rolled
+        copy for as long as it existed. It is always False here: the block is
+        only written when substitution fires, which requires the model to
+        lose by more than the threshold."""
+        _, block = self._run(monkeypatch)
+        assert block["beats_baseline"] is False
+
+    def test_the_decision_string_is_the_policy_s_own_reason(self, monkeypatch):
+        """``decision`` must come from ``should_serve_baseline``, not be
+        re-phrased at the call site — it is the disclosure a user gets for
+        why their region's forecast changed source."""
+        from models.skill import should_serve_baseline
+
+        _, block = self._run(monkeypatch)
+        expected = should_serve_baseline({k: block[k] for k in ("points_vs_baseline", "n_hours")})
+
+        assert block["decision"] == expected[1]
+
+    def test_a_winning_model_is_not_substituted(self, monkeypatch):
+        assert self._run(monkeypatch, model_mape=0.5) is None

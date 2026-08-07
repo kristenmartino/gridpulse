@@ -356,6 +356,28 @@ nothing reaching it is exactly why the crash went unnoticed.
 decides whether a region is served a naive forecast, and the edges of the
 projection that replaces the model.
 
+**...and the tests landed on a function production did not call.** #416's
+exact-payload assertions pinned `skill_payload` field by field. Nothing
+outside the test file imported it: the scoring job hand-rolled its own copy of
+the same block inline, and the two had already diverged — production emitted
+`window_days` and `decision` but no `beats_baseline`, the field the module
+docstring calls "the field worth acting on", and it skipped the non-finite
+guards. `should_serve_baseline` consumed the inline dict and happened to work
+because it reads only two keys.
+
+**A mutation score cannot see this.** Every mutant of `skill_payload` was
+killed, so the module scored well precisely *because* the dead function was
+well tested; the served block had no direct coverage at all. Coverage and
+mutation testing both answer "is this code tested" and neither answers "is
+this code reached". Worth a `grep` for a caller before reading a strong
+per-function score as reassurance.
+
+Resolved 2026-08-07: the job now builds the block via `skill_payload(...,
+window_days=7)` and attaches `decision` from `should_serve_baseline`, so there
+is one definition and the tests pin the shape that is served. `beats_baseline`
+joins the published payload — additive, and always `False` where it appears,
+since the block is only written on ticks where substitution fired.
+
 **`simulation/scenario_engine.py` (36) — still deliberately ignored.** Nothing
 in `components/`, `jobs/`, `api.py` or `app.py` imports `simulation`. The live
 Scenarios feature runs a heuristic; issue #127 tracks replacing it with this
