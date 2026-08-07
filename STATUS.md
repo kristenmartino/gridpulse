@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-08-05
+# Status — updated 2026-08-07
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,53 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-08-07 — the 2026-08-04 incident is CLOSED, and the cost work it turned
+into is measured rather than projected.**
+
+**Scoring runtime: 406s median over 17 ticks** (2026-08-06T20:00Z → 08-07T12:30Z),
+51/51 every tick, p95 488s. [#171](https://github.com/kristenmartino/gridpulse/issues/171)'s
+`<600s` criterion now holds on a **population**, not the single 370.7s run. At
+4 vCPU / 8 GiB that is **$26.06/mo against $26.72 pre-bump — cheaper AND ~2x
+faster** (break-even median 416s).
+
+**Attribution is not isolable and should not be claimed.** The 8-worker bump and
+the forecast-path work (#405/#413/#423) landed the same day, and `forecast` is
+57.7% of worker time against `fetch`'s 15.0% — the perf work plausibly did more
+of it than the concurrency did.
+
+**The measurement trap this line kept setting.** A fast median means nothing
+without `eia_gcs_fallback` and `eia_circuit_tripped` beside it. My first pull
+covered the trailing 24h, returned the same 406s, and looked clean — it
+contained a real EIA outage on **2026-08-06 17:00–19:00** (426 fallbacks, 5
+circuit trips) whose ticks were fast *because they had stopped fetching*.
+Identical to 2026-08-04T23:00, when a 736s run read as a 2.2x win and was the
+fleet serving last-known data. Both are now in CANONICAL_FACTS.
+
+**Bill: ~$317/mo → ~$180/mo** against a $150 budget. Web tier $114 → ~$38
+(resize + `--cpu-throttling` + `--min-instances 0`); Artifact Registry $32 →
+~$9 (**measured** 407 → 124 versions, ~207 GiB, ~$20.74/mo — the policy existed
+but sat in `cleanupPolicyDryRun: true`); training job $73 → ~$45 (backtest folds
+were fitting 60 discarded CV boosters per BA, plus 8→4 GiB on a measured
+1.24 GiB peak). **Memorystore $36 ruled out, not reduced**: Basic 1 GB is the
+tier floor, `maxmemory_policy` is `volatile-lru` (read via `INFO memory` —
+`CONFIG GET` is blocked on Memorystore), `evicted_keys: 0`. Nothing to fix.
+
+**Alerting: 8 policies, all applied, `_KNOWN_UNAPPLIED` empty.**
+`scoring_partial_failure` had been committed-and-inert since 2026-07-08 — and
+could not have fired even if applied, because a SIGKILLed run never reaches its
+`log.error`. It and the soft deadline only became useful as a pair.
+
+**The pattern worth keeping, now in `docs/monitoring/README.md`:** seven controls
+this week were *configured and inert* — an unapplied alert, a `--force` flag with
+no caller, a registry policy in dry-run, a Redis write failure logged through
+stdlib logging where no policy could match it, a soft deadline that could not
+fire for its own workload shape, a deploy comment arguing against its own flag,
+and a PR opened and never merged. Each looked correct in the place you would
+naturally check. **Assert the enforcement, not the declaration** —
+`tests/unit/test_monitoring_policies_applied.py` is the shape to copy.
+
+---
 
 **2026-08-04 — production incident: EIA partial degradation killed two scoring
 ticks, and every defense we had was keyed to the wrong failure shape.**
@@ -1311,14 +1358,13 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
 
 ## Blocked / waiting on
 
-- **One alert policy still needs a human `gcloud` apply**
-  ([#417](https://github.com/kristenmartino/gridpulse/pull/417)) —
-  `redis_write_failures_alert.json`, pending only because its event does not
-  exist until #417's image deploys. The other two were **applied 2026-08-05**:
-  `scoring_partial_failure` (`alertPolicies/1942403527399204858`, inert since
-  2026-07-08) and `scoring_deadline_shed`
-  (`alertPolicies/8524477981812373740`). Recipe in `docs/monitoring/README.md`;
-  `tests/unit/test_monitoring_policies_applied.py` will tell you when it is done.
+- ✅ **Alert policies: nothing blocked.** All eight are applied and
+  `_KNOWN_UNAPPLIED` is empty as of 2026-08-07. `redis_write_failures`
+  (`alertPolicies/16314898527819427981`) went live once its event was confirmed
+  in the DEPLOYED image, not merely on main; `scoring_partial_failure`
+  (`alertPolicies/1942403527399204858`) and `scoring_deadline_shed`
+  (`alertPolicies/8524477981812373740`) preceded it.
+  `tests/unit/test_monitoring_policies_applied.py` guards the next one.
 
 - **Forecast tab chart 1–4h gap between actual end and forecast start**
   ([#129](https://github.com/kristenmartino/gridpulse/issues/129)) —
