@@ -33,7 +33,7 @@
 | data/demo\_data.py                    |       89 |        0 |    100% |           |
 | data/eia\_client.py                   |      240 |        2 |     99% |  327, 329 |
 | data/explainability.py                |       44 |        3 |     93% |   204-206 |
-| data/feature\_engineering.py          |      200 |       10 |     95% |59-60, 184, 420, 598-599, 619-620, 778, 783 |
+| data/feature\_engineering.py          |      200 |        8 |     96% |59-60, 184, 420, 619-620, 778, 783 |
 | data/forecast\_history.py             |      137 |       11 |     92% |54-55, 116-117, 149, 157, 181-183, 420-421 |
 | data/gcs\_store.py                    |       71 |        3 |     96% |31, 52, 99 |
 | data/news\_client.py                  |       57 |        2 |     96% |     88-89 |
@@ -63,11 +63,11 @@
 | models/xgboost\_model.py              |       73 |        2 |     97% |    75, 99 |
 | personas/\_\_init\_\_.py              |        0 |        0 |    100% |           |
 | personas/config.py                    |       13 |        0 |    100% |           |
-| personas/welcome.py                   |       90 |        3 |     97% |47, 49, 97 |
+| personas/welcome.py                   |       90 |        3 |     97% |47, 51, 97 |
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
-| **TOTAL**                             | **8624** |  **936** | **89%** |           |
+| **TOTAL**                             | **8624** |  **934** | **89%** |           |
 
 
 ## Setup coverage badge
