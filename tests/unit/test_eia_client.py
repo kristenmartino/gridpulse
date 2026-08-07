@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pandas as pd
 import pytest
 import requests
@@ -105,7 +106,7 @@ class TestParseDemandRecords:
         assert df["region"].iloc[0] == "ERCOT"
 
     def test_demand_only_no_forecast(self):
-        """When no DF-type records exist, forecast_mw should be None."""
+        """When no DF-type records exist, forecast_mw is all-missing."""
         records = [
             {"period": "2024-01-01T00", "value": 40000, "type": "D"},
             {"period": "2024-01-01T01", "value": 39500, "type": "D"},
@@ -115,6 +116,47 @@ class TestParseDemandRecords:
         assert "forecast_mw" in df.columns
         assert df["forecast_mw"].isna().all()
         assert len(df) == 2
+
+    def test_the_frame_is_numeric_whether_or_not_a_forecast_arrived(self):
+        """Both branches must produce float64, not one float and one object.
+
+        `isna().all()` above is true for a column of `None` *and* a column of
+        `NaN`, so it cannot tell the two apart — and the difference matters.
+        Assigning `None` builds an **object** column, and `np.isfinite` raises
+        on an object array:
+
+            TypeError: ufunc 'isfinite' not supported for the input types
+
+        Everything downstream currently survives it, but only because five
+        separate places each defend themselves — `pd.to_numeric(errors=
+        "coerce")` in `data/quality.py` and `data/vintage.py`, a `try/except`
+        in `models/benchmark.py`, an `is None` check in `jobs/phases.py`, and
+        `np.asarray(..., dtype=float)` in the metric helpers. Drop any one of
+        those and this shape crashes it.
+
+        Mutation testing is how this surfaced: ~81 survivors across the
+        codebase are precisely those defensive coercions, unpinned because
+        nothing reachable was ever object-dtype **except** by way of the
+        no-forecast branch here. Emitting the right dtype at the source is
+        cheaper than pinning all of them.
+        """
+        with_forecast = _parse_demand_records(
+            [
+                {"period": "2024-01-01T00", "value": 40000, "type": "D"},
+                {"period": "2024-01-01T00", "value": 41000, "type": "DF"},
+            ],
+            "ERCOT",
+        )
+        without_forecast = _parse_demand_records(
+            [{"period": "2024-01-01T00", "value": 40000, "type": "D"}], "ERCOT"
+        )
+
+        for label, frame in (("with DF", with_forecast), ("without DF", without_forecast)):
+            for col in ("demand_mw", "forecast_mw"):
+                assert frame[col].dtype == "float64", f"{label}: {col} is {frame[col].dtype}"
+
+        # The property those dtypes buy: numpy can be handed the column raw.
+        assert not np.isfinite(np.asarray(without_forecast["forecast_mw"])).any()
 
     def test_empty_records_returns_empty_df(self):
         df = _parse_demand_records([], "ERCOT")
