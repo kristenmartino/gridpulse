@@ -384,7 +384,7 @@ def _predict_single_fold(
     n_test = len(test_df)
 
     if model_name == "xgboost":
-        from data.feature_engineering import compute_autoregressive_snapshot
+        from data.feature_engineering import recursive_autoregressive_forecast
         from models.xgboost_model import predict_xgboost, train_xgboost
 
         # cross_validate=False: only ``model["model"]`` is used below, and the
@@ -394,17 +394,40 @@ def _predict_single_fold(
         # that was 60 of ~80 boosters per BA, ~40% of the job's compute, and it
         # changes nothing published: same folds, same horizons, same residuals.
         model = train_xgboost(train_df, cross_validate=False)
-        demand_history = train_df["demand_mw"].tolist()
-        preds: list[float] = []
-        for i in range(n_test):
-            row = test_df.iloc[[i]].copy()
-            for col, val in compute_autoregressive_snapshot(demand_history).items():
-                row[col] = val
-            row = row.ffill().bfill().fillna(0)
-            step_pred = float(predict_xgboost(model, row)[0])
-            preds.append(step_pred)
-            demand_history.append(step_pred)
-        return np.array(preds, dtype=float)
+        # Goes through `recursive_autoregressive_forecast` (2026-08-07). This
+        # file used to carry its OWN copy of that loop, which made
+        # `recursive_autoregressive_forecast`'s docstring -- "the single source
+        # of truth for both production scoring and holdout evaluation"
+        # (#195/#186) -- untrue of the backtest, the very thing that publishes
+        # holdout MAPE.
+        #
+        # The copy differed in exactly two ways, both measured before this
+        # change rather than assumed:
+        #
+        #   Seed filtering. The canonical helper drops zero and NaN readings
+        #   from the seed; the copy passed `train_df["demand_mw"]` raw. NaNs
+        #   never reached it -- both `base_df` and the per-fold train slice
+        #   already `dropna(subset=["demand_mw"])` -- so ZEROS were the only
+        #   live difference. Measured on a 720h train window: no zeros and 3
+        #   zeros are byte-identical; 20 zeros diverge by at most 3.24 MW on a
+        #   ~900 MW series. It only bites when a zero lands in the trailing
+        #   168h that the rolling features read, and when it does the FILTERED
+        #   answer is the correct one -- that is the whole #129 lesson, that a
+        #   single zero poisons 168 rolling features. So published MAPE can
+        #   move, and where it moves it gets more honest.
+        #
+        #   The `if col in row.columns` guard, which the copy lacked. Verified
+        #   a no-op here: all 21 snapshot keys are present in an
+        #   `engineer_features` frame, so nothing was ever being ADDED that the
+        #   canonical helper would skip. Had one been missing, unifying would
+        #   have silently substituted 0.0 for a real feature value -- which is
+        #   why this was checked rather than reasoned about.
+        return recursive_autoregressive_forecast(
+            model,
+            train_df["demand_mw"].tolist(),
+            test_df,
+            predict_xgboost,
+        )
 
     elif model_name == "prophet":
         from models.prophet_model import predict_prophet, train_prophet
