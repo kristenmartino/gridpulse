@@ -30,7 +30,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
@@ -2401,18 +2401,78 @@ def write_benchmark_metrics(
 # ── Phase: backtests (training) ──────────────────────────────
 
 
+def _backtest_is_fresh(payload: Any, refresh_days: int) -> bool:
+    """True when an existing backtest payload is younger than the refresh window.
+
+    Anything unparseable — no payload, no ``computed_at``, a bad timestamp, a
+    payload written before this field existed — is treated as STALE, so the
+    failure mode is a recomputation rather than a number that never refreshes
+    again. Fail toward doing the work.
+    """
+    if refresh_days <= 0 or not isinstance(payload, dict):
+        return False
+    stamp = payload.get("computed_at")
+    if not isinstance(stamp, str):
+        return False
+    try:
+        computed = datetime.fromisoformat(stamp)
+    except ValueError:
+        return False
+    if computed.tzinfo is None:
+        computed = computed.replace(tzinfo=UTC)
+    age = datetime.now(UTC) - computed
+    return age < timedelta(days=refresh_days)
+
+
 def write_backtests(data: RegionData) -> PhaseResult:
     """Run walk-forward backtests for the configured horizons and write to Redis.
+
+    Recomputes at most every ``BACKTEST_REFRESH_DAYS`` (default 7), not every
+    run. This is the training job's largest single cost: 12 folds per BA and
+    **every fold trains its own booster** — walk-forward requires it, each
+    fold's model must see only that fold's training window. Measured,
+    `train_xgboost(cross_validate=False)` is 11.26s per fold against 0.42s for
+    the fold's recursive predict loop: **training is 96% of fold cost**, ~141s
+    per BA, ~120 minutes across 51 BAs, roughly 29% of the job's ~25,000
+    task-seconds.
+
+    It only ever ran daily because the payloads carried a 24h TTL — the refresh
+    interval and the expiry were the same number, so skipping a day blanked the
+    Models tab. Nothing about the measurement wants daily: it scores a model
+    ARCHITECTURE against a trailing window, and neither moves meaningfully in a
+    day.
+
+    The real cost of this is staleness, so it is made explicit rather than
+    hidden: every payload carries ``computed_at``, the TTL outlives the refresh
+    interval so a key cannot expire between runs, and every skip is logged with
+    the payload's age. A reader can always tell how old the number is.
 
     Imports ``_run_backtest_for_horizon`` lazily so the Dash callbacks module
     isn't pulled into the job container unless this phase runs.
     """
     from components.callbacks import _run_backtest_for_horizon
-    from data.redis_client import redis_key, redis_set
+    from config import BACKTEST_REFRESH_DAYS, BACKTEST_TTL_SECONDS
+    from data.redis_client import redis_get, redis_key, redis_set
 
     region = data.region
     written: list[int] = []
+    skipped: list[int] = []
     for horizon in BACKTEST_HORIZONS:
+        key = redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}")
+        # redis_get is the fail-SOFT client: a Redis blip returns None, which
+        # reads as stale and recomputes. Costly, but never wrong — the opposite
+        # choice would skip on an outage and let a payload silently expire.
+        existing = redis_get(key)
+        if _backtest_is_fresh(existing, BACKTEST_REFRESH_DAYS):
+            skipped.append(horizon)
+            log.info(
+                "job_backtest_fresh_skip",
+                region=region,
+                horizon=horizon,
+                computed_at=existing.get("computed_at"),
+                refresh_days=BACKTEST_REFRESH_DAYS,
+            )
+            continue
         try:
             bt = _run_backtest_for_horizon(
                 data.demand_df,
@@ -2438,11 +2498,16 @@ def write_backtests(data: RegionData) -> PhaseResult:
             timestamps = [pd.Timestamp(t).isoformat() for t in bt["timestamps"]]
             residuals = (np.asarray(bt["actual"]) - np.asarray(bt["predictions"])).tolist()
             redis_set(
-                redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}"),
+                key,
                 {
                     "horizon": horizon,
                     "exog_mode": DEFAULT_BACKTEST_EXOG_MODE,
                     "exog_source": bt.get("exog_source", "climatology/naive baseline"),
+                    # The disclosure that makes a weekly cadence honest. Without
+                    # it a reader cannot distinguish today's number from one
+                    # measured six days ago, and the skip gate above has nothing
+                    # to read.
+                    "computed_at": datetime.now(UTC).isoformat(),
                     "metrics": {
                         "xgboost": {
                             "mape": round(float(metrics["mape"]), 2),
@@ -2456,7 +2521,7 @@ def write_backtests(data: RegionData) -> PhaseResult:
                     "timestamps": timestamps,
                     "residuals": residuals,
                 },
-                ttl=REDIS_TTL,
+                ttl=BACKTEST_TTL_SECONDS,
             )
             written.append(horizon)
         except Exception as e:
@@ -2469,8 +2534,11 @@ def write_backtests(data: RegionData) -> PhaseResult:
 
     return PhaseResult(
         region=region,
-        ok=len(written) > 0,
-        details={"horizons_written": written},
+        # A run that skipped everything because every payload was fresh is a
+        # SUCCESS, not a no-op failure. Only "nothing written and nothing
+        # deliberately skipped" means the phase actually got nowhere.
+        ok=bool(written or skipped),
+        details={"horizons_written": written, "horizons_fresh_skipped": skipped},
     )
 
 

@@ -885,6 +885,38 @@ MODEL_GATE_TRUTH_MEDIAN_APE_MAX = 25.0
 #: and the live 1,302 MW dive never happens.
 MODEL_GATE_MAX_OFFSET_FAILURES = 1
 
+# --- Backtest refresh cadence --------------------------------------------
+# The walk-forward backtest is the training job's single largest cost. It runs
+# 12 folds per BA (5 at 24h, 5 at 168h, 2 at 720h) and EACH FOLD TRAINS ITS OWN
+# BOOSTER -- walk-forward requires it, the fold's model must see only that
+# fold's training window. Measured locally: `train_xgboost(cross_validate=
+# False)` is 11.26s per fold against 0.42s for the fold's recursive predict
+# loop, i.e. training is 96% of fold cost. All 12 folds are ~141s per BA,
+# ~120 minutes across 51 BAs, roughly 29% of the job's ~25,000 task-seconds.
+#
+# It ran DAILY only because its Redis keys carried a 24h TTL -- the refresh
+# interval and the expiry were the same number, so skipping a day meant the
+# Models tab going blank. Nothing about the measurement wants daily: it scores
+# a model ARCHITECTURE on a trailing window, and neither the architecture nor
+# the window moves meaningfully in a day.
+#
+# The honest cost of this change is staleness, so it is made explicit rather
+# than hidden: every payload now carries `computed_at`, the TTL outlives the
+# refresh interval so a key can never expire between runs, and the skip is
+# logged. A reader can always tell how old the number is.
+#
+# Set to 0 to force recomputation every run (what --force training already
+# implies, and what to use when validating a change to the backtest itself).
+BACKTEST_REFRESH_DAYS = int(os.getenv("BACKTEST_REFRESH_DAYS", "7"))
+
+#: TTL for backtest payloads. MUST exceed BACKTEST_REFRESH_DAYS -- if they are
+#: equal, a key expires exactly when it is due for refresh and any hiccup in
+#: the training job leaves the Models tab empty. That equality is precisely the
+#: bug that pinned this work to a daily cadence in the first place.
+BACKTEST_TTL_SECONDS = int(
+    os.getenv("BACKTEST_TTL_SECONDS", str((BACKTEST_REFRESH_DAYS + 1) * 24 * 3600))
+)
+
 # --- Feed-limited attribution (#309 arc / PR 3) --------------------------
 # The drift panel's Rollback pill prescribes "disable this model" (H2). For
 # regions whose EIA feed is measurably unreliable, that misattributes input
