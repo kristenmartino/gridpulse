@@ -1,7 +1,7 @@
 # Test quality — coverage, mutation testing, and what each one can prove
 
-> **Whole table re-measured 2026-08-05** after #377, #383, #385, #386 and
-> #416 — baseline and adjudication in one pass, so the two agree.
+> **Whole table re-measured 2026-08-07** after #377, #383, #385, #386, #416
+> and #426 — baseline and adjudication in one pass, so the two agree.
 > Regenerate with `python scripts/mutation_test.py`; re-adjudicate with
 > `python scripts/adjudicate_mutants.py --fast` (~25 min each).
 
@@ -51,24 +51,25 @@ and none should try. Adjudication is a human step, and it is the point.
 
 ## Baseline
 
-2,354 mutants scored, **whole table re-measured in one pass**. Full run ≈ 25 min
+2,370 mutants scored, **whole table re-measured in one pass**. Full run ≈ 25 min
 on an 8-core laptop.
 
 | module | mutants | killed | logic surv. | noise surv. | score | logic score | |
 |---|---:|---:|---:|---:|---:|---:|---|
+| `data/feature_engineering.py` | 919 | 780 | 82 | 57 | 84.9% | **90.5%** | ↑ 83.8% |
 | `data/quality.py` | 188 | 164 | 20 | 4 | 87.2% | **89.1%** | ↑ 71.6% |
 | `models/skill.py` | 192 | 164 | 21 | 7 | 85.4% | **88.6%** | ↑ 72.1% |
 | `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
-| `data/feature_engineering.py` | 903 | 705 | 141 | 57 | 78.1% | **83.3%** | untouched |
 | `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
 | `models/evaluation.py` | 373 | 272 | 81 | 20 | 72.9% | **77.1%** | untouched |
 | `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** | ↑ 61.6% |
-| **overall** | **2,354** | **1,768** | **363** | **223** | **75.1%** | **83.0%** | ↑ 78.6% |
+| **overall** | **2,370** | **1,843** | **304** | **223** | **77.8%** | **85.8%** | ↑ 83.0% |
 
-Five rounds of fixes (#377, #383, #385, #386, #416) took the overall logic score
-**78.6% → 83.0%** and killed **125** mutants, without changing production
-behaviour anywhere except the one crash #386 fixed. The mutant total rose by 5
-because that fix added lines.
+Six rounds of fixes (#377, #383, #385, #386, #416, #426) took the overall logic
+score **78.6% → 85.8%** and killed **200** mutants, without changing production
+behaviour anywhere except the one crash #386 fixed. The mutant total rose from
+2,349 to 2,370: #386's fix added lines, and #423 rewrote
+`recursive_autoregressive_forecast` for performance.
 
 **The most useful number here is not the total.** Compare what equal effort
 bought in different places:
@@ -79,11 +80,17 @@ bought in different places:
 | #383 | four guards in `ensemble` | +0.4 pts | **+11.7** |
 | #385 | the `coerce_demand_artifacts` cluster | — | **+17.5** |
 | #416 | the `skill.py` clusters | — | **+16.5** |
+| #426 | four `feature_engineering` clusters | +2.8 pts | **+6.7** |
 
-A 2,354-mutant denominator makes every real fix look like rounding error, which
+A 2,370-mutant denominator makes every real fix look like rounding error, which
 is exactly why the gate policy below is **per-module**. It is also why the
-"logic score" column is the one to read: three modules moved 11–18 points each
-while the headline moved 4.
+"logic score" column is the one to read: four modules moved 7–18 points each
+while the headline moved 7.
+
+**#426 is the exception that shows the rule.** It is the only round that moved
+the headline noticeably (+2.8 pts), because `feature_engineering` is 39% of the
+mutant population — the same work on a small module is invisible at the top
+level and decisive at the module level.
 
 `simulation/scenario_engine.py` is the clearest illustration of why both
 columns are published: 53.4% raw looks alarming, but 75 of its 111 survivors
@@ -107,19 +114,19 @@ equivalent, and would bury the signal.
 
 ## Adjudicated survivors
 
-**All 363 logic survivors are machine-verified** with
+**All 304 logic survivors are machine-verified** with
 `scripts/adjudicate_mutants.py`: apply the mutant to the real source, run
 tests, restore. Re-run in full against the current tree, so these counts match
 the baseline above rather than trailing it.
 
 | | |
 |---|---:|
-| confirmed (no test notices) | **361** |
+| confirmed (no test notices) | **302** |
 | false survivors (mutmut was wrong) | **2** |
 
 Both false ones are in `ensemble_combine`, both killed by
 `test_stable_hash_reproducibility.py` — the subprocess blind spot of
-limitation 1. **The tool's false-survivor rate is 2 in 363, or 0.55%.**
+limitation 1. **The tool's false-survivor rate is 2 in 304, or 0.66%.**
 
 > **This re-run existed to check a specific doubt, and the doubt was
 > unfounded.** #386 found that the adjudicator could reuse stale bytecode:
@@ -132,15 +139,19 @@ limitation 1. **The tool's false-survivor rate is 2 in 363, or 0.55%.**
 > That put a published number in doubt, so the whole population was
 > re-adjudicated with the fix in place. **It found the same two, in the same
 > function, killed by the same test.** The earlier figure was right; it just
-> had not been *shown* to be right. The rate reads 0.55% rather than 0.44%
-> only because five rounds of fixes shrank the denominator from 457 to 363 —
-> the numerator never moved.
+> had not been *shown* to be right.
+>
+> Three full re-adjudications now agree on the *same two mutants*: 2/457
+> (0.44%), 2/363 (0.55%), 2/304 (0.66%). **The numerator has never moved.**
+> The percentage drifts upward only because each round of fixes shrinks the
+> denominator, which is a good reason to quote the pair rather than the
+> ratio.
 
 > **Correcting an earlier claim in this file.** A previous revision said
 > "roughly a third of what a mutation run reports is not a gap," from a sample
 > of seven. That sample was chosen *because* the entries looked interesting,
 > which is exactly how you get a biased estimate. Measured over the whole
-> population it is 2 in 363. The lesson survives — adjudicate before acting —
+> population it is 2 in 304. The lesson survives — adjudicate before acting —
 > but the number was wrong and the reasoning behind it was worse.
 
 Verification protocol: apply the mutation **one at a time**, run tests, revert.
@@ -151,8 +162,8 @@ or the test is decorative.
 
 ### Confirmed does not mean broken
 
-`confirmed` means *no test noticed*. It does not rank severity, and the 361 are
-not 361 defects. Two things matter more than the count:
+`confirmed` means *no test noticed*. It does not rank severity, and the 302 are
+not 302 defects. Two things matter more than the count:
 
 **They cluster by untested function, not by independent defect.** The top
 clusters are one missing test each, not dozens of bugs:
@@ -160,40 +171,54 @@ clusters are one missing test each, not dozens of bugs:
 | confirmed | site | |
 |---:|---|---|
 | 26 | `simulation/scenario_engine.py::_run_ensemble` | dormant — see below |
-| 23 | `data/feature_engineering.py::compute_cyclical_dow` | |
-| 21 | `data/feature_engineering.py::compute_autoregressive_snapshot` | |
-| 21 | `data/feature_engineering.py::compute_cyclical_hour` | |
-| 20 | `models/ensemble.py::ensemble_combine` | |
-| 20 | `data/feature_engineering.py::compute_wind_power` | |
+| 20 | `models/ensemble.py::ensemble_combine` | mostly equivalent, see below |
 | 18 | `models/evaluation.py::check_long_horizon_sanity` | the #296 guard |
 | 16 | `models/evaluation.py::compute_interval_coverage_drift` | |
+| 14 | `data/feature_engineering.py::compute_heat_index` | |
+| 13 | `data/feature_engineering.py::compute_autoregressive_snapshot` | |
+| 12 | `data/feature_engineering.py::engineer_features` | |
+| 11 | `data/quality.py::coerce_demand_artifacts` | |
+| 10 | `models/evaluation.py::compute_interval_coverage` | |
+| 10 | `models/skill.py::seasonal_naive_forecast` | |
 
-Every cluster that once topped this table has been worked:
-`coerce_demand_artifacts` 40 → 11 (#385), `verdict` 32 → 6 (#386),
-`skill_payload` + `seasonal_naive_forecast` 37 → 13 (#416). What is left is
-concentrated in **`data/feature_engineering.py`** (four of the top eight, 85
-survivors between them) and the dormant scenario engine.
+**Every cluster that has ever topped this table has now been worked**, and the
+table has flattened: the largest is 26 (in dead code) where it used to be 40,
+and nothing else clears 20.
+
+Worked so far: `coerce_demand_artifacts` 40 → 11 (#385), `verdict` 32 → 6
+(#386), `skill_payload` + `seasonal_naive_forecast` 37 → 13 (#416), and the
+four `feature_engineering` clusters 85 → 32 (#426).
+
+**`models/evaluation.py` is now the largest untouched surface** — three of the
+top ten and 81 survivors, including the #296 degenerate-forecast guard. It is
+the obvious next target.
 
 `_run_ensemble` still survives *everything*, including `forecasts = None` and
 `ensemble_combine(None, weights)`. That is not 26 findings. It is one function
 with no test — and one that does not run in production.
 
-**Shape predicts value.** Grouping the 361 by what the mutation actually
+**Shape predicts value.** Grouping the 302 by what the mutation actually
 changed:
 
 | share | shape | what it usually means |
 |---:|---|---|
-| 22.4% | `dtype=float` dropped | defensive coercion — see below, **not** equivalent |
-| 17.2% | arithmetic operator/constant | usually real |
-| 10.0% | control flow (`continue`/`break`/`return`) | usually real — produced a fixed gap in #377 |
-| 12.2% | comparison boundaries, `and`/`or` | real — produced nine fixed gaps across #377/#383/#385/#416 |
-| 7.5% | assignment nulled (`x = None`) | crashes on mutation; concentrated in untested functions |
-| 3.3% | argument dropped | usually a changed default |
+| 26.8% | `dtype=float` dropped | defensive coercion — see below, **not** equivalent |
+| 11.9% | arithmetic operator/constant | usually real |
+| 10.9% | control flow (`continue`/`break`/`return`) | usually real — produced a fixed gap in #377 |
+| 8.3% | comparison boundaries | real — produced nine fixed gaps across #377/#383/#385/#416 |
+| 7.6% | assignment nulled (`x = None`) | crashes on mutation; concentrated in untested functions |
+| 2.6% | `and` → `or` | often equivalent where NaN propagates anyway |
 
-The `dtype=float` share **rose** from 17.8% to 22.4% — not because more of them
-appeared, but because the behavioural classes around them were pinned. It is now
-the single largest identifiable group, which makes it the honest next question
-rather than a footnote.
+The `dtype=float` share has risen every round — 17.8% → 22.4% → **26.8%** — and
+the absolute count has barely moved (81 of them). Nothing is multiplying; the
+behavioural classes around them keep getting pinned.
+
+**This is now the largest single question left in the file, and it is a policy
+one, not a measurement one.** These are real unpinned guards (see below), but
+pinning ~81 defensive coercions means writing ~81 tests that pass object-dtype
+columns into numeric helpers. The alternatives are to do that, to scope them out
+of the count deliberately, or to leave them as a documented floor. Nobody has
+decided, and the score cannot decide it.
 
 ### The `dtype=float` class is load-bearing, and I nearly got that wrong
 
@@ -232,7 +257,7 @@ prioritisation aid, not a verdict.
 Every one of 1–5 survived all 2,687 unit tests before the fix and fails after
 it.
 
-### Priority: four clusters fixed, one to ignore, one clearly next
+### Priority: five clusters fixed, one to ignore, one clearly next
 
 **`models/ensemble.py` — was highest value, now FIXED.** ADR-004 weights feed
 every served forecast, and three guards were unpinned. Each mapped to a
@@ -297,17 +322,23 @@ production** — zero operational risk today, and worth re-adjudicating if #127
 lands. A raw mutation score cannot tell you this; it is why the score is not
 a gate.
 
-**What is actually next: `data/feature_engineering.py` (141).** It now holds
-39% of all remaining survivors and four of the top eight clusters
-(`compute_cyclical_dow` 23, `compute_autoregressive_snapshot` 21,
-`compute_cyclical_hour` 21, `compute_wind_power` 20). It is also the module
-where a silent error is hardest to see downstream: 49 features feed every
-model, and `compute_autoregressive_snapshot` seeds the recursive forecast.
-Its 83.3% is mid-table, which is precisely the kind of unremarkable number that
-stops attracting attention.
+**`data/feature_engineering.py` (141 → 82) — fixed in #426.** It held 39% of
+all remaining survivors and four of the top eight clusters. The finding worth
+carrying forward is *why* so much survived there: the existing tests asserted
+**relationships** rather than values. `test_hour_0_and_24_equal` compares two
+midnights, which agree under any period; `test_rated_wind` asserts `> 0.5`,
+true across a wide span of wrong physics; the snapshot tests assert parity with
+the training path, so both could drift together. None is a bad test — each pins
+a real invariant — but a mutation that preserves the relationship walks
+straight through. That is a review heuristic independent of this tooling.
 
-Second: **`models/evaluation.py` (81)**, where `check_long_horizon_sanity` (18)
-is the #296 guard against degenerate forecasts reaching the serve path.
+**What is actually next: `models/evaluation.py` (81).** It is now the largest
+untouched surface and holds three of the top ten clusters —
+`check_long_horizon_sanity` (18), the #296 guard against degenerate forecasts
+reaching the serve path; `compute_interval_coverage_drift` (16); and
+`compute_interval_coverage` (10). Its 77.1% is the lowest of the modules that
+are neither dormant nor already worked, and these functions decide whether a
+published interval is honest.
 
 ### 1. The decision boundaries were not pinned — **fixed**
 
@@ -496,18 +527,22 @@ It is advisory, and stays that way until all three hold:
    unexplained swings from test ordering or flakiness). One re-run of
    `models/skill.py` already moved by a single mutant, so this is not
    theoretical.
-2. ✅ **Resolved, and re-verified.** The false-survivor rate is **measured at
-   2/363 (0.55%)**, the blind spot behind it is enumerated (limitation 1), and
+2. ✅ **Resolved, and re-verified twice.** The false-survivor rate is
+   **measured at 2/304 (0.66%)** — the same two mutants found by all three
+   full re-adjudications — the blind spot behind it is enumerated (limitation 1), and
    the stale-bytecode defect that could have masked more of them is fixed and
    the whole population re-checked — same two, same function, same killing
    test. The deselected slow test that was once limitation 2 is gone;
    re-baselining after it landed changed **no** verdict, so it had been killing
    zero mutants.
-3. ✅ **Resolved.** All 363 logic survivors are machine-verified, clustered by
+3. ✅ **Resolved.** All 304 logic survivors are machine-verified, clustered by
    function, and grouped by mutation shape above.
 
 Only (1) is outstanding, and it needs four weeks of scheduled runs rather than
-any decision. **When it clears, the honest threshold is per-module logic score
+any decision. Note that condition (1) is about *stability*, not *stasis*: the
+whole table has been re-measured on demand four times in a week, and each
+re-run cost ~25 min. The weekly job exists so that stability can be observed
+without anyone asking for it. **When it clears, the honest threshold is per-module logic score
 with a no-regression rule** — "this module's logic score may not fall" — rather
 than an absolute bar. The floor moves as modules are fixed (`models/ensemble.py`
 went 61.6% -> 73.3%), so any absolute bar is either instantly stale or set so
@@ -518,4 +553,7 @@ noise, and get switched off within a month. The failure mode of mutation
 testing in practice is not a low score; it is abandonment.
 
 When it does become a gate, the unit is the **logic score per module**, not the
-overall number — a 900-mutant module would otherwise drown a 133-mutant one.
+overall number — `data/feature_engineering.py` is 919 of 2,370 mutants and
+would otherwise drown `models/ensemble.py`'s 133. #426 is the demonstration:
+the same class of work moved the headline 2.8 points there and ~0 points on the
+small modules.

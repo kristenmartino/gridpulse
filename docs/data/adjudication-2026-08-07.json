@@ -1,6 +1,6 @@
 {
-  "checked": 363,
-  "confirmed": 361,
+  "checked": 304,
+  "confirmed": 302,
   "false_survivors": 2,
   "skipped": 0,
   "verdicts": [
@@ -1689,23 +1689,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_25",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_26",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_27",
       "module": "data/feature_engineering.py",
       "function": "compute_autoregressive_snapshot",
       "status": "confirmed",
@@ -1769,31 +1753,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_141",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_147",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_150",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_177",
       "module": "data/feature_engineering.py",
       "function": "compute_autoregressive_snapshot",
       "status": "confirmed",
@@ -1809,31 +1769,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_186",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_206",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_212",
-      "module": "data/feature_engineering.py",
-      "function": "compute_autoregressive_snapshot",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_autoregressive_snapshot__mutmut_215",
       "module": "data/feature_engineering.py",
       "function": "compute_autoregressive_snapshot",
       "status": "confirmed",
@@ -1849,7 +1785,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_17",
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_16",
       "module": "data/feature_engineering.py",
       "function": "recursive_autoregressive_forecast",
       "status": "confirmed",
@@ -1857,7 +1793,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_18",
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_45",
       "module": "data/feature_engineering.py",
       "function": "recursive_autoregressive_forecast",
       "status": "confirmed",
@@ -1865,15 +1801,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_29",
-      "module": "data/feature_engineering.py",
-      "function": "recursive_autoregressive_forecast",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_31",
+      "key": "data.feature_engineering.x_recursive_autoregressive_forecast__mutmut_47",
       "module": "data/feature_engineering.py",
       "function": "recursive_autoregressive_forecast",
       "status": "confirmed",
@@ -2049,47 +1977,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_4",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_6",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_wind_power__mutmut_7",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_8",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_10",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_11",
       "module": "data/feature_engineering.py",
       "function": "compute_wind_power",
       "status": "confirmed",
@@ -2105,95 +1993,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_16",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_17",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_18",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_20",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_22",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_24",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_32",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_40",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_46",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_48",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_wind_power__mutmut_49",
-      "module": "data/feature_engineering.py",
-      "function": "compute_wind_power",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_wind_power__mutmut_51",
       "module": "data/feature_engineering.py",
       "function": "compute_wind_power",
       "status": "confirmed",
@@ -2217,95 +2017,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_2",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_4",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_9",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_10",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_11",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_12",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_14",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_15",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_16",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_17",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_18",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_20",
       "module": "data/feature_engineering.py",
       "function": "compute_cyclical_hour",
       "status": "confirmed",
@@ -2321,31 +2033,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_23",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_24",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_25",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_26",
       "module": "data/feature_engineering.py",
       "function": "compute_cyclical_hour",
       "status": "confirmed",
@@ -2361,22 +2049,6 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_28",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_29",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_hour",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_cyclical_hour__mutmut_30",
       "module": "data/feature_engineering.py",
       "function": "compute_cyclical_hour",
@@ -2385,111 +2057,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_1",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_2",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_4",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_7",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_9",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_10",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_11",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_12",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_14",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_15",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_16",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_17",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_18",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_20",
       "module": "data/feature_engineering.py",
       "function": "compute_cyclical_dow",
       "status": "confirmed",
@@ -2505,14 +2073,6 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_23",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_24",
       "module": "data/feature_engineering.py",
       "function": "compute_cyclical_dow",
@@ -2521,39 +2081,7 @@
       "note": ""
     },
     {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_25",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_26",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
       "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_27",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_28",
-      "module": "data/feature_engineering.py",
-      "function": "compute_cyclical_dow",
-      "status": "confirmed",
-      "killed_by": [],
-      "note": ""
-    },
-    {
-      "key": "data.feature_engineering.x_compute_cyclical_dow__mutmut_29",
       "module": "data/feature_engineering.py",
       "function": "compute_cyclical_dow",
       "status": "confirmed",
