@@ -99,22 +99,42 @@ views). Recursive scoring — the model's own predictions feed forward as lags
 [#209](https://github.com/kristenmartino/gridpulse/issues/209); it is the
 honest 7-day-forecast number, not a nowcast:
 
+**Regenerated 2026-08-07** from production GCS metas at `latest.json`.
+The **ensemble column is scored strictly out-of-sample** as of
+[#404](https://github.com/kristenmartino/gridpulse/pull/404) — before 2026-08-05 its weights were fitted on the same 168h
+the blend was scored against, so every previously published ensemble figure
+was optimistically biased. Base-model columns were never affected.
+
 | Stat | XGBoost-only | Best-base per BA | Ensemble (served) |
 |---|---|---|---|
-| min | 1.76% (PSEI) | 1.66% (ERCOT) | 1.48% (ERCOT) |
-| median | 4.32% | 4.12% | 4.82% |
-| mean | 5.99% | 5.38% | 6.22% |
-| p90 | 9.90% | 9.90% | 12.64% |
-| max | 38.63% (SEC) | 21.13% (SPA) | 22.81% (SPA) |
+| min | 1.89% (ERCOT) | 1.72% (ERCOT) | 1.38% (SPP) |
+| median | 3.69% | 3.69% | 4.35% |
+| mean | 5.37% | 4.95% | 6.27% |
+| p90 | 9.87% | 9.87% | 14.27% |
+| max | 37.50% (SPA) | 23.26% (SPA) | 30.86% (IID) |
 
-XGBoost is best base for 44 of 51 BAs (Prophet for CHPD/DOPD/SEC/SOCO, ARIMA
-for ERCOT/SC/WALC). **The ensemble trails best-base in aggregate** (median
-4.82% vs 4.12%) but under recursive scoring now beats XGBoost-alone on 17 of
-51 BAs (up from 4) — the inverse-MAPE blend (ADR-004) damps compounding
-single-model drift on the tail (SEC 38.63% → 13.61%) while landing above
-XGBoost where it is already strongest. Quote the ensemble for *what production
-serves*, best-base for *best achievable per BA*. Tail BAs (SPA, IID, PSCO,
-SEC, AZPS) swing run-to-run.
+XGBoost is best base for 42 of 51 BAs (Prophet for ERCOT/LGEE/SC/TEC/TIDC,
+ARIMA for AZPS/NEVP/SEC/SPA) — the winner per BA is **not stable across
+retrains**, so do not cite a specific BA's champion without re-reading the
+meta. **The ensemble trails best-base in aggregate** (median 4.35% vs 3.69%)
+and beats XGBoost-alone on 21 of 51 BAs. Quote the ensemble for *what
+production serves*, best-base for *best achievable per BA*.
+
+**Two changes moved this table at once and they are separable.** On the
+2026-08-07 run, same 51 BAs and same models, the old in-sample estimator was
+logged beside the new one: ensemble median **3.89% in-sample → 4.35%
+out-of-sample**, mean **4.95% → 6.27%**, worse on **33 of 51** BAs. So versus
+the previously published 4.82%, retraining bought −0.93 pts and the bias
+correction gave back +0.46. The correction is far larger in the tail than at
+the median.
+
+**The old "variance-reduction on the tail" claim is withdrawn.** It rested on
+SEC 38.63% → 13.61%; on 2026-08-07 SEC is XGBoost 13.68% and ensemble 14.72%,
+i.e. the blend is *worse* there. Ensemble p90 (14.27%) is now well above
+XGBoost-only's (9.87%). The honest statement is that the blend buys error
+decorrelation on some BAs and costs accuracy on others; the per-BA table in
+[`BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md) is the only reliable guide.
+Tail BAs (IID, SPA, AZPS, HST, SEC) swing run-to-run.
 
 (Source: generated 2026-07-03 from production GCS via
 `scripts/export_holdout_metrics.py`; models trained 2026-07-03. Ensemble

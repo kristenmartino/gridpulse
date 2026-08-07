@@ -295,7 +295,7 @@ perturbing the seed history does.
 Result: XGBoost's holdout MAPE rose to a comparable basis and the ensemble
 weights shifted. Measured 2026-07-03 on the production recursive holdout
 (all 51 BAs): **XGBoost's median holdout MAPE went 2.32% → 4.32%**, and the
-**ensemble now beats XGBoost-alone on 17 of 51 BAs, up from 4** — because once
+**ensemble now beats XGBoost-alone on 21 of 51 BAs, up from 4** — because once
 errors are allowed to compound over the horizon, blending in Prophet and ARIMA
 damps the worst single-model drift (e.g. SEC: XGBoost 38.6% → ensemble 13.6%).
 The headline number roughly doubled and became one I trust. The numbers went
