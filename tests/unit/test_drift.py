@@ -181,6 +181,96 @@ class TestExtractOneHourAheadPredictions:
         assert "prophet" not in out and "arima" not in out
 
 
+class TestFilterByLead:
+    """P2-19 (#273): the 1-hour-ahead window stops averaging in multi-hour leads."""
+
+    def _rec(self, lead, err=5.0, hours_ago=1):
+        return DriftRecord(
+            timestamp=_ts(hours_ago),
+            predicted=100_000.0,
+            actual=100_000.0,
+            abs_pct_error=err,
+            lead_hours=lead,
+        )
+
+    def test_drops_known_leads_above_the_bar(self):
+        from models.drift import filter_by_lead
+
+        recs = [self._rec(1), self._rec(2), self._rec(6)]
+        kept, dropped, unknown = filter_by_lead(recs, 1)
+        assert [r.lead_hours for r in kept] == [1]
+        assert (dropped, unknown) == (2, 0)
+
+    def test_keeps_unknown_leads_and_counts_them(self):
+        """Unknown lead is 97% likely to be lead 1 — dropping it costs history.
+
+        This is the load-bearing decision in the filter: a record written
+        before the field existed can never have its lead recovered, so
+        excluding them would discard most of the window to remove a 3%
+        contamination.
+        """
+        from models.drift import filter_by_lead
+
+        recs = [self._rec(1), self._rec(None), self._rec(4)]
+        kept, dropped, unknown = filter_by_lead(recs, 1)
+        assert sorted(r.lead_hours or 0 for r in kept) == [0, 1]  # None + lead-1
+        assert (dropped, unknown) == (1, 1)
+
+    def test_no_op_when_disabled(self):
+        from models.drift import filter_by_lead
+
+        recs = [self._rec(1), self._rec(9)]
+        kept, dropped, unknown = filter_by_lead(recs, None)
+        assert len(kept) == 2 and (dropped, unknown) == (0, 0)
+
+    def test_rolling_mape_excludes_the_contaminating_lead(self):
+        """The whole point: a lead-6 record must not move the 1h headline."""
+        from models.drift import rolling_mape
+
+        clean = [self._rec(1, err=4.0, hours_ago=h) for h in range(1, 5)]
+        dirty = clean + [self._rec(6, err=100.0, hours_ago=5)]
+        unfiltered = rolling_mape(dirty, WINDOW_7D_HOURS, now_iso=_ts(0))
+        filtered = rolling_mape(dirty, WINDOW_7D_HOURS, now_iso=_ts(0), max_lead=1)
+        assert unfiltered == pytest.approx(23.2)  # the lead-6 record dominates
+        assert filtered == pytest.approx(4.0)  # ...and is gone once filtered
+
+    def test_payload_publishes_both_transition_counters(self):
+        """n_lead_excluded_7d and n_lead_unknown_7d make the state observable."""
+        recs = {
+            "xgboost": DriftRecord(
+                timestamp=_ts(1), predicted=100.0, actual=100.0, abs_pct_error=1.0, lead_hours=1
+            )
+        }
+        existing = {
+            "models": {
+                "xgboost": {
+                    "records": [
+                        {"ts": _ts(2), "p": 100.0, "a": 100.0, "e": 1.0, "l": 5},
+                        {"ts": _ts(3), "p": 100.0, "a": 100.0, "e": 1.0},  # legacy, no lead
+                    ]
+                }
+            }
+        }
+        out = compute_drift_payload("PJM", existing, recs, now_iso=_ts(0))
+        blk = out["models"]["xgboost"]
+        assert blk["n_lead_excluded_7d"] == 1
+        assert blk["n_lead_unknown_7d"] == 1
+        # The dropped record stays in ``records`` — history is not rewritten.
+        assert blk["n_records"] == 3
+        assert len(blk["records"]) == 3
+        # ...but it does not feed the mean.
+        assert blk["n_7d"] == 2
+
+    def test_horizon_drift_is_not_lead_filtered(self):
+        """#227 records have a DESIGNED 24/48/72h horizon — filtering empties them."""
+        import inspect
+
+        from models import drift as mod
+
+        src = inspect.getsource(mod._horizon_rollup_block)
+        assert "filter_by_lead" not in src
+
+
 class TestBuildRecordsFromActuals:
     def _previous_forecast(self) -> dict:
         return {
