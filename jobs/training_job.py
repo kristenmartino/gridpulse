@@ -348,7 +348,7 @@ def _ensemble_holdout_metrics(
     """
     import numpy as np
 
-    from models.ensemble import compute_ensemble_weights, ensemble_combine
+    from models.ensemble import ensemble_combine, resolve_ensemble_weights
     from models.evaluation import compute_all_metrics
 
     valid = {name: payload for name, payload in per_model_holdouts.items() if payload is not None}
@@ -373,13 +373,17 @@ def _ensemble_holdout_metrics(
     }
 
     def _weights_from(mape_scores: dict[str, float]) -> dict[str, float]:
-        w = compute_ensemble_weights(mape_scores)
-        total = sum(w.values()) or 1.0
-        return {k: v / total for k, v in w.items()}
+        # P2-16 (#273): one shared rule, so training and scoring cannot drift
+        # apart on how a membership is weighted.
+        w, _rule = resolve_ensemble_weights(list(mape_scores), mape_scores)
+        return w
 
     # Full-window weights: the informational record of the combination rule.
     full_weights = _weights_from(
         {name: payload["metrics"]["mape"] for name, payload in valid.items()}
+    )
+    _, full_rule = resolve_ensemble_weights(
+        list(valid), {name: payload["metrics"]["mape"] for name, payload in valid.items()}
     )
 
     split = int(len(actuals) * _ENSEMBLE_WEIGHT_FIT_FRACTION)
@@ -418,6 +422,8 @@ def _ensemble_holdout_metrics(
             reason="window_too_short_or_member_unscoreable",
         )
         in_sample_metrics["scored"] = "in_sample"
+        in_sample_metrics["members"] = sorted(valid)
+        in_sample_metrics["weight_rule"] = full_rule
         return in_sample_metrics, full_weights
 
     log.info(
@@ -430,6 +436,10 @@ def _ensemble_holdout_metrics(
         else None,
     )
     oos_metrics["scored"] = "out_of_sample"
+    # P2-16 (#273): record WHICH composition this metric describes, so a
+    # consumer can tell whether it matches what production actually serves.
+    oos_metrics["members"] = sorted(valid)
+    oos_metrics["weight_rule"] = full_rule
     return oos_metrics, full_weights
 
 
@@ -454,23 +464,53 @@ def _train_xgboost(
         log.warning("training_xgboost_failed", region=region, error=str(e))
         return None
 
-    # Holdout MAPE wins over CV-mean MAPE when available — same window
-    # as the prophet/arima holdouts so the inverse-MAPE ensemble weights
-    # are computed against a consistent metric basis.
+    # P2-15 (#273): holdout and CV are DISTINCT quantities and are no longer
+    # interchangeable. ``meta.mape`` carries the recursive holdout or nothing.
+    #
+    # It used to be ``holdout.mape or cv_mape``, which published a
+    # cross-validation mean under the name every consumer reads as a holdout —
+    # `get_model_metrics`, the Models tab, and the ADR-004 ensemble weights.
+    # Two problems, not one: the CV number measured a different protocol
+    # (teacher-forced one-step folds, not recursive multi-step), and until this
+    # PR it was also optimistically biased, because each fold early-stopped on
+    # the very rows it was then scored against.
+    #
+    # A model with no holdout now reports ``mape=None``, which is a state the
+    # rest of the system already handles: `ModelMetadata.mape` is `float | None`,
+    # `compute_ensemble_weights` filters non-finite entries, and the scoring
+    # job's partial-coverage path falls back to equal weights and logs
+    # `scoring_ensemble_equal_weights_fallback`. Equal weight on an unmeasured
+    # model is honest; a cubed weight derived from a mislabelled number is not.
+    #
+    # The `or` was independently a latent bug: a holdout MAPE of exactly 0.0 is
+    # falsy, so a perfect holdout would have silently fallen through to CV.
     cv_scores = model_dict.get("cv_scores") if isinstance(model_dict, dict) else None
     cv_mape = None
     if cv_scores is not None and len(cv_scores) > 0:
         try:
-            cv_mape = float(np.mean(cv_scores))
+            mean_cv = float(np.mean(cv_scores))
+            cv_mape = mean_cv if np.isfinite(mean_cv) else None
         except Exception:
             cv_mape = None
 
     holdout_metrics = holdout["metrics"] if holdout else None
-    saved_mape = (holdout_metrics or {}).get("mape") or cv_mape
+    holdout_mape = (holdout_metrics or {}).get("mape")
+    saved_mape = holdout_mape if holdout_mape is not None else None
 
     extra: dict = {"cv_scores": cv_scores if cv_scores is not None else []}
     if holdout_metrics is not None:
         extra["holdout_metrics"] = holdout_metrics
+    # Published beside the holdout, never in place of it, and explicitly named
+    # so no consumer can mistake one for the other.
+    extra["cv_mape"] = cv_mape
+    extra["mape_source"] = "holdout" if saved_mape is not None else None
+    if saved_mape is None:
+        log.info(
+            "training_xgboost_no_holdout_mape",
+            region=region,
+            cv_mape=round(cv_mape, 3) if cv_mape is not None else None,
+            note="meta.mape=None; CV is NOT substituted (P2-15/#273)",
+        )
 
     # #326 serve-path acceptance gate: the holdout above scores a DIFFERENT
     # model on a different frame and is provably blind to the fit lottery.

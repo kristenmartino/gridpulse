@@ -17,6 +17,14 @@ from xgboost import XGBRegressor
 
 log = structlog.get_logger()
 
+#: P2-15 (#273): fraction of each CV fold's TRAINING portion carved off its
+#: tail as the early-stopping eval set, so the fold being scored is never the
+#: fold that chose the boosting-round count.
+_EARLY_STOP_INNER_FRACTION = 0.15
+#: Below this many rows the inner split is too small to early-stop against;
+#: the fold fits without early stopping instead.
+_EARLY_STOP_MIN_ROWS = 24
+
 # Features to exclude from model input
 EXCLUDE_COLS = {"timestamp", "region", "data_quality", "forecast_mw", "demand_mw"}
 
@@ -105,13 +113,35 @@ def train_xgboost(
             X_train, X_val = X[train_idx], X[val_idx]  # noqa: N806
             y_train, y_val = y[train_idx], y[val_idx]
 
-            fold_model = XGBRegressor(**cv_params)
-            fold_model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
+            # P2-15 (#273): early-stop on an INNER split carved from the tail of
+            # the training portion, never on the fold being scored. Previously
+            # this fit with ``eval_set=[(X_val, y_val)]`` and then scored
+            # ``X_val`` — the boosting-round count was chosen to minimise error
+            # on the very rows the score was computed from, so ``cv_scores``
+            # was optimistically biased. It is a fitted quantity in that form,
+            # not a held-out one, and it reaches ``meta.mape`` whenever the
+            # recursive holdout is unavailable.
+            n_inner = int(len(X_train) * _EARLY_STOP_INNER_FRACTION)
+            fold_params = cv_params.copy()
+            if early_stopping_rounds and n_inner >= _EARLY_STOP_MIN_ROWS:
+                cut = len(X_train) - n_inner
+                X_fit, X_stop = X_train[:cut], X_train[cut:]  # noqa: N806
+                y_fit, y_stop = y_train[:cut], y_train[cut:]
+                fold_model = XGBRegressor(**fold_params)
+                fold_model.fit(X_fit, y_fit, eval_set=[(X_stop, y_stop)], verbose=False)
+            else:
+                # Too little training data to carve an inner set. Fit without
+                # early stopping rather than fall back to stopping on the
+                # scored fold — a slower, possibly over-fit booster is a
+                # better failure than a self-graded number.
+                fold_params.pop("early_stopping_rounds", None)
+                fold_model = XGBRegressor(**fold_params)
+                fold_model.fit(X_train, y_train, verbose=False)
 
             y_pred = fold_model.predict(X_val)
             mape = _compute_mape(y_val, y_pred)
             cv_scores.append(mape)
-            log.debug("xgboost_fold", fold=fold, mape=round(mape, 2))
+            log.debug("xgboost_fold", fold=fold, mape=round(mape, 2), inner_stop_rows=n_inner)
 
     # Train final model on all data (no early stopping — no validation set)
     model = XGBRegressor(**params)
