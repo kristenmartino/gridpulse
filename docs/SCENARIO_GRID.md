@@ -166,7 +166,19 @@ simulator, never a missing forecast (the #268 → #267 rule).
 
 ## Status and what is not yet verified
 
-Shipped behind `FEATURE_FLAGS["scenario_grid"]`, **default off**.
+Shipped behind `FEATURE_FLAGS["scenario_grid"]`. **Enabled 2026-08-10 (#460)**
+on the scoring job at image `46b7fb8`.
+
+Enabled rather than held back because the cost cannot be confirmed any other
+way — there are no trained models on a dev box or in CI, so every estimate of
+this phase is arithmetic until a real tick runs it. The estimate's known blind
+spot is per-call fixed overhead in the recursive helper: the grid makes 4,080
+short calls where production makes 51 long ones, and if that overhead
+dominates, the true figure is several times ~26 s.
+
+Note the flag is **not** an env-var override. `feature_enabled` reads
+`FEATURE_FLAGS` directly, so both flipping it and rolling it back are a code
+change plus a redeploy — budget a CI cycle, not a config push.
 
 Verified: 39 unit tests over the grid maths, the axes/slider contract, the
 interpolation, both integration seams, and the fail-open behaviour.

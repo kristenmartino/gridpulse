@@ -325,10 +325,21 @@ class TestInterpolation:
 
 
 class TestFeatureFlag:
-    def test_the_grid_ships_disabled(self):
-        """Costed at ~26s added wall; the flag is how it gets switched off
-        without a deploy if the runtime-creep alert fires."""
-        assert config.FEATURE_FLAGS["scenario_grid"] is False
+    def test_the_flag_is_registered(self):
+        """Registration is the durable contract; the value is operational.
+
+        Asserted rather than the on/off state because ``feature_enabled``
+        fail-closes on unknown flags (#145): a typo or a dropped entry would
+        silently disable the grid and fall back to the heuristic with nothing
+        but a log line to say so. The value itself flips with operational
+        decisions and pinning it would just make this test a changelog.
+
+        Note the flag is NOT an env-var override — ``feature_enabled`` reads
+        ``FEATURE_FLAGS`` directly, so flipping it is a code change and a
+        redeploy, not a config change.
+        """
+        assert "scenario_grid" in config.FEATURE_FLAGS
+        assert isinstance(config.FEATURE_FLAGS["scenario_grid"], bool)
 
     def test_the_horizon_matches_what_the_simulator_charts(self):
         """`_scenario_demand_factor` documents a 24h baseline, and the 24 is
