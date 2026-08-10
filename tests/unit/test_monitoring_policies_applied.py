@@ -34,17 +34,15 @@ README = MONITORING_DIR / "README.md"
 #: applied-policies table, then delete it from this dict.
 _KNOWN_UNAPPLIED: dict[str, str] = {
     "backtest_recompute_alert.json": (
-        "Needs a one-time logs-based counter metric (`backtest_recomputes`) created "
-        "first — see the 'Logs-based metric' section in the README. It is the only "
-        "policy here that is a metric threshold rather than a conditionMatchedLog, "
-        "because the signal is a FREQUENCY (one recompute day per week is correct, "
-        "three is a regression) and a match-based condition cannot tell those apart. "
-        "Applying the policy before the metric exists would leave it referencing a "
-        "metric type that resolves to nothing. Additional caveat: a logs-based metric "
-        "only counts from creation and does not backfill, so the 72h window is not at "
-        "full sensitivity for its first three days. To apply: run both gcloud recipes "
-        "in the README, add the row with the live id to the applied-policies table, "
-        "then delete this entry."
+        "Committed 2026-08-10, not yet applied. Plain conditionMatchedLog on "
+        "`backtest_recompute_unexpected` — no prerequisite metric. (The first "
+        "version needed a logs-based counter and a 72h metric threshold; Cloud "
+        "Monitoring rejects that with 'Alignment periods longer than 25h are not "
+        "supported', and a <=25h window cannot express the condition either since "
+        "consecutive daily runs land in adjacent windows. Detection moved into "
+        "jobs.phases.check_backtest_recompute_cadence.) To apply: run the gcloud "
+        "recipe in the README, add the row with the live id to the applied-policies "
+        "table, then delete this entry."
     ),
 }
 

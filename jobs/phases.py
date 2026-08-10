@@ -3001,6 +3001,71 @@ def write_alerts(data: RegionData) -> PhaseResult:
 # ── Meta keys ────────────────────────────────────────────────
 
 
+def check_backtest_recompute_cadence(recomputed_regions: int) -> bool:
+    """Emit ``backtest_recompute_unexpected`` if backtests recomputed too soon.
+
+    **Why this lives in code and not in a Cloud Monitoring condition.** The
+    signal is a FREQUENCY: one recompute day per week is correct, two in three
+    days is a regression, and no `conditionMatchedLog` can tell those apart --
+    it fires on both. The natural fix is a metric threshold over a multi-day
+    window, and Cloud Monitoring rejects it:
+
+        Alignment periods longer than 25h are not supported.
+
+    A <=25h window cannot express it either. The training job runs once daily,
+    so consecutive recompute days land in ADJACENT windows and never the same
+    one -- any 24h window sees at most one day's worth (153) whether backtests
+    run weekly or every single run. So the comparison has to happen where the
+    state is: here.
+
+    Called ONCE PER RUN from the epilogue, never per region. A per-region check
+    would write the fleet-wide marker on the first region and then see a fresh
+    marker for the other fifty, reporting an anomaly on every single one.
+
+    Returns True when the cadence looks wrong, so the caller can surface it.
+    The marker is refreshed regardless -- a missed detection is better than a
+    stuck marker that suppresses every future one.
+    """
+    from config import BACKTEST_REFRESH_DAYS
+    from data.redis_client import redis_get, redis_key
+
+    if recomputed_regions <= 0:
+        return False
+
+    previous = redis_get(redis_key("meta:last_backtest_recompute"))
+    prev_at = previous.get("updated_at") if isinstance(previous, dict) else None
+    unexpected = False
+    age_days: float | None = None
+
+    if isinstance(prev_at, str):
+        try:
+            then = datetime.fromisoformat(prev_at)
+            if then.tzinfo is None:
+                then = then.replace(tzinfo=UTC)
+            age_days = (datetime.now(UTC) - then).total_seconds() / 86400
+            # One day of slack: the job runs at a fixed hour, so consecutive
+            # legitimate recomputes are ~REFRESH_DAYS apart give or take
+            # scheduling jitter. Comparing against the bare threshold would
+            # alert on a run that started a few minutes early.
+            unexpected = age_days < (BACKTEST_REFRESH_DAYS - 1)
+        except ValueError:
+            # Unparseable marker: treat as no marker rather than as an anomaly.
+            # Fail toward silence here -- the opposite would cry wolf on the
+            # first run after any format change.
+            age_days = None
+
+    if unexpected:
+        log.warning(
+            "backtest_recompute_unexpected",
+            regions_recomputed=recomputed_regions,
+            days_since_last_recompute=round(age_days, 2) if age_days is not None else None,
+            refresh_days=BACKTEST_REFRESH_DAYS,
+        )
+
+    write_meta("last_backtest_recompute", extra={"regions_recomputed": recomputed_regions})
+    return unexpected
+
+
 def write_meta(key: str, extra: dict[str, Any] | None = None) -> None:
     """Write a ``gridpulse:meta:{key}`` marker with current UTC timestamp."""
     from data.redis_client import redis_key, redis_set

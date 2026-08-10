@@ -17,7 +17,7 @@ billing.
 | `scoring_partial_failure_alert.json` | **Job tier (#267).** Log-based (`jsonPayload.event="scoring_partial_failure"`) — fires when a run forecast fewer than `SCORING_MIN_OK_REGIONS` BAs (default 40/51) but at least one succeeded, so it exits 0. Catches a catastrophic *partial* failure (e.g. 1/51) the failed-execution alert can't see. |
 | `redis_write_failures_alert.json` | **Job tier (2026-08-05).** Log-based (`jsonPayload.event="redis_write_failures"`) — fires when a run dropped one or more *fail-soft* Redis writes. Secondary payloads only (generation, interchange, drift, benchmark, backtest, weather-correlation, alerts, meta); the critical ones use fail-loud `persist()`. Needed because all 15 `redis_set` call sites ignore the returned `False` by design, so a dropped write changes nothing observable — no phase fails, the region still counts as scored, the run still exits 0. |
 | `scoring_deadline_shed_alert.json` | **Job tier (2026-08-04).** Log-based (`jsonPayload.event="scoring_deadline_shed"`) — fires when a run hits `SCORING_SOFT_DEADLINE_FRACTION` of its task timeout and stops starting new BAs. This is the guard *working*: the run completes, writes an honest `last_scored` (`deadline_hit`, `regions_deadline_skipped`) and exits 0, instead of being SIGKILLed having recorded nothing — which is what happened to two ticks on 2026-08-04 after they had already scored ~49/51. Still means runtime is at the ceiling and BAs are going unscored. |
-| `backtest_recompute_alert.json` | **Job tier (2026-08-10).** Metric-threshold on a **logs-based counter** (`jsonPayload.event="job_backtest_recomputed"`) — fires when backtests recompute on more than one day in three, i.e. the `BACKTEST_REFRESH_DAYS` gate stopped holding. Backtests are **56.9% of the training job** (12,886s measured 2026-08-08); a silent regression here roughly triples the training bill while the job still succeeds and exits 0. **Requires a one-time logs-based metric — see "Logs-based metric" below.** |
+| `backtest_recompute_alert.json` | **Job tier (2026-08-10).** Metric-threshold on a **logs-based counter** (`jsonPayload.event="job_backtest_recomputed"`) — fires when backtests recompute on more than one day in three, i.e. the `BACKTEST_REFRESH_DAYS` gate stopped holding. Backtests are **56.9% of the training job** (12,886s measured 2026-08-08); a silent regression here roughly triples the training bill while the job still succeeds and exits 0. Detection is in code (`check_backtest_recompute_cadence`) because Cloud Monitoring caps alignment windows at 25h — see the section below. |
 | `web_service_5xx_alert.json` | **Web tier (#253).** Fires when the `gridpulse` service returns sustained 5xx (`run.googleapis.com/request_count{response_code_class="5xx"}` summed > 25 / 5 min). The request-path equivalent of the job-failure alert. |
 | `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when the service sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. |
 | `web_service_uptime_alert.json` | **Web tier (#253).** Fires when the public `/health` uptime check fails from >1 probe location over 10 min (service down or shallow-degraded). Filter is check-id-specific — see the note in the file. |
@@ -47,37 +47,34 @@ gcloud beta monitoring channels create \
 > Confirm status: `gcloud beta monitoring channels describe <id>
 > --format='value(verificationStatus)'` → should read `VERIFIED`.
 
-## Logs-based metric (prerequisite for `backtest_recompute_alert.json`)
+## A frequency signal cannot be a Cloud Monitoring condition
 
-Every other policy here is either a built-in Cloud Run metric or a
-`conditionMatchedLog` that needs no setup. This one is a **metric threshold over
-a window**, because the signal is a *frequency*, not an event: one recompute day
-per week is correct, three is a regression, and `conditionMatchedLog` cannot tell
-them apart — it would fire every week by design.
+`backtest_recompute_alert.json` originally used a metric threshold over a 72h
+window, because the thing worth alerting on is a **frequency**: one backtest
+recompute per week is correct, two in three days is a regression, and
+`conditionMatchedLog` fires on both. Cloud Monitoring rejects that outright:
 
-So it needs a logs-based counter, created once:
-
-```bash
-gcloud logging metrics create backtest_recomputes \
-  --project=nextera-portfolio \
-  --description="Count of job_backtest_recomputed events (51 BAs x 3 horizons = 153 per recompute day)" \
-  --log-filter='resource.type="cloud_run_job" AND resource.labels.job_name="gridpulse-training-job" AND jsonPayload.event="job_backtest_recomputed"'
+```
+Alignment periods longer than 25h are not supported.
 ```
 
-Then apply the policy the same way as the others.
+A `<=25h` window does not work either. The training job runs once daily, so
+consecutive recompute days land in **adjacent** windows and never the same one —
+any 24h window sees at most one day's worth (153 events) whether backtests run
+weekly or every single run.
 
-**Two things to know before relying on it.**
+So the comparison lives in code, where the state is:
+`jobs.phases.check_backtest_recompute_cadence` reads a
+`gridpulse:meta:last_backtest_recompute` marker, runs **once per run from the
+epilogue on task 0 only**, and emits `backtest_recompute_unexpected` only when
+the cadence is genuinely wrong. The policy is then an ordinary
+`conditionMatchedLog`, the same shape as every other one here — **no logs-based
+metric is required.**
 
-It counts **recomputes, not skips**, and that is deliberate. A metric on
-`job_backtest_fresh_skip` is the obvious design and is a trap: when the gate
-breaks, skips stop being emitted, the counter has *no data*, and a
-threshold-below condition never evaluates — the alert goes quiet exactly when it
-should fire. Counting the thing that increases on failure removes that failure
-mode.
-
-**A logs-based metric only counts from the moment it is created.** It does not
-backfill. The 72h window is therefore meaningless for the first three days after
-you run the command above, and the policy should not be trusted until then.
+An earlier version of this section described creating a `backtest_recomputes`
+logs-based counter. That metric is harmless if it already exists — it counts
+`job_backtest_recomputed`, which is still emitted and is useful for the
+runbook — but nothing depends on it.
 
 ## Apply / re-apply a policy
 
