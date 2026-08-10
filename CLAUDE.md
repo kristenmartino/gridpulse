@@ -332,12 +332,17 @@ Scopes: data, models, sim, personas, ui, infra
 
 ### Testing
 - Unit tests: `tests/unit/test_*.py` — pure functions, no I/O
-- Integration: `tests/integration/` — mocked API calls, cache roundtrips
+- Integration: `tests/integration/` — mocked API calls, cache roundtrips, and
+  **real callback dispatch** via `tests/integration/dash_driver.py`, which
+  posts to `/_dash-update-component` through a Flask test client so Dash
+  binds the arguments and serialises the result. Use it for anything that
+  depends on the *wiring* (an `Output` id, an `Input` order, a serialisable
+  return); call the helper directly in a unit test for anything that does not.
 - Smoke: `tests/smoke/` — import-level render checks (tab `layout()` builds,
-  card builders construct, callback-id contract). **Not** end-to-end: no
-  browser, no HTTP client, no callbacks fire. Renamed from `tests/e2e/` in
-  #399 because the old name claimed coverage that did not exist. There is
-  currently NO end-to-end tier; adding one is a new tier, not a rename back.
+  card builders construct). **Not** end-to-end: no browser, no HTTP client,
+  no callbacks fire. Renamed from `tests/e2e/` in #399 because the old name
+  claimed coverage that did not exist. There is still NO browser tier;
+  adding one is a new tier, not a rename back.
 - Run: `pytest tests/ -v --cov=data --cov=models --cov=simulation --cov=personas --cov=components`
 
 ---

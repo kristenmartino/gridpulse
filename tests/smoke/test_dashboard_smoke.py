@@ -14,8 +14,13 @@ thin coverage: it stops anyone looking.
 
 What that means for the reader: passing here proves these functions *run*.
 It does not prove a tab renders in a browser, that a callback fires, or that
-a region switch loads anything. #399 tracks whether to add a real driver or
-rename the tier to match what it does.
+a region switch loads anything.
+
+Callbacks **are** now executed — by
+``tests/integration/test_callback_driver.py``, which dispatches real
+``POST /_dash-update-component`` requests through a Flask test client. This
+tier stays deliberately below that one: it needs no app import, so it still
+gives a sub-second signal on a broken layout function.
 """
 
 
@@ -63,46 +68,14 @@ class TestTabRendering:
         result = layout()
         assert result is not None
 
-    def test_us_grid_layout_declares_every_id_its_callbacks_target(self):
-        """The contract that actually breaks: a renamed id silently orphans a callback.
-
-        CLAUDE.md's UI rule is "preserve IDs unless intentionally refactoring
-        callbacks", and nothing enforced it. Dash does not raise on an Output
-        whose id is absent from the layout — the callback just never runs and
-        the panel renders empty forever. This asserts the real contract rather
-        than ``is not None``.
-        """
-        import pathlib
-        import re
-
-        from components.tab_us_grid import layout
-
-        source = pathlib.Path("components/_callbacks_us_grid.py").read_text()
-        targeted = {
-            m
-            for m in re.findall(r'Output\("([a-z0-9-]+)"', source)
-            # Shell-level ids live in components/layout.py, not this tab.
-            if m not in {"dashboard-tabs", "region-selector"}
-        }
-        assert targeted, "expected to find US Grid callback Outputs"
-
-        declared: set[str] = set()
-
-        def walk(node):
-            if node is None or isinstance(node, str):
-                return
-            if isinstance(node, (list, tuple)):
-                for c in node:
-                    walk(c)
-                return
-            ident = getattr(node, "id", None)
-            if isinstance(ident, str):
-                declared.add(ident)
-            walk(getattr(node, "children", None))
-
-        walk(layout())
-        missing = targeted - declared
-        assert not missing, f"callback Outputs with no id in the layout: {sorted(missing)}"
+    # The id contract that used to live here — "every US Grid callback Output
+    # exists in the layout" — was a regex over ``_callbacks_us_grid.py``,
+    # written as a stand-in when no driver could ask Dash directly. It is now
+    # ``test_every_callback_output_id_exists_in_the_layout`` in
+    # ``tests/integration/test_callback_driver.py``, which reads
+    # ``app.callback_map`` and covers all 77 outputs instead of one file's.
+    # Removed rather than kept alongside: a weaker duplicate of a stronger
+    # check is a maintenance cost that reads like extra coverage.
 
     def test_main_layout_renders(self):
         from components.layout import build_layout
