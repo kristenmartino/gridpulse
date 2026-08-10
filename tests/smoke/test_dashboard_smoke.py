@@ -7,10 +7,21 @@ end to end.
 
 **The name of this directory oversells what is in it (#399).** The previous
 version of this docstring claimed these tests "use Dash's built-in testing
-utilities"; they do not, and never did — there is no ``dash.testing``,
-``dash_duo`` or Flask ``test_client`` anywhere under ``tests/``. Corrected
-rather than left, because a false claim about test coverage is worse than
-thin coverage: it stops anyone looking.
+utilities"; they do not, and never did. Corrected rather than left, because a
+false claim about test coverage is worse than thin coverage: it stops anyone
+looking.
+
+That correction as first written repeated #399's own supporting grep — "there
+is no ``dash.testing``, ``dash_duo`` or Flask ``test_client`` anywhere under
+``tests/``" — and **that grep was wrong at the commit the issue measured.**
+Ten files used Flask's ``test_client`` at `db13c06`, and
+``test_perf_compress_cache.py`` was already POSTing to
+``/_dash-update-component``. What none of them did was **execute a callback**:
+every one asserts on a Flask route (``/api/v1``, ``/health``, ``/about``) or
+on response headers, and the two callback-route POSTs send a deliberately
+empty body that 4xxs before dispatch. The finding was right; its evidence
+overstated it, and repeating the evidence unchecked put a false sentence in
+this file for two PRs.
 
 What that means for the reader: passing here proves these functions *run*.
 It does not prove a tab renders in a browser, that a callback fires, or that
