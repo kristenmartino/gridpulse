@@ -1002,6 +1002,18 @@ def run(force: bool = False) -> int:
     ok_count = sum(1 for r in results if r.get("ok"))
     fail_regions = [r["region"] for r in results if not r.get("ok")]
 
+    # Backtest cadence guard. ONCE per run, from the epilogue -- never per
+    # region, which would write the fleet-wide marker on the first region and
+    # then report an anomaly for the other fifty. Task 0 only, for the same
+    # reason `last_trained` is task-0 only: with taskCount>1 each task sees a
+    # slice, and three tasks racing one marker would each find it fresh.
+    if task_index == 0:
+        recomputed = sum(1 for r in results if (r.get("backtests") or {}).get("horizons_written"))
+        try:
+            phases.check_backtest_recompute_cadence(recomputed)
+        except Exception as e:  # pragma: no cover — never fail a run on telemetry
+            log.warning("backtest_cadence_check_failed", error=str(e))
+
     # #405-style sub-phase rollup, per TASK (each task sees only its own
     # interleaved slice, so these are NOT fleet totals -- multiply by task_count
     # only if the slices are balanced, which the largest-first stride is
