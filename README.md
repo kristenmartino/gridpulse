@@ -50,7 +50,7 @@
 | models/\_\_init\_\_.py                |        0 |        0 |    100% |           |
 | models/arima\_model.py                |      182 |       28 |     85% |95-99, 123-127, 163-211, 329-331, 400, 402 |
 | models/benchmark.py                   |      176 |        9 |     95% |172, 191, 365, 370-371, 409, 412-413, 667 |
-| models/drift.py                       |      293 |       17 |     94% |160, 175, 218, 221, 330, 383, 385, 401, 498-499, 664, 711-712, 717, 750, 771-772 |
+| models/drift.py                       |      312 |       17 |     95% |164, 179, 222, 225, 390, 443, 445, 461, 558-559, 749, 796-797, 802, 835, 856-857 |
 | models/ensemble.py                    |       46 |        3 |     93% |103-104, 119 |
 | models/evaluation.py                  |       92 |        0 |    100% |           |
 | models/model\_service.py              |      316 |       14 |     96% |148-149, 169-170, 241, 544-549, 693, 697-699 |
@@ -63,11 +63,11 @@
 | models/xgboost\_model.py              |       73 |        2 |     97% |    75, 99 |
 | personas/\_\_init\_\_.py              |        0 |        0 |    100% |           |
 | personas/config.py                    |       13 |        0 |    100% |           |
-| personas/welcome.py                   |       90 |        3 |     97% |47, 51, 97 |
+| personas/welcome.py                   |       90 |        3 |     97% |47, 49, 97 |
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       65 |        8 |     88% |187-193, 200-202 |
-| **TOTAL**                             | **8622** |  **931** | **89%** |           |
+| **TOTAL**                             | **8641** |  **931** | **89%** |           |
 
 
 ## Setup coverage badge
