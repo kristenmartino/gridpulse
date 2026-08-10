@@ -349,7 +349,7 @@ _gate_status_cache: tuple[dict | None, float] | None = None
 _gate_unavailable_logged_at = 0.0
 
 
-def gate_verdict_from_metrics(model_metrics: dict) -> dict:
+def gate_verdict_from_metrics(model_metrics: dict, currently_visible: bool | None = None) -> dict:
     """Compute a region's forecast-quality gate verdict from its model metrics.
 
     Returns ``{"acceptable": bool, "best_mape": float | None}``. ``best_mape`` is
@@ -377,9 +377,37 @@ def gate_verdict_from_metrics(model_metrics: dict) -> dict:
     best = min(mapes) if mapes else None
     if best is None:
         return {"acceptable": True, "best_mape": None}
-    from config import MAPE_BY_HORIZON
+    from config import GATE_HYSTERESIS_PTS, MAPE_BY_HORIZON
 
-    return {"acceptable": best <= MAPE_BY_HORIZON["7d"]["rollback"], "best_mape": best}
+    bar = MAPE_BY_HORIZON["7d"]["rollback"]
+    # P2-17 (#273): hysteresis on the DECISION, not smoothing on the metric.
+    #
+    # The holdout MAPE this reads is a single unsmoothed 168h window and it
+    # flaps: measured over 540 historical training runs across 12 BAs, the
+    # median run-to-run change is 12% and p90 is 43%. A BA sitting near the
+    # bar therefore oscillates in and out of the UI — 14 flips in 528
+    # run-transitions, all of them in SPA / AZPS / IID.
+    #
+    # Smoothing the metric was the obvious fix and was rejected on the
+    # measurement: an EWMA cuts flips harder (14 -> 4 at alpha=0.3) but its
+    # estimate tracks the underlying level WORSE than the raw value
+    # (median |error| vs a centred-median level: 0.217 raw -> 0.645), and it
+    # would leave the gate reading a smoothed number while the Models tab
+    # showed the raw one — two numbers under one name, which is the exact
+    # defect class this cluster exists to remove.
+    #
+    # Hysteresis costs no accuracy and introduces no lag in any published
+    # figure. It only makes the transition sticky: a visible BA hides when it
+    # crosses the bar, and a hidden one reappears only once it is clearly
+    # back under. Measured at the shipped 3.0-point band: flips 14 -> 8
+    # (-43%) for 10 extra hidden run-days out of 540.
+    #
+    # ``currently_visible=None`` (no prior verdict — first run, or a caller
+    # that does not track state) reproduces the bare-threshold behaviour
+    # exactly, so nothing changes for a BA the system has never judged.
+    if currently_visible is False:
+        return {"acceptable": best <= bar - GATE_HYSTERESIS_PTS, "best_mape": best}
+    return {"acceptable": best <= bar, "best_mape": best}
 
 
 #: The horizon the product is actually judged on. The gate's own bar is the

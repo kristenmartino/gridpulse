@@ -195,3 +195,69 @@ class TestDisagreement:
     def test_missing_or_malformed_inputs_never_escalate(self, gate, live):
         """A missing measurement must not page anyone."""
         assert gate_disagrees_with_live(gate, live) is False
+
+
+class TestGateHysteresis:
+    """P2-17 (#273): the DECISION is sticky; the metric is untouched."""
+
+    def _m(self, mape):
+        return {"xgboost": {"mape": mape}}
+
+    def test_no_prior_state_reproduces_the_bare_threshold(self):
+        """A BA the system has never judged must be unaffected."""
+        from models.model_service import gate_verdict_from_metrics
+
+        assert gate_verdict_from_metrics(self._m(21.9))["acceptable"] is True
+        assert gate_verdict_from_metrics(self._m(22.1))["acceptable"] is False
+        # explicit None is the same as omitting it
+        assert (
+            gate_verdict_from_metrics(self._m(22.1), currently_visible=None)["acceptable"] is False
+        )
+
+    def test_visible_ba_hides_at_the_bar_not_below_it(self):
+        """Hysteresis must not make it HARDER to hide a genuinely bad BA."""
+        from models.model_service import gate_verdict_from_metrics
+
+        assert (
+            gate_verdict_from_metrics(self._m(22.1), currently_visible=True)["acceptable"] is False
+        )
+
+    def test_hidden_ba_needs_to_clear_the_band_to_return(self):
+        from config import GATE_HYSTERESIS_PTS, MAPE_BY_HORIZON
+        from models.model_service import gate_verdict_from_metrics
+
+        bar = MAPE_BY_HORIZON["7d"]["rollback"]
+        just_under = bar - GATE_HYSTERESIS_PTS / 2  # under the bar, inside the band
+        clearly_under = bar - GATE_HYSTERESIS_PTS - 0.1
+
+        # This is the flap the study measured: without hysteresis it reappears.
+        assert gate_verdict_from_metrics(self._m(just_under))["acceptable"] is True
+        assert (
+            gate_verdict_from_metrics(self._m(just_under), currently_visible=False)["acceptable"]
+            is False
+        )
+        assert (
+            gate_verdict_from_metrics(self._m(clearly_under), currently_visible=False)["acceptable"]
+            is True
+        )
+
+    def test_band_is_configured_not_hardcoded(self):
+        from config import GATE_HYSTERESIS_PTS
+
+        assert GATE_HYSTERESIS_PTS > 0
+
+    def test_no_signal_still_stays_visible_even_when_hidden(self):
+        """Absent metrics = warming, never a reason to keep a BA hidden."""
+        from models.model_service import gate_verdict_from_metrics
+
+        out = gate_verdict_from_metrics({}, currently_visible=False)
+        assert out["acceptable"] is True and out["best_mape"] is None
+
+    def test_best_mape_is_reported_raw_regardless_of_state(self):
+        """The published metric must not change — only the verdict does."""
+        from models.model_service import gate_verdict_from_metrics
+
+        for state in (None, True, False):
+            assert gate_verdict_from_metrics(self._m(20.5), currently_visible=state)[
+                "best_mape"
+            ] == pytest.approx(20.5)
