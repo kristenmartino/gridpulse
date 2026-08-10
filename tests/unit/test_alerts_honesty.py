@@ -558,3 +558,99 @@ class TestLiveNOAAWiring:
         text = _collect_text(result[0])
         assert "No active severe-weather alerts" in text
         assert "NOAA/NWS" in text
+
+
+class TestPerRegionTemperatureLines:
+    """#401: heat lines calibrate per BA when the scoring job has published them."""
+
+    def _ts(self):
+        return pd.date_range("2026-06-01", periods=48, freq="h", tz="UTC")
+
+    def test_uses_published_percentiles_when_present(self):
+        from components import _callbacks_alerts as mod
+
+        payload = {"p90": 88.4, "p95": 93.1, "p99": 99.7, "window_days": 90}
+        with patch.object(mod, "redis_get", return_value=payload):
+            fig = mod._build_temp_figure("BPAT", self._ts(), list(range(48)))
+
+        layout = fig.layout.to_plotly_json()
+        title = str(layout.get("title", {}).get("text", ""))
+        assert "Calibrated to BPAT" in title
+        assert "trailing 90 days" in title
+        assert "not calibrated" not in title
+        ys = sorted(sh["y0"] for sh in layout.get("shapes", []))
+        assert ys == pytest.approx([88.4, 93.1, 99.7])
+        # The fleet-uniform values must be gone, not merely supplemented.
+        assert 95 not in ys and 105 not in ys
+
+    def test_cold_cache_falls_back_to_generic_lines_and_says_so(self):
+        """The acceptance criterion: a miss degrades to the previous behaviour."""
+        from components import _callbacks_alerts as mod
+
+        with patch.object(mod, "redis_get", return_value=None):
+            fig = mod._build_temp_figure("BPAT", self._ts(), list(range(48)))
+
+        layout = fig.layout.to_plotly_json()
+        assert "not calibrated per region" in str(layout.get("title", {}).get("text", ""))
+        ys = sorted(sh["y0"] for sh in layout.get("shapes", []))
+        assert ys == pytest.approx(sorted(mod._TEMP_REFERENCE_LINES_F))
+
+    def test_malformed_payload_is_treated_as_absent(self):
+        """A partial payload must not produce a half-calibrated chart."""
+        from components import _callbacks_alerts as mod
+
+        for bad in ({"p90": 88.4}, {"p90": "hot", "p95": 1, "p99": 2}, [], "nope", {}):
+            with patch.object(mod, "redis_get", return_value=bad):
+                fig = mod._build_temp_figure("BPAT", self._ts(), list(range(48)))
+            title = str(fig.layout.to_plotly_json().get("title", {}).get("text", ""))
+            assert "not calibrated per region" in title, f"{bad!r} should fall back"
+
+    def test_redis_failure_does_not_break_the_tab(self):
+        from components import _callbacks_alerts as mod
+
+        with patch.object(mod, "redis_get", side_effect=RuntimeError("redis down")):
+            fig = mod._build_temp_figure("BPAT", self._ts(), list(range(48)))
+        assert "not calibrated per region" in str(
+            fig.layout.to_plotly_json().get("title", {}).get("text", "")
+        )
+
+
+class TestTemperaturePercentileWriter:
+    """#401 writer side: the scoring job publishes per-BA percentiles."""
+
+    def _weather(self, hours=24 * 30, temp=None):
+        ts = pd.date_range("2026-06-01", periods=hours, freq="h", tz="UTC")
+        vals = temp if temp is not None else np.linspace(60.0, 100.0, hours)
+        return pd.DataFrame({"timestamp": ts, "temperature_2m": vals})
+
+    def test_computes_percentiles_over_observed_hours(self, monkeypatch):
+        got = phases._temperature_percentiles(self._weather())
+        assert got is not None
+        assert got["p90"] < got["p95"] < got["p99"]
+        assert got["source"] == "observed_trailing"
+        assert got["window_days"] == 30
+
+    def test_forecast_hours_are_excluded(self):
+        """A threshold computed partly from predictions would be circular."""
+        past = self._weather(hours=24 * 30)
+        future_ts = pd.date_range(
+            pd.Timestamp.now(tz="UTC") + pd.Timedelta(hours=1), periods=200, freq="h", tz="UTC"
+        )
+        # Absurd future values: if they leak in, the percentiles explode.
+        future = pd.DataFrame({"timestamp": future_ts, "temperature_2m": 500.0})
+        got = phases._temperature_percentiles(pd.concat([past, future], ignore_index=True))
+        assert got is not None
+        assert got["p99"] < 200.0, "forecast rows must not reach the percentile"
+
+    def test_too_little_history_returns_none(self):
+        """Better a generic line the chart labels than a noisy region-specific one."""
+        assert phases._temperature_percentiles(self._weather(hours=24 * 3)) is None
+
+    def test_missing_column_or_empty_returns_none(self):
+        assert phases._temperature_percentiles(pd.DataFrame()) is None
+        assert phases._temperature_percentiles(None) is None
+        ts = pd.date_range("2026-06-01", periods=500, freq="h", tz="UTC")
+        assert phases._temperature_percentiles(pd.DataFrame({"timestamp": ts})) is None
+
+    def test_all_nan_temperature_returns_none(self):
+        assert phases._temperature_percentiles(self._weather(temp=np.nan)) is None
