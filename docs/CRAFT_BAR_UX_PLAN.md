@@ -317,7 +317,7 @@ Goes after D so the helper helpers exist.
    - `pytest tests/unit -v` (must stay green; no callback signature changes that break tests).
    - Add `tests/unit/test_lttb_downsample.py` covering monotonic timestamps + length contract.
    - Add `tests/unit/test_url_state.py` covering `_parse_qs`, validation against `_TAB_IDS`/`REGION_NAMES`/`PERSONAS`.
-5. `pytest tests/e2e -v` to confirm tab rendering still works (existing e2e covers tab_id values).
+5. `pytest tests/smoke -v` to confirm tab rendering still works (the smoke tier covers tab_id values; renamed from tests/e2e in #399).
 6. Manual perf measurement: in DevTools Performance tab, region change → record → confirm scripting < 100ms and JS-thread idle within 200ms (down from current ~500–800ms).
 
 ---
@@ -361,7 +361,7 @@ Goes after D so the helper helpers exist.
 | Sticky header breaks tall-laptop layouts | Already responsive in `@media (max-width: 768px)`; verify scroll-behavior on 13" and 4K |
 | URL sync triggers feedback loops | `prevent_initial_call="initial_duplicate"` + only writing to `url.search` on user-driven Inputs (not Outputs) |
 | `Cmd+K` collides with Chrome's address bar focus | Use `Ctrl+K` only in browsers that already shadow it (Chrome does); listen with `e.preventDefault()` |
-| Plotly modebar config affects tests | Existing e2e tests do not assert modebar; verified by reading `tests/TEST_PYRAMID.md` |
+| Plotly modebar config affects tests | Existing smoke tests do not assert modebar; verified by reading `tests/TEST_PYRAMID.md` |
 | Touching 9 tab files at once = bigger blast radius | Each tab change is independent and self-contained; commit per tab so revert is cheap |
 
 ---

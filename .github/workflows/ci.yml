@@ -72,7 +72,7 @@ jobs:
       - run: pip install -r requirements.txt
 
       # ONE instrumented run over the whole pyramid. This used to be four steps
-      # — unit, integration, e2e, then the entire suite AGAIN for coverage —
+      # — unit, integration, smoke, then the entire suite AGAIN for coverage —
       # which ran every test twice for no added signal. pytest's own output
       # still names the failing layer, and single-process full-suite execution
       # was already proven green: the old "Coverage Report" step did exactly

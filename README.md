@@ -131,7 +131,7 @@ For live EIA data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia
 │   ├── scoring_job.py              # Reads GCS pickles → writes Redis
 │   └── training_job.py             # Trains all 51 BAs → persists to GCS
 ├── personas/                       # 4 persona configs + welcome logic
-├── tests/                          # ~3,000 tests across unit / integration / e2e
+├── tests/                          # ~3,000 tests across unit / integration / smoke
 ├── Dockerfile                      # Multi-stage, non-root, healthcheck
 └── .github/workflows/              # CI + deploy-prod workflows
 ```
@@ -212,10 +212,10 @@ Semantics worth knowing (the API keeps the dashboard's honesty rules):
 ```bash
 pytest tests/ -v
 pytest tests/unit/ -v
-pytest tests/e2e/ -v
+pytest tests/smoke/ -v
 ```
 
-**2,989 tests** — 2,986 passing, 3 skipped, in ~79s (unit 2,762 / integration 204 / e2e 23), measured 2026-08-05 at `db13c06`. The Test count row in [docs/CANONICAL_FACTS.md](docs/CANONICAL_FACTS.md) is the canonical figure; this line restates it and will drift, so trust that row. The 3 skips are environment-conditional — the scenario-heuristic tests skip when no Redis-backed ensemble forecast is reachable.
+**2,989 tests** — 2,986 passing, 3 skipped, in ~79s (unit 2,762 / integration 204 / smoke 23), measured 2026-08-05 at `db13c06`. The Test count row in [docs/CANONICAL_FACTS.md](docs/CANONICAL_FACTS.md) is the canonical figure; this line restates it and will drift, so trust that row. The 3 skips are environment-conditional — the scenario-heuristic tests skip when no Redis-backed ensemble forecast is reachable.
 
 See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test strategy.
 

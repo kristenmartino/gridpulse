@@ -527,7 +527,7 @@ Some older documentation may reference news-specific keys or older fallback assu
 ├── personas/                  # Role/view configuration
 ├── observability.py           # Logging / pipeline observability
 ├── jobs/                      # Cloud Run Jobs (scoring, training, phases, CLI)
-├── tests/                     # Unit / integration / e2e
+├── tests/                     # Unit / integration / smoke
 ├── Dockerfile                 # Container spec
 └── .github/workflows/         # CI / deploy automation
 ```

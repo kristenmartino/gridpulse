@@ -717,7 +717,7 @@ These bound what the score can prove. None of them are silent.
    automatically. They are a permanent floor under 100%, which is one reason
    there is no target score.
 
-3. **Unit tests only.** Integration and e2e tests are not in the selection —
+3. **Unit tests only.** Integration and smoke tests are not in the selection —
    they need infrastructure the `mutants/` tree does not have.
 
 4. **Threading is pinned to one thread per pool.** `scripts/mutation_test.py`
