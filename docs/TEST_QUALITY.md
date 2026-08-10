@@ -66,22 +66,24 @@ laptop; a single module is ≈ 1 min.
 | `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
 | `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
 | `models/evaluation.py` | 373 | 320 | 49 | 4 | 85.8% | **86.7%** | ↑ 77.1% |
-| `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** | ↑ 61.6% |
-| **overall** | **2,372** | **1,899** | **269** | **204** | **80.1%** | **87.6%** | ↑ 85.8% |
+| `models/ensemble.py` | 163 | 120 | 11 | 32 | 73.6% | **91.6%** | ↑ 73.3% |
+| **overall** | **2,402** | **1,956** | **257** | **189** | **81.4%** | **88.4%** | ↑ 87.6% |
 
-> **Two modules were re-run separately on 2026-08-07**, not one:
-> `models/evaluation.py` in #442 and `models/skill.py` in #441. The other five
-> rows are the whole-table pass. The overall row is the **column sums of the
-> seven rows above it** — neither PR's own figure was right on its own, because
-> each was computed against the shared pre-#441/#442 base and so omitted the
-> other's kills (#442 published 1,891, #441 published 1,851; the truth is
-> 1,899).
+> **Three modules were re-run separately**, not one: `models/evaluation.py` in
+> #442, `models/skill.py` in #441, and `models/ensemble.py` in #445. The other
+> four rows are the whole-table pass. The overall row is the **column sums of
+> the seven rows above it** — no PR's own figure is right on its own, because
+> each is computed against a shared base and so omits the others' kills (#442
+> published 1,891, #441 published 1,851, #445 published 1,948; the truth is
+> 1,956). **Anything that re-measures one module must re-sum the column, not
+> add its delta to whatever total it last read.**
 
-Eight rounds of fixes (#377, #383, #385, #386, #416, #426, #442, #441) took the
-overall logic score **78.6% → 87.6%** and killed **256** mutants, without changing
-production behaviour anywhere except the one crash #386 fixed. The mutant total
-rose from 2,349 to 2,372: #386's fix added lines, #423 rewrote
-`recursive_autoregressive_forecast` for performance, and #441 added a parameter.
+Nine rounds of fixes (#377, #383, #385, #386, #416, #426, #442, #441, #445) took
+the overall logic score **78.6% → 88.4%** and killed **288** mutants, without
+changing production behaviour anywhere except the one crash #386 fixed. The
+mutant total rose from 2,349 to 2,402: #386's fix added lines, #423 rewrote
+`recursive_autoregressive_forecast` for performance, #441 added a parameter, and
+#444 added `resolve_ensemble_weights`.
 
 **The most useful number here is not the total.** Compare what equal effort
 bought in different places:
@@ -95,6 +97,7 @@ bought in different places:
 | #426 | four `feature_engineering` clusters | +2.8 pts | **+6.7** |
 | #442 | the `evaluation` clusters + the unexercised defaults | +1.6 pts | **+9.6** |
 | #441 | one definition of the skill block + its last two survivors | +0.2 pts | **+1.9** |
+| #445 | the `ensemble` fallback + the warn-only bounds block | +0.8 pts | **+18.3** |
 
 A 2,372-mutant denominator makes every real fix look like rounding error, which
 is exactly why the gate policy below is **per-module**. It is also why the
@@ -215,7 +218,6 @@ clusters are one missing test each, not dozens of bugs:
 | confirmed | site | |
 |---:|---|---|
 | 26 | `simulation/scenario_engine.py::_run_ensemble` | dormant — see below |
-| 20 | `models/ensemble.py::ensemble_combine` | mostly equivalent, see below |
 | 9 | `models/evaluation.py::check_long_horizon_sanity` | the #296 guard — worked in #442 |
 | 14 | `data/feature_engineering.py::compute_heat_index` | |
 | 13 | `data/feature_engineering.py::compute_autoregressive_snapshot` | |
@@ -229,11 +231,40 @@ and nothing else clears 20.
 
 Worked so far: `coerce_demand_artifacts` 40 → 11 (#385), `verdict` 32 → 6
 (#386), `skill_payload` + `seasonal_naive_forecast` 37 → 13 (#416), the
-four `feature_engineering` clusters 85 → 32 (#426), and the three
-`evaluation` clusters 44 → 21 (#442).
+four `feature_engineering` clusters 85 → 32 (#426), the three
+`evaluation` clusters 44 → 21 (#442), and `ensemble_combine` 20 → 8 (#445).
+
+**`simulation/scenario_engine.py` is the only cluster left**, and it is dead
+code. Every live module is now at 86.7% or better.
 
 **`models/evaluation.py` is now worked** (#442): 81 → 49, and 42 of the 49 that
 remain are the closed `dtype=float` class. Its three clusters went 44 → 21.
+
+**`models/ensemble.py` is now closed** (#445): 23 → 8, logic **73.3% → 91.6%**,
+the largest single-module move of any round. Every one of the 8 that remain
+carries a proof — six equivalent (three `zip(..., strict=)` variants, which
+cannot differ because `arrays` is built by iterating `model_names`; three
+constants that cancel under normalisation, verified across 1.0 / 2.0 / 7.0) and
+two exact-float-equality tolerance variants. There is nothing left to write a
+test for in `compute_ensemble_weights` or `ensemble_combine`.
+
+Scoped deliberately to those two, because a third arrived mid-flight. #444
+added `resolve_ensemble_weights` to this module while #445 was in review, so
+the row above is **re-measured against the merged result**, not against the
+`8f28cea` baseline the work started from — the #423 lesson, which cost #426 a
+wrong commit subject. What the re-measure costs is visible in the row: 30 more
+mutants, so the module reads **91.6%** rather than the 92.2% measured before
+the rebase, on strictly more code and with the same 8 survivors in the two
+functions this round touched.
+
+`resolve_ensemble_weights` landed clean: 30 mutants, 25 killed by its own
+tests, 3 logic survivors — and all 3 are equivalent for the same reason three
+of `ensemble_combine`'s are. It renormalises the output of
+`compute_ensemble_weights`, which already sums to 1.0 (checked across five MAPE
+shapes; worst deviation 1.1e-16). So `or 1.0` → `or 2.0`, `or 1.0` → `and 1.0`,
+and `v / total` → `v * total` are all no-ops on a `total` that is 1.0 to float
+precision. Belt-and-braces renormalisation is a reasonable thing to write and
+an unkillable thing to mutate.
 
 `_run_ensemble` still survives *everything*, including `forecasts = None` and
 `ensemble_combine(None, weights)`. That is not 26 findings. It is one function
@@ -386,6 +417,19 @@ One mutant in `ensemble_combine` was checked and deliberately left unpinned:
 `weights = {name: 1.0 / len(model_names)}` is renormalised on the next line, so
 any non-zero constant gives identical output (verified across 0.333 / 0.667 /
 3.0 / 7.0). **Equivalent** — a test for it would be theatre.
+
+> **Correction (#445): that verdict was right, and it was applied to the wrong
+> line as well.** The *identical* expression appears twice in
+> `ensemble_combine`, six lines apart. On the first it is renormalised and the
+> constant cancels. On the second — inside `if total == 0:` — it is followed by
+> a hard-coded `total = 1.0`, so nothing renormalises it and the constant is
+> the answer. Mutated there, a stale weights dict returns **300.0, 600.0 or
+> 75.0** for an input whose answer is 150.0: the served forecast scaled by 2x,
+> 4x or 0.5x, still finite and still plausibly shaped. Five survivors sat in
+> that branch, reachable three ways (renamed model keys, an empty dict, an
+> all-zero dict), none covered. **The lesson is about adjudication, not about
+> ensembles: an equivalence verdict is a claim about a line's context, not
+> about its text, and it does not travel to a line that looks the same.**
 
 **`data/quality.py::coerce_demand_artifacts` (40 → 11) — fixed in #385.** The
 day-ahead signal was never exercised through the series function, and the
@@ -591,6 +635,50 @@ it to *zero* functions:
 
 Caught only because the finding was verified before publishing. This is the
 argument for the adjudication step, in one example.
+
+**Follow-up (#445): the kill is real by the score's definition and is not
+protection.** Look at *how* that test kills it. It runs a forecast in a
+subprocess and parses stdout as JSON:
+
+```
+E   json.decoder.JSONDecodeError: Extra data: line 1 column 5 (char 4)
+```
+
+The mutant makes `log.warning` fire where it should not; structlog writes to
+stdout; `json.loads` then chokes on the extra line. The test asserts that two
+runs produce identical forecasts — it has no opinion about bounds checking and
+does not import this module. Routing structlog to stderr, or making the test
+read only its last line, silently removes the kill and nothing reports it.
+
+So a mutant can be "covered" by an assertion that would not survive a
+five-minute refactor of an unrelated file. #445 kills all three deliberately,
+with `structlog.testing.capture_logs`, so the protection now sits in the test
+that names the behaviour.
+
+### 4. A warn-only block cannot be tested through its return value
+
+Eleven of `ensemble_combine`'s survivors were in one block: it computes whether
+the ensemble left the pointwise min/max band of its inputs, logs a warning, and
+returns `result` untouched. Fail-open is the right design — a bounds violation
+is worth telling an operator about, not worth refusing to serve a forecast over
+— but it means **no assertion on the return value can reach any of those
+eleven**. They are not equivalent (behaviour changes: the warning stops firing,
+or fires on every call) and not covered. They are *unobservable* through the
+interface every existing test used.
+
+Naming that third category is the useful part. The fix is to assert the
+diagnostic, which #445 does. Two consequences worth recording:
+
+- **Nine of the eleven die immediately.** The two that do not need a result
+  landing exactly on `min - 1e-6` — a float equality no real series produces.
+- **The module's "noise" count fell 47 → 30** (the table reads 32, after
+  #444's function landed). Seventeen structlog-argument
+  mutants were previously classified as surviving *by construction*, which is
+  true only while nothing asserts on logs. Where a log line is a load-bearing
+  diagnostic rather than a trace, its arguments are behaviour and the noise
+  classification understates the module. That is a caveat on the logic score,
+  not a defect in it — but it means a high logic score on a module that
+  communicates mainly through logs deserves a second look.
 
 ---
 
