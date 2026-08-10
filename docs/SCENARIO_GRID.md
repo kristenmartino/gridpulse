@@ -188,6 +188,28 @@ call**, and the grid makes 4,080 short calls where production makes 51 long
 ones. Fixed overhead, not step count, is the entire bill — which is why 24
 steps did not cost 1/16 of 384.
 
+**The fix was to batch the cells, not shrink the grid** (#464). The 80 variants
+differ only in weather, so their step-*i* rows can travel through the model
+together: one `predict` call per step instead of one per step *per cell*, which
+is **1,920 single-row predicts per region down to 24**. Per-cell chaining is
+unchanged — each variant still appends only its own predictions to its own
+history — and parity with the single-frame SSOT is a differential test that
+compares both the outputs and the exact frames handed to the model.
+
+Two measurements worth keeping from that work:
+
+- **A free stub cannot measure batching.** The first benchmark used a
+  zero-cost `predict` and reported the batched path as 1.7x *slower*, because
+  with the model free the only thing left to measure is pandas. Re-run with a
+  realistic ~0.85 ms per-call cost it is **11x faster**. The per-call cost is
+  the entire thing batching removes, so a benchmark that omits it measures the
+  opposite of the question.
+- **Fancy-indexing ate the win.** Gathering each step's 80 rows with
+  `.iloc[[...]]` was slower than 80 separate one-row slices. Stacking
+  step-major so a step's rows are contiguous — plus filling once up front
+  rather than per step — is what made the batched path faster in absolute
+  terms, not just in call count.
+
 **Do not re-enable by shrinking the grid.** At ~1.4 s/cell even 5x3x3 is ~63 s
 per region, still a ~2x tick. The fix has to make a *cell* cheap — hoist the
 per-call setup out of the loop, or push all 80 variants through one seeded
