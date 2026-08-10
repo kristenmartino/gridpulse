@@ -1249,12 +1249,27 @@ FEATURE_FLAGS: dict[str, bool] = {
     # criterion, trips the runtime-creep alert at 1260s, and leaves nothing for
     # an upstream degradation event — the 2026-08-04 SIGKILL shape.
     #
-    # Do NOT re-enable by tuning the grid size: 5x3x3 would still be ~63s per
-    # region. The fix is to make a grid cell cheap (hoist the per-call setup
-    # out of the loop, or batch the cells through one seeded pass), and the
-    # re-measure has to be a real tick — this is exactly the number that cannot
-    # be obtained offline. Evidence: docs/SCENARIO_GRID.md.
-    "scenario_grid": False,
+    # ON again since 2026-08-10, AFTER the cell was made cheap in #465 rather
+    # than after the grid was made smaller. #465 batches the 80 variants into
+    # one predict call per STEP instead of one per step per cell: 1,920
+    # single-row predicts per region down to 24. Benchmarked at 11x per region
+    # against a realistic per-call cost.
+    #
+    # The projection is ~495s and it is deliberately quoted as an UPPER BOUND
+    # with low confidence, because cost reasoning in this file has now been
+    # wrong twice: the original estimate by 28x, and a benchmark that used a
+    # free predict stub reported batching as 1.7x SLOWER (with the model free,
+    # the only thing left to measure is pandas — the per-call cost is the whole
+    # thing batching removes). There is reason to think it lands better than
+    # 495s: production's cell-at-a-time cost works out at ~59ms per predict
+    # CALL against the ~0.85ms a single-row predict is documented to take, so
+    # per-call overhead dominated far more in production than in the benchmark,
+    # and removing 80x of it should help more there rather than less.
+    #
+    # Same bounded blast radius as before — computed after the forecast is
+    # persisted, creep alert at 1260s, rollback is this line — and the same
+    # rule: the number comes from a real tick. Evidence: docs/SCENARIO_GRID.md.
+    "scenario_grid": True,
     "cross_tab_links": True,  # NEXD-11: contextual links between tabs
     "inline_tooltips": True,  # NEXD-13: SHAP-based per-point forecast tooltips
     # NEXD-14 / shell-redesign post-R6: replay surfaces stale snapshots and
