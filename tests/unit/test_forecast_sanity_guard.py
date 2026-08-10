@@ -154,6 +154,156 @@ class TestCheckLongHorizonSanity:
         assert shift > config.LONG_HORIZON_GUARD_DRIFT_FRAC * recent.mean()
         assert check_long_horizon_sanity(series, recent) is None
 
+    # ------------------------------------------------------------------
+    # The tests above pin the SHAPES this guard exists to catch, using
+    # realistic trajectories — which is the right way to write them, and is
+    # why the #296 regression cannot come back.
+    #
+    # What they do not pin is where each band ENDS. Every fixture above sits
+    # comfortably inside or outside its threshold, so all four comparisons
+    # could be relaxed by one `=` with the suite green (18 survivors,
+    # docs/TEST_QUALITY.md). This guard decides whether a forecast reaches
+    # the serve path, so its edges are a decision, not an implementation
+    # detail.
+    #
+    # A flat 1,000 MW history makes min == max == mean, so each threshold can
+    # be hit exactly without the others moving.
+    # ------------------------------------------------------------------
+
+    FLAT = 1_000.0
+
+    @pytest.fixture
+    def flat_recent(self):
+        """Exactly the minimum history, perfectly flat: min = max = mean."""
+        return np.full(config.LONG_HORIZON_GUARD_MIN_RECENT_ROWS, self.FLAT)
+
+    def test_the_floor_band_is_inclusive_at_its_edge(self, flat_recent):
+        """A forecast bottoming at exactly the floor fraction is in-band.
+
+        `f.min() < FLOOR_FRAC * r.min()` — relaxed to `<=`, a forecast sitting
+        precisely on the boundary is rejected and the region loses its
+        forecast for that horizon.
+        """
+        from models.evaluation import check_long_horizon_sanity
+
+        floor = config.LONG_HORIZON_GUARD_FLOOR_FRAC * self.FLAT
+        on_the_line = np.full(48, self.FLAT)
+        on_the_line[0] = floor
+        assert check_long_horizon_sanity(on_the_line, flat_recent) is None
+
+        below = on_the_line.copy()
+        below[0] = floor - 0.001
+        assert check_long_horizon_sanity(below, flat_recent) == "below_recent_band"
+
+    def test_the_ceiling_band_is_inclusive_at_its_edge(self, flat_recent):
+        """Same edge on the other side: `f.max() > CEIL_FRAC * r.max()`."""
+        from models.evaluation import check_long_horizon_sanity
+
+        ceiling = config.LONG_HORIZON_GUARD_CEIL_FRAC * self.FLAT
+        on_the_line = np.full(48, self.FLAT)
+        on_the_line[0] = ceiling
+        assert check_long_horizon_sanity(on_the_line, flat_recent) is None
+
+        above = on_the_line.copy()
+        above[0] = ceiling + 0.001
+        assert check_long_horizon_sanity(above, flat_recent) == "above_recent_band"
+
+    def test_exactly_one_week_of_history_is_enough_to_judge(self, flat_recent):
+        """`r.size < MIN_RECENT_ROWS` — 168 rows qualifies, 167 does not.
+
+        Both outcomes are `None` for a healthy forecast, which is why this
+        needs a *degenerate* one to be visible at all: with enough history the
+        guard fires, with one row fewer it declines to judge. Relaxing the
+        comparison to `<=` silently disarms the guard for any region with
+        exactly a week of data — a newly-onboarded BA, or one just back from
+        an outage.
+        """
+        from models.evaluation import check_long_horizon_sanity
+
+        collapsed = np.full(48, self.FLAT * 0.1)
+
+        assert check_long_horizon_sanity(collapsed, flat_recent) == "below_recent_band"
+
+        one_row_short = np.full(config.LONG_HORIZON_GUARD_MIN_RECENT_ROWS - 1, self.FLAT)
+        assert check_long_horizon_sanity(collapsed, one_row_short) is None
+
+    def test_the_drift_check_engages_at_exactly_its_minimum_length(self, flat_recent):
+        """`f.size >= DRIFT_MIN_LEN` — 360 hours engages it, 359 does not.
+
+        `test_drift_check_skipped_on_short_series` above uses a 72-hour
+        series, far from the line. Tightening this to `>` moves the guard's
+        reach by a day at exactly the length where long-horizon forecasts
+        start being judged.
+        """
+        from models.evaluation import check_long_horizon_sanity
+
+        n = config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN
+        ramp = np.linspace(self.FLAT, self.FLAT * 1.5, n)  # in-band, perfectly linear
+
+        assert check_long_horizon_sanity(ramp, flat_recent) == "sustained_drift"
+
+        just_short = np.linspace(self.FLAT, self.FLAT * 1.5, n - 1)
+        assert check_long_horizon_sanity(just_short, flat_recent) is None
+
+    def test_the_drift_window_spans_every_day_including_the_last(self, flat_recent):
+        """`n_days = f.size // 24` and `shift = daily[-1] - daily[0]`.
+
+        A ramp sized so the **final day** is what carries it over the
+        threshold: across all 15 days the first→last shift is 420 MW against a
+        400 MW limit, but across only the first 14 it is 390 and passes.
+
+        Analysing a day fewer (`// 25`) or comparing to the second-to-last day
+        (`daily[-2]`) both drop that day and let the drift through. Every other
+        drift fixture in this class ramps hard enough that losing one day
+        changes nothing, so neither mutation was visible.
+        """
+        from models.evaluation import check_long_horizon_sanity
+
+        n = config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN
+        n_days = n // 24
+        rise = 420.0  # > 400 across 15 days, < 400 across 14
+
+        series = np.repeat(np.linspace(self.FLAT, self.FLAT + rise, n_days), 24)
+        daily = series.reshape(n_days, 24).mean(axis=1)
+
+        # Preconditions: the whole window trips the threshold, one day less does not.
+        limit = config.LONG_HORIZON_GUARD_DRIFT_FRAC * flat_recent.mean()
+        assert abs(daily[-1] - daily[0]) > limit
+        assert abs(daily[-2] - daily[0]) < limit
+
+        assert check_long_horizon_sanity(series, flat_recent) == "sustained_drift"
+
+    def test_a_partial_trailing_day_is_dropped_not_reshaped(self, flat_recent):
+        """`f[: n_days * 24]` — the slice exists to discard a partial last day.
+
+        Every other drift fixture is an exact multiple of 24, so the truncation
+        is a no-op in all of them and could be widened to any larger multiplier
+        with the suite green. A horizon that ends mid-day — which is what a
+        16-day Open-Meteo window trimmed to the last settled hour looks like —
+        would then reshape a short array and raise inside the guard.
+        """
+        from models.evaluation import check_long_horizon_sanity
+
+        n_days = config.LONG_HORIZON_GUARD_DRIFT_MIN_LEN // 24
+        series = np.repeat(np.linspace(self.FLAT, self.FLAT + 420.0, n_days), 24)
+        ragged = np.append(series, np.full(7, series[-1]))  # 15 days + 7 hours
+
+        assert ragged.size % 24 != 0, "the point of the fixture is the partial day"
+        assert check_long_horizon_sanity(ragged, flat_recent) == "sustained_drift"
+
+    def test_a_one_megawatt_history_is_still_history(self, flat_recent):
+        """The history filter is `r > 0`, not `r > 1`.
+
+        Tightened by one, a BA whose demand sits at 1 MW has its entire
+        history discarded and the guard declines to judge it. SPA's median
+        demand is ~24 MW, so single-digit readings are not hypothetical here.
+        """
+        from models.evaluation import check_long_horizon_sanity
+
+        tiny = np.full(config.LONG_HORIZON_GUARD_MIN_RECENT_ROWS, 1.0)
+
+        assert check_long_horizon_sanity(np.full(48, 0.4), tiny) == "below_recent_band"
+
 
 class TestHorizonGuardForSeries:
     def test_all_horizons_pass_returns_none(self, recent):

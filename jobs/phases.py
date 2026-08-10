@@ -370,7 +370,12 @@ def write_generation(region: str) -> PhaseResult:
         return PhaseResult(region=region, ok=False, error="no_eia_api_key")
 
     try:
-        gen_df = fetch_generation_by_fuel(region)
+        # #427: `generation` is 323.4s of worker time (10.8%) and the phase
+        # total cannot say whether that is EIA latency or our own pivot work.
+        # Naming the fetch splits it: the remainder is `phases.generation`
+        # minus this, so two numbers fully attribute the phase.
+        with substep("eia_generation"):
+            gen_df = fetch_generation_by_fuel(region)
         if gen_df is None or gen_df.empty:
             log.info("job_generation_empty", region=region)
             return PhaseResult(region=region, ok=False, error="empty")
@@ -468,7 +473,10 @@ def write_interchange(region: str) -> PhaseResult:
         return PhaseResult(region=region, ok=False, error="no_eia_api_key")
 
     try:
-        flow_df = fetch_interchange(region)
+        # #427: same split as `generation` above — 118.6s (4.0%) of worker
+        # time, attribution unknown until the EIA call is named.
+        with substep("eia_interchange"):
+            flow_df = fetch_interchange(region)
     except Exception as e:
         log.warning("job_interchange_fetch_failed", region=region, error=str(e))
         return PhaseResult(region=region, ok=False, error=str(e))

@@ -295,7 +295,7 @@ perturbing the seed history does.
 Result: XGBoost's holdout MAPE rose to a comparable basis and the ensemble
 weights shifted. Measured 2026-07-03 on the production recursive holdout
 (all 51 BAs): **XGBoost's median holdout MAPE went 2.32% → 4.32%**, and the
-**ensemble now beats XGBoost-alone on 17 of 51 BAs, up from 4** — because once
+**ensemble now beats XGBoost-alone on 21 of 51 BAs, up from 4** — because once
 errors are allowed to compound over the horizon, blending in Prophet and ARIMA
 damps the worst single-model drift (e.g. SEC: XGBoost 38.6% → ensemble 13.6%).
 The headline number roughly doubled and became one I trust. The numbers went
@@ -757,7 +757,22 @@ That reads like a 17% improvement, and I published it as **inconclusive**. Three
 
 The part that did pay was the per-phase attribution shipped during the incident. `forecast` is **60.1%** of all worker time (3085.5s of 5131.0s), and effective parallelism is already **7.7×** — 5131s of work retired in 668s of wall clock. So in-container workers are *spent*: turning that knob again buys nothing. The planned next lever had been "fan scoring across parallel tasks"; the data says the reason that would help is more vCPU, not more concurrency, and that the bigger prize is the 720-hour recursive inference that is 60% of the bill. **The measurement I took to confirm a fix ended up re-ordering the roadmap** — and the honest reading of it was the one that looked least impressive.
 
-### 22. "Tell me about a time a quality metric told you the opposite of the truth."
+### 22. "Tell me about a time your own tests would have fooled you."
+**A one-line dtype fix, and the tests that passed with it fully reverted (2026-08-07, follow-up to [#434](https://github.com/kristenmartino/gridpulse/pull/434)).**
+
+Situation: A concurrent session shipped a careful one-line fix — an EIA parse branch assigned `None` where its sibling branch produced `NaN`, so pandas built an *object* column instead of float. The argument was the interesting part. It said the fix made object dtype "unreachable from inside this codebase," and that claim was load-bearing: it was the stated reason for **not** pinning ~81 mutation survivors, all of them defensive numeric coercions that exist only because nothing guaranteed the dtype at the source.
+
+Investigation: The reasoning was sound and the reachability claim was short by three call sites. `pd.DataFrame(columns=[...])` also builds every column as object, and the client had three of those — including the terminal return of the #174 outage-fallback chain, whose own docstring called it "typed-empty." So the shape had been removed from one branch and left in three others, across all three endpoints. Worse placement than the original: those two only execute when a fetch has failed *and* the stale cache *and* the GCS parquet have both missed. The bad frame appears only during an upstream outage — least coverage, most operator pressure.
+
+Then the part worth telling. I wrote the fix, wrote a parametrized test class for it, got 118 green, and ran the mutation — reverted all three call sites. **One test failed.** My new class called the helper directly, so it verified the helper worked while proving nothing about whether anything *used* it. Both outage-path sites were unpinned by construction. I could have shipped a helper wired to nothing and had a green suite say otherwise.
+
+The rewrite drives the real public fetchers through the full outage scenario instead. Re-running both mutations now fails 3 tests and 1 test respectively.
+
+Two judgment calls I'd defend. The helper **fails open** — an unregistered column degrades to the old untyped frame rather than raising, because raising inside the outage fallback converts a degraded fetch into a hard failure — and a test reads the `empty_cols=` lists back out of the source so that escape hatch can't be used silently. And the dtypes are derived by letting pandas build a real row and slicing it to zero, never hardcoded: pandas 3.0 gives `str` and `datetime64[us, UTC]` where 2.x gives `object` and `[ns]`, so a hardcoded map would have rotted on a version bump with no test able to say so.
+
+**Lesson to convey**: *Mutating the helper is not mutating the call site — a unit test on a function proves the function works, not that the fix is connected to anything. And when a piece of reasoning is what licenses you to skip work, that reasoning is the thing to attack: "this is now unreachable" is a claim about every path in the file, not the one you just edited.*
+
+### 23. "Tell me about a time a quality metric told you the opposite of the truth."
 **A module scored 88.6% on mutation testing because its best-tested function was the one production never called (2026-08-07).**
 
 Situation: `models/skill.py` answers the question the product exists to answer — does the forecast beat "yesterday, same hour"? After a round of mutation testing it was one of the better-scoring modules in the repo, 72.1% → 88.6% logic score, with exact-payload tests pinning `skill_payload` field by field.
@@ -771,6 +786,10 @@ Action: I kept the function rather than deleting it, which was the closer call. 
 Before adding `beats_baseline` to a published payload I checked every consumer: the API passes the block through, no UI surface reads it. And because the block is only written on ticks where substitution fired — which requires the model to lose by a threshold — `beats_baseline` is always `False` where it appears. A test now forbids a `True`, since publishing one would mean the policy and the measurement disagreed about the same numbers.
 
 Result: One definition. The non-finite guards came along with it, closing a seam that is currently unreachable *by accident*: the job measures over 7 days and the policy requires 168 hours, so a window can't hold enough observed hours to clear the gate while still being too sparse to compute a baseline. Those two constants are equal, in different files, with nothing connecting them. Widen the window and NaN reaches a `points > -threshold` comparison that is False for NaN, and the policy substitutes on a measurement that does not exist.
+
+Re-measured as an A/B rather than against the published figure: 88.6% → 90.5%, and the module's last two non-`dtype` survivors died with it. One of them was the same species as the finding in story 22, inverted — there, defaults were never executed because every test passed parameters explicitly; here, a parameter's *forwarding* was never exercised because every test used the default. Both are the gap between how a function is tested and how production calls it.
+
+The tail had one more instance. Merging this work alongside that concurrent PR, both had recomputed the same ledger's overall row against the same shared base, so **each published a total that omitted the other's kills** — 1,891 and 1,851, where summing the seven module rows gives 1,899. Neither number was wrong when written; both were wrong once the other landed.
 
 **Lesson to convey**: *A per-function quality score is a statement about the tests, not about the system — it silently assumes every function is reachable. Before reading a strong score as reassurance, grep for a caller. And when a well-tested helper and an inline copy of it disagree, the tests will always defend the helper, because the helper is what they import; the divergence can only be found by asking which one runs.*
 
