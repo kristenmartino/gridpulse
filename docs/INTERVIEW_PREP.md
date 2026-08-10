@@ -16,6 +16,60 @@
 
 ## Seed stories identified from this week's work
 
+### The honesty cluster — closing 15 items, and being overruled by my own data three times (2026-07-14 → 08-10)
+
+**S.** A tracking issue listed ~15 places where GridPulse showed a user a
+number that was wrong, mislabelled, or silently synthetic. Eight had been
+cleared months earlier; the issue body still listed all fifteen as open.
+
+**T.** Clear the rest — in a codebase whose entire discipline is *do not
+publish a number you cannot support*, where the failure mode I was fixing was
+exactly the one I was most likely to commit while fixing it.
+
+**A.** The first move was not a fix. It was re-verifying all 15 against the
+tree, which showed 8 already done — starting cold would have meant
+re-litigating finished work. Then production measurement before each design
+decision, and **three times it overruled the issue's own prescription, each
+time making the fix smaller**. The batch order was backwards: two items that
+read as urgent were *latent* — their log lines had never fired — while two
+further down were biasing every published number daily. P2-19 said the drift
+signal "mixes lead horizons", implying a statistic stratified by lead; the
+distribution said **97% of records are lead 1**, so a filter sufficed and the
+3% tail could never have carried its own window. P2-17 prescribed a smoothed
+holdout; 1,620 persisted holdout MAPEs — pulled from GCS with no retraining,
+because the estimator's own history was already recorded — showed the raw
+value tracks the underlying level *better* than any EWMA, **and** that a
+smoothed gate would read one number while the Models tab showed another. That
+is precisely the defect the cluster existed to remove, so I shipped hysteresis
+on the *decision* instead: flips 14 → 8, no published figure touched.
+
+The sharpest single finding was an estimator that **graded itself on its own
+answers** — the ensemble metric fitted its weights on the same 168 hours it
+was then scored against. My synthetic estimate of the bias was 0.11 points.
+The fleet said **+0.46 median, +1.32 mean, worse on 33 of 51 BAs**. I had
+under-called it, in the flattering direction.
+
+And mutation verification caught **two of my own tests asserting nothing** —
+fixtures where the correct rule and the mutated rule return the same answer.
+Both are recorded in their own commits rather than quietly fixed.
+
+**R.** 15 of 15, 13 PRs. Four wrong numbers off live surfaces, the published
+accuracy table re-derived from the corrected estimator, and one claim
+**withdrawn rather than replaced** — the "ensemble reduces tail variance"
+example stopped being true on retrained data, and a claim that needs a freshly
+chosen example every retrain was never a claim. What I *didn't* ship is the
+part I'd lead with: the ensemble-weights half is filed as a pre-registered A/B
+because stability is not accuracy, and shipping it on the stability argument
+alone would have repeated the exact in-sample reasoning I had just spent a PR
+removing.
+
+**Lesson to convey**: *The failure mode you are fixing is the one you are most
+likely to commit while fixing it. Three times the issue told me what to build
+and the data said build less; twice my own tests passed against mutations that
+broke the thing they named. Measure first, mutate your tests, and let the
+instrument overrule you — including when it says ship nothing.*
+
+
 ### The anchor arc — a week of measurement replacing six wrong hypotheses (2026-07-11 → 07-17)
 
 **S.** A user screenshot showed LADWP's dashboard reading "NOW 730 MW,
