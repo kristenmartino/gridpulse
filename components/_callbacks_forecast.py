@@ -1414,18 +1414,28 @@ def register_forecast_callbacks(app):
             Input("forecast-scn-solar", "value"),
             Input("region-selector", "value"),
             Input("demand-store", "data"),
+            Input("dashboard-tabs", "active_tab"),
         ],
-        State("dashboard-tabs", "active_tab"),
     )
     def update_forecast_scenarios_panel(
         is_open, temp_d, wind_d, solar_d, region, demand_json, active_tab
     ):
         """Render the 4-up delta MetricsBar + baseline-vs-scenario chart.
 
-        Lazy: only fires when the collapse is open and the user is on the
-        Forecast tab. Uses a heuristic impact model (no full ensemble re-run)
-        so the slider feels instant; the existing Scenarios tab still hosts
-        the trained-model simulation for full-fidelity what-ifs.
+        Lazy: only renders when the collapse is open and the user is on the
+        Forecast tab.
+
+        ``active_tab`` is an INPUT, not State. As State the callback never
+        fired on a tab change, so arriving at the Forecast tab with the panel
+        already open — which is what a bookmark, a reload, or opening the
+        panel from another tab all produce — left the KPIs permanently blank
+        until the user happened to move a slider. Observed live on
+        2026-08-10: panel rendered, sliders responded, KPI row empty.
+
+        Values come from the precomputed scenario grid when the scoring job
+        has written one (#127), and from the #119 linear heuristic when it has
+        not. ``_scenario_factors`` reports which, and the panel says so rather
+        than claiming one unconditionally.
         """
         if active_tab != "tab-outlook" or not is_open:
             return no_update, no_update

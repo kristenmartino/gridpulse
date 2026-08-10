@@ -220,6 +220,47 @@ number that cannot be obtained offline.
 forecast is persisted, and the 1,139 s tick still wrote 51/51 forecasts. The
 cost was runtime, never correctness.
 
+## MEASURED 2026-08-10 (second attempt): 506s, affordable
+
+After #465 batched the cells, the first flag-on tick came in at **506s**
+(23:00:09 -> 23:08:35, 51/51) against a 411/439/411/451/427/442 s flag-off
+baseline. **1.18x, +79s** — against 1,139s and 2.7x for the cell-at-a-time
+version. Clears #171's 600s criterion.
+
+Two caveats. **It is n=1**, and this file's own scoring-runtime row records a
+370.7s reading that a 17-tick median later revised to 406s, so treat 506s as
+one observation rather than the steady state. And **it overshot the ~495s
+projection** — the third time in this line of work that a cost estimate came
+in optimistic, so weight the measurement and discount the estimates.
+
+Headroom is the real question rather than the criterion: 506s leaves 1,294s to
+the hard timeout, and the 2026-08-04 EIA outage added ~800s on its own. A
+degraded tick would land near 1,300s — past the 1260s creep alert, under the
+kill. It survives the historical worst case with much less margin than 427s
+had.
+
+## What the 506s tick did NOT prove
+
+It proved the grid gets **written** affordably. It proved nothing about the
+grid being **read**, and driving the deployed UI immediately turned up two
+reasons that mattered (#471):
+
+- **The panel rendered empty.** `active_tab` was a `State` on the scenario
+  callback rather than an `Input`, so switching to the Forecast tab never
+  re-fired it. Arriving with the panel already open — a bookmark, a reload,
+  opening the panel from another tab — left the KPI row blank until the user
+  moved a slider.
+- **The copy under it said "not a model re-forecast"** while production served
+  exactly that. Static text cannot track a feature flag, and `_scenario_factors`
+  had reported the source since #458 with nothing rendering it.
+
+Both are fixed in #471, along with `GET /api/v1/scenario/{region}` — gated on
+the `scenario_grid` flag and 404 when it is off, so the public surface appears
+only while the data behind it does — which
+exists so the physics checks below go through `interpolate_scenario_factors`,
+the same helper the web tier uses. Reading Redis directly would confirm the
+payload exists and skip the serving path, which is the half that was untested.
+
 ## Status and what is not yet verified
 
 Shipped behind `FEATURE_FLAGS["scenario_grid"]`. **Enabled 2026-08-10 (#460)**

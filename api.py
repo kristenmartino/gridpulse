@@ -305,6 +305,83 @@ def regions():
     return jsonify(body)
 
 
+@api_v1.get("/scenario/<raw_region>")
+def scenario(raw_region: str):
+    """The precomputed what-if grid for one region (#127).
+
+    Reads ``gridpulse:scenario_grid:{region}`` through the same helper the
+    web tier uses, so this exercises the serving path rather than just
+    confirming the payload exists — the scoring job writing a grid and the
+    UI being able to read one are different claims.
+
+    Optional ``temp``/``wind``/``solar`` query params return the interpolated
+    hourly factor curve at that slider position instead of the whole grid;
+    omitting them returns the raw grid. The two together are what make the
+    physics auditable: whether the response is BA-dependent (the #119
+    heuristic is BA-independent by construction) and whether the CDD/HDD kink
+    at 65 F is visible in the temperature axis.
+    """
+    from flask import request
+
+    from config import feature_enabled
+
+    # Gated on the same flag as the data it serves. With the flag off no
+    # scoring job writes a grid, so the endpoint could only ever return a
+    # warming response — and a public surface that exists solely to say
+    # "nothing here" is worse than one that is not published yet. 404 rather
+    # than 503: the resource does not exist, it is not temporarily cold.
+    if not feature_enabled("scenario_grid"):
+        return (
+            jsonify(
+                {
+                    "error": "not_found",
+                    "detail": "The scenario grid is not enabled on this deployment.",
+                }
+            ),
+            404,
+        )
+
+    region = _resolve_region(raw_region)
+    if region is None:
+        return _unknown_region_response()
+
+    payload = redis_get(redis_key(f"scenario_grid:{region}"))
+    if not isinstance(payload, dict) or not payload.get("factors"):
+        return _warming_response(
+            "No scenario grid in cache for this region — it is written by the "
+            "hourly scoring job behind the `scenario_grid` flag."
+        )
+
+    args = request.args
+    if not any(k in args for k in ("temp", "wind", "solar")):
+        return jsonify({"region": region, **payload})
+
+    try:
+        temp = float(args.get("temp", 0.0))
+        wind = float(args.get("wind", 0.0))
+        solar = float(args.get("solar", 0.0))
+    except (TypeError, ValueError):
+        return (
+            jsonify({"error": "invalid_delta", "detail": "temp/wind/solar must be numbers"}),
+            400,
+        )
+
+    from simulation.scenario_grid import interpolate_scenario_factors
+
+    curve = interpolate_scenario_factors(payload, temp, wind, solar)
+    if curve is None:
+        return _warming_response("Scenario grid present but unusable for this position.")
+
+    return jsonify(
+        {
+            "region": region,
+            "deltas": {"temp_f": temp, "wind_mph": wind, "solar_wm2": solar},
+            "generated_at": payload.get("generated_at"),
+            "factors": [round(float(v), 5) for v in curve],
+        }
+    )
+
+
 @api_v1.get("/forecast/<raw_region>")
 def forecast(raw_region: str):
     """Hourly demand forecast for one region, ensemble + per-model series."""
