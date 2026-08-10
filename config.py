@@ -777,6 +777,22 @@ MAPE_BY_HORIZON: dict[str, dict[str, float]] = {
     "7d": {"excellent": 6.0, "target": 9.0, "acceptable": 15.0, "rollback": 22.0},
 }
 
+#: P2-17 (#273): hysteresis band, in MAPE points, on the forecast-quality
+#: visibility gate. A visible BA hides when its champion holdout MAPE crosses
+#: ``MAPE_BY_HORIZON["7d"]["rollback"]``; a hidden one reappears only once it
+#: is back under ``rollback - GATE_HYSTERESIS_PTS``.
+#:
+#: The gate reads a single unsmoothed 168h holdout, and that estimator flaps:
+#: median 12% run-to-run over 540 historical training runs, p90 43%. Without
+#: hysteresis a BA near the bar flickers in and out of the UI — 14 flips in
+#: 528 run-transitions, entirely in SPA / AZPS / IID.
+#:
+#: 3.0 chosen from that sweep: flips 14 -> 8 (-43%) for 10 extra hidden
+#: run-days out of 540. Larger bands keep buying flips (5.0 -> 6) at a
+#: steepening cost in how long a recovered BA stays hidden. Evidence:
+#: docs/HOLDOUT_STABILITY_STUDY.md.
+GATE_HYSTERESIS_PTS = 3.0
+
 # Ensemble weighting exponent (ADR-004 refinement, resolves #181). The served
 # ensemble weight_i is proportional to (1/MAPE_i)^k. k=1.0 is plain inverse-MAPE;
 # k=3.0 sharpens toward the best model, blending meaningfully only when peers are
