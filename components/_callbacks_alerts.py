@@ -81,11 +81,17 @@ def _stress_tone(stress: int | None) -> str:
 #: (P2-29 / #273). They are drawn identically for all 51 BAs, so 95°F reads as
 #: a meaningful mark in Florida and as an unreachable one in the Pacific
 #: Northwest. The chart now labels them as generic rather than implying each BA
-#: was assessed. Real per-region parameterization needs the scoring job to
-#: publish per-BA temperature percentiles first — the web tier may not compute
-#: them in the request path (CLAUDE.md web-tier I/O guardrail), and the existing
-#: weather-normal artifact is a (doy, hour) *mean*, which is the wrong statistic
-#: for an exceedance threshold. Tracked separately.
+#: was assessed.
+#:
+#: **These are now the FALLBACK only (#401).** The scoring job publishes per-BA
+#: percentiles to ``gridpulse:weather_percentiles:{region}`` and the chart
+#: prefers them, calibrating to the region and saying so. These generic lines —
+#: and their generic disclosure — render when that key is absent, so a cold
+#: cache degrades to the previous behaviour rather than to a blank chart or a
+#: fabricated threshold. The web tier still may not compute them itself
+#: (CLAUDE.md web-tier I/O guardrail), and the weather-normal artifact is still
+#: a (doy, hour) *mean*, which is the wrong statistic for an exceedance
+#: threshold — hence a purpose-built payload rather than reuse.
 _TEMP_REFERENCE_LINES_F = (95, 100, 105)
 
 #: Historical extreme events plotted on the timeline, as (date, name, region).
@@ -226,13 +232,32 @@ def _build_anomaly_figure(region, timestamps, demand, upper, lower, anom_ts, ano
     return fig
 
 
-def _build_temp_figure(region, timestamps, values):
-    """Temperature series with generic heat reference lines.
+def _read_temp_percentiles(region: str) -> dict | None:
+    """Per-BA temperature percentiles from Redis, or ``None`` (#401).
 
-    The reference lines are fleet-uniform, not region-calibrated (P2-29 /
-    #273), so they are labelled as generic. Drawing an unannotated red line
-    at 95°F on every BA implied each one had been assessed against its own
-    climate; it had not.
+    Redis-only, per the web-tier I/O guardrail — the scoring job is the sole
+    writer. A miss returns ``None`` and the caller falls back to the generic
+    lines *and* their generic disclosure, so a cold cache degrades to the
+    previous behaviour rather than to a blank chart or a fabricated threshold.
+    """
+    try:
+        payload = redis_get(redis_key(f"weather_percentiles:{region}"))
+    except Exception:  # pragma: no cover — advisory; never break the tab
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if not all(isinstance(payload.get(k), (int, float)) for k in ("p90", "p95", "p99")):
+        return None
+    return payload
+
+
+def _build_temp_figure(region, timestamps, values):
+    """Temperature series with heat reference lines.
+
+    Region-calibrated when the scoring job has published percentiles for this
+    BA (#401), generic and labelled as such otherwise (#273). The label always
+    states which it is and, when calibrated, over what window — a reader must
+    never have to guess whether a line was assessed for this BA.
     """
     if len(timestamps) == 0:
         return _empty_figure("Loading...")
@@ -242,19 +267,31 @@ def _build_temp_figure(region, timestamps, values):
             x=timestamps, y=values, name="Temperature", line=dict(color=COLORS["temperature"])
         )
     )
-    for t in _TEMP_REFERENCE_LINES_F:
+
+    pct = _read_temp_percentiles(region)
+    if pct:
+        lines = [("p90", pct["p90"]), ("p95", pct["p95"]), ("p99", pct["p99"])]
+        days = pct.get("window_days")
+        title = f"Calibrated to {region} — p90/p95/p99 of observed temperature" + (
+            f", trailing {days} days" if days else ""
+        )
+    else:
+        lines = [(f"{t}\u00b0F", t) for t in _TEMP_REFERENCE_LINES_F]
+        title = "Generic heat reference levels — not calibrated per region"
+
+    for label, t in lines:
         fig.add_hline(
             y=t,
             line=dict(color="#FF5C7A", dash="dot", width=1),
-            annotation_text=f"{t}°F",
+            annotation_text=f"{label} \u00b7 {t:.0f}\u00b0F" if pct else label,
             annotation_position="right",
         )
     fig.update_layout(
         **_layout(
             uirevision=region,
-            yaxis_title="°F",
+            yaxis_title="\u00b0F",
             title=dict(
-                text="Generic heat reference levels — not calibrated per region",
+                text=title,
                 font=dict(size=10, color="#A8B3C7"),
                 x=0,
                 xanchor="left",

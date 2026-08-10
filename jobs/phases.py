@@ -313,6 +313,56 @@ def _ts_list(series: Any) -> list[str]:
     return [t.isoformat() if hasattr(t, "isoformat") else str(t) for t in series]
 
 
+#: #401: minimum observed hours before per-BA temperature percentiles are
+#: published. Below this the high quantiles are dominated by a handful of
+#: readings, and a fleet-uniform line the chart already labels as generic is
+#: better than a region-specific one that is mostly noise.
+_TEMP_PCT_MIN_HOURS = 24 * 14
+
+
+def _temperature_percentiles(weather_df: pd.DataFrame) -> dict[str, Any] | None:
+    """p90/p95/p99 of OBSERVED temperature for one BA, or ``None``.
+
+    #401. The Risk tab drew reference lines at 95/100/105 °F on all 51 BAs —
+    a mark that is operationally meaningful in Florida and unreachable in the
+    Pacific Northwest. #273 made the chart disclose that; this makes it
+    unnecessary.
+
+    **Observed hours only.** ``weather_df`` carries roughly 90 days of history
+    *and* a 16-day forecast; including the forecast would compute a threshold
+    partly from predictions, which is exactly the kind of quiet circularity
+    this codebase keeps finding. Rows at or before ``now`` only.
+
+    The window is the frame's own trailing history — NOT the 10-year ERA5
+    normal. That is a deliberate departure from #401's sketch: the normal is a
+    per-(day_of_year, hour) *mean* and cannot yield a percentile, and a fresh
+    10-year fetch per BA per tick is not affordable. A seasonal threshold is
+    also the more useful one — "hot for this BA lately" beats "hot for this BA
+    in February" when the chart is read in August. The window length is
+    published with the numbers so the label can say what it is.
+    """
+    if weather_df is None or weather_df.empty or "temperature_2m" not in weather_df.columns:
+        return None
+    df = weather_df[["timestamp", "temperature_2m"]].copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True, errors="coerce")
+    observed = df[df["timestamp"] <= pd.Timestamp.now(tz=UTC)]
+    vals = pd.to_numeric(observed["temperature_2m"], errors="coerce").dropna()
+    if len(vals) < _TEMP_PCT_MIN_HOURS:
+        return None
+    q = vals.quantile([0.90, 0.95, 0.99])
+    out = {
+        "p90": round(float(q.loc[0.90]), 1),
+        "p95": round(float(q.loc[0.95]), 1),
+        "p99": round(float(q.loc[0.99]), 1),
+        "n_hours": int(len(vals)),
+        "window_days": int(round(len(vals) / 24)),
+        "source": "observed_trailing",
+    }
+    if not all(np.isfinite(out[k]) for k in ("p90", "p95", "p99")):
+        return None
+    return out
+
+
 def write_actuals_and_weather(data: RegionData) -> PhaseResult:
     """Write actuals + weather JSON payloads to Redis."""
     from data.redis_client import persist, redis_key
@@ -348,12 +398,29 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
             weather_payload[col] = weather_df[col].tolist()
         persist(redis_key(f"weather:{region}"), weather_payload, ttl=REDIS_TTL)
 
+        # #401: per-BA temperature percentiles, so the Risk tab's heat lines
+        # can stop being fleet-uniform. Computed here because this phase
+        # already holds the frame — no new upstream fetch. Best-effort: a
+        # failure must not cost the weather payload above, which is the thing
+        # this phase actually exists to write.
+        pct = _temperature_percentiles(weather_df)
+        if pct is not None:
+            try:
+                persist(
+                    redis_key(f"weather_percentiles:{region}"),
+                    {"region": region, "scored_at": scored_at, **pct},
+                    ttl=REDIS_TTL,
+                )
+            except Exception as e:  # pragma: no cover — advisory payload
+                log.warning("weather_percentiles_persist_failed", region=region, error=str(e))
+
         return PhaseResult(
             region=region,
             ok=True,
             details={
                 "demand_rows": len(demand_df),
                 "weather_rows": len(weather_df),
+                "temp_percentiles": bool(pct),
             },
         )
     except Exception as e:
