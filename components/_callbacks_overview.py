@@ -1474,6 +1474,59 @@ def _scenario_demand_factor(temp_delta: float, wind_delta: float, solar_delta: f
     return 1.0 + (temp_delta / 5.0) * 0.025 + solar_delta * 0.00015 + wind_delta * 0.0005
 
 
+def _scenario_factors(
+    region: str | None,
+    temp_delta: float,
+    wind_delta: float,
+    solar_delta: float,
+    n_hours: int,
+) -> tuple[np.ndarray, str]:
+    """Hourly demand factors for the simulator, physics first (#127).
+
+    Reads the precomputed grid the scoring job wrote and interpolates it to
+    the slider position. Falls back to ``_scenario_demand_factor`` — the
+    analytical heuristic that shipped in #119 — whenever the grid is absent,
+    stale-shaped, or unreadable, which covers a cold Redis, a region the
+    scoring job shed at its soft deadline, and the flag being off.
+
+    Reading Redis rather than re-running the models is what keeps this
+    inside the web-tier I/O guardrail: no model touches the request path,
+    and the slider stays as responsive as it was with the heuristic.
+
+    Returns:
+        ``(factors, source)`` where ``factors`` is length ``n_hours`` and
+        ``source`` is ``"grid"`` or ``"heuristic"`` for the UI to label.
+    """
+    from config import feature_enabled
+
+    flat = _scenario_demand_factor(temp_delta, wind_delta, solar_delta)
+    fallback = np.full(n_hours, flat, dtype=float)
+
+    if not region or not feature_enabled("scenario_grid"):
+        return fallback, "heuristic"
+
+    try:
+        from data.redis_client import redis_get, redis_key
+        from simulation.scenario_grid import interpolate_scenario_factors
+
+        payload = redis_get(redis_key(f"scenario_grid:{region}"))
+        if not payload:
+            return fallback, "heuristic"
+
+        curve = interpolate_scenario_factors(payload, temp_delta, wind_delta, solar_delta)
+        if curve is None or curve.size == 0:
+            return fallback, "heuristic"
+
+        # The grid is 24h and the chart may be shorter or longer; hold the
+        # last factor rather than letting the curve run out mid-chart.
+        if curve.size < n_hours:
+            curve = np.concatenate([curve, np.full(n_hours - curve.size, curve[-1])])
+        return curve[:n_hours], "grid"
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("scenario_grid_read_failed", region=region, error=str(exc))
+        return fallback, "heuristic"
+
+
 def _build_scenarios_panel(
     temp_delta: int | float | None,
     wind_delta: int | float | None,
@@ -1541,12 +1594,16 @@ def _build_scenarios_panel(
         kpi_empty.className = "gp-metrics-bar gp-metrics-bar--4up"
         return (kpi_empty, _empty_figure("Awaiting baseline forecast"))
 
-    # ── Heuristic scenario forecast ────────────────────────────
-    # Demand response is dominated by temperature, plus smaller terms
-    # for solar (AC load) and wind (wind chill). See
-    # ``_scenario_demand_factor`` for the coefficient rationale.
-    demand_factor = _scenario_demand_factor(temp_delta, wind_delta, solar_delta)
-    scenario_y = base_y * demand_factor
+    # ── Scenario forecast ──────────────────────────────────────
+    # #127: real per-hour physics from the precomputed grid when the scoring
+    # job has written one, the #119 linear heuristic when it has not. The
+    # grid's factor varies BY HOUR — the heuristic's single scalar could not
+    # express that a +15 °F afternoon and a +15 °F 4am differ, which is most
+    # of what makes a demand response a curve rather than a scaling.
+    scenario_factors, scenario_source = _scenario_factors(
+        region, temp_delta, wind_delta, solar_delta, len(base_y)
+    )
+    scenario_y = base_y * scenario_factors
 
     base_peak = float(np.max(base_y))
     scenario_peak = float(np.max(scenario_y))

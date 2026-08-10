@@ -218,6 +218,18 @@ Note: The legacy modules (Historical Demand, Demand Forecast, Backtest, Generati
 - **ADR-009**: Class-conditional anchor conditioning — broken-feed BAs anchor on their own day-ahead forecast (`forecast_mw`) for trailing unsettled hours, on a forked frame; policy driven live by the vintage classifier. Evidence: docs/ANCHOR_CONDITIONING_STUDY.md. Full rationale: PRD.md §10.
 - **ADR-010**: Serve-path acceptance gate — daily retrains are a fit lottery (~27% of persisted LDWP vintages dive in the recursive serve regime; the holdout is blind to it), so the training job replays each candidate through the real serve path and a rejected candidate never repoints `latest.json`. Evidence: docs/FORECAST_DIVE_DIAGNOSIS.md. Full rationale: PRD.md §10.
 - **ADR-011**: NBM-composite forecast weather — NOAA's National Blend of Models overlaid on the base fetch for future hours only, base-filled where NBM lacks variables (`NBM_FORCE_FILL_VARS`); enrichment-only, fail-open, flag `nbm_weather`. Measured +0.921 sMAPE pts through the real serve path. Evidence: docs/WEATHER_MODEL_AB.md. Full rationale: PRD.md §10.
+- **ADR-013**: Precomputed scenario grid — the what-if simulator is served from
+  81 real forecasts per region (9 temp × 3 wind × 3 solar, spanning the slider
+  domains) computed by the scoring job over a **24h** horizon and interpolated
+  trilinearly in the web tier. Keeps model inference out of the request path
+  (the web-tier I/O guardrail) at unchanged slider latency. Affordable only
+  because the simulator charts 24h, not the full horizon: 24 recursive steps
+  against production's 384 is ~16× cheaper, ~26s added wall. **The grid is
+  computed through the production recursive forecaster, not
+  `scenario_engine._run_ensemble`** — a scenario from one inference path
+  divided by a baseline from another reports the gap between the *paths* as
+  the response to *weather*. Flag `scenario_grid`, fail-open to the #119
+  heuristic. Evidence: docs/SCENARIO_GRID.md.
 - **ADR-012**: Multi-point weather — each BA's footprint sampled at up to 12 static cells (`assets/multipoint_coordinates.json`, generated offline; 15 compact BAs omitted → single point) and aggregated **unweighted**; circular mean for wind direction, mode for `weather_code`, renormalizing nanmean otherwise. NBM composites per point BEFORE aggregation. Fails open to single-point at every seam (the #161 lesson). Flag `multipoint_weather`. Measured +1.14 sMAPE pts (MISO +1.77). Evidence: docs/MULTIPOINT_WEATHER_STUDY.md. Full rationale: PRD.md §10.
 
 ### Module Map

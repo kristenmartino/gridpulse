@@ -1785,6 +1785,20 @@ def predict_and_write_forecast(
                 redis_payload,
                 ttl=REDIS_TTL,
             )
+        # #127: the what-if grid. Computed HERE rather than as its own phase
+        # because it needs `future_df`, and rebuilding that costs ~4.3s/BA —
+        # more than the grid itself. Enrichment only: it runs after the
+        # forecast has already landed in Redis, and every failure path leaves
+        # the forecast write untouched.
+        with substep("scenario_grid"):
+            scenario_written = _write_scenario_grid(
+                region=region,
+                featured=featured,
+                future_df=future_df,
+                models=models,
+                baseline=predictions_by_model.get("xgboost"),
+            )
+
         models_in_row = sorted(predictions_by_model.keys())
         if ensemble_preds is not None:
             models_in_row.append("ensemble")
@@ -1795,11 +1809,81 @@ def predict_and_write_forecast(
                 "horizon": FORECAST_HORIZON_HOURS,
                 "points": FORECAST_HORIZON_HOURS,
                 "models": models_in_row,
+                "scenario_grid": scenario_written,
             },
         )
     except Exception as e:
         log.warning("job_forecast_write_failed", region=region, error=str(e))
         return PhaseResult(region=region, ok=False, error=str(e))
+
+
+def _write_scenario_grid(
+    region: str,
+    featured: pd.DataFrame,
+    future_df: pd.DataFrame,
+    models: dict[str, Any],
+    baseline: np.ndarray | None,
+) -> bool:
+    """Compute and persist ``gridpulse:scenario_grid:{region}`` (#127).
+
+    **Enrichment only, and fail-open by construction.** The forecast has
+    already been written by the time this runs; every return path below
+    leaves it alone. A region with no grid falls back to the analytical
+    heuristic in the web tier, which is what shipped before #127 — a
+    degraded simulator, not a missing forecast.
+
+    The baseline passed in is XGBoost's, and the grid re-runs XGBoost
+    through ``_predict_xgboost_with_recursive_autoregressive`` — the same
+    recursive protocol, on the same ``future_df``, seeded from the same
+    ``featured``. Only the weather differs between the two sides of the
+    ratio. Using the ensemble baseline instead would mean re-running Prophet
+    81 times per region, which is ~14x the cost for a second opinion on a
+    *delta* whose weather sensitivity lives almost entirely in XGBoost's
+    engineered features.
+
+    Returns:
+        True when a grid was written.
+    """
+    from config import SCENARIO_GRID_HORIZON_HOURS, feature_enabled
+
+    if not feature_enabled("scenario_grid"):
+        return False
+
+    model = (models or {}).get("xgboost")
+    if model is None or baseline is None:
+        return False
+
+    horizon = min(SCENARIO_GRID_HORIZON_HOURS, len(future_df), len(baseline))
+    if horizon < 2:
+        return False
+
+    try:
+        from data.redis_client import persist, redis_key
+        from simulation.scenario_grid import build_scenario_grid
+
+        def forecaster(frame: pd.DataFrame) -> np.ndarray:
+            return _predict_xgboost_with_recursive_autoregressive(
+                model, featured, frame, horizon, recursive_hours=horizon
+            )
+
+        payload = build_scenario_grid(
+            featured=featured,
+            future_df=future_df.iloc[:horizon],
+            baseline=np.asarray(baseline, dtype=float)[:horizon],
+            forecaster=forecaster,
+            horizon=horizon,
+        )
+        payload["generated_at"] = pd.Timestamp.now(tz="UTC").isoformat()
+        payload["region"] = region
+
+        persist(redis_key(f"scenario_grid:{region}"), payload, ttl=REDIS_TTL)
+        return True
+    except Exception as e:
+        # Deliberately broad: this is the last thing the forecast phase does,
+        # and nothing it can raise is worth failing an already-written
+        # forecast over.
+        log.warning("scenario_grid_write_failed", region=region, error=str(e))
+        return False
 
 
 # ── Phase: drift (scoring) — #121 part 1 ─────────────────────
