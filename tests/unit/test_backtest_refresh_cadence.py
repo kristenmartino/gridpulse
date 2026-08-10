@@ -97,3 +97,38 @@ class TestTtlOutlivesTheRefreshInterval:
             "backtest TTL must outlive the refresh interval, or a key expires "
             "exactly when it comes due for refresh"
         )
+
+
+class TestRecomputeIsObservable:
+    """The alert signal (`docs/monitoring/backtest_recompute_alert.json`).
+
+    The alert counts RECOMPUTES rather than skips on purpose. A metric built on
+    ``job_backtest_fresh_skip`` looks like the obvious choice and is a trap:
+    when the gate breaks, skips stop being emitted, the logs-based counter has
+    no data, and a threshold-below condition never evaluates — the alert goes
+    quiet at exactly the moment it should fire. Counting the thing that
+    increases on failure removes that failure mode, but only if the recompute
+    path actually emits it.
+    """
+
+    def test_recompute_path_emits_the_alert_event(self):
+        import inspect
+
+        from jobs import phases
+
+        src = inspect.getsource(phases.write_backtests)
+        assert '"job_backtest_recomputed"' in src, (
+            "the alert in docs/monitoring/backtest_recompute_alert.json counts "
+            "job_backtest_recomputed; without it the policy silently never fires"
+        )
+
+    def test_recompute_event_carries_the_diagnostic_field(self):
+        """`previous_computed_at` is what separates the two root causes: null
+        means the payload was missing (Redis flush, eviction, TTL expiry), a
+        recent timestamp means the gate rejected a payload it should have
+        accepted."""
+        import inspect
+
+        from jobs import phases
+
+        assert "previous_computed_at" in inspect.getsource(phases.write_backtests)

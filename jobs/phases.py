@@ -2544,6 +2544,28 @@ def write_backtests(data: RegionData) -> PhaseResult:
                 ttl=BACKTEST_TTL_SECONDS,
             )
             written.append(horizon)
+            # The alert signal. Deliberately counts RECOMPUTES, not skips.
+            #
+            # A metric built on `job_backtest_fresh_skip` looks like the
+            # obvious choice and is a trap: when the gate breaks, skips stop
+            # being emitted, the logs-based counter has NO data, and a
+            # threshold-below condition never evaluates. The alert would go
+            # quiet at exactly the moment it should fire. Counting the thing
+            # that INCREASES on failure avoids that entirely.
+            #
+            # Normal operation emits 153 of these (51 BAs x 3 horizons) on one
+            # day in seven and none on the other six, so a 72h window holds at
+            # most one recompute day. See
+            # docs/monitoring/backtest_recompute_alert.json.
+            log.info(
+                "job_backtest_recomputed",
+                region=region,
+                horizon=horizon,
+                refresh_days=BACKTEST_REFRESH_DAYS,
+                previous_computed_at=(
+                    existing.get("computed_at") if isinstance(existing, dict) else None
+                ),
+            )
         except Exception as e:
             log.warning(
                 "job_backtest_error",

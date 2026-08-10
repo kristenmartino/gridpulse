@@ -1,0 +1,31 @@
+{
+  "displayName": "GridPulse — backtests recomputing more often than weekly",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The walk-forward backtest recomputed on **more than one day in the last three**, which means the `BACKTEST_REFRESH_DAYS` freshness gate is no longer holding and the training job is paying its largest single cost every run.\n\n**Why this is worth an alert.** Backtests are 12 folds per BA and *every fold trains its own booster* — walk-forward requires each fold's model to see only that fold's training window. Measured 2026-08-08: **12,886s of summed step time, 56.9% of the training job**. When the gate works, billed task-seconds fall from ~22,400 to ~8,700/day and the job costs ~$21/mo instead of ~$54/mo. A silent regression here roughly triples the training bill and nothing else reports it — the job still succeeds, still writes valid backtests, and still exits 0. It is only *slower and more expensive*, which is exactly the class of failure that hides.\n\n**Why it counts recomputes and not skips.** A metric built on `job_backtest_fresh_skip` is the obvious choice and is a trap: when the gate breaks, skips stop being emitted, the logs-based counter has **no data**, and a threshold-below condition never evaluates. The alert would go quiet at precisely the moment it should fire. `job_backtest_recomputed` increases on failure, so absence of data can never mask it.\n\n**Expected shape.** Normal operation emits **153** recompute events (51 BAs × 3 horizons) on one day in seven, and **0** on the other six. Any 72h window therefore contains at most one recompute day (153). The threshold of 200 sits above one legitimate day and below two.\n\n**Runbook:**\n1. Confirm the gate is the cause, not the schedule: `gcloud logging read 'jsonPayload.event=\"job_backtest_recomputed\"' --limit 5 --format='value(timestamp,jsonPayload.region,jsonPayload.horizon,jsonPayload.previous_computed_at)'`. **`previous_computed_at` is the diagnostic.** If it is `null`, the payload was missing entirely — a Redis flush, an eviction, or a TTL that expired before the refresh came due. If it carries a recent timestamp, the payload was there and the freshness check rejected it anyway, which is a gate bug.\n2. Check the TTL invariant: `BACKTEST_TTL_SECONDS` **must** exceed `BACKTEST_REFRESH_DAYS × 86400`. If they are equal a key expires exactly when it comes due and every run recomputes — that equality is the original bug the weekly cadence replaced, and `tests/unit/test_backtest_refresh_cadence.py` pins the inequality.\n3. Check nobody set `BACKTEST_REFRESH_DAYS=0` on the job. That is the documented escape hatch for validating a change to the backtest itself, and it disables the gate completely: `gcloud run jobs describe gridpulse-training-job --region us-east1 --format='value(spec.template.spec.template.spec.containers[0].env)'`.\n4. Confirm Redis is healthy. `redis_get` is fail-**soft**, so a Redis outage returns `None`, reads as stale, and recomputes — costly but never wrong. That is a deliberate choice: the alternative would skip during an outage and let a payload silently expire.\n5. Verify the cost impact before treating it as urgent — `gcloud run jobs executions list --job gridpulse-training-job --limit 5`. A run near ~2h15m recomputed; ~50-60m skipped.\n\n**Secondary detection.** This also fires *low* rather than high if the training job stops running entirely — no runs, no recomputes, no skips. That case is covered more directly by `cloud_run_job_failure_alert` (failed executions) and the `last_trained` freshness meta, but only for a job that runs and fails; a job that never starts is invisible to both."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "backtest recomputes over 72h exceed one day's worth",
+      "conditionThreshold": {
+        "filter": "metric.type=\"logging.googleapis.com/user/backtest_recomputes\" AND resource.type=\"cloud_run_job\"",
+        "aggregations": [
+          {
+            "alignmentPeriod": "259200s",
+            "perSeriesAligner": "ALIGN_SUM",
+            "crossSeriesReducer": "REDUCE_SUM"
+          }
+        ],
+        "comparison": "COMPARISON_GT",
+        "thresholdValue": 200,
+        "duration": "0s",
+        "trigger": { "count": 1 }
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": { "period": "86400s" },
+    "autoClose": "604800s"
+  }
+}

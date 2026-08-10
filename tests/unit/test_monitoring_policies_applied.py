@@ -32,7 +32,21 @@ README = MONITORING_DIR / "README.md"
 #: Policies deliberately NOT applied yet, with the reason. To apply one: run the
 #: gcloud recipe in the README, add its row (with live id) to the
 #: applied-policies table, then delete it from this dict.
-_KNOWN_UNAPPLIED: dict[str, str] = {}
+_KNOWN_UNAPPLIED: dict[str, str] = {
+    "backtest_recompute_alert.json": (
+        "Needs a one-time logs-based counter metric (`backtest_recomputes`) created "
+        "first — see the 'Logs-based metric' section in the README. It is the only "
+        "policy here that is a metric threshold rather than a conditionMatchedLog, "
+        "because the signal is a FREQUENCY (one recompute day per week is correct, "
+        "three is a regression) and a match-based condition cannot tell those apart. "
+        "Applying the policy before the metric exists would leave it referencing a "
+        "metric type that resolves to nothing. Additional caveat: a logs-based metric "
+        "only counts from creation and does not backfill, so the 72h window is not at "
+        "full sensitivity for its first three days. To apply: run both gcloud recipes "
+        "in the README, add the row with the live id to the applied-policies table, "
+        "then delete this entry."
+    ),
+}
 
 #: Live-id line format in the README table, e.g. `alertPolicies/5813319064717268577`.
 _LIVE_ID = re.compile(r"`alertPolicies/\d+`")
