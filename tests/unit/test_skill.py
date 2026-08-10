@@ -125,6 +125,36 @@ class TestPayload:
         assert "seasonal-naive" in skill_payload(5.0, _daily())["baseline"]
         assert "24h" in skill_payload(5.0, _daily())["baseline"]
 
+    def test_the_label_and_the_number_come_from_the_same_lag(self):
+        """``lag_h`` must reach the measurement, not just the label.
+
+        The label is built from ``lag_h`` directly, but the baseline is
+        computed by a call that passes it on. Drop that one argument and the
+        call quietly falls back to the 24h default: the block then publishes
+        a number measured at 24h under a label that says 48h. Every test above
+        uses the default lag, where the two are indistinguishable.
+
+        This series alternates 100/125 by day, so the two lags disagree
+        sharply — lag-48 compares like days, lag-24 compares unlike ones —
+        and the disagreement is not subtle. It inverts the verdict: 4.167%
+        against a model at 10.0 is a **losing** region, while the 24h number
+        the mutation would substitute (24.667%) makes the same model look
+        like a winner. A mislabelled baseline is not a cosmetic defect here;
+        it is the field the module exists to get right.
+        """
+        y = np.repeat(np.array([100.0, 125.0, 100.0, 125.0, 100.0, 150.0]), 24)
+        payload = skill_payload(10.0, y, lag_h=48)
+
+        assert payload["baseline"] == "seasonal-naive lag 48h"
+        assert payload["baseline_mape"] == 4.167, "the number must be the 48h one, not the default"
+        assert payload["beats_baseline"] is False
+
+        at_default = skill_payload(10.0, y)
+        assert at_default["baseline_mape"] == 24.667
+        assert at_default["beats_baseline"] is True, (
+            "the two lags must disagree, or this proves nothing"
+        )
+
 
 class TestPayloadIsExact:
     """The whole published block, pinned field by field.
@@ -497,6 +527,28 @@ class TestForwardBaseline:
         hist[5] = np.nan
 
         assert seasonal_naive_forecast(hist, 24).size == 0, "give up, never wrap"
+
+    def test_a_short_horizon_never_reads_an_hour_it_does_not_target(self):
+        """The loop starts at lead 1. Starting it at 0 probes the origin hour
+        itself — an hour no lead in a sub-day horizon targets.
+
+        For a horizon of 24 or more the extra probe is invisible: lead 24
+        already reads that exact index, and the value it writes is overwritten
+        before the array is returned. Below a day it is not invisible, because
+        the origin hour is now the only index whose gap can veto the whole
+        forecast. Here leads 1-3 target the first three hours of the last
+        observed day and never look at the final hour — so a gap there, the
+        most likely place for one given EIA's reporting lag, must not matter.
+
+        Every other test in this class uses a horizon of 24 or 72, where the
+        distinction cannot appear.
+        """
+        hist = np.arange(24, dtype=float)
+        hist[23] = np.nan  # the origin hour, which leads 1-3 do not read
+
+        out = seasonal_naive_forecast(hist, 3)
+
+        assert out.tolist() == [0.0, 1.0, 2.0], "a gap outside the horizon must not veto it"
 
     def test_a_missing_hour_in_every_day_gives_up(self):
         """Same guard, reached via the ``idx >= 0`` loop bound.

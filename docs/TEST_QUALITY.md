@@ -59,12 +59,12 @@ min on an 8-core laptop; a single module is ≈ 1 min.
 |---|---:|---:|---:|---:|---:|---:|---|
 | `data/feature_engineering.py` | 919 | 780 | 82 | 57 | 84.9% | **90.5%** | ↑ 83.8% |
 | `data/quality.py` | 188 | 164 | 20 | 4 | 87.2% | **89.1%** | ↑ 71.6% |
-| `models/skill.py` | 194 | 170 | 20 | 4 | 87.6% | **89.5%** | ↑ 88.6% |
+| `models/skill.py` | 194 | 172 | 18 | 4 | 88.7% | **90.5%** | ↑ 88.6% |
 | `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
 | `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
 | `models/evaluation.py` | 373 | 272 | 81 | 20 | 72.9% | **77.1%** | untouched |
 | `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** | ↑ 61.6% |
-| **overall** | **2,372** | **1,849** | **303** | **220** | **78.0%** | **85.9%** | ↑ 85.8% |
+| **overall** | **2,372** | **1,851** | **301** | **220** | **78.0%** | **86.0%** | ↑ 85.8% |
 
 > **`models/skill.py` re-measured 2026-08-07** after the single-definition
 > change (#441). The other six rows are the 2026-08-07 whole-table pass and
@@ -127,25 +127,33 @@ equivalent, and would bury the signal.
 
 ## Adjudicated survivors
 
-**All 303 logic survivors are machine-verified** with
+**All 301 logic survivors are machine-verified** with
 `scripts/adjudicate_mutants.py`: apply the mutant to the real source, run
 tests, restore. Re-run in full against the current tree, so these counts match
 the baseline above rather than trailing it.
 
 | | |
 |---|---:|
-| confirmed (no test notices) | **301** |
+| confirmed (no test notices) | **299** |
 | false survivors (mutmut was wrong) | **2** |
 
 Both false ones are in `ensemble_combine`, both killed by
 `test_stable_hash_reproducibility.py` — the subprocess blind spot of
-limitation 1. **The tool's false-survivor rate is 2 in 303, or 0.66%.**
+limitation 1. **The tool's false-survivor rate is 2 in 301, or 0.66%.**
 
-> **The adjudicator was not re-run for #441**; 304 → 303 is arithmetic, not a
-> re-measurement. #441 killed one adjudicated logic survivor and added no new
-> ones, and the false pair is in `ensemble_combine`, which #441 does not
-> touch — so the numerator is unaffected either way. Every other number in
-> this section is from the full 2026-08-05 re-adjudication.
+> **The adjudicator was not re-run for #441**; 304 → 301 is arithmetic, not a
+> re-measurement. #441 killed three adjudicated logic survivors and added no
+> new ones, and the false pair is in `ensemble_combine`, which #441 does not
+> touch — so the numerator is unaffected either way.
+>
+> The **shape table below is likewise not re-derived.** Its shares were
+> computed against the 2026-08-05 population of 304; recomputing them needs
+> the full seven-module adjudication, not this one module. What is certain is
+> that none of #441's three were `dtype=float`, so that class is still exactly
+> 81 and its share rises to **26.9%** against the new denominator, leaving an
+> actionable population of **220**. The other shares shift by well under a
+> point. Every remaining number in this section is from the full 2026-08-05
+> re-adjudication.
 
 > **This re-run existed to check a specific doubt, and the doubt was
 > unfounded.** #386 found that the adjudicator could reuse stale bytecode:
@@ -401,13 +409,13 @@ since the block is only written on ticks where substitution fired.
 the published row exactly (192 / 164 / 21 / 7), so the delta is attributable
 rather than assumed:
 
-| | before | after | |
-|---|---:|---:|---|
-| mutants | 192 | 194 | `window_days` adds 2, both killed |
-| killed | 164 | 170 | |
-| logic survivors | 21 | 20 | |
-| noise survivors | 7 | 4 | |
-| logic score | 88.6% | **89.5%** | |
+| | before | unified | + the last two tests |
+|---|---:|---:|---:|
+| mutants | 192 | 194 | 194 |
+| killed | 164 | 170 | 172 |
+| logic survivors | 21 | 20 | **18** |
+| noise survivors | 7 | 4 | 4 |
+| logic score | 88.6% | 89.5% | **90.5%** |
 
 **4 newly killed, 0 newly surviving**, and the composition is the interesting
 part. Three are the `"skill not measurable"` reason string, now asserted
@@ -419,11 +427,26 @@ measurable. That is the same branch the non-finite-guard story runs through,
 and the test that reaches it now is the one asserting the guard keeps the
 model. Coverage is 100%.
 
-**18 of the 20 remaining logic survivors are the `dtype=float` class** — the
-open policy question below, unchanged by this round. The other two are a
-`lag_h` argument that can be dropped because every caller uses the default, and
-a loop bound whose extra iteration is overwritten before it is returned. So
-this module is now pinned everywhere except a question the score cannot settle.
+**The last two were then killed too, and both were worth killing** — neither
+was the theatre that "pin the remaining survivors" usually becomes:
+
+- `skill_payload` forwards `lag_h` into the baseline call. Drop that one
+  argument and the call falls back to the 24h default, so the block publishes
+  a number measured at 24h **under a label that says 48h**. Every prior test
+  used the default lag, where label and number are indistinguishable. On the
+  fixture the test now uses, the mutation inverts `beats_baseline` from False
+  to True — the one field the module exists to get right.
+- `seasonal_naive_forecast`'s loop starts at lead 1. Starting it at 0 probes
+  the origin hour itself. At a horizon of 24 or more that is invisible: lead
+  24 reads the same index and the extra write is overwritten before return.
+  Below a day it is not, because the origin hour becomes the only index whose
+  gap can veto the whole forecast — and a gap in the most recently reported
+  hour is the likeliest one there is. Every other test in that class uses a
+  horizon of 24 or 72.
+
+**All 18 remaining logic survivors are the `dtype=float` class — zero others.**
+So this module is now pinned everywhere except a question that was already
+closed as deliberate.
 
 **`simulation/scenario_engine.py` (36) — still deliberately ignored.** Nothing
 in `components/`, `jobs/`, `api.py` or `app.py` imports `simulation`. The live
@@ -648,7 +671,7 @@ It is advisory, and stays that way until all three hold:
    test. The deselected slow test that was once limitation 2 is gone;
    re-baselining after it landed changed **no** verdict, so it had been killing
    zero mutants.
-3. ✅ **Resolved.** All 303 logic survivors are machine-verified, clustered by
+3. ✅ **Resolved.** All 301 logic survivors are machine-verified, clustered by
    function, and grouped by mutation shape above.
 
 Only (1) is outstanding, and it needs four weeks of scheduled runs rather than
