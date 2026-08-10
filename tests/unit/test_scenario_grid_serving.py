@@ -153,7 +153,9 @@ class TestScoringJobWritePath:
         def boom(*_a, **_k):
             raise RuntimeError("booster mismatch")
 
-        monkeypatch.setattr(phases, "_predict_xgboost_with_recursive_autoregressive", boom)
+        monkeypatch.setattr(
+            "data.feature_engineering.batched_recursive_autoregressive_forecast", boom
+        )
 
         assert phases._write_scenario_grid(**self._args()) is False
 
@@ -163,11 +165,10 @@ class TestScoringJobWritePath:
         written = {}
 
         monkeypatch.setattr(
-            phases,
-            "_predict_xgboost_with_recursive_autoregressive",
-            lambda model, featured, frame, horizon, recursive_hours=None: (
-                1500.0 + 20.0 * frame["temperature_2m"].to_numpy()[:horizon]
-            ),
+            "data.feature_engineering.batched_recursive_autoregressive_forecast",
+            lambda model, seed, frames, predict_fn: [
+                1500.0 + 20.0 * f["temperature_2m"].to_numpy() for f in frames
+            ],
         )
         monkeypatch.setattr(
             "data.redis_client.persist",
@@ -193,17 +194,24 @@ class TestScoringJobWritePath:
 
         seen = []
 
-        def spy(model, featured, frame, horizon, recursive_hours=None):
-            seen.append({"horizon": horizon, "recursive_hours": recursive_hours, "n": len(frame)})
-            return np.full(horizon, 1500.0)
+        def spy(model, seed, frames, predict_fn):
+            seen.append({"n_frames": len(frames), "rows": len(frames[0]), "seed": len(seed)})
+            return [np.full(len(f), 1500.0) for f in frames]
 
-        monkeypatch.setattr(phases, "_predict_xgboost_with_recursive_autoregressive", spy)
+        monkeypatch.setattr(
+            "data.feature_engineering.batched_recursive_autoregressive_forecast", spy
+        )
         monkeypatch.setattr("data.redis_client.persist", lambda *a, **k: None)
 
         phases._write_scenario_grid(**self._args())
 
         assert seen, "the production forecaster must be what computes the cells"
-        # recursive_hours == horizon means every hour of the 24 is chained,
-        # never the vectorised climatology tail.
-        assert all(c["recursive_hours"] == c["horizon"] == 24 for c in seen)
-        assert len(seen) == 81 - 1  # the origin cell is defined, not computed
+        # ONE batched call carrying all 80 computed cells (81 minus the origin,
+        # which is defined rather than forecast). Cell-at-a-time issued 1,920
+        # single-row predicts per region and cost 2.7x tick runtime (#462).
+        assert len(seen) == 1
+        assert seen[0]["n_frames"] == 80
+        assert seen[0]["rows"] == 24
+        # Seeded from the same history the baseline was chained off, which is
+        # what keeps scenario and baseline commensurable.
+        assert seen[0]["seed"] > 0

@@ -1925,12 +1925,18 @@ def _write_scenario_grid(
         return False
 
     try:
+        from data.feature_engineering import batched_recursive_autoregressive_forecast
         from data.redis_client import persist, redis_key
+        from models.xgboost_model import predict_xgboost
         from simulation.scenario_grid import build_scenario_grid
 
-        def forecaster(frame: pd.DataFrame) -> np.ndarray:
-            return _predict_xgboost_with_recursive_autoregressive(
-                model, featured, frame, horizon, recursive_hours=horizon
+        # Batched: one predict call per STEP across all 80 variants, not one
+        # per variant. The cell-at-a-time version cost 2.7x tick runtime and
+        # was reverted (#462); the per-scenario chaining is unchanged and its
+        # parity with the single-frame SSOT is a differential test.
+        def forecaster(frames: list[pd.DataFrame]) -> list[np.ndarray]:
+            return batched_recursive_autoregressive_forecast(
+                model, featured["demand_mw"], frames, predict_xgboost
             )
 
         payload = build_scenario_grid(

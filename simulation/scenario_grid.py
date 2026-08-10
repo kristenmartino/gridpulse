@@ -62,7 +62,7 @@ def build_scenario_grid(
     featured: pd.DataFrame,
     future_df: pd.DataFrame,
     baseline: np.ndarray,
-    forecaster: Callable[[pd.DataFrame], np.ndarray],
+    forecaster: Callable[[list[pd.DataFrame]], list[np.ndarray]],
     horizon: int,
 ) -> dict[str, Any]:
     """Evaluate the forecaster across the delta grid and return factor curves.
@@ -74,8 +74,11 @@ def build_scenario_grid(
         baseline: The baseline forecast over ``horizon`` hours, from the same
             ``forecaster``. Passing a baseline from a different path is the
             one mistake this module exists to prevent.
-        forecaster: ``(future_frame) -> predictions``. The caller binds the
-            production recursive path; tests bind a stub.
+        forecaster: ``(list[future_frame]) -> list[predictions]``, BATCHED —
+            one call for every scenario, not one call per scenario. The caller
+            binds the production recursive path; tests bind a stub. Batched
+            because cell-at-a-time issued 1,920 single-row predicts per region
+            and cost 2.7x tick runtime (#462).
         horizon: Hours to evaluate. 24 for the simulator.
 
     Returns:
@@ -91,33 +94,48 @@ def build_scenario_grid(
     if base.size < horizon or not np.isfinite(base).all() or (base <= 0).any():
         raise ValueError("baseline must be finite, positive and at least `horizon` long")
 
-    factors: list[list[list[list[float]]]] = []
+    # Build every scenario frame first, then forecast them in ONE batched call.
+    # Cell-at-a-time cost 1,920 single-row predicts per region and 2.7x tick
+    # runtime (#462); the variants differ only in weather, so their step-i rows
+    # travel through the model together.
+    coords: list[tuple[float, float, float]] = []
+    frames: list[pd.DataFrame] = []
     for t in temps:
-        wind_rows: list[list[list[float]]] = []
         for w in winds:
-            solar_rows: list[list[float]] = []
             for s in solars:
+                # The origin is the baseline by definition, so it is not
+                # forecast at all. Re-running it would spend a cell to
+                # reproduce a row of 1.0s, and any drift it showed would be
+                # nondeterminism rather than physics.
                 if t == 0.0 and w == 0.0 and s == 0.0:
-                    # The origin is the baseline by definition. Re-running it
-                    # would spend a grid cell to reproduce a row of 1.0s, and
-                    # any drift it showed would be nondeterminism, not physics.
-                    solar_rows.append([1.0] * horizon)
                     continue
+                coords.append((t, w, s))
+                frames.append(apply_weather_deltas(future_df, t, w, s))
 
-                scenario_future = apply_weather_deltas(future_df, t, w, s)
-                preds = np.asarray(forecaster(scenario_future), dtype=float)[:horizon]
+    results = forecaster(frames) if frames else []
+    if len(results) != len(frames):
+        raise ValueError(f"forecaster returned {len(results)} curves for {len(frames)} scenarios")
 
-                if preds.size < horizon or not np.isfinite(preds).all():
-                    log.warning(
-                        "scenario_grid_cell_failed", temp=t, wind=w, solar=s, n=int(preds.size)
-                    )
-                    solar_rows.append([1.0] * horizon)
-                    continue
+    by_coord: dict[tuple[float, float, float], list[float]] = {}
+    for coord, preds_raw in zip(coords, results, strict=True):
+        preds = np.asarray(preds_raw, dtype=float)[:horizon]
+        if preds.size < horizon or not np.isfinite(preds).all():
+            log.warning(
+                "scenario_grid_cell_failed",
+                temp=coord[0],
+                wind=coord[1],
+                solar=coord[2],
+                n=int(preds.size),
+            )
+            by_coord[coord] = [1.0] * horizon
+            continue
+        ratio = np.clip(preds / base, _MIN_FACTOR, _MAX_FACTOR)
+        by_coord[coord] = [round(float(v), 5) for v in ratio]
 
-                ratio = np.clip(preds / base, _MIN_FACTOR, _MAX_FACTOR)
-                solar_rows.append([round(float(v), 5) for v in ratio])
-            wind_rows.append(solar_rows)
-        factors.append(wind_rows)
+    ones = [1.0] * horizon
+    factors: list[list[list[list[float]]]] = [
+        [[by_coord.get((t, w, s), ones) for s in solars] for w in winds] for t in temps
+    ]
 
     return {
         "axes": {"temp_f": list(temps), "wind_mph": list(winds), "solar_wm2": list(solars)},

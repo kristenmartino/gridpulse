@@ -139,14 +139,19 @@ class TestGridAxes:
 
 class TestBuildScenarioGrid:
     @staticmethod
-    def _temp_sensitive_forecaster(frame: pd.DataFrame) -> np.ndarray:
+    def _one(frame: pd.DataFrame) -> np.ndarray:
         """A stand-in with a known, monotone response to temperature."""
         return 1000.0 + 10.0 * frame["temperature_2m"].to_numpy()
+
+    @classmethod
+    def _temp_sensitive_forecaster(cls, frames: list[pd.DataFrame]) -> list[np.ndarray]:
+        """Batched contract: a list in, a list out."""
+        return [cls._one(f) for f in frames]
 
     def _grid(self, forecaster=None):
         future = _future_frame()
         fc = forecaster or self._temp_sensitive_forecaster
-        baseline = fc(future)
+        baseline = self._one(future)
         return build_scenario_grid(
             featured=pd.DataFrame({"demand_mw": np.full(48, 1500.0)}),
             future_df=future,
@@ -201,17 +206,18 @@ class TestBuildScenarioGrid:
         recursive chaining — so this asserts the injected forecaster is the
         only thing consulted.
         """
-        calls: list[int] = []
+        batches: list[int] = []
 
-        def counting_forecaster(frame: pd.DataFrame) -> np.ndarray:
-            calls.append(len(frame))
-            return self._temp_sensitive_forecaster(frame)
+        def counting_forecaster(frames: list[pd.DataFrame]) -> list[np.ndarray]:
+            batches.append(len(frames))
+            return [self._one(f) for f in frames]
 
         self._grid(counting_forecaster)
 
-        # 81 cells, minus the origin which is defined rather than computed,
-        # plus the one baseline call this helper makes.
-        assert len(calls) == 81 - 1 + 1
+        # ONE batched call carrying 80 scenarios — 81 cells minus the origin,
+        # which is defined rather than computed. Cell-at-a-time was 80 calls
+        # and 2.7x tick runtime (#462).
+        assert batches == [80]
 
     def test_a_cell_that_forecasts_garbage_degrades_to_the_baseline(self):
         """One diverged cell must not take the panel down or dwarf the chart.
@@ -222,12 +228,13 @@ class TestBuildScenarioGrid:
         against the axis.
         """
         future = _future_frame()
-        baseline = self._temp_sensitive_forecaster(future)
+        baseline = self._one(future)
 
-        def diverging(frame: pd.DataFrame) -> np.ndarray:
-            if frame["temperature_2m"].mean() > 80.0:
-                return np.full(len(frame), np.nan)
-            return self._temp_sensitive_forecaster(frame)
+        def diverging(frames: list[pd.DataFrame]) -> list[np.ndarray]:
+            return [
+                np.full(len(f), np.nan) if f["temperature_2m"].mean() > 80.0 else self._one(f)
+                for f in frames
+            ]
 
         payload = build_scenario_grid(
             featured=pd.DataFrame({"demand_mw": np.full(48, 1500.0)}),

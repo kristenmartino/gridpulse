@@ -367,6 +367,100 @@ def recursive_autoregressive_forecast(
     return np.asarray(preds, dtype=float)
 
 
+def batched_recursive_autoregressive_forecast(
+    model: Any,
+    seed_demand: list[float] | np.ndarray | pd.Series,
+    future_frames: list[pd.DataFrame],
+    predict_fn: Any,
+) -> list[np.ndarray]:
+    """``recursive_autoregressive_forecast`` for N frames that share a seed.
+
+    Same protocol, same per-frame results — but one ``predict_fn`` call per
+    STEP instead of one per step *per frame*. The scenario grid (#127) runs 80
+    weather variants off a single history, so the single-frame helper issued
+    1,920 single-row predicts per region against production's 384: five times
+    the whole job's predict count, for a side panel. Measured at 2.7x tick
+    runtime and reverted (#462). The variants differ only in weather, and
+    their step-i rows can travel through the model together.
+
+    The chaining is unchanged and stays per-frame: frame ``j`` appends its own
+    prediction to its own history, so no scenario can see another's. Only the
+    batching of the model call is shared.
+
+    Parity with the single-frame helper is not asserted by inspection — it is
+    a differential test (``test_scenario_grid_batching.py``) that runs both and
+    compares byte-for-byte, because this is the seam where "the forecasts still
+    look right" is not evidence.
+
+    Args:
+        model: A trained model accepted by ``predict_fn``.
+        seed_demand: Real demand history strictly before the window. Filtered
+            identically to the single-frame helper (#129).
+        future_frames: N frames of EQUAL length, one per scenario.
+        predict_fn: ``predict_fn(model, frame) -> array-like``, one prediction
+            per row. Called with an N-row frame rather than a 1-row one.
+
+    Returns:
+        List of N arrays, each ``len(future_frames[0])`` long, in input order.
+    """
+    if not future_frames:
+        return []
+
+    horizon = len(future_frames[0])
+    if any(len(f) != horizon for f in future_frames):
+        raise ValueError("every scenario frame must have the same length")
+
+    seed = [float(v) for v in seed_demand if v is not None and not pd.isna(v) and v > 0]
+    n = len(future_frames)
+    histories: list[list[float]] = [list(seed) for _ in range(n)]
+    preds: list[list[float]] = [[] for _ in range(n)]
+
+    cols = list(future_frames[0].columns)
+    ar_keys = [k for k in compute_autoregressive_snapshot(seed) if k in cols]
+
+    # Stack STEP-MAJOR: all N scenarios for step 0, then step 1, and so on. A
+    # step's rows are then CONTIGUOUS, so each iteration is a cheap positional
+    # slice instead of a fancy-index gather. Measured: fancy-indexing made the
+    # batched path slower than cell-at-a-time on pandas overhead alone, which
+    # would have wiped out the point of batching.
+    stacked = pd.concat(
+        [f.iloc[[i]] for i in range(horizon) for f in future_frames], ignore_index=True
+    )
+    if ar_keys:
+        # Same dtype trap as the single-frame helper: `_build_future_feature_frame`
+        # can leave an int64 column, and positional assignment writes into the
+        # existing block rather than replacing it.
+        to_cast = {k: "float64" for k in ar_keys if stacked[k].dtype != np.float64}
+        if to_cast:
+            stacked = stacked.astype(to_cast)
+    # Fill once up front rather than per step. The non-autoregressive columns
+    # never change, and the autoregressive ones are overwritten every step from
+    # the snapshot (whose own NaNs are filled in the same pass below).
+    stacked = stacked.fillna(0)
+    ar_positions = [cols.index(k) for k in ar_keys]
+    block = np.empty((n, len(ar_keys)), dtype=float) if ar_keys else None
+
+    for i in range(horizon):
+        step_rows = stacked.iloc[i * n : (i + 1) * n]
+        if ar_positions:
+            for j in range(n):
+                snapshot = compute_autoregressive_snapshot(histories[j])
+                block[j] = [snapshot[k] for k in ar_keys]
+            np.nan_to_num(block, copy=False, nan=0.0)
+            step_rows = step_rows.copy()
+            step_rows.iloc[:, ar_positions] = block
+        else:
+            step_rows = step_rows.copy()
+
+        out = np.asarray(predict_fn(model, step_rows), dtype=float)
+        for j in range(n):
+            value = float(out[j])
+            preds[j].append(value)
+            histories[j].append(value)
+
+    return [np.asarray(p, dtype=float) for p in preds]
+
+
 # ---------------------------------------------------------------------------
 # Individual feature functions (public, used by scenario engine)
 # ---------------------------------------------------------------------------
