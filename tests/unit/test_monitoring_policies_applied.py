@@ -32,19 +32,7 @@ README = MONITORING_DIR / "README.md"
 #: Policies deliberately NOT applied yet, with the reason. To apply one: run the
 #: gcloud recipe in the README, add its row (with live id) to the
 #: applied-policies table, then delete it from this dict.
-_KNOWN_UNAPPLIED: dict[str, str] = {
-    "backtest_recompute_alert.json": (
-        "Committed 2026-08-10, not yet applied. Plain conditionMatchedLog on "
-        "`backtest_recompute_unexpected` — no prerequisite metric. (The first "
-        "version needed a logs-based counter and a 72h metric threshold; Cloud "
-        "Monitoring rejects that with 'Alignment periods longer than 25h are not "
-        "supported', and a <=25h window cannot express the condition either since "
-        "consecutive daily runs land in adjacent windows. Detection moved into "
-        "jobs.phases.check_backtest_recompute_cadence.) To apply: run the gcloud "
-        "recipe in the README, add the row with the live id to the applied-policies "
-        "table, then delete this entry."
-    ),
-}
+_KNOWN_UNAPPLIED: dict[str, str] = {}
 
 #: Live-id line format in the README table, e.g. `alertPolicies/5813319064717268577`.
 _LIVE_ID = re.compile(r"`alertPolicies/\d+`")

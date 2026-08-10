@@ -72,9 +72,17 @@ the cadence is genuinely wrong. The policy is then an ordinary
 metric is required.**
 
 An earlier version of this section described creating a `backtest_recomputes`
-logs-based counter. That metric is harmless if it already exists — it counts
-`job_backtest_recomputed`, which is still emitted and is useful for the
-runbook — but nothing depends on it.
+logs-based counter. That metric was created while applying the first version
+of the policy and has since been **deleted** — nothing referenced it. The
+`job_backtest_recomputed` log it counted is still emitted and is the runbook's
+root-cause diagnostic (`previous_computed_at` separates "payload missing" from
+"gate rejected a valid payload"); it simply does not need a metric in front of
+it.
+
+**Applied 2026-08-10:** `alertPolicies/14801909132378911177`, enabled, bound to
+the email channel — verified by reading the policy back rather than trusting
+the create output. The guard is live from the **second** recompute onward: the
+first has no prior marker to compare against.
 
 ## Apply / re-apply a policy
 
@@ -107,6 +115,7 @@ noticing (below).
 | scoring-job partial failure (#267) | `scoring_partial_failure_alert.json` | `alertPolicies/1942403527399204858` |
 | scoring-job shed BAs at the soft deadline | `scoring_deadline_shed_alert.json` | `alertPolicies/8524477981812373740` |
 | Redis fail-soft writes dropped | `redis_write_failures_alert.json` | `alertPolicies/16314898527819427981` |
+| backtests recomputing sooner than the cadence | `backtest_recompute_alert.json` | `alertPolicies/14801909132378911177` |
 | Uptime check config — public `/health` | — | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
 | Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | — | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
 
