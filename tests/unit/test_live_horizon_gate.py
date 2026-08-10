@@ -215,11 +215,29 @@ class TestGateHysteresis:
         )
 
     def test_visible_ba_hides_at_the_bar_not_below_it(self):
-        """Hysteresis must not make it HARDER to hide a genuinely bad BA."""
+        """Hysteresis is one-sided: it must not make hiding HARDER.
+
+        The discriminating value is inside the band but under the bar. At 22.1
+        both the correct one-sided rule and a two-sided one say "hide", so that
+        value proves nothing — the first version of this test used it, and a
+        mutation applying the band on BOTH transitions passed. This asserts the
+        band applies on the way back IN only.
+        """
+        from config import GATE_HYSTERESIS_PTS, MAPE_BY_HORIZON
         from models.model_service import gate_verdict_from_metrics
 
+        bar = MAPE_BY_HORIZON["7d"]["rollback"]
+        inside_band = bar - GATE_HYSTERESIS_PTS / 2  # under the bar, inside the band
+
+        # A visible BA here stays visible — the band must NOT apply.
         assert (
-            gate_verdict_from_metrics(self._m(22.1), currently_visible=True)["acceptable"] is False
+            gate_verdict_from_metrics(self._m(inside_band), currently_visible=True)["acceptable"]
+            is True
+        )
+        # ...and a genuinely bad one still hides AT the bar, not below it.
+        assert (
+            gate_verdict_from_metrics(self._m(bar + 0.1), currently_visible=True)["acceptable"]
+            is False
         )
 
     def test_hidden_ba_needs_to_clear_the_band_to_return(self):
