@@ -164,6 +164,40 @@ simulator, never a missing forecast (the #268 → #267 rule).
 
 ---
 
+## MEASURED 2026-08-10: the estimate was wrong by ~28x, and the flag is back off
+
+Enabled in #460, measured on the first flag-on tick, reverted the same hour.
+
+| | estimate | measured |
+|---|---:|---:|
+| per grid cell | ~48 ms | **~1.4 s** |
+| per region | ~4 s | **~113 s** |
+| whole tick | ~26 s added | **+714 s** (1,139 s vs a 411/439/411/451 s baseline) |
+
+Per-region elapsed came back at **168.9 s and 169.9 s** against a ~55.6 s
+baseline. The tick succeeded — 51/51, no shed, no kill — and that is precisely
+the trap: it clears the 1800 s timeout by 661 s **on a quiet upstream**, and the
+2026-08-04 EIA outage alone cost ~800 s. The next degraded tick with this on is
+a SIGKILL.
+
+**Why the estimate was wrong.** The 48 ms/cell figure came from scaling a
+384-step production measurement down to 24 steps. That assumes cost is linear
+in steps and per-call setup is free. It is not:
+`recursive_autoregressive_forecast` pays a fixed seed/snapshot cost **per
+call**, and the grid makes 4,080 short calls where production makes 51 long
+ones. Fixed overhead, not step count, is the entire bill — which is why 24
+steps did not cost 1/16 of 384.
+
+**Do not re-enable by shrinking the grid.** At ~1.4 s/cell even 5x3x3 is ~63 s
+per region, still a ~2x tick. The fix has to make a *cell* cheap — hoist the
+per-call setup out of the loop, or push all 80 variants through one seeded
+pass — and the re-measure has to be a real tick, because this is exactly the
+number that cannot be obtained offline.
+
+**What this validated.** The fail-open design held: the grid runs after the
+forecast is persisted, and the 1,139 s tick still wrote 51/51 forecasts. The
+cost was runtime, never correctness.
+
 ## Status and what is not yet verified
 
 Shipped behind `FEATURE_FLAGS["scenario_grid"]`. **Enabled 2026-08-10 (#460)**

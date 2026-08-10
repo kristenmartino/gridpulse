@@ -1227,22 +1227,34 @@ FEATURE_FLAGS: dict[str, bool] = {
     # and interpolates, so the Redis-only invariant holds and slider latency
     # is unchanged.
     #
-    # ON since 2026-08-10 (#460), and the reason it is on is that the cost
-    # CANNOT be confirmed any other way: there are no trained models on a dev
-    # box or in CI, so every estimate of this phase is arithmetic until a real
-    # tick runs it. The arithmetic says ~26s added wall (80 computed cells x
-    # 51 regions at ~48ms, over 7.65x effective parallelism — see
-    # SCENARIO_GRID_* below). What it does NOT capture is per-call fixed
-    # overhead in the recursive helper: 4,080 short calls where production
-    # makes 51 long ones. If that overhead dominates, the real figure is
-    # several times the estimate.
+    # OFF since 2026-08-10. Enabled in #460, MEASURED, and reverted the same
+    # hour — the overhead it warned about is real and it is not 4x, it is ~28x.
     #
-    # Shipped anyway because the blast radius is bounded on three sides: the
-    # grid is computed AFTER the forecast is persisted and every failure path
-    # returns without touching it; the runtime-creep alert fires at 70% of the
-    # task timeout (1260s) against a 406s median, so even a 4x overrun is
-    # visible long before the 85% shed; and rollback is this one line.
-    "scenario_grid": True,
+    # The estimate was ~26s added wall (80 computed cells x 51 regions at
+    # ~48ms, over 7.65x parallelism). The first flag-on tick measured
+    # **168.9s and 169.9s per region against a ~55.6s baseline** — roughly
+    # +113s per region, i.e. ~1.4s per grid cell rather than 48ms. The 48ms
+    # came from scaling a 384-step measurement down to 24 steps, which assumed
+    # cost is linear in steps and per-call setup is free. It is not:
+    # ``recursive_autoregressive_forecast`` pays a fixed seed/snapshot cost per
+    # CALL, and the grid makes 4,080 short calls where production makes 51 long
+    # ones. Fixed overhead, not step count, is the whole bill.
+    #
+    # Whole-tick effect, MEASURED on execution w76jk: 20:00:09 -> 20:19:08 =
+    # **1,139s** against a 411/439/411/451s flag-off baseline. 2.7x, +714s.
+    # It succeeded — 51/51, no shed, no kill — and that is the trap: it clears
+    # the 1800s timeout by 661s on a QUIET upstream, and the 2026-08-04 EIA
+    # outage alone cost ~800s. The next degraded tick with this on is a
+    # SIGKILL. It also blows #171's <600s
+    # criterion, trips the runtime-creep alert at 1260s, and leaves nothing for
+    # an upstream degradation event — the 2026-08-04 SIGKILL shape.
+    #
+    # Do NOT re-enable by tuning the grid size: 5x3x3 would still be ~63s per
+    # region. The fix is to make a grid cell cheap (hoist the per-call setup
+    # out of the loop, or batch the cells through one seeded pass), and the
+    # re-measure has to be a real tick — this is exactly the number that cannot
+    # be obtained offline. Evidence: docs/SCENARIO_GRID.md.
+    "scenario_grid": False,
     "cross_tab_links": True,  # NEXD-11: contextual links between tabs
     "inline_tooltips": True,  # NEXD-13: SHAP-based per-point forecast tooltips
     # NEXD-14 / shell-redesign post-R6: replay surfaces stale snapshots and
