@@ -139,6 +139,27 @@ def _log_region_complete(summary: dict) -> None:
     )
 
 
+def _published_gate_visibility(region: str) -> bool | None:
+    """The region's currently-published gate verdict, or ``None`` if unknown.
+
+    Read best-effort from ``gridpulse:meta:gate_status`` — the same merged map
+    the epilogue writes. A miss, an unreadable map or an absent region all
+    return ``None``, which makes the gate fall back to the bare threshold:
+    hysteresis must never be the reason a BA is judged, only the reason a
+    borderline judgement is sticky.
+    """
+    try:
+        from data.redis_client import redis_get, redis_key
+
+        payload = redis_get(redis_key("meta:gate_status")) or {}
+        entry = (payload.get("regions") or {}).get(region)
+        if isinstance(entry, dict) and isinstance(entry.get("acceptable"), bool):
+            return entry["acceptable"]
+    except Exception:  # pragma: no cover — advisory only, never fails a run
+        return None
+    return None
+
+
 def _score_region(region: str, deadline: float | None = None) -> dict:
     """Run all scoring phases for a single region. Returns a summary dict.
 
@@ -398,7 +419,13 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
             live_horizon_verdict,
         )
 
-        summary["gate"] = gate_verdict_from_metrics(model_metrics)
+        # P2-17 (#273): pass the region's CURRENT published verdict so the gate
+        # can apply hysteresis. Without it the bare threshold flaps a
+        # near-the-bar BA in and out of the UI. ``None`` on a first-ever
+        # judgement or an unreadable map, which reproduces the old behaviour.
+        summary["gate"] = gate_verdict_from_metrics(
+            model_metrics, currently_visible=_published_gate_visibility(region)
+        )
 
         # #349. The verdict above answers "can we forecast this BA at all?"
         # against the TRAINING HOLDOUT and the generous 7-day band. It is a
