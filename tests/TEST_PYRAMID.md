@@ -26,14 +26,14 @@ is a thin read-only render over Redis, so breadth of interaction testing buys
 comparatively little.
 
 ```
-    ┌──────────────┐  smoke        23   (0.7%)  — does it construct?
-    ├──────────────┤  integration  204  (6.3%)  — do the seams line up?
+    ┌──────────────┐  smoke        24   (0.7%)  — does it construct?
+    ├──────────────┤  integration  215  (6.5%)  — do the seams line up?
     │              │
-    │     unit     │              3,034 (93.0%) — is the logic right?
+    │     unit     │              3,044 (92.7%) — is the logic right?
     └──────────────┘
 ```
 
-*Counts measured 2026-08-10, 3,261 collected. They move most weeks —
+*Counts measured 2026-08-10, 3,283 collected. They move most weeks —
 `pytest tests/ --collect-only -q` is the source, not this file.*
 
 ## Coverage Targets
@@ -41,8 +41,8 @@ comparatively little.
 | Layer        | Target | Scope                                       | Speed   |
 |-------------|--------|---------------------------------------------|---------|
 | Unit         | 80%+   | Pure functions, models, config, utils       | < 45s   |
-| Integration  | 70%+   | Data pipeline, callback contracts           | < 60s   |
-| Smoke        | every tab + card builder | Constructs without raising; callback-id contract | < 5s |
+| Integration  | 70%+   | Data pipeline, callback dispatch, wiring    | < 60s   |
+| Smoke        | every tab + card builder | Constructs without raising  | < 5s |
 
 *No percentage-of-suite target. The previous 55/30/15 was never pursued and
 its only effect was to make the tree look broken against a number nobody was
@@ -55,15 +55,25 @@ otherwise:
 
 - **No browser or rendered-DOM assertion.** Nothing verifies a tab paints,
   a chart draws, or CSS applies. Visual regressions are caught by looking.
-- **No callback execution.** No `dash.testing`, no `dash_duo`, no Flask
-  `test_client` anywhere under `tests/`. A callback that raises at runtime
-  passes this suite — the smoke tier's callback-**id** contract is the
-  closest guard, and it only catches an Output whose id has gone missing.
-- **No real user flow.** Nothing switches a region, changes a persona or
-  moves a slider and asserts what follows.
+- **No clientside callbacks.** `app.clientside_callback` runs in the
+  browser's JS engine, so the driver below cannot reach it.
+- **No user *input* — only its effect.** The driver sends the values a
+  component would have produced; nothing clicks, types or drags. A control
+  wired to the wrong callback still dispatches correctly when asked
+  directly.
 
-If an end-to-end tier is ever wanted, it is a **new tier** with a real
-driver — not a rename back.
+If a browser tier is ever wanted, it is a **new tier** — not a rename back.
+
+### What changed 2026-08-10 (second half of #399)
+
+The three bullets above used to read "no callback execution" and "no real
+user flow". Both are now false, and the entry is kept rather than quietly
+edited because the claim was published:
+`tests/integration/test_callback_driver.py` dispatches real
+`POST /_dash-update-component` requests through `app.server.test_client()`,
+so callbacks execute with Dash's own argument binding and real
+serialisation. A region switch, a bookmark restore and the `REQUIRE_REDIS`
+warming gate are asserted through it.
 
 ## Unit Tests (`tests/unit/`)
 
@@ -96,7 +106,9 @@ Test data flow between components.
 
 | Test File                   | What It Tests                          |
 |-----------------------------|----------------------------------------|
+| test_callback_driver.py     | **Real callback execution** (see below) |
 | test_callback_data_flow.py  | JSON roundtrip, timestamp alignment    |
+| test_callbacks_redis_only.py| `REQUIRE_REDIS` warming gates          |
 | test_data_pipeline.py       | EIA → preprocess → features → model    |
 | test_infrastructure.py      | Docker, logging, secrets, health       |
 
@@ -104,26 +116,49 @@ Test data flow between components.
 - Demand JSON preserves timestamps after roundtrip
 - Weather + demand merge produces expected column set
 - All 51 balancing authorities in `REGION_COORDINATES` produce valid merged data
-- Callback outputs match layout IDs
+- Every callback `Output` id exists in the layout — all 77, read from
+  `app.callback_map`
 - Pipeline logger records all steps
+
+### The callback driver
+
+`dash_driver.py` reads Dash's callback registry, builds a well-formed
+`POST /_dash-update-component`, and sends it through
+`app.server.test_client()`. Dash resolves the callback and invokes the real
+function, so the test sees the real return value after real serialisation.
+No browser and no new dependency — `dash` and `flask` are already required.
+
+What it catches that no other tier does:
+
+- an `Output` id that no longer exists in the layout (Dash does not raise —
+  the panel just renders empty forever)
+- an `Input` list wired in the wrong order, which a direct call like
+  `load_data("ERCOT", 0)` reproduces rather than detects
+- a return value that cannot be serialised to the browser
+
+```bash
+pytest tests/integration/test_callback_driver.py -v
+```
 
 ## Smoke Tests (`tests/smoke/`)
 
 > **This tier does not test end to end — hence the name (#399).**
-> Everything in `tests/smoke/` calls functions directly — no browser,
-> no HTTP client, no Dash test server, and no callbacks fire. There is no
-> `dash.testing`, `dash_duo` or Flask `test_client` anywhere under `tests/`.
+> Everything in `tests/smoke/` calls functions directly — no browser, no
+> HTTP client, no Dash test server, and no callbacks fire. Callbacks are
+> executed one tier up, by `tests/integration/test_callback_driver.py`;
+> this tier stays below it deliberately, because it needs no app import and
+> so still gives a sub-second signal on a broken layout function.
 > The rows below describe what they actually assert.
 
 ### What the tier actually asserts
 
 | Flow | What it really does | Tests |
 |------|-------------|-------|
-| Tab Render | Calls each of the 5 tabs' `layout()` and asserts it constructs. **US Grid was missing entirely until #399** and now also asserts every id its callbacks target is present — a renamed id orphans a callback silently, since Dash does not raise on an Output with no matching layout id. | test_dashboard_render.py |
-| Persona Switch | Asserts the 4 persona configs produce welcome cards and carry valid default tabs. Does not switch anything. | test_dashboard_render.py |
-| Region Switch | Asserts `generate_demo_demand` / `_weather` / `_generation` return well-formed frames for all 51 BAs. **This is the synthetic demo generator, not the real data path** — the row previously read "All 51 BAs load data successfully", which is not what it checks. | test_dashboard_render.py |
-| Scenario Presets | Asserts the 6 presets in `simulation/presets.py` are well-formed. That module has **no live UI importer** — the shipped Scenarios panel uses the linear heuristic — so this covers code the product does not run. | test_dashboard_render.py |
-| Card Components | Calls the KPI / alert / welcome / chart card builders and asserts they construct. | test_dashboard_render.py |
+| Tab Render | Calls each of the 5 tabs' `layout()` and asserts it constructs. **US Grid was missing entirely until #399.** The id contract that briefly lived here moved to the callback driver, which reads it from Dash instead of by regex. | test_dashboard_smoke.py |
+| Persona Switch | Asserts the 4 persona configs produce welcome cards and carry valid default tabs. Does not switch anything. | test_dashboard_smoke.py |
+| Region Switch | Asserts `generate_demo_demand` / `_weather` / `_generation` return well-formed frames for all 51 BAs. **This is the synthetic demo generator, not the real data path** — the row previously read "All 51 BAs load data successfully", which is not what it checks. | test_dashboard_smoke.py |
+| Scenario Presets | Asserts the 6 presets in `simulation/presets.py` are well-formed. That module has **no live UI importer** — the shipped Scenarios panel uses the linear heuristic — so this covers code the product does not run. | test_dashboard_smoke.py |
+| Card Components | Calls the KPI / alert / welcome / chart card builders and asserts they construct. | test_dashboard_smoke.py |
 
 ## Test Naming Convention
 
