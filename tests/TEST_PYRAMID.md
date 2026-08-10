@@ -1,37 +1,69 @@
-# Test Pyramid Definition (Backlog H3)
+# Test Strategy (Backlog H3)
 
 ## Overview
 
-Test strategy for GridPulse.
-Defines coverage targets, test scope, and critical user flows.
+Test strategy for GridPulse — the tiers, what each is for, and what is
+deliberately **not** covered.
 
-## Test Pyramid
+> **Renamed 2026-08-10 (#399).** This file used to describe a 55/30/15
+> unit/integration/E2E pyramid and a `tests/e2e/` tier. The tree was
+> **93/6/1**, and the "E2E" tier ran no browser, no HTTP client and no
+> callbacks — it called `layout()` and asserted the result was not `None`.
+> The gap was closed by renaming the tier to what it is rather than by
+> claiming the shape it was not: `tests/e2e/` → **`tests/smoke/`**.
+>
+> **GridPulse therefore has no end-to-end tier.** That is a deliberate
+> position, recorded here so it stays a decision rather than an oversight —
+> see "What is not covered" below.
+
+## Shape
+
+This suite is **unit-dominant on purpose**, not a pyramid that failed to
+fill out. The product's risk concentrates in data and model correctness —
+gap policy, feature leakage, recursive inference, ensemble weighting,
+freshness gating — which are pure functions and belong in unit tests. The UI
+is a thin read-only render over Redis, so breadth of interaction testing buys
+comparatively little.
 
 ```
-         ╱╲
-        ╱E2E╲           ~15% — Critical user flows
-       ╱──────╲
-      ╱ Integr. ╲       ~30% — Data pipeline, callback contracts
-     ╱────────────╲
-    ╱    Unit       ╲    ~55% — Pure functions, models, config
-   ╱──────────────────╲
+    ┌──────────────┐  smoke        23   (0.7%)  — does it construct?
+    ├──────────────┤  integration  204  (6.3%)  — do the seams line up?
+    │              │
+    │     unit     │              3,034 (93.0%) — is the logic right?
+    └──────────────┘
 ```
 
-> **Measured 2026-08-10, against the shape above: unit 3,034 (93.0%),
-> integration 204 (6.3%), e2e 23 (0.7%) of 3,261 collected.** At the intended
-> 15%, the e2e tier would hold ~490 tests; it holds 23, in one file. The
-> percentages above are the *target*, not a description of the tree — stated
-> here so a reader does not mistake one for the other. Reconciling them is
-> [#399](https://github.com/kristenmartino/gridpulse/issues/399): either rebalance the suite or restate the
-> target. This note takes no position on which.
+*Counts measured 2026-08-10, 3,261 collected. They move most weeks —
+`pytest tests/ --collect-only -q` is the source, not this file.*
 
 ## Coverage Targets
 
-| Layer        | Target | Scope                                  | Speed   |
-|-------------|--------|----------------------------------------|---------|
-| Unit         | 80%+   | Pure functions, models, config, utils  | < 10s   |
-| Integration  | 70%+   | Data pipeline, callback contracts      | < 30s   |
-| E2E          | 100%   | Critical user flows (5 visible tabs)   | < 60s   |
+| Layer        | Target | Scope                                       | Speed   |
+|-------------|--------|---------------------------------------------|---------|
+| Unit         | 80%+   | Pure functions, models, config, utils       | < 45s   |
+| Integration  | 70%+   | Data pipeline, callback contracts           | < 60s   |
+| Smoke        | every tab + card builder | Constructs without raising; callback-id contract | < 5s |
+
+*No percentage-of-suite target. The previous 55/30/15 was never pursued and
+its only effect was to make the tree look broken against a number nobody was
+working toward.*
+
+## What is not covered
+
+Stated plainly, because the rename removes the word that used to imply
+otherwise:
+
+- **No browser or rendered-DOM assertion.** Nothing verifies a tab paints,
+  a chart draws, or CSS applies. Visual regressions are caught by looking.
+- **No callback execution.** No `dash.testing`, no `dash_duo`, no Flask
+  `test_client` anywhere under `tests/`. A callback that raises at runtime
+  passes this suite — the smoke tier's callback-**id** contract is the
+  closest guard, and it only catches an Output whose id has gone missing.
+- **No real user flow.** Nothing switches a region, changes a persona or
+  moves a slider and asserts what follows.
+
+If an end-to-end tier is ever wanted, it is a **new tier** with a real
+driver — not a rename back.
 
 ## Unit Tests (`tests/unit/`)
 
@@ -75,14 +107,13 @@ Test data flow between components.
 - Callback outputs match layout IDs
 - Pipeline logger records all steps
 
-## E2E Tests (`tests/e2e/`)
+## Smoke Tests (`tests/smoke/`)
 
-> **This tier does not currently test end to end, and the table below says so
-> (#399).** Everything in `tests/e2e/` calls functions directly — no browser,
+> **This tier does not test end to end — hence the name (#399).**
+> Everything in `tests/smoke/` calls functions directly — no browser,
 > no HTTP client, no Dash test server, and no callbacks fire. There is no
 > `dash.testing`, `dash_duo` or Flask `test_client` anywhere under `tests/`.
-> The rows are described as what they actually assert; #399 tracks whether to
-> add a real driver or rename the tier.
+> The rows below describe what they actually assert.
 
 ### What the tier actually asserts
 
@@ -117,8 +148,8 @@ pytest tests/unit/ -v --timeout=10
 # Integration (medium)
 pytest tests/integration/ -v --timeout=30
 
-# E2E (full)
-pytest tests/e2e/ -v --timeout=60
+# Smoke (fast)
+pytest tests/smoke/ -v
 
 # Coverage report
 pytest tests/ --cov=. --cov-report=html --cov-report=term-missing
@@ -174,7 +205,7 @@ table and the adjudicated survivor ledger are in
 ## Quality Gates (CI)
 
 Before merge:
-1. All unit, integration, and E2E tests pass (one instrumented run)
+1. All unit, integration, and smoke tests pass (one instrumented run)
 2. Total coverage ≥ 70% over `data/models/simulation/personas/components`
 3. Changed-lines coverage reported by `diff-cover` (advisory — see PR comment)
 4. No hardcoded secrets detected

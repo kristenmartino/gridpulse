@@ -368,7 +368,7 @@ class TestTestPyramid:
             content = f.read()
         assert "Unit" in content
         assert "Integration" in content
-        assert "E2E" in content
+        assert "Smoke" in content
 
     def test_pyramid_doc_has_coverage_targets(self):
         with open("tests/TEST_PYRAMID.md") as f:
@@ -388,8 +388,8 @@ class TestTestPyramid:
     def test_integration_dir_exists(self):
         assert os.path.isdir("tests/integration")
 
-    def test_e2e_dir_exists(self):
-        assert os.path.isdir("tests/e2e")
+    def test_smoke_dir_exists(self):
+        assert os.path.isdir("tests/smoke")
 
     def test_conftest_exists(self):
         assert os.path.exists("tests/conftest.py")

@@ -333,7 +333,11 @@ Scopes: data, models, sim, personas, ui, infra
 ### Testing
 - Unit tests: `tests/unit/test_*.py` — pure functions, no I/O
 - Integration: `tests/integration/` — mocked API calls, cache roundtrips
-- E2E: `tests/e2e/` — full dashboard rendering, tab switching
+- Smoke: `tests/smoke/` — import-level render checks (tab `layout()` builds,
+  card builders construct, callback-id contract). **Not** end-to-end: no
+  browser, no HTTP client, no callbacks fire. Renamed from `tests/e2e/` in
+  #399 because the old name claimed coverage that did not exist. There is
+  currently NO end-to-end tier; adding one is a new tier, not a rename back.
 - Run: `pytest tests/ -v --cov=data --cov=models --cov=simulation --cov=personas --cov=components`
 
 ---
