@@ -93,10 +93,14 @@ class DriftRecord:
     #: record then lands in one pooled statistic under a lead it never had.
     #:
     #: ``None`` on records written before this field existed, and on any record
-    #: whose source payload lacked a usable first row — never guessed. The
-    #: pooling is deliberately unchanged for now: this field exists so the lead
-    #: distribution can be *measured* before deciding whether to filter the
-    #: statistic to lead 1 or stratify it by lead.
+    #: whose source payload lacked a usable first row — never guessed.
+    #:
+    #: Measured in production before acting: **97% of records are lead 1**, 3%
+    #: are lead 2–6, and 97.5% of ticks discard no other matchable hour. That
+    #: ruled out stratifying the statistic by lead — the tail is too thin to
+    #: carry its own window — in favour of filtering the headline to lead 1
+    #: (:func:`filter_by_lead`), which keeps unknown-lead records rather than
+    #: discarding most of the history to remove 3% contamination.
     lead_hours: int | None = None
 
     def __post_init__(self) -> None:
@@ -224,12 +228,58 @@ def filter_low_actuals(
     return kept, len(records) - len(kept)
 
 
+#: The lead the 1-hour-ahead window claims to measure. Records with a
+#: *known* lead above this are contamination — see :func:`filter_by_lead`.
+HEADLINE_LEAD_HOURS = 1
+
+
+def filter_by_lead(
+    records: list[DriftRecord],
+    max_lead: int | None = HEADLINE_LEAD_HOURS,
+) -> tuple[list[DriftRecord], int, int]:
+    """Drop records whose *known* lead exceeds ``max_lead`` (P2-19 / #273).
+
+    Returns ``(kept, n_dropped_known, n_unknown_kept)``.
+
+    **Records with ``lead_hours is None`` are KEPT, deliberately.** They
+    predate the field and their lead can never be recovered — the payload that
+    would prove it is long overwritten. The production measurement that
+    justified this filter also sized the alternative: **97% of records are
+    lead 1**, so discarding every unknown-lead record would throw away most of
+    the window's history to remove a 3% contamination. Dropping a *known*
+    lead-6 record is a strict improvement; dropping an unknown one is a coin
+    flip that costs seven days of history to win three percent of purity.
+
+    This self-heals. Every record written since the field shipped carries a
+    lead, so once the pre-field records age out of the 30-day window the
+    filter is exact and ``n_unknown_kept`` goes to zero. That counter is
+    published so the transition is observable rather than assumed.
+
+    No-op when ``max_lead`` is ``None``.
+    """
+    if max_lead is None or not records:
+        return list(records), 0, 0
+    kept: list[DriftRecord] = []
+    dropped = 0
+    unknown = 0
+    for r in records:
+        if r.lead_hours is None:
+            unknown += 1
+            kept.append(r)
+        elif r.lead_hours <= max_lead:
+            kept.append(r)
+        else:
+            dropped += 1
+    return kept, dropped, unknown
+
+
 def rolling_mape(
     records: list[DriftRecord],
     window_hours: int,
     *,
     now_iso: str | None = None,
     min_actual_fraction: float = 0.0,
+    max_lead: int | None = None,
 ) -> float | None:
     """MAPE over the most recent ``window_hours`` of records.
 
@@ -241,9 +291,14 @@ def rolling_mape(
     diagnostic behaviour) optionally applies the region-relative low-actual
     filter before averaging — the scoring job passes ``LOW_ACTUAL_FRACTION``
     so the persisted headline MAPE is robust to near-zero-actual artifacts.
+
+    ``max_lead`` (default ``None`` = off) drops records whose *known* lead
+    exceeds it, so a window labelled 1-hour-ahead stops averaging in
+    multi-hour-ahead observations (P2-19 / #273). See :func:`filter_by_lead`.
     """
     in_window = _within_window(records, window_hours, now_iso=now_iso)
-    kept, _ = filter_low_actuals(in_window, min_actual_fraction)
+    lead_kept, _, _ = filter_by_lead(in_window, max_lead)
+    kept, _ = filter_low_actuals(lead_kept, min_actual_fraction)
     return mape_over_records(kept)
 
 
@@ -253,6 +308,7 @@ def rolling_smape(
     *,
     now_iso: str | None = None,
     min_actual_fraction: float = LOW_ACTUAL_FRACTION,
+    max_lead: int | None = None,
 ) -> float | None:
     """Symmetric MAPE over the most recent ``window_hours`` of records.
 
@@ -260,9 +316,13 @@ def rolling_smape(
     low-actual filter by default (belt-and-suspenders alongside sMAPE's own
     boundedness) so a handful of near-zero hours can neither explode the mean
     nor each pin it at ~200%.
+
+    ``max_lead`` (default ``None`` = off) drops records whose *known* lead
+    exceeds it — see :func:`filter_by_lead` and P2-19 (#273).
     """
     in_window = _within_window(records, window_hours, now_iso=now_iso)
-    kept, _ = filter_low_actuals(in_window, min_actual_fraction)
+    lead_kept, _, _ = filter_by_lead(in_window, max_lead)
+    kept, _ = filter_low_actuals(lead_kept, min_actual_fraction)
     return smape_over_records(kept)
 
 
@@ -622,28 +682,53 @@ def compute_drift_payload(
         # gating "is this 7d figure statistically defensible?" must use
         # ``n_7d``, never ``n_records``. n_low_excl_7d stays as the
         # transparency signal for how many the filter dropped.
-        kept_7d, n_low_excl_7d = filter_low_actuals(
-            _within_window(merged, WINDOW_7D_HOURS, now_iso=now_iso)
+        # P2-19 (#273): the lead filter runs FIRST, so every count and every
+        # rolling mean below describes the same population — the records this
+        # window actually claims to be about. It is applied here and not in
+        # ``_horizon_rollup_block``: those records have a *designed* 24/48/72h
+        # horizon, so filtering them to lead 1 would empty them.
+        lead_7d, n_lead_excl_7d, n_lead_unknown_7d = filter_by_lead(
+            _within_window(merged, WINDOW_7D_HOURS, now_iso=now_iso), HEADLINE_LEAD_HOURS
         )
-        kept_30d, _ = filter_low_actuals(_within_window(merged, WINDOW_30D_HOURS, now_iso=now_iso))
+        lead_30d, _, _ = filter_by_lead(
+            _within_window(merged, WINDOW_30D_HOURS, now_iso=now_iso), HEADLINE_LEAD_HOURS
+        )
+        kept_7d, n_low_excl_7d = filter_low_actuals(lead_7d)
+        kept_30d, _ = filter_low_actuals(lead_30d)
 
         models_out[model_name] = {
             # sMAPE is the headline drift metric (bounded, near-zero-robust).
-            "rolling_smape_7d": rolling_smape(merged, WINDOW_7D_HOURS, now_iso=now_iso),
-            "rolling_smape_30d": rolling_smape(merged, WINDOW_30D_HOURS, now_iso=now_iso),
+            "rolling_smape_7d": rolling_smape(
+                merged, WINDOW_7D_HOURS, now_iso=now_iso, max_lead=HEADLINE_LEAD_HOURS
+            ),
+            "rolling_smape_30d": rolling_smape(
+                merged, WINDOW_30D_HOURS, now_iso=now_iso, max_lead=HEADLINE_LEAD_HOURS
+            ),
             # MAPE kept for diagnostics / holdout comparison, now filtered with
             # the same region-relative rule so a stray near-zero hour can no
             # longer pin it at 200%+ (#142).
             "rolling_mape_7d": rolling_mape(
-                merged, WINDOW_7D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
+                merged,
+                WINDOW_7D_HOURS,
+                now_iso=now_iso,
+                min_actual_fraction=LOW_ACTUAL_FRACTION,
+                max_lead=HEADLINE_LEAD_HOURS,
             ),
             "rolling_mape_30d": rolling_mape(
-                merged, WINDOW_30D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
+                merged,
+                WINDOW_30D_HOURS,
+                now_iso=now_iso,
+                min_actual_fraction=LOW_ACTUAL_FRACTION,
+                max_lead=HEADLINE_LEAD_HOURS,
             ),
+            # ``records`` stays UNFILTERED: it is the history, and a consumer
+            # that wants to stratify by lead later needs the dropped rows.
             "n_records": len(merged),
             "n_7d": len(kept_7d),
             "n_30d": len(kept_30d),
             "n_low_actual_excluded_7d": n_low_excl_7d,
+            "n_lead_excluded_7d": n_lead_excl_7d,
+            "n_lead_unknown_7d": n_lead_unknown_7d,
             "records": serialize_records(merged),
         }
 
