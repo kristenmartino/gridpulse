@@ -1,7 +1,9 @@
 # Test quality — coverage, mutation testing, and what each one can prove
 
 > **Whole table re-measured 2026-08-07** after #377, #383, #385, #386, #416,
-> #426 and #434 — baseline and adjudication in one pass, so the two agree.
+> #426 and #434 — baseline and adjudication in one pass. `models/evaluation.py`
+> (#442) and `models/skill.py` (#441) were re-run separately after it; the
+> adjudication counts follow them by arithmetic, as the note below says.
 > Regenerate with `python scripts/mutation_test.py`; re-adjudicate with
 > `python scripts/adjudicate_mutants.py --fast` (~25 min each).
 
@@ -37,7 +39,7 @@ Survivors are the output. The score is only a summary of them.
 **Two scores are published, because one of them is misleading on its own.**
 mutmut rewrites string constants (`"x"` → `"XXxXX"`) and structlog arguments
 (`log.info(None, ...)`) prolifically. Nothing asserts on either, so they survive
-by construction — 223 of this baseline's 586 survivors are that. The **logic
+by construction — 204 of this baseline's 473 survivors are that. The **logic
 score** drops those from both sides of the ratio. Neither number is the "real"
 one; the gap between them tells you how much of a low score is noise.
 
@@ -51,25 +53,35 @@ and none should try. Adjudication is a human step, and it is the point.
 
 ## Baseline
 
-2,370 mutants scored, **whole table re-measured in one pass**. Full run ≈ 25 min
-on an 8-core laptop.
+2,372 mutants scored, **whole table re-measured in one pass**, with
+`models/evaluation.py` (#442) and `models/skill.py` (#441) re-run separately
+afterwards — see the note under the table. Full run ≈ 25 min on an 8-core
+laptop; a single module is ≈ 1 min.
 
 | module | mutants | killed | logic surv. | noise surv. | score | logic score | |
 |---|---:|---:|---:|---:|---:|---:|---|
 | `data/feature_engineering.py` | 919 | 780 | 82 | 57 | 84.9% | **90.5%** | ↑ 83.8% |
 | `data/quality.py` | 188 | 164 | 20 | 4 | 87.2% | **89.1%** | ↑ 71.6% |
-| `models/skill.py` | 192 | 164 | 21 | 7 | 85.4% | **88.6%** | ↑ 72.1% |
+| `models/skill.py` | 194 | 172 | 18 | 4 | 88.7% | **90.5%** | ↑ 88.6% |
 | `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
 | `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
 | `models/evaluation.py` | 373 | 320 | 49 | 4 | 85.8% | **86.7%** | ↑ 77.1% |
 | `models/ensemble.py` | 133 | 63 | 23 | 47 | 47.4% | **73.3%** | ↑ 61.6% |
-| **overall** | **2,370** | **1,891** | **272** | **207** | **79.8%** | **87.4%** | ↑ 85.8% |
+| **overall** | **2,372** | **1,899** | **269** | **204** | **80.1%** | **87.6%** | ↑ 85.8% |
 
-Seven rounds of fixes (#377, #383, #385, #386, #416, #426, #442) took the overall
-logic score **78.6% → 87.4%** and killed **248** mutants, without changing production
-behaviour anywhere except the one crash #386 fixed. The mutant total rose from
-2,349 to 2,370: #386's fix added lines, and #423 rewrote
-`recursive_autoregressive_forecast` for performance.
+> **Two modules were re-run separately on 2026-08-07**, not one:
+> `models/evaluation.py` in #442 and `models/skill.py` in #441. The other five
+> rows are the whole-table pass. The overall row is the **column sums of the
+> seven rows above it** — neither PR's own figure was right on its own, because
+> each was computed against the shared pre-#441/#442 base and so omitted the
+> other's kills (#442 published 1,891, #441 published 1,851; the truth is
+> 1,899).
+
+Eight rounds of fixes (#377, #383, #385, #386, #416, #426, #442, #441) took the
+overall logic score **78.6% → 87.6%** and killed **256** mutants, without changing
+production behaviour anywhere except the one crash #386 fixed. The mutant total
+rose from 2,349 to 2,372: #386's fix added lines, #423 rewrote
+`recursive_autoregressive_forecast` for performance, and #441 added a parameter.
 
 **The most useful number here is not the total.** Compare what equal effort
 bought in different places:
@@ -82,11 +94,12 @@ bought in different places:
 | #416 | the `skill.py` clusters | — | **+16.5** |
 | #426 | four `feature_engineering` clusters | +2.8 pts | **+6.7** |
 | #442 | the `evaluation` clusters + the unexercised defaults | +1.6 pts | **+9.6** |
+| #441 | one definition of the skill block + its last two survivors | +0.2 pts | **+1.9** |
 
-A 2,370-mutant denominator makes every real fix look like rounding error, which
+A 2,372-mutant denominator makes every real fix look like rounding error, which
 is exactly why the gate policy below is **per-module**. It is also why the
-"logic score" column is the one to read: four modules moved 7–18 points each
-while the headline moved 7.
+"logic score" column is the one to read: six modules carry an ↑, several by
+10–18 points, while the headline moved 9.
 
 **#426 is the exception that shows the rule.** It is the only round that moved
 the headline noticeably (+2.8 pts), because `feature_engineering` is 39% of the
@@ -104,6 +117,14 @@ flipped, 0.5 pts. Small, but measured rather than assumed, and the reason the
 policy below asks for several consecutive runs before anyone attaches a
 threshold to this number.
 
+**A third run reproduced the published row exactly**, which is the more useful
+data point about the jitter: re-running `models/skill.py` against the
+pre-#441 tree returned 192 / 164 / 21 / 7 — every cell identical to the row
+this table had published. So the instrument is stable enough that a
+same-machine, back-to-back A/B is worth more than comparing a fresh run against
+a figure measured weeks earlier on a different tree. That is how #441's delta
+below was attributed rather than assumed.
+
 ### Scope
 
 The seven modules in `[tool.mutmut] only_mutate` — pure logic where a silently
@@ -115,19 +136,41 @@ equivalent, and would bury the signal.
 
 ## Adjudicated survivors
 
-**All 304 logic survivors are machine-verified** with
+**All 269 logic survivors are machine-verified** with
 `scripts/adjudicate_mutants.py`: apply the mutant to the real source, run
 tests, restore. Re-run in full against the current tree, so these counts match
 the baseline above rather than trailing it.
 
 | | |
 |---|---:|
-| confirmed (no test notices) | **302** |
+| confirmed (no test notices) | **267** |
 | false survivors (mutmut was wrong) | **2** |
 
 Both false ones are in `ensemble_combine`, both killed by
 `test_stable_hash_reproducibility.py` — the subprocess blind spot of
-limitation 1. **The tool's false-survivor rate is 2 in 304, or 0.66%.**
+limitation 1. **The tool's false-survivor rate is 2 in 269, or 0.74%.**
+
+> **The adjudicator was not re-run for #442 or #441**; 304 → 269 is
+> arithmetic, not a re-measurement. #442 killed 32 adjudicated logic survivors
+> and #441 killed 3, neither added any, and the false pair is in
+> `ensemble_combine`, which neither touches — so the numerator is unaffected
+> either way.
+>
+> **This section briefly disagreed with the table above it**, which is the
+> failure it is written to prevent: #442 re-measured the baseline to 272 logic
+> survivors while leaving this section at 304, so the sentence promising these
+> counts "match the baseline above rather than trailing it" was false by 32.
+> Reconciled here as part of merging #441. A per-module re-run needs to carry
+> its subtraction into this section, or the two halves of the ledger drift
+> apart silently.
+>
+> The **shape table below is likewise not re-derived.** Its shares were
+> computed against the 2026-08-05 population of 304; recomputing them needs the
+> full seven-module adjudication. What is certain is that none of the 35 were
+> `dtype=float`, so that class is still exactly 81 and its share rises to
+> **~30%** against the new denominator, leaving an actionable population of
+> **188**. Every remaining number in this section is from the full 2026-08-05
+> re-adjudication.
 
 > **This re-run existed to check a specific doubt, and the doubt was
 > unfounded.** #386 found that the adjudicator could reuse stale bytecode:
@@ -218,8 +261,8 @@ equality no real series produces.
 
 **That class is now closed** (below): the guards are real, the input they guard
 is no longer reachable, and #434 fixed the single line that produced it. They
-are equivalent *in practice*, which means **the actionable population is 223,
-not 304.** Read the remaining shares against that denominator.
+are equivalent *in practice*, which means **the actionable population is 188,
+not 269.** Read the remaining shares against that denominator.
 
 ### The `dtype=float` class — CLOSED, and the fix did not move the score
 
@@ -358,6 +401,71 @@ nothing reaching it is exactly why the crash went unnoticed.
 **`models/skill.py` (49 → 21) — fixed in #416.** The substitution boundary that
 decides whether a region is served a naive forecast, and the edges of the
 projection that replaces the model.
+
+**...and the tests landed on a function production did not call.** #416's
+exact-payload assertions pinned `skill_payload` field by field. Nothing
+outside the test file imported it: the scoring job hand-rolled its own copy of
+the same block inline, and the two had already diverged — production emitted
+`window_days` and `decision` but no `beats_baseline`, the field the module
+docstring calls "the field worth acting on", and it skipped the non-finite
+guards. `should_serve_baseline` consumed the inline dict and happened to work
+because it reads only two keys.
+
+**A mutation score cannot see this.** Every mutant of `skill_payload` was
+killed, so the module scored well precisely *because* the dead function was
+well tested; the served block had no direct coverage at all. Coverage and
+mutation testing both answer "is this code tested" and neither answers "is
+this code reached". Worth a `grep` for a caller before reading a strong
+per-function score as reassurance.
+
+Resolved 2026-08-07 (#441): the job now builds the block via `skill_payload(...,
+window_days=7)` and attaches `decision` from `should_serve_baseline`, so there
+is one definition and the tests pin the shape that is served. `beats_baseline`
+joins the published payload — additive, and always `False` where it appears,
+since the block is only written on ticks where substitution fired.
+
+**Re-measured, A/B, same machine, back to back** — the pre-change tree returned
+the published row exactly (192 / 164 / 21 / 7), so the delta is attributable
+rather than assumed:
+
+| | before | unified | + the last two tests |
+|---|---:|---:|---:|
+| mutants | 192 | 194 | 194 |
+| killed | 164 | 170 | 172 |
+| logic survivors | 21 | 20 | **18** |
+| noise survivors | 7 | 4 | 4 |
+| logic score | 88.6% | 89.5% | **90.5%** |
+
+**4 newly killed, 0 newly surviving**, and the composition is the interesting
+part. Three are the `"skill not measurable"` reason string, now asserted
+exactly rather than by truthiness. The fourth is `mape`'s `return float("nan")`
+mutated to `float(None)` — which raises. It survived before **because no test
+had ever executed that line**: at 98% the module had exactly one uncovered
+statement, and it was the one deciding what `mape` returns when nothing is
+measurable. That is the same branch the non-finite-guard story runs through,
+and the test that reaches it now is the one asserting the guard keeps the
+model. Coverage is 100%.
+
+**The last two were then killed too, and both were worth killing** — neither
+was the theatre that "pin the remaining survivors" usually becomes:
+
+- `skill_payload` forwards `lag_h` into the baseline call. Drop that one
+  argument and the call falls back to the 24h default, so the block publishes
+  a number measured at 24h **under a label that says 48h**. Every prior test
+  used the default lag, where label and number are indistinguishable. On the
+  fixture the test now uses, the mutation inverts `beats_baseline` from False
+  to True — the one field the module exists to get right.
+- `seasonal_naive_forecast`'s loop starts at lead 1. Starting it at 0 probes
+  the origin hour itself. At a horizon of 24 or more that is invisible: lead
+  24 reads the same index and the extra write is overwritten before return.
+  Below a day it is not, because the origin hour becomes the only index whose
+  gap can veto the whole forecast — and a gap in the most recently reported
+  hour is the likeliest one there is. Every other test in that class uses a
+  horizon of 24 or 72.
+
+**All 18 remaining logic survivors are the `dtype=float` class — zero others.**
+So this module is now pinned everywhere except a question that was already
+closed as deliberate.
 
 **`simulation/scenario_engine.py` (36) — still deliberately ignored.** Nothing
 in `components/`, `jobs/`, `api.py` or `app.py` imports `simulation`. The live
@@ -593,7 +701,9 @@ It is advisory, and stays that way until all three hold:
 1. ⬜ The baseline is stable across at least four consecutive weekly runs (no
    unexplained swings from test ordering or flakiness). One re-run of
    `models/skill.py` already moved by a single mutant, so this is not
-   theoretical.
+   theoretical — though a later re-run of the same module reproduced its
+   published row cell-for-cell, so the jitter looks like an occasional
+   single-mutant flip rather than a persistent drift.
 2. ✅ **Resolved, and re-verified twice.** The false-survivor rate is
    **measured at 2/304 (0.66%)** — the same two mutants found by all three
    full re-adjudications — the blind spot behind it is enumerated (limitation 1), and
@@ -602,7 +712,7 @@ It is advisory, and stays that way until all three hold:
    test. The deselected slow test that was once limitation 2 is gone;
    re-baselining after it landed changed **no** verdict, so it had been killing
    zero mutants.
-3. ✅ **Resolved.** All 304 logic survivors are machine-verified, clustered by
+3. ✅ **Resolved.** All 269 logic survivors are machine-verified, clustered by
    function, and grouped by mutation shape above.
 
 Only (1) is outstanding, and it needs four weeks of scheduled runs rather than

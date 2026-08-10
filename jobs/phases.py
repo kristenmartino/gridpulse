@@ -1442,10 +1442,9 @@ def _baseline_substitution(
         from data.redis_client import redis_get, redis_key
         from models.skill import (
             SEASONAL_NAIVE_LAG_H,
-            mape,
             seasonal_naive_forecast,
             should_serve_baseline,
-            skill_score,
+            skill_payload,
         )
 
         if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
@@ -1467,16 +1466,10 @@ def _baseline_substitution(
         if model_mape is None:
             return None
 
-        baseline_mape = mape(y[SEASONAL_NAIVE_LAG_H:], y[:-SEASONAL_NAIVE_LAG_H])
-        skill_block = {
-            "model_mape": round(float(model_mape), 3),
-            "baseline_mape": round(baseline_mape, 3),
-            "baseline": f"seasonal-naive lag {SEASONAL_NAIVE_LAG_H}h",
-            "skill": skill_score(float(model_mape), baseline_mape),
-            "points_vs_baseline": round(baseline_mape - float(model_mape), 3),
-            "n_hours": int(np.isfinite(y).sum()),
-            "window_days": 7,
-        }
+        # One definition of this block, in models.skill — an inline copy here
+        # had already drifted from it (no `beats_baseline`, no non-finite
+        # guards) while `should_serve_baseline` consumed it regardless.
+        skill_block = skill_payload(float(model_mape), y, window_days=7)
         serve, reason = should_serve_baseline(skill_block)
         skill_block["decision"] = reason
         if not serve:

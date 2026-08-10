@@ -772,6 +772,27 @@ Two judgment calls I'd defend. The helper **fails open** — an unregistered col
 
 **Lesson to convey**: *Mutating the helper is not mutating the call site — a unit test on a function proves the function works, not that the fix is connected to anything. And when a piece of reasoning is what licenses you to skip work, that reasoning is the thing to attack: "this is now unreachable" is a claim about every path in the file, not the one you just edited.*
 
+### 23. "Tell me about a time a quality metric told you the opposite of the truth."
+**A module scored 88.6% on mutation testing because its best-tested function was the one production never called (2026-08-07).**
+
+Situation: `models/skill.py` answers the question the product exists to answer — does the forecast beat "yesterday, same hour"? After a round of mutation testing it was one of the better-scoring modules in the repo, 72.1% → 88.6% logic score, with exact-payload tests pinning `skill_payload` field by field.
+
+Investigation: `grep -rn "skill_payload"` returned only the test file. The scoring job imported four other symbols from the module and hand-rolled its own copy of the same block inline. The two had drifted: production emitted `window_days` and `decision`, and omitted `beats_baseline` — the field the module's own docstring calls "the field worth acting on." The substitution policy consumed the inline dict and worked only because it happens to read two keys both versions carry. The module docstring also named a Redis key, `gridpulse:skill:{region}`, that was never built; the block actually ships nested inside the forecast payload and is passed through verbatim by the public API.
+
+The uncomfortable part is the causality. The module scored *well* **because** the dead function was well tested. Every mutant of it died — there was a test for each one. The block production actually serves had no direct coverage at all, so it contributed no survivors either. Coverage and mutation testing both answer "is this code tested." Neither answers "is this code reached," and averaged together the dead half flattered the live half.
+
+Action: I kept the function rather than deleting it, which was the closer call. The argument for deletion was that the inline block is what ships. The argument that won: `skill_payload` is a pure function of two arguments, while the inline copy lives inside a private method behind a feature flag, a Redis read, and a DataFrame — deleting the function would have moved nine tests onto a surface needing heavy mocking to test arithmetic. So the job now calls `skill_payload`, the function grew the two fields production needs, and the tests pin the shape that is served.
+
+Before adding `beats_baseline` to a published payload I checked every consumer: the API passes the block through, no UI surface reads it. And because the block is only written on ticks where substitution fired — which requires the model to lose by a threshold — `beats_baseline` is always `False` where it appears. A test now forbids a `True`, since publishing one would mean the policy and the measurement disagreed about the same numbers.
+
+Result: One definition. The non-finite guards came along with it, closing a seam that is currently unreachable *by accident*: the job measures over 7 days and the policy requires 168 hours, so a window can't hold enough observed hours to clear the gate while still being too sparse to compute a baseline. Those two constants are equal, in different files, with nothing connecting them. Widen the window and NaN reaches a `points > -threshold` comparison that is False for NaN, and the policy substitutes on a measurement that does not exist.
+
+Re-measured as an A/B rather than against the published figure: 88.6% → 90.5%, and the module's last two non-`dtype` survivors died with it. One of them was the same species as the finding in story 22, inverted — there, defaults were never executed because every test passed parameters explicitly; here, a parameter's *forwarding* was never exercised because every test used the default. Both are the gap between how a function is tested and how production calls it.
+
+The tail had one more instance. Merging this work alongside that concurrent PR, both had recomputed the same ledger's overall row against the same shared base, so **each published a total that omitted the other's kills** — 1,891 and 1,851, where summing the seven module rows gives 1,899. Neither number was wrong when written; both were wrong once the other landed.
+
+**Lesson to convey**: *A per-function quality score is a statement about the tests, not about the system — it silently assumes every function is reachable. Before reading a strong score as reassurance, grep for a caller. And when a well-tested helper and an inline copy of it disagree, the tests will always defend the helper, because the helper is what they import; the divergence can only be found by asking which one runs.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
