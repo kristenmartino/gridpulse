@@ -1225,11 +1225,24 @@ FEATURE_FLAGS: dict[str, bool] = {
     # ``components/_callbacks_overview._scenario_demand_factor``. The scoring
     # job writes ``gridpulse:scenario_grid:{region}``; the web tier reads it
     # and interpolates, so the Redis-only invariant holds and slider latency
-    # is unchanged. OFF until the runtime cost is confirmed in production —
-    # measured budget is ~26s added wall (see SCENARIO_GRID_* below), and the
-    # phase is shed at the soft deadline, so the failure mode is a stale grid
-    # and a heuristic fallback rather than a missed forecast.
-    "scenario_grid": False,
+    # is unchanged.
+    #
+    # ON since 2026-08-10 (#460), and the reason it is on is that the cost
+    # CANNOT be confirmed any other way: there are no trained models on a dev
+    # box or in CI, so every estimate of this phase is arithmetic until a real
+    # tick runs it. The arithmetic says ~26s added wall (80 computed cells x
+    # 51 regions at ~48ms, over 7.65x effective parallelism — see
+    # SCENARIO_GRID_* below). What it does NOT capture is per-call fixed
+    # overhead in the recursive helper: 4,080 short calls where production
+    # makes 51 long ones. If that overhead dominates, the real figure is
+    # several times the estimate.
+    #
+    # Shipped anyway because the blast radius is bounded on three sides: the
+    # grid is computed AFTER the forecast is persisted and every failure path
+    # returns without touching it; the runtime-creep alert fires at 70% of the
+    # task timeout (1260s) against a 406s median, so even a 4x overrun is
+    # visible long before the 85% shed; and rollback is this one line.
+    "scenario_grid": True,
     "cross_tab_links": True,  # NEXD-11: contextual links between tabs
     "inline_tooltips": True,  # NEXD-13: SHAP-based per-point forecast tooltips
     # NEXD-14 / shell-redesign post-R6: replay surfaces stale snapshots and
