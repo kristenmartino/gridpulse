@@ -1119,6 +1119,43 @@ SCORING_SOFT_DEADLINE_FRACTION = float(os.getenv("SCORING_SOFT_DEADLINE_FRACTION
 SCORING_DEADLINE_GRACE_S = float(os.getenv("SCORING_DEADLINE_GRACE_S", "120"))
 
 # ---------------------------------------------------------------------------
+# Scenario grid (#127) — precomputed what-if physics for the simulator
+#
+# The axes span the simulator's slider domains EXACTLY (``_scenario_slider``
+# in components/tab_demand_outlook.py: ±20 °F, ±10 mph, ±200 W/m²), so every
+# reachable slider position is an interpolation and never an extrapolation.
+#
+# Temperature gets 9 points and the other two get 3 because the response is
+# not equally curved in the three axes: CDD/HDD are piecewise-linear in
+# temperature with a kink at 65 °F, which is precisely where a coarse grid
+# (or the linear heuristic this replaces) is most wrong. Wind and solar enter
+# through smooth monotone transforms, so endpoints plus zero carry them.
+#
+# 9x3x3 = 81 variants/region. Costed at ~26s added wall on a 406s median
+# (~$2.20/mo) against 9x5x5's ~72s — the extra 144 variants buy interpolation
+# accuracy below the width of a slider step. See docs/SCENARIO_GRID.md.
+SCENARIO_GRID_TEMP_DELTAS_F: tuple[float, ...] = (
+    -20.0,
+    -15.0,
+    -10.0,
+    -5.0,
+    0.0,
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+)
+SCENARIO_GRID_WIND_DELTAS_MPH: tuple[float, ...] = (-10.0, 0.0, 10.0)
+SCENARIO_GRID_SOLAR_DELTAS_WM2: tuple[float, ...] = (-200.0, 0.0, 200.0)
+
+# The simulator charts a 24h baseline (``_scenario_demand_factor`` returns "a
+# multiplicative factor to apply to a baseline 24h forecast"), so the grid is
+# computed over 24 hours rather than the full FORECAST_HORIZON_HOURS. That is
+# the whole reason this is affordable: the production recursive path costs
+# 763 ms/BA over 384 steps, and 24 steps is ~16x cheaper.
+SCENARIO_GRID_HORIZON_HOURS: int = 24
+
+# ---------------------------------------------------------------------------
 # Web-tier operational guard (#253)
 # ---------------------------------------------------------------------------
 # The public JSON API (#250/#251) made the stateless web tier publicly
@@ -1183,6 +1220,16 @@ FEATURE_FLAGS: dict[str, bool] = {
     # region sits at -1.68. Rollback = flip back; the substitution is a
     # read-time swap with no persisted state.
     "baseline_substitution": True,
+    # #127: serve the scenario simulator from a precomputed grid of real
+    # ensemble re-forecasts instead of the analytical heuristic in
+    # ``components/_callbacks_overview._scenario_demand_factor``. The scoring
+    # job writes ``gridpulse:scenario_grid:{region}``; the web tier reads it
+    # and interpolates, so the Redis-only invariant holds and slider latency
+    # is unchanged. OFF until the runtime cost is confirmed in production —
+    # measured budget is ~26s added wall (see SCENARIO_GRID_* below), and the
+    # phase is shed at the soft deadline, so the failure mode is a stale grid
+    # and a heuristic fallback rather than a missed forecast.
+    "scenario_grid": False,
     "cross_tab_links": True,  # NEXD-11: contextual links between tabs
     "inline_tooltips": True,  # NEXD-13: SHAP-based per-point forecast tooltips
     # NEXD-14 / shell-redesign post-R6: replay surfaces stale snapshots and

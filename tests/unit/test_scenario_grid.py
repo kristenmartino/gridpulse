@@ -1,0 +1,336 @@
+"""Unit tests for the scenario grid (#127).
+
+The grid replaces the simulator's analytical heuristic with real forecasts.
+Two properties matter more than the arithmetic: the grid must span the slider
+domain so no slider position extrapolates, and every cell must come from the
+*same* forecaster as the baseline it is divided by.
+"""
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import config
+from simulation.scenario_engine import apply_weather_deltas
+from simulation.scenario_grid import (
+    build_scenario_grid,
+    grid_axes,
+    interpolate_scenario_factors,
+)
+
+HORIZON = 6
+
+
+def _future_frame(n: int = HORIZON) -> pd.DataFrame:
+    """A forward frame with a real diurnal temperature curve."""
+    hours = np.arange(n)
+    return pd.DataFrame(
+        {
+            "timestamp": pd.date_range("2026-08-01", periods=n, freq="h", tz="UTC"),
+            "temperature_2m": 70.0 + 15.0 * np.sin(hours / 24 * 2 * np.pi),
+            "wind_speed_80m": np.full(n, 8.0),
+            "shortwave_radiation": np.full(n, 300.0),
+            "hour_sin": np.sin(hours / 24 * 2 * np.pi),
+        }
+    )
+
+
+class TestApplyWeatherDeltas:
+    def test_the_input_frame_is_never_mutated(self):
+        """ADR-007: the scenario engine copies, never mutates."""
+        original = _future_frame()
+        before = original.copy(deep=True)
+
+        apply_weather_deltas(original, temp_delta_f=10.0)
+
+        pd.testing.assert_frame_equal(original, before)
+
+    def test_a_delta_shifts_the_curve_rather_than_flattening_it(self):
+        """The distinction between this and ``simulate_scenario``.
+
+        Setting `temperature_2m` to a constant — which is what an absolute
+        override does — erases the day/night cycle that shapes the demand
+        response. A relative shift has to preserve it.
+        """
+        base = _future_frame()
+
+        shifted = apply_weather_deltas(base, temp_delta_f=10.0)
+
+        np.testing.assert_allclose(
+            shifted["temperature_2m"].to_numpy(),
+            base["temperature_2m"].to_numpy() + 10.0,
+        )
+        assert shifted["temperature_2m"].std() == pytest.approx(base["temperature_2m"].std())
+
+    def test_derived_features_follow_the_drivers(self):
+        """The reason the engine exists: CDD/HDD must move when temperature does.
+
+        A scenario that shifted `temperature_2m` and left `cooling_degree_days`
+        at its baseline value would feed the model a contradiction — hot
+        weather with no cooling load — and the forecast would barely respond.
+        """
+        base = _future_frame()
+        base["cooling_degree_days"] = 0.0
+        base["wind_power_estimate"] = 0.0
+        base["solar_capacity_factor"] = 0.0
+
+        hotter = apply_weather_deltas(base, temp_delta_f=20.0)
+        windier = apply_weather_deltas(base, wind_delta_mph=10.0)
+        sunnier = apply_weather_deltas(base, solar_delta_wm2=200.0)
+
+        assert hotter["cooling_degree_days"].max() > 0.0
+        assert windier["wind_power_estimate"].max() > 0.0
+        assert sunnier["solar_capacity_factor"].max() > 0.0
+
+    def test_negative_wind_and_solar_are_clipped_to_zero(self):
+        """Neither is a physical state, and `compute_wind_power` cubes its input.
+
+        The sliders reach -10 mph, and a BA becalmed at 4 mph is inside that
+        range, so this is reachable from the UI rather than defensive.
+        """
+        calm = _future_frame()
+        calm["wind_speed_80m"] = 4.0
+        calm["shortwave_radiation"] = 50.0
+
+        out = apply_weather_deltas(calm, wind_delta_mph=-10.0, solar_delta_wm2=-200.0)
+
+        assert (out["wind_speed_80m"] >= 0.0).all()
+        assert (out["shortwave_radiation"] >= 0.0).all()
+
+
+class TestGridAxes:
+    def test_the_axes_span_the_slider_domain(self):
+        """Every reachable slider position must interpolate, never extrapolate.
+
+        The slider bounds live in ``components/tab_demand_outlook.py``
+        (`_scenario_slider("temp", ..., -20, 20)` and friends). If a slider is
+        ever widened without widening the grid, positions past the end would
+        silently clamp — a flat spot in the UI rather than an error.
+        """
+        temps, winds, solars = grid_axes()
+
+        assert (min(temps), max(temps)) == (-20.0, 20.0)
+        assert (min(winds), max(winds)) == (-10.0, 10.0)
+        assert (min(solars), max(solars)) == (-200.0, 200.0)
+
+    def test_temperature_is_the_finely_sampled_axis(self):
+        """9x3x3, and the 9 is on temperature deliberately.
+
+        CDD/HDD are piecewise-linear in temperature with a kink at 65 °F;
+        wind and solar enter through smooth monotone transforms. Sampling all
+        three axes equally would spend the budget where the curvature is not.
+        """
+        temps, winds, solars = grid_axes()
+
+        assert len(temps) == 9
+        assert len(winds) == len(solars) == 3
+        assert len(temps) * len(winds) * len(solars) == 81
+
+    def test_every_axis_contains_the_no_change_point(self):
+        """Zero must be a grid point, not something interpolated toward.
+
+        An untouched slider is the commonest state of the simulator; if 0.0
+        were between grid points, the panel would open showing a scenario
+        that already differs from the baseline.
+        """
+        for axis in grid_axes():
+            assert 0.0 in axis
+
+
+class TestBuildScenarioGrid:
+    @staticmethod
+    def _temp_sensitive_forecaster(frame: pd.DataFrame) -> np.ndarray:
+        """A stand-in with a known, monotone response to temperature."""
+        return 1000.0 + 10.0 * frame["temperature_2m"].to_numpy()
+
+    def _grid(self, forecaster=None):
+        future = _future_frame()
+        fc = forecaster or self._temp_sensitive_forecaster
+        baseline = fc(future)
+        return build_scenario_grid(
+            featured=pd.DataFrame({"demand_mw": np.full(48, 1500.0)}),
+            future_df=future,
+            baseline=baseline,
+            forecaster=fc,
+            horizon=HORIZON,
+        )
+
+    def test_the_payload_is_shaped_like_the_axes(self):
+        payload = self._grid()
+        temps, winds, solars = grid_axes()
+
+        assert len(payload["factors"]) == len(temps)
+        assert all(len(w) == len(winds) for w in payload["factors"])
+        assert all(len(s) == len(solars) for w in payload["factors"] for s in w)
+        assert payload["horizon"] == HORIZON
+        assert payload["axes"]["temp_f"] == list(temps)
+
+    def test_the_origin_cell_is_exactly_one(self):
+        """(0, 0, 0) is the baseline by definition, not by measurement.
+
+        Re-running the forecaster there would spend a cell reproducing a row
+        of 1.0s, and any drift it showed would be nondeterminism rather than
+        physics — which the simulator would then render as a weather response
+        to moving no slider at all.
+        """
+        payload = self._grid()
+        temps, winds, solars = grid_axes()
+        ti, wi, si = temps.index(0.0), winds.index(0.0), solars.index(0.0)
+
+        assert payload["factors"][ti][wi][si] == [1.0] * HORIZON
+
+    def test_a_warmer_scenario_reports_a_factor_above_one(self):
+        """Direction, against a forecaster whose response direction is known."""
+        payload = self._grid()
+        temps, winds, solars = grid_axes()
+        wi, si = winds.index(0.0), solars.index(0.0)
+
+        hot = payload["factors"][temps.index(20.0)][wi][si]
+        cold = payload["factors"][temps.index(-20.0)][wi][si]
+
+        assert all(f > 1.0 for f in hot)
+        assert all(f < 1.0 for f in cold)
+
+    def test_the_grid_uses_the_forecaster_it_is_given(self):
+        """The contract the whole module exists to enforce.
+
+        A scenario computed through one inference path and divided by a
+        baseline from another reports the difference between the *paths* as
+        the response to *weather*. `scenario_engine._run_ensemble` is such a
+        second path — a plain vectorised predict against production's
+        recursive chaining — so this asserts the injected forecaster is the
+        only thing consulted.
+        """
+        calls: list[int] = []
+
+        def counting_forecaster(frame: pd.DataFrame) -> np.ndarray:
+            calls.append(len(frame))
+            return self._temp_sensitive_forecaster(frame)
+
+        self._grid(counting_forecaster)
+
+        # 81 cells, minus the origin which is defined rather than computed,
+        # plus the one baseline call this helper makes.
+        assert len(calls) == 81 - 1 + 1
+
+    def test_a_cell_that_forecasts_garbage_degrades_to_the_baseline(self):
+        """One diverged cell must not take the panel down or dwarf the chart.
+
+        A recursive forecast can dive (#296). Returning 1.0 for that cell
+        renders it as "no change", which is wrong but bounded; propagating a
+        NaN would blank the chart and a 40x ratio would flatten the baseline
+        against the axis.
+        """
+        future = _future_frame()
+        baseline = self._temp_sensitive_forecaster(future)
+
+        def diverging(frame: pd.DataFrame) -> np.ndarray:
+            if frame["temperature_2m"].mean() > 80.0:
+                return np.full(len(frame), np.nan)
+            return self._temp_sensitive_forecaster(frame)
+
+        payload = build_scenario_grid(
+            featured=pd.DataFrame({"demand_mw": np.full(48, 1500.0)}),
+            future_df=future,
+            baseline=baseline,
+            forecaster=diverging,
+            horizon=HORIZON,
+        )
+
+        flat = np.asarray(payload["factors"], dtype=float)
+        assert np.isfinite(flat).all()
+        assert (flat > 0).all()
+
+    @pytest.mark.parametrize(
+        "baseline",
+        [
+            np.full(HORIZON, np.nan),
+            np.zeros(HORIZON),
+            np.full(HORIZON - 1, 1000.0),
+        ],
+        ids=["non_finite", "zeros", "too_short"],
+    )
+    def test_an_unusable_baseline_is_refused_not_divided_by(self, baseline):
+        """Ratios are the payload, so the denominator is load-bearing.
+
+        A zero baseline yields inf, a NaN baseline yields NaN, and a short one
+        silently produces a shorter curve than the horizon promises. All three
+        are better as an exception in the job than as a payload in Redis.
+        """
+        with pytest.raises(ValueError):
+            build_scenario_grid(
+                featured=pd.DataFrame({"demand_mw": np.full(48, 1500.0)}),
+                future_df=_future_frame(),
+                baseline=baseline,
+                forecaster=self._temp_sensitive_forecaster,
+                horizon=HORIZON,
+            )
+
+
+class TestInterpolation:
+    @staticmethod
+    def _payload() -> dict:
+        """A grid whose factor is a known linear function of the deltas."""
+        temps, winds, solars = grid_axes()
+        factors = [
+            [[[1.0 + t / 100.0 + w / 100.0 + s / 1000.0] * HORIZON for s in solars] for w in winds]
+            for t in temps
+        ]
+        return {
+            "axes": {"temp_f": list(temps), "wind_mph": list(winds), "solar_wm2": list(solars)},
+            "horizon": HORIZON,
+            "factors": factors,
+        }
+
+    def test_an_exact_grid_point_returns_that_cell(self):
+        out = interpolate_scenario_factors(self._payload(), 10.0, 0.0, 0.0)
+
+        np.testing.assert_allclose(out, np.full(HORIZON, 1.10))
+
+    def test_a_midpoint_blends_its_neighbours(self):
+        """+2.5 °F sits between the -0 and +5 grid points."""
+        out = interpolate_scenario_factors(self._payload(), 2.5, 0.0, 0.0)
+
+        np.testing.assert_allclose(out, np.full(HORIZON, 1.025))
+
+    def test_all_three_axes_interpolate_together(self):
+        out = interpolate_scenario_factors(self._payload(), 2.5, 5.0, 100.0)
+
+        np.testing.assert_allclose(out, np.full(HORIZON, 1.0 + 0.025 + 0.05 + 0.1))
+
+    def test_the_untouched_position_is_a_no_op(self):
+        """All sliders at rest must return exactly 1.0, not 0.9998."""
+        out = interpolate_scenario_factors(self._payload(), 0.0, 0.0, 0.0)
+
+        np.testing.assert_allclose(out, np.ones(HORIZON))
+
+    def test_out_of_range_clamps_instead_of_extrapolating(self):
+        """The grid spans the sliders, so this means the UI outran the grid.
+
+        Holding the edge value is wrong by a bounded amount; extrapolating a
+        cubic wind-power response past its last measured point is not.
+        """
+        out = interpolate_scenario_factors(self._payload(), 500.0, 0.0, 0.0)
+
+        np.testing.assert_allclose(out, np.full(HORIZON, 1.20))
+
+    @pytest.mark.parametrize(
+        "payload",
+        [{}, {"axes": {}}, {"axes": {"temp_f": [0.0]}, "factors": []}, None],
+        ids=["empty", "no_axes", "no_factors", "none"],
+    )
+    def test_a_malformed_payload_returns_none_rather_than_raising(self, payload):
+        """The caller falls back to the heuristic; a raise would blank the tab."""
+        assert interpolate_scenario_factors(payload, 5.0, 0.0, 0.0) is None
+
+
+class TestFeatureFlag:
+    def test_the_grid_ships_disabled(self):
+        """Costed at ~26s added wall; the flag is how it gets switched off
+        without a deploy if the runtime-creep alert fires."""
+        assert config.FEATURE_FLAGS["scenario_grid"] is False
+
+    def test_the_horizon_matches_what_the_simulator_charts(self):
+        """`_scenario_demand_factor` documents a 24h baseline, and the 24 is
+        the entire reason this is affordable — 384 steps would not be."""
+        assert config.SCENARIO_GRID_HORIZON_HOURS == 24

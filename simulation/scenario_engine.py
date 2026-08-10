@@ -105,6 +105,53 @@ def simulate_scenario(
     return scenario_forecast, delta
 
 
+def apply_weather_deltas(
+    features: pd.DataFrame,
+    temp_delta_f: float = 0.0,
+    wind_delta_mph: float = 0.0,
+    solar_delta_wm2: float = 0.0,
+) -> pd.DataFrame:
+    """Offset the weather drivers by slider deltas and recompute what depends on them.
+
+    ``simulate_scenario`` sets weather columns to *absolute* values, which is
+    the right shape for a preset ("what if it were 105 °F"). The simulator's
+    sliders are *relative* ("what if it were 10 °F warmer than forecast"), and
+    a relative shift has to preserve the diurnal curve rather than flatten it
+    — setting ``temperature_2m`` to a constant would erase the day/night cycle
+    that drives the shape of the demand response.
+
+    Units are the frame's own: ``temperature_2m`` is °F and ``wind_speed_80m``
+    is mph (Open-Meteo is queried with ``temperature_unit=fahrenheit``, and
+    ``compute_wind_power`` documents its input as mph), so slider values apply
+    directly with no conversion.
+
+    Args:
+        features: Feature matrix. COPIED, never mutated — ADR-007.
+        temp_delta_f: Temperature offset in °F.
+        wind_delta_mph: Wind-speed offset in mph, clipped at zero (a negative
+            wind speed is not a physical state, and ``compute_wind_power``
+            cubes its input).
+        solar_delta_wm2: Shortwave-radiation offset in W/m², clipped at zero
+            for the same reason.
+
+    Returns:
+        A new frame with the drivers offset and every derived feature that
+        depends on them recomputed.
+    """
+    scenario = features.copy()
+
+    if temp_delta_f and "temperature_2m" in scenario.columns:
+        scenario["temperature_2m"] = scenario["temperature_2m"] + temp_delta_f
+    if wind_delta_mph and "wind_speed_80m" in scenario.columns:
+        scenario["wind_speed_80m"] = (scenario["wind_speed_80m"] + wind_delta_mph).clip(lower=0.0)
+    if solar_delta_wm2 and "shortwave_radiation" in scenario.columns:
+        scenario["shortwave_radiation"] = (scenario["shortwave_radiation"] + solar_delta_wm2).clip(
+            lower=0.0
+        )
+
+    return _recompute_derived_features(scenario)
+
+
 def compute_scenario_impact(
     scenario_forecast: np.ndarray,
     base_forecast: np.ndarray,
