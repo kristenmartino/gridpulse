@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for components/_callbacks_models.py: 95%</title>
+    <title>Coverage for components/_callbacks_models.py: 96%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>components<span class="sep">/</span>_callbacks_models.py</b>:
-            <span class="pc_cov">95%</span>
+            <span class="pc_cov">96%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">349 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">330<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">19<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">336<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">13<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_5f76c3b237c71a93__callbacks_overview_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-10 21:37 +0000
+            created at 2026-08-10 22:16 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -1035,15 +1035,15 @@
     <p class="run run2"><span class="n"><a id="t953" href="#t953">953</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t954" href="#t954">954</a></span><span class="t">    <span class="key">def</span> <span class="nam">update_models_title</span><span class="op">(</span><span class="nam">region</span><span class="op">,</span> <span class="nam">active_tab</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t955" href="#t955">955</a></span><span class="t">        <span class="str">&quot;&quot;&quot;Page title for the Models tab.&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t956" href="#t956">956</a></span><span class="t">        <span class="key">if</span> <span class="nam">active_tab</span> <span class="op">!=</span> <span class="str">&quot;tab-models&quot;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t956" href="#t956">956</a></span><span class="t">        <span class="key">if</span> <span class="nam">active_tab</span> <span class="op">!=</span> <span class="str">&quot;tab-models&quot;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t957" href="#t957">957</a></span><span class="t">            <span class="key">return</span> <span class="nam">no_update</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t958" href="#t958">958</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t959" href="#t959">959</a></span><span class="t">        <span class="nam">region</span> <span class="op">=</span> <span class="nam">region</span> <span class="key">or</span> <span class="str">&quot;FPL&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t960" href="#t960">960</a></span><span class="t">        <span class="nam">region_name</span> <span class="op">=</span> <span class="nam">REGION_NAMES</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="nam">region</span><span class="op">,</span> <span class="nam">region</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t961" href="#t961">961</a></span><span class="t">        <span class="key">return</span> <span class="nam">build_page_title</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t962" href="#t962">962</a></span><span class="t">            <span class="str">&quot;Models&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t963" href="#t963">963</a></span><span class="t">            <span class="fst">f&quot;</span><span class="fst">Forecast accuracy, residuals, and feature importance &#183; </span><span class="op">{</span><span class="nam">region_name</span><span class="op">}</span><span class="fst">&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis mis2 show_mis"><span class="n"><a id="t964" href="#t964">964</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t959" href="#t959">959</a></span><span class="t">        <span class="nam">region</span> <span class="op">=</span> <span class="nam">region</span> <span class="key">or</span> <span class="str">&quot;FPL&quot;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t960" href="#t960">960</a></span><span class="t">        <span class="nam">region_name</span> <span class="op">=</span> <span class="nam">REGION_NAMES</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="nam">region</span><span class="op">,</span> <span class="nam">region</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t961" href="#t961">961</a></span><span class="t">        <span class="key">return</span> <span class="nam">build_page_title</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t962" href="#t962">962</a></span><span class="t">            <span class="str">&quot;Models&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t963" href="#t963">963</a></span><span class="t">            <span class="fst">f&quot;</span><span class="fst">Forecast accuracy, residuals, and feature importance &#183; </span><span class="op">{</span><span class="nam">region_name</span><span class="op">}</span><span class="fst">&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t964" href="#t964">964</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t965" href="#t965">965</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t966" href="#t966">966</a></span><span class="t">    <span class="op">@</span><span class="nam">app</span><span class="op">.</span><span class="nam">callback</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t967" href="#t967">967</a></span><span class="t">        <span class="nam">Output</span><span class="op">(</span><span class="str">&quot;models-leaderboard&quot;</span><span class="op">,</span> <span class="str">&quot;children&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
@@ -1054,9 +1054,9 @@
     <p class="run run2"><span class="n"><a id="t972" href="#t972">972</a></span><span class="t">    <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t973" href="#t973">973</a></span><span class="t">    <span class="key">def</span> <span class="nam">update_models_leaderboard</span><span class="op">(</span><span class="nam">region</span><span class="op">,</span> <span class="nam">active_tab</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t974" href="#t974">974</a></span><span class="t">        <span class="str">&quot;&quot;&quot;5-up MetricsBar leaderboard &#8212; one column per model with MAPE.&quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t975" href="#t975">975</a></span><span class="t">        <span class="key">if</span> <span class="nam">active_tab</span> <span class="op">!=</span> <span class="str">&quot;tab-models&quot;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t975" href="#t975">975</a></span><span class="t">        <span class="key">if</span> <span class="nam">active_tab</span> <span class="op">!=</span> <span class="str">&quot;tab-models&quot;</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="mis show_mis"><span class="n"><a id="t976" href="#t976">976</a></span><span class="t">            <span class="key">return</span> <span class="nam">no_update</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t977" href="#t977">977</a></span><span class="t">        <span class="key">return</span> <span class="nam">_build_models_leaderboard</span><span class="op">(</span><span class="nam">region</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t977" href="#t977">977</a></span><span class="t">        <span class="key">return</span> <span class="nam">_build_models_leaderboard</span><span class="op">(</span><span class="nam">region</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t978" href="#t978">978</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t979" href="#t979">979</a></span><span class="t">    <span class="op">@</span><span class="nam">app</span><span class="op">.</span><span class="nam">callback</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t980" href="#t980">980</a></span><span class="t">        <span class="nam">Output</span><span class="op">(</span><span class="str">&quot;models-drift-panel&quot;</span><span class="op">,</span> <span class="str">&quot;children&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
@@ -1308,7 +1308,7 @@
             <a class="nav" href="z_5f76c3b237c71a93__callbacks_overview_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-10 21:37 +0000
+            created at 2026-08-10 22:16 +0000
         </p>
     </div>
 </footer>
