@@ -1,11 +1,21 @@
-"""
-E2E tests for dashboard rendering.
+"""Import-level smoke tests for the dashboard's rendering surface.
 
-Tests that the 5 visible tabs (Overview / US Grid / Forecast / Risk / Models)
-render without errors, persona switching produces correct KPIs and welcome
-cards, and scenario presets are well-formed.
+Calls each tab's ``layout()`` and the shared card builders directly and
+asserts they construct without raising. No browser, no HTTP client, no Dash
+test server, **and no callbacks fire** — nothing here exercises a user flow
+end to end.
 
-These tests use Dash's built-in testing utilities (no browser needed).
+**The name of this directory oversells what is in it (#399).** The previous
+version of this docstring claimed these tests "use Dash's built-in testing
+utilities"; they do not, and never did — there is no ``dash.testing``,
+``dash_duo`` or Flask ``test_client`` anywhere under ``tests/``. Corrected
+rather than left, because a false claim about test coverage is worse than
+thin coverage: it stops anyone looking.
+
+What that means for the reader: passing here proves these functions *run*.
+It does not prove a tab renders in a browser, that a callback fires, or that
+a region switch loads anything. #399 tracks whether to add a real driver or
+rename the tier to match what it does.
 """
 
 
@@ -40,6 +50,59 @@ class TestTabRendering:
 
         result = layout()
         assert result is not None
+
+    def test_tab_us_grid_renders(self):
+        """#399: US Grid had NO coverage here while the flow table claimed all 5.
+
+        It is the densest rendering surface in the product — the 51-BA
+        choropleth, the polygon layer, interchange chips and stress KPIs — and
+        it was the one tab nothing touched.
+        """
+        from components.tab_us_grid import layout
+
+        result = layout()
+        assert result is not None
+
+    def test_us_grid_layout_declares_every_id_its_callbacks_target(self):
+        """The contract that actually breaks: a renamed id silently orphans a callback.
+
+        CLAUDE.md's UI rule is "preserve IDs unless intentionally refactoring
+        callbacks", and nothing enforced it. Dash does not raise on an Output
+        whose id is absent from the layout — the callback just never runs and
+        the panel renders empty forever. This asserts the real contract rather
+        than ``is not None``.
+        """
+        import pathlib
+        import re
+
+        from components.tab_us_grid import layout
+
+        source = pathlib.Path("components/_callbacks_us_grid.py").read_text()
+        targeted = {
+            m
+            for m in re.findall(r'Output\("([a-z0-9-]+)"', source)
+            # Shell-level ids live in components/layout.py, not this tab.
+            if m not in {"dashboard-tabs", "region-selector"}
+        }
+        assert targeted, "expected to find US Grid callback Outputs"
+
+        declared: set[str] = set()
+
+        def walk(node):
+            if node is None or isinstance(node, str):
+                return
+            if isinstance(node, (list, tuple)):
+                for c in node:
+                    walk(c)
+                return
+            ident = getattr(node, "id", None)
+            if isinstance(ident, str):
+                declared.add(ident)
+            walk(getattr(node, "children", None))
+
+        walk(layout())
+        missing = targeted - declared
+        assert not missing, f"callback Outputs with no id in the layout: {sorted(missing)}"
 
     def test_main_layout_renders(self):
         from components.layout import build_layout

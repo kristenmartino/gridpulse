@@ -17,6 +17,14 @@ Defines coverage targets, test scope, and critical user flows.
    ╱──────────────────╲
 ```
 
+> **Measured 2026-08-10, against the shape above: unit 3,034 (93.0%),
+> integration 204 (6.3%), e2e 23 (0.7%) of 3,261 collected.** At the intended
+> 15%, the e2e tier would hold ~490 tests; it holds 23, in one file. The
+> percentages above are the *target*, not a description of the tree — stated
+> here so a reader does not mistake one for the other. Reconciling them is
+> [#399](https://github.com/kristenmartino/gridpulse/issues/399): either rebalance the suite or restate the
+> target. This note takes no position on which.
+
 ## Coverage Targets
 
 | Layer        | Target | Scope                                  | Speed   |
@@ -69,17 +77,22 @@ Test data flow between components.
 
 ## E2E Tests (`tests/e2e/`)
 
-Test complete user flows from UI to rendered output.
+> **This tier does not currently test end to end, and the table below says so
+> (#399).** Everything in `tests/e2e/` calls functions directly — no browser,
+> no HTTP client, no Dash test server, and no callbacks fire. There is no
+> `dash.testing`, `dash_duo` or Flask `test_client` anywhere under `tests/`.
+> The rows are described as what they actually assert; #399 tracks whether to
+> add a real driver or rename the tier.
 
-### Critical User Flows
+### What the tier actually asserts
 
-| Flow | Description | Tests |
+| Flow | What it really does | Tests |
 |------|-------------|-------|
-| Tab Render | All 5 visible tabs render without errors | test_dashboard_render.py |
-| Persona Switch | All 4 personas produce valid welcome + KPIs | test_dashboard_render.py |
-| Region Switch | All 51 BAs load data successfully | test_dashboard_render.py |
-| Scenario Presets | All 6 presets apply valid overrides (dormant) | test_dashboard_render.py |
-| Card Components | KPI, alert, welcome, chart cards render | test_dashboard_render.py |
+| Tab Render | Calls each of the 5 tabs' `layout()` and asserts it constructs. **US Grid was missing entirely until #399** and now also asserts every id its callbacks target is present — a renamed id orphans a callback silently, since Dash does not raise on an Output with no matching layout id. | test_dashboard_render.py |
+| Persona Switch | Asserts the 4 persona configs produce welcome cards and carry valid default tabs. Does not switch anything. | test_dashboard_render.py |
+| Region Switch | Asserts `generate_demo_demand` / `_weather` / `_generation` return well-formed frames for all 51 BAs. **This is the synthetic demo generator, not the real data path** — the row previously read "All 51 BAs load data successfully", which is not what it checks. | test_dashboard_render.py |
+| Scenario Presets | Asserts the 6 presets in `simulation/presets.py` are well-formed. That module has **no live UI importer** — the shipped Scenarios panel uses the linear heuristic — so this covers code the product does not run. | test_dashboard_render.py |
+| Card Components | Calls the KPI / alert / welcome / chart card builders and asserts they construct. | test_dashboard_render.py |
 
 ## Test Naming Convention
 
