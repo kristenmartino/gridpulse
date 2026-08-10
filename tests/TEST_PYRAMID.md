@@ -38,15 +38,28 @@ comparatively little.
 
 ## Coverage Targets
 
-| Layer        | Target | Scope                                       | Speed   |
-|-------------|--------|---------------------------------------------|---------|
-| Unit         | 80%+   | Pure functions, models, config, utils       | < 45s   |
-| Integration  | 70%+   | Data pipeline, callback dispatch, wiring    | < 60s   |
-| Smoke        | every tab + card builder | Constructs without raising  | < 5s |
+| Layer        | Coverage target | Scope                                  | Speed budget | Last measured |
+|-------------|--------|---------------------------------------------|---------|---------|
+| Unit         | 80%+   | Pure functions, models, config, utils       | < 60s   | **45–47s** |
+| Integration  | 70%+   | Data pipeline, callback dispatch, wiring    | < 30s   | **25.0s** |
+| Smoke        | every tab + card builder | Constructs without raising | < 5s | **1.0s** |
+
+*Measured 2026-08-10 at `5fed8ee`, `pytest tests/<tier> -q`. Re-measure rather
+than trust the column.*
 
 *No percentage-of-suite target. The previous 55/30/15 was never pursued and
 its only effect was to make the tree look broken against a number nobody was
 working toward.*
+
+**On the speed budgets (#399 finding 2).** Both bottom-tier budgets were
+breached when the issue was filed — unit **38.5s against < 10s**, integration
+**43.5s against < 30s**. The unit budget is restated to < 60s rather than
+defended: 3,041 tests cannot run in 10s, the number was never derived from
+anything, and a budget nobody can meet is not a budget. Integration moved the
+other way and now **meets its original < 30s** unchanged, so that one stands.
+The measured column exists because the original failure was not the budgets —
+it was that nothing re-measured them, so they drifted from reality in silence
+for months.
 
 ## What is not covered
 
