@@ -62,6 +62,45 @@ def compute_ensemble_weights(mape_scores: dict[str, float]) -> dict[str, float]:
     return weights
 
 
+def resolve_ensemble_weights(
+    members: list[str] | set[str],
+    mape_scores: dict[str, float | None] | None,
+) -> tuple[dict[str, float], str]:
+    """Decide the weights for a given ensemble membership. One rule, two callers.
+
+    Returns ``(weights, rule)`` where ``rule`` is ``"inverse_mape_cubed"`` or
+    ``"equal"``, normalized to sum to 1 over exactly ``members``.
+
+    **P2-16 (#273): this exists so training and scoring cannot disagree.**
+    They previously each decided membership *and* weighting independently —
+    training always applied inverse-MAPE³ over whichever models produced a
+    holdout, while scoring applied it only when *every* predicting model had a
+    MAPE and otherwise fell back to equal weights. So the persisted ensemble
+    metric could describe an MAPE³-weighted blend of one membership while
+    production served an equal-weighted blend of another, under the same name.
+    Membership still differs by necessity — training has holdout payloads,
+    scoring has forecast arrays — but the *rule* applied to a membership is now
+    shared, and the caller records which membership it used.
+
+    Cubed weights require a usable MAPE for **every** member. Partial coverage
+    falls back to equal weights rather than silently concentrating the blend on
+    whichever models happen to have been measured.
+    """
+    names = sorted(members)
+    if not names:
+        return {}, "equal"
+    usable = {
+        n: float(v)
+        for n, v in (mape_scores or {}).items()
+        if n in names and v is not None and np.isfinite(v) and v > 0
+    }
+    if len(usable) == len(names):
+        weights = compute_ensemble_weights(usable)
+        total = sum(weights.values()) or 1.0
+        return {k: v / total for k, v in weights.items()}, "inverse_mape_cubed"
+    return {n: 1.0 / len(names) for n in names}, "equal"
+
+
 def ensemble_combine(
     forecasts: dict[str, np.ndarray],
     weights: dict[str, float] | None = None,

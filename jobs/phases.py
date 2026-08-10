@@ -1531,7 +1531,7 @@ def predict_and_write_forecast(
             Persisted as the ``model_metrics`` field on the Redis payload.
     """
     from data.redis_client import persist, redis_key
-    from models.ensemble import compute_ensemble_weights, ensemble_combine
+    from models.ensemble import ensemble_combine, resolve_ensemble_weights
 
     region = data.region
     if not models:
@@ -1616,24 +1616,23 @@ def predict_and_write_forecast(
                 if m is not None and m > 0 and np.isfinite(m):
                     mape_input[name] = float(m)
             try:
-                # Only inverse-MAPE-weight when EVERY predicting model has a
-                # valid MAPE. Partial coverage silently degrades the ensemble
-                # to whichever model happens to have its MAPE recorded — fall
-                # back to equal weights so each predicting model contributes.
-                if mape_input and len(mape_input) == len(predictions_by_model):
-                    ensemble_weights = compute_ensemble_weights(mape_input)
-                    total = sum(ensemble_weights.values()) or 1.0
-                    ensemble_weights = {k: v / total for k, v in ensemble_weights.items()}
-                else:
-                    n = len(predictions_by_model)
-                    ensemble_weights = {name: 1.0 / n for name in predictions_by_model}
-                    if mape_input:
-                        log.info(
-                            "scoring_ensemble_equal_weights_fallback",
-                            region=region,
-                            have_mape=sorted(mape_input.keys()),
-                            missing_mape=sorted(set(predictions_by_model) - set(mape_input)),
-                        )
+                # P2-16 (#273): the weighting rule is now shared with the
+                # training job via ``resolve_ensemble_weights`` — cubed weights
+                # only when EVERY predicting model has a usable MAPE, equal
+                # weights otherwise. Membership still differs by necessity
+                # (training has holdout payloads, scoring has forecast arrays),
+                # so the composition actually served is recorded on the payload
+                # and compared against the persisted one below.
+                ensemble_weights, weight_rule = resolve_ensemble_weights(
+                    list(predictions_by_model), mape_input
+                )
+                if weight_rule == "equal" and mape_input:
+                    log.info(
+                        "scoring_ensemble_equal_weights_fallback",
+                        region=region,
+                        have_mape=sorted(mape_input.keys()),
+                        missing_mape=sorted(set(predictions_by_model) - set(mape_input)),
+                    )
                 # Floored inputs make the weighted blend non-negative already;
                 # clip again so the guarantee survives any future change to
                 # ensemble_combine. (#281)
@@ -1730,6 +1729,26 @@ def predict_and_write_forecast(
             redis_payload["ensemble_weights"] = {
                 k: round(v, 4) for k, v in ensemble_weights.items()
             }
+            # P2-16 (#273): publish the composition actually SERVED, and warn
+            # when the persisted holdout metric describes a different one. The
+            # metric and the served blend are computed from different inputs
+            # by necessity, so they can legitimately differ — what must never
+            # happen again is differing silently under one name.
+            redis_payload["ensemble_composition"] = {
+                "members": sorted(ensemble_weights),
+                "weight_rule": weight_rule,
+            }
+            persisted = ((model_metrics or {}).get("ensemble") or {}) if model_metrics else {}
+            persisted_members = persisted.get("members")
+            if persisted_members and sorted(persisted_members) != sorted(ensemble_weights):
+                log.info(
+                    "ensemble_composition_divergence",
+                    region=region,
+                    served=sorted(ensemble_weights),
+                    persisted_metric=sorted(persisted_members),
+                    served_rule=weight_rule,
+                    persisted_rule=persisted.get("weight_rule"),
+                )
         if horizon_guard:
             redis_payload["horizon_guard"] = horizon_guard
 

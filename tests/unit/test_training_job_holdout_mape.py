@@ -818,3 +818,130 @@ class TestResumeBackfillsMissingEnsemble:
             "prophet": "v1",
             "arima": "v1",
         }
+
+
+class TestNoCvSubstitution:
+    """P2-15 (#273): holdout and CV are distinct, never interchangeable."""
+
+    def _region_data(self):
+        ts = pd.date_range("2026-01-01", periods=100, freq="h", tz="UTC")
+        df = pd.DataFrame({"timestamp": ts, "demand_mw": np.full(100, 1000.0), "hour": ts.hour})
+
+        class _RD:
+            region = "TEST"
+            featured_df = df
+            demand_df = df
+            weather_df = df
+
+        return _RD()
+
+    def test_missing_holdout_publishes_none_not_cv(self, monkeypatch) -> None:
+        """The old code did ``holdout.mape or cv_mape`` and shipped CV as holdout."""
+        import jobs.training_job as tj
+
+        captured = {}
+
+        def _fake_save(**kw):
+            captured.update(kw)
+            return "v1"
+
+        monkeypatch.setattr(tj, "save_model", _fake_save)
+        monkeypatch.setattr(tj, "_compute_data_hash", lambda rd: "h")
+        monkeypatch.setattr(tj.phases, "serve_path_gate", lambda *a, **k: {"passed": True})
+        monkeypatch.setattr(
+            "models.xgboost_model.train_xgboost",
+            lambda df, **kw: {"model": object(), "cv_scores": [3.0, 5.0]},
+        )
+
+        tj._train_xgboost(self._region_data(), holdout=None)
+
+        assert captured["mape"] is None, "CV must not be substituted for a missing holdout"
+        assert captured["extra"]["cv_mape"] == pytest.approx(4.0)
+        assert captured["extra"]["mape_source"] is None
+
+    def test_zero_holdout_mape_is_not_falsy_fallback(self, monkeypatch) -> None:
+        """``or`` treated a perfect 0.0 holdout as missing and fell through to CV."""
+        import jobs.training_job as tj
+
+        captured = {}
+        monkeypatch.setattr(tj, "save_model", lambda **kw: captured.update(kw) or "v1")
+        monkeypatch.setattr(tj, "_compute_data_hash", lambda rd: "h")
+        monkeypatch.setattr(tj.phases, "serve_path_gate", lambda *a, **k: {"passed": True})
+        monkeypatch.setattr(
+            "models.xgboost_model.train_xgboost",
+            lambda df, **kw: {"model": object(), "cv_scores": [9.0]},
+        )
+
+        tj._train_xgboost(
+            self._region_data(),
+            holdout={"metrics": {"mape": 0.0, "rmse": 0.0, "mae": 0.0, "r2": 1.0}},
+        )
+        assert captured["mape"] == 0.0
+        assert captured["extra"]["mape_source"] == "holdout"
+
+    def test_holdout_present_is_labelled_and_wins(self, monkeypatch) -> None:
+        import jobs.training_job as tj
+
+        captured = {}
+        monkeypatch.setattr(tj, "save_model", lambda **kw: captured.update(kw) or "v1")
+        monkeypatch.setattr(tj, "_compute_data_hash", lambda rd: "h")
+        monkeypatch.setattr(tj.phases, "serve_path_gate", lambda *a, **k: {"passed": True})
+        monkeypatch.setattr(
+            "models.xgboost_model.train_xgboost",
+            lambda df, **kw: {"model": object(), "cv_scores": [1.0]},
+        )
+        tj._train_xgboost(
+            self._region_data(),
+            holdout={"metrics": {"mape": 7.5, "rmse": 1.0, "mae": 1.0, "r2": 0.9}},
+        )
+        assert captured["mape"] == pytest.approx(7.5)
+        assert captured["extra"]["cv_mape"] == pytest.approx(1.0)
+        assert captured["extra"]["mape_source"] == "holdout"
+
+
+class TestSharedEnsembleWeightRule:
+    """P2-16 (#273): one rule, and the metric records what it describes."""
+
+    def test_cubed_only_when_every_member_has_a_mape(self) -> None:
+        from models.ensemble import resolve_ensemble_weights
+
+        w, rule = resolve_ensemble_weights(["a", "b"], {"a": 1.0, "b": 5.0})
+        assert rule == "inverse_mape_cubed"
+        assert w["a"] > w["b"]
+        assert sum(w.values()) == pytest.approx(1.0)
+
+    def test_partial_coverage_falls_back_to_equal(self) -> None:
+        from models.ensemble import resolve_ensemble_weights
+
+        w, rule = resolve_ensemble_weights(["a", "b"], {"a": 1.0})
+        assert rule == "equal"
+        assert w == {"a": pytest.approx(0.5), "b": pytest.approx(0.5)}
+
+    def test_unusable_mapes_do_not_count_as_coverage(self) -> None:
+        from models.ensemble import resolve_ensemble_weights
+
+        for bad in (0.0, -1.0, float("nan"), float("inf"), None):
+            _, rule = resolve_ensemble_weights(["a", "b"], {"a": 1.0, "b": bad})
+            assert rule == "equal", f"{bad!r} must not count as a usable MAPE"
+
+    def test_metric_records_its_own_composition(self) -> None:
+        from jobs.training_job import _ensemble_holdout_metrics
+
+        n = 168
+        actual = np.full(n, 50_000.0)
+        per_model = {
+            "prophet": {
+                "metrics": {"mape": 5.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.05,
+                "actual": actual,
+            },
+            "xgboost": {
+                "metrics": {"mape": 1.0, "rmse": 1.0, "mae": 1.0, "r2": 0.0},
+                "forecast": actual * 1.01,
+                "actual": actual,
+            },
+            "arima": None,  # failed this run — must not appear in members
+        }
+        metrics, _ = _ensemble_holdout_metrics(per_model)
+        assert metrics["members"] == ["prophet", "xgboost"]
+        assert metrics["weight_rule"] == "inverse_mape_cubed"
