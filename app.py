@@ -157,6 +157,16 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
     {%css%}
   </head>
   <body>
+    <noscript>
+      <nav aria-label="Site">
+        <ul>
+          <li><a href="/about">About GridPulse</a></li>
+          <li><a href="/benchmark">Forecast benchmark</a></li>
+        </ul>
+      </nav>
+      <p>GridPulse is an interactive dashboard and needs JavaScript. The two
+         pages above are static and work without it.</p>
+    </noscript>
     {%app_entry%}
     <footer>{%config%}{%scripts%}{%renderer%}</footer>
   </body>
@@ -171,6 +181,13 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
 # og:image and twitter:image were RELATIVE until 2026-08-11, which meant every
 # share of the production URL unfurled without a card on Facebook, LinkedIn,
 # Slack and X. The Open Graph spec requires absolute URLs.
+#
+# The <noscript> nav is the only link out of this page that a non-rendering
+# agent can see. app.layout is served as JSON from /_dash-layout and rendered
+# client-side, so every href inside build_layout() is invisible to the
+# Slack/LinkedIn/X unfurlers and to most LLM fetchers. Not cloaking: same
+# links and same anchor text as the footer nav JS users get. It also fixes a
+# real courtesy gap — a no-JS visitor previously got a blank page with no exit.
 from config import PUBLIC_BASE_URL  # noqa: E402
 
 app.index_string = _INDEX_TEMPLATE.replace("__BASE__", PUBLIC_BASE_URL)

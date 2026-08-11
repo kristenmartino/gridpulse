@@ -380,11 +380,15 @@ body.briefing .nav-tabs {
     display: none;
 }
 
-/* Hide secondary controls and toggle strips in projection */
+/* Hide secondary controls and toggle strips in projection.
+   .gp-footer__nav is navigation chrome and belongs here; the footer's
+   ATTRIBUTION is not, and deliberately survives projection — Open-Meteo's
+   CC-BY-4.0 credit is a licence obligation, not decoration. */
 body.briefing .gp-panel-toggles,
 body.briefing .gp-controls-row,
 body.briefing .gp-as-of-chip,
 body.briefing .freshness-badge,
+body.briefing .gp-footer__nav,
 body.briefing .modebar,
 body.briefing .modebar-container {
     display: none !important;
@@ -735,17 +739,27 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 }
 
 /* CC-BY attribution link (Open-Meteo) — inherits the muted footer tone,
-   underline on hover/focus only so it reads as text until sought. */
-.gp-footer__source-link {
+   underline on hover/focus only so it reads as text until sought.
+   .gp-footer__nav-link joins the same rule rather than introducing a second
+   visual language: the cross-page nav should read exactly as calm as the
+   attribution it sits beside (#222 — product identity, no accent colour). */
+.gp-footer__source-link,
+.gp-footer__nav-link {
     color: inherit;
     text-decoration: none;
     border-bottom: 1px dotted currentColor;
 }
 
 .gp-footer__source-link:hover,
-.gp-footer__source-link:focus-visible {
+.gp-footer__source-link:focus-visible,
+.gp-footer__nav-link:hover,
+.gp-footer__nav-link:focus-visible {
     color: var(--text-secondary);
     text-decoration: none;
+}
+
+.gp-footer__nav {
+    letter-spacing: 0.04em;
 }
 
 /* MetricsBar 4-up variant (Forecast tab) */

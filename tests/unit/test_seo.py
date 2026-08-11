@@ -25,6 +25,8 @@ from seo import PUBLIC_PAGES, SITEMAP_EXCLUDED, seo_bp
 _CANONICAL_BASE = "https://gridpulse.kristenmartino.ai"
 _RUN_APP_BASE = "https://gridpulse-abc123-ue.a.run.app"
 
+_WEB_DIR = Path(__file__).resolve().parents[2] / "web"
+
 _SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 
@@ -323,6 +325,112 @@ class TestNotFoundDoesNotBreakTheApp:
         resp = client.get("/assets/definitely-missing.png")
         assert resp.status_code == 404
         assert "immutable" not in resp.headers.get("Cache-Control", "")
+
+
+class TestInternalLinkGraph:
+    """The two content-rich pages were orphans.
+
+    ``components/`` contained zero ``href="/..."`` links, so ``/`` linked to
+    neither ``/about`` nor ``/benchmark``, and ``/about`` did not link to
+    ``/benchmark`` at all. A crawler entering at ``/`` found a JS-only shell
+    and no path onward.
+
+    Three layers, each for a different consumer: the sitemap (machines, no JS
+    needed), the ``<noscript>`` nav (agents that fetch but do not render), and
+    the footer nav (humans). This class covers the last two.
+    """
+
+    @staticmethod
+    def _footer_html(**kwargs) -> str:
+        from dash import html as dash_html
+
+        from components.cards import build_page_footer
+
+        def walk(node) -> str:
+            if isinstance(node, str):
+                return node
+            if isinstance(node, list):
+                return "".join(walk(n) for n in node)
+            out = ""
+            if isinstance(node, dash_html.A):
+                out += f"href={getattr(node, 'href', '')!r} "
+            children = getattr(node, "children", None)
+            if children is not None:
+                out += walk(children)
+            return out
+
+        return walk(build_page_footer(**kwargs))
+
+    def test_footer_links_to_both_public_pages(self) -> None:
+        rendered = self._footer_html()
+        assert "'/about'" in rendered
+        assert "'/benchmark'" in rendered
+
+    def test_links_can_be_suppressed(self) -> None:
+        """An escape hatch for any surface that should not carry navigation,
+        without forcing a second footer component into existence."""
+        rendered = self._footer_html(links=False)
+        assert "'/about'" not in rendered
+        assert "'/benchmark'" not in rendered
+
+    def test_attribution_survives_without_links(self) -> None:
+        """Open-Meteo's CC-BY-4.0 credit is a licence obligation and must not
+        be collateral damage of turning navigation off."""
+        rendered = self._footer_html(links=False)
+        assert "open-meteo" in rendered.lower()
+
+    def test_existing_keyword_call_site_still_builds(self) -> None:
+        """tab_models.py passes sources= and note=; the new parameter is
+        additive and must not have changed that call's meaning."""
+        rendered = self._footer_html(
+            sources=["EIA", "Open-Meteo"], note="Backtests run on holdout data."
+        )
+        assert "open-meteo" in rendered.lower()
+        assert "'/about'" in rendered
+
+    def test_noscript_nav_is_in_the_raw_html(self) -> None:
+        """The footer links are rendered client-side from /_dash-layout JSON,
+        so they are invisible to the Slack/LinkedIn/X unfurlers and to most
+        LLM fetchers. The <noscript> block is the only exit from `/` those
+        agents can see — and it is a real courtesy fix too, since a no-JS
+        visitor previously got a blank page.
+        """
+        import app as app_module
+
+        idx = app_module.app.index_string
+        assert "<noscript>" in idx
+        noscript = idx.split("<noscript>")[1].split("</noscript>")[0]
+        assert 'href="/about"' in noscript
+        assert 'href="/benchmark"' in noscript
+
+    def test_about_page_links_to_the_benchmark(self) -> None:
+        """The single most valuable internal link on the site, and it did not
+        exist: /benchmark linked to /about but never the reverse, so the
+        benchmark was reachable only from GitHub."""
+        body = (_WEB_DIR / "landing.html").read_text(encoding="utf-8")
+        assert 'href="/benchmark"' in body
+
+    def test_benchmark_page_links_back(self) -> None:
+        body = (_WEB_DIR / "benchmark.html").read_text(encoding="utf-8")
+        assert 'href="/about"' in body
+        assert 'href="/"' in body
+
+    def test_internal_page_links_stay_in_the_same_tab(self) -> None:
+        """The convention test_landing.py:75 already pins: external links get
+        target=_blank + rel=noopener, internal navigation does not.
+
+        ``/api/`` paths are exempt and that is deliberate — they serve raw
+        JSON, not a page, so sending the reader there in the same tab would
+        navigate them out of the document they were reading.
+        """
+        import re
+
+        for page in ("landing.html", "benchmark.html"):
+            body = (_WEB_DIR / page).read_text(encoding="utf-8")
+            for tag in re.findall(r'<a [^>]*href="/[^"]*"[^>]*>', body):
+                if 'href="/api/' in tag:
+                    continue
+                assert "target=" not in tag, f"{page}: {tag}"
 
 
 class TestConfig:
