@@ -64,10 +64,10 @@ laptop; a single module is ≈ 1 min.
 | `data/quality.py` | 188 | 164 | 20 | 4 | 87.2% | **89.1%** | ↑ 71.6% |
 | `models/skill.py` | 194 | 172 | 18 | 4 | 88.7% | **90.5%** | ↑ 88.6% |
 | `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
-| `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
+| `simulation/scenario_engine.py` | 288 | 181 | 35 | 72 | 62.8% | **83.8%** | ↑ 77.1% |
 | `models/evaluation.py` | 373 | 320 | 49 | 4 | 85.8% | **86.7%** | ↑ 77.1% |
 | `models/ensemble.py` | 221 | 177 | 11 | 33 | 80.1% | **94.1%** | ↑ 91.6% |
-| **overall** | **2,460** | **2,013** | **257** | **190** | **81.8%** | **88.7%** | ↑ 88.4% |
+| **overall** | **2,510** | **2,067** | **256** | **187** | **82.4%** | **89.0%** | ↑ 88.7% |
 
 > **Three modules were re-run separately**, not one: `models/evaluation.py` in
 > #442, `models/skill.py` in #441, and `models/ensemble.py` in #445. The other
@@ -99,6 +99,7 @@ bought in different places:
 | #441 | one definition of the skill block + its last two survivors | +0.2 pts | **+1.9** |
 | #445 | the `ensemble` fallback + the warn-only bounds block | +0.8 pts | **+18.3** |
 | #484 | the usability boundary on `ensemble`'s new #451/#478 surface | +0.3 pts | **+2.5** |
+| #487 | `scenario_engine`'s live half — the part #458 put in production | +0.3 pts | **+6.7** |
 
 A 2,372-mutant denominator makes every real fix look like rounding error, which
 is exactly why the gate policy below is **per-module**. It is also why the
@@ -285,9 +286,39 @@ and `v / total` → `v * total` are all no-ops on a `total` that is 1.0 to float
 precision. Belt-and-braces renormalisation is a reasonable thing to write and
 an unkillable thing to mutate.
 
+**`simulation/scenario_engine.py` is no longer dormant, and the ledger said so
+for three days after it stopped being true.** #458 put `apply_weather_deltas`
+and `_recompute_derived_features` on the hourly scoring path — 81 calls per
+region, 51 regions — while this row still read "dormant". The module also grew
+238 → 288 mutants. **A module's dormancy is a fact about its callers, not a
+property of the module, and nothing re-checks it.**
+
+Split by caller rather than by count (#487):
+
+| | survivors | on the served path? |
+|---|---:|---|
+| `_run_ensemble` | 26 | no production caller |
+| `compute_scenario_impact` | 7 | no production caller |
+| `simulate_scenario` | 2 | no production caller |
+| `apply_weather_deltas` | 11 → **0** | **live** — scoring job, hourly, 51 BAs |
+| `_recompute_derived_features` | 1 → **0** | **live** |
+
+**Every survivor on the served path is now pinned; all 35 that remain are in
+code nothing calls.** That is a more useful closure statement than the 83.8%.
+
+The gap worth recording: **inverting the solar sign passed the entire suite.**
+`test_derived_features_follow_the_drivers` asserted
+`solar_capacity_factor > 0` off a 300 W/m² baseline, so a +200 delta that
+silently became −200 still left 100 W/m² and a positive factor. A relationship
+assertion over a lenient fixture cannot see a sign flip — the #426 finding
+again, this time in code written *by* the person who had just documented it.
+
 `_run_ensemble` still survives *everything*, including `forecasts = None` and
 `ensemble_combine(None, weights)`. That is not 26 findings. It is one function
-with no test — and one that does not run in production.
+with no test — and one that does not run in production. Note it is deliberately
+bypassed: `scenario_grid` uses the production recursive forecaster instead,
+because a scenario and a baseline from different inference paths report the gap
+between the paths as the response to weather (ADR-013).
 
 **Shape predicts value.** Grouping the 302 by what the mutation actually
 changed:

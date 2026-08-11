@@ -610,3 +610,113 @@ class TestImplausibleCells:
 
         assert payload["implausible_cells"] == []
         assert payload["origin_drift"] == 0.0
+
+
+class TestTheDeltasGoTheRightWayAndOnlyWhenAsked:
+    """`apply_weather_deltas` is live code — the scoring job runs it 81 times
+    per region, hourly, for 51 BAs (#458). These pin the parts of it that
+    mutation testing found unasserted (#487).
+
+    The gap that mattered: **inverting the solar sign passed the entire
+    suite.** `test_derived_features_follow_the_drivers` asserts
+    `solar_capacity_factor > 0` off a 300 W/m^2 baseline, so a +200 delta that
+    silently became -200 still left 100 W/m^2 and a positive factor. A
+    relationship assertion ("it went up") over a lenient fixture cannot see a
+    sign flip — the same shape as the #426 finding, in code I wrote.
+    """
+
+    @staticmethod
+    def _frame(n: int = 6, solar: float = 120.0, wind: float = 6.0) -> pd.DataFrame:
+        hours = np.arange(n)
+        return pd.DataFrame(
+            {
+                "temperature_2m": 70.0 + 5.0 * np.sin(hours / 24 * 2 * np.pi),
+                "hour_sin": np.sin(hours / 24 * 2 * np.pi),
+                "wind_speed_80m": np.full(n, wind),
+                "shortwave_radiation": np.full(n, solar),
+                "temperature_deviation": np.full(n, 2.0),
+            }
+        )
+
+    def test_each_driver_moves_by_exactly_its_delta(self):
+        """Values, not directions. A sign flip on any of the three survives an
+        assertion that only checks the derived feature became positive."""
+        base = self._frame()
+
+        out = apply_weather_deltas(base, 10.0, 4.0, 50.0)
+
+        np.testing.assert_allclose(out["temperature_2m"], base["temperature_2m"] + 10.0)
+        np.testing.assert_allclose(out["wind_speed_80m"], base["wind_speed_80m"] + 4.0)
+        np.testing.assert_allclose(out["shortwave_radiation"], base["shortwave_radiation"] + 50.0)
+
+    def test_a_negative_delta_lowers_the_driver(self):
+        """The other direction, on a fixture low enough that an inverted sign
+        would clip to zero rather than landing on another plausible number."""
+        base = self._frame(solar=120.0, wind=6.0)
+
+        out = apply_weather_deltas(base, -10.0, -4.0, -50.0)
+
+        np.testing.assert_allclose(out["temperature_2m"], base["temperature_2m"] - 10.0)
+        np.testing.assert_allclose(out["wind_speed_80m"], np.full(len(base), 2.0))
+        np.testing.assert_allclose(out["shortwave_radiation"], np.full(len(base), 70.0))
+
+    def test_the_clip_floor_is_zero_not_one(self):
+        """`clip(lower=0.0)`. At 1.0 a becalmed BA reports 1 mph of wind it does
+        not have, and `compute_wind_power` cubes its input."""
+        calm = self._frame(solar=10.0, wind=2.0)
+
+        out = apply_weather_deltas(calm, 0.0, -10.0, -200.0)
+
+        assert float(out["wind_speed_80m"].min()) == 0.0
+        assert float(out["shortwave_radiation"].min()) == 0.0
+
+    def test_a_zero_delta_leaves_its_driver_completely_alone(self):
+        """The guard is `if delta and column in ...`, not `or`.
+
+        With `or`, a zero delta still enters the branch — harmless on its own,
+        but the same mutation makes a NON-zero delta enter the branch when the
+        column is absent, and that raises. This pins the zero half; the next
+        test pins the missing-column half.
+        """
+        base = self._frame()
+
+        out = apply_weather_deltas(base, 0.0, 0.0, 0.0)
+
+        for col in ("temperature_2m", "wind_speed_80m", "shortwave_radiation"):
+            np.testing.assert_allclose(out[col], base[col])
+
+    @pytest.mark.parametrize("missing", ["temperature_2m", "wind_speed_80m", "shortwave_radiation"])
+    def test_a_missing_driver_column_is_skipped_rather_than_raising(self, missing):
+        """Reachable, not defensive: `_build_future_feature_frame` fills what it
+        can and a fetch failure can leave a driver absent. The grid runs after
+        the forecast is already persisted, so raising here would turn a written
+        forecast into a failed region (#268 -> #267)."""
+        frame = self._frame().drop(columns=[missing])
+
+        out = apply_weather_deltas(frame, 5.0, 5.0, 5.0)
+
+        assert missing not in out.columns
+        assert len(out) == len(frame)
+
+    def test_temp_x_hour_needs_both_of_its_inputs(self):
+        """`_recompute_derived_features` guards on temperature AND hour_sin.
+
+        Relaxed to `or`, a frame carrying one but not the other raises inside
+        the scoring job's forecast phase.
+        """
+        no_hour = self._frame().drop(columns=["hour_sin"])
+
+        out = apply_weather_deltas(no_hour, 5.0, 0.0, 0.0)
+
+        assert "temp_x_hour" not in out.columns
+
+    def test_the_defaults_are_no_change(self):
+        """Called with no deltas — the way a caller reads the signature — this
+        must be an identity on the drivers. Every existing caller passes all
+        three explicitly, so the published defaults were never executed."""
+        base = self._frame()
+
+        out = apply_weather_deltas(base)
+
+        for col in ("temperature_2m", "wind_speed_80m", "shortwave_radiation"):
+            np.testing.assert_allclose(out[col], base[col])
