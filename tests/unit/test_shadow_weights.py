@@ -184,6 +184,50 @@ class TestTheShadowMeasuresTheRightThing:
 
     @patch("data.redis_client.persist")
     @patch("data.redis_client.redis_get", return_value=None)
+    def test_the_skip_says_which_models_lack_a_shadow(self, _get, persist) -> None:
+        """The early guard is behaviourally redundant — assert its log instead.
+
+        Found by mutation testing: deleting the explicit membership check
+        changes nothing observable, because `resolve_ensemble_weights` then
+        returns rule "equal" and the rule check rejects it anyway. The guard
+        earns its place only through the log line, which is what tells an
+        operator WHICH models have no EWMA yet and therefore when the shadow
+        will start recording at all.
+
+        That makes this the "unobservable, not equivalent" category named in
+        docs/TEST_QUALITY.md — a survivor that no assertion on the return value
+        can reach. Same fix as there: capture the logs.
+        """
+        from unittest.mock import MagicMock
+
+        # Patch the module logger rather than using structlog.testing.capture_logs.
+        # capture_logs is defeated by a bound logger that was cached before it
+        # installed its processor, which makes it pass alone and fail inside the
+        # full suite depending on which test configured structlog first. This
+        # assertion does not depend on structlog's global state at all.
+        recorder = MagicMock()
+        with patch("jobs.phases.log", recorder):
+            assert not _write_shadow_weights(
+                region="FPL",
+                predictions_by_model={
+                    "xgboost": np.full(3, 100.0),
+                    "prophet": np.full(3, 200.0),
+                },
+                model_mapes_shadow={"xgboost": 2.0},
+                served_weights={"xgboost": 0.5, "prophet": 0.5},
+                rows=self._rows(),
+                demand_df=None,
+            )
+        calls = [
+            c for c in recorder.info.call_args_list if c.args[0] == "shadow_weights_incomplete"
+        ]
+        assert calls, f"expected shadow_weights_incomplete; got {recorder.info.call_args_list}"
+        assert calls[0].kwargs["missing"] == ["prophet"]
+        assert calls[0].kwargs["have"] == ["xgboost"]
+        persist.assert_not_called()
+
+    @patch("data.redis_client.persist")
+    @patch("data.redis_client.redis_get", return_value=None)
     def test_a_single_model_has_no_ensemble_to_shadow(self, _get, persist) -> None:
         assert not _write_shadow_weights(
             region="FPL",

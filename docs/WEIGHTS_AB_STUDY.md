@@ -157,11 +157,26 @@ check the bias constraint, because only production-quality forecasts have
 production-quality bias. The scheduled run was the right call about the wrong
 half of the experiment.
 
-### What would settle it
+### What would settle it — now building
 
-Arms measured on production-grade forecasts — either a shadow scoring pass that
-writes both weightings, or the per-arm training runs #451 originally specified.
-The WAPE half is already answered and would not need re-running.
+Arms measured on production-grade forecasts. Shipped as a **shadow pass**
+(#478) rather than the per-arm training runs #451 specified: both arms consume
+the same per-model forecast arrays, so the marginal cost over the served blend
+is one weighted sum.
+
+The scoring job now writes `gridpulse:shadow_weights:{region}` every tick —
+both weight vectors, both blends, and a bounded window of records pairing each
+settled hour's actual with **both** arms' predictions, graded by the same
+`models.drift` primitives that grade the served ensemble so neither arm gets a
+coverage advantage.
+
+`scripts/shadow_weights_eval.py` evaluates it, and **reports control bias
+first**: if the served arm also breaches ±2% on production forecasts, that is a
+finding about the fleet rather than about the weighting, and it stops rather
+than reporting a verdict. That is the wall this study hit, made structural.
+It refuses to decide before 14 days of records.
+
+The WAPE half is already answered and is explicitly out of scope there.
 
 ## Why the flag is off
 
