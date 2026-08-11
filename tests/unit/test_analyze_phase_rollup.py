@@ -189,3 +189,69 @@ class TestParsing:
 
     def test_empty_input_is_not_a_crash(self):
         assert mod.parse("   ") == []
+
+
+class TestOutlierConfound:
+    """The check this script did NOT have, added after it missed a real event.
+
+    The 2026-08-10T13:19 tick took 2.8x the median elapsed with
+    `eia_generation` at 4531.5s — a live EIA degradation — and the only
+    confound check keyed on `n != 51`, which that tick passed with all 51.
+
+    Excluding such ticks is the CONSERVATIVE direction: 13:19's
+    `weather_archive` was 6.4s, the LOWEST hit-arm value in the window, so
+    pooling it makes the cache look better than it is.
+    """
+
+    @staticmethod
+    def _tick_at(ts, elapsed, archive):
+        return _tick(
+            ts=ts,
+            elapsed=elapsed,
+            phases={"fetch": {"total_s": 400.0, "n": 51}},
+            substeps={"fetch_substeps": {"weather_archive": {"total_s": archive, "n": 51}}},
+        )
+
+    def _window(self):
+        """21 normal ticks plus the real 13:19 outlier."""
+        ticks = [self._tick_at(f"2026-08-10T{h:02d}:07:00Z", 400.0, 16.0) for h in range(1, 13)]
+        ticks += [self._tick_at(f"2026-08-10T{h:02d}:07:00Z", 400.0, 16.0) for h in range(14, 23)]
+        ticks.append(self._tick_at("2026-08-10T13:19:30Z", 1132.75, 6.4))
+        return ticks
+
+    def test_the_1319_tick_is_flagged(self):
+        import analyze_phase_rollup as m
+
+        ticks = self._window()
+        flagged = m.flag_outlier_ticks(ticks)
+        assert len(flagged) == 1
+        (outlier,) = [t for t in ticks if id(t) in flagged]
+        assert outlier.timestamp.startswith("2026-08-10T13:19")
+
+    def test_a_flagged_tick_is_kept_out_of_the_arms(self, capsys):
+        """And its exclusion is announced — never silent."""
+        import analyze_phase_rollup as m
+
+        ticks = self._window()
+        m.report_archive_arms(ticks, excluded=m.flag_outlier_ticks(ticks))
+        out = capsys.readouterr().out
+        assert "excluded as upstream events" in out
+        # 6.4 was the minimum; excluding it must not appear in the arm range
+        assert "6.4" not in out
+
+    def test_too_few_ticks_to_have_a_median_flags_nothing(self):
+        """Two ticks cannot establish what 'normal' is — guessing there would
+        invent a confound rather than find one."""
+        import analyze_phase_rollup as m
+
+        pair = [
+            self._tick_at("2026-08-10T01:07:00Z", 400.0, 16.0),
+            self._tick_at("2026-08-10T02:07:00Z", 1200.0, 6.0),
+        ]
+        assert m.flag_outlier_ticks(pair) == set()
+
+    def test_a_normal_window_flags_nothing(self):
+        import analyze_phase_rollup as m
+
+        ticks = [self._tick_at(f"2026-08-10T{h:02d}:07:00Z", 400.0 + h, 16.0) for h in range(1, 13)]
+        assert m.flag_outlier_ticks(ticks) == set()
