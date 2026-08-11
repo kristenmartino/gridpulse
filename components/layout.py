@@ -197,7 +197,6 @@ def build_layout() -> dbc.Container:
                 role="main",
             ),
             # Data Stores
-            dcc.Store(id="news-store"),
             dcc.Store(id="demand-store"),
             dcc.Store(id="weather-store"),
             dcc.Store(id="features-store"),

@@ -22,7 +22,7 @@ populated in three sub-steps:
 2. **Next:** Overview panels (drivers / generation / models leaderboard /
    risk / scenarios) — adds ~600 lines here.
 3. **Next:** Overview briefing surface (sparklines / briefing / digest /
-   spotlights / weather context / data-health / changes / news /
+   spotlights / weather context / data-health / changes /
    persona KPIs) — adds ~900 lines here.
 
 After all three land, the file is the single home for every
@@ -83,7 +83,6 @@ from components.cards import (
     build_kpi_row,
     build_metrics_bar,
     build_model_metrics_card,
-    build_news_feed,
     build_page_title,
 )
 from config import (
@@ -2570,24 +2569,6 @@ def _build_overview_digest(
     return build_insight_card(all_insights, persona_id, "Overview", max_insights=5)
 
 
-def _build_overview_news() -> html.Div:
-    """Fetch and render energy news for the overview tab."""
-    from data.news_client import fetch_energy_news
-
-    try:
-        articles = fetch_energy_news(page_size=10)
-        if not articles:
-            from data.news_client import _get_demo_news
-
-            articles = _get_demo_news()
-        return build_news_feed(articles)
-    except Exception as e:
-        log.error("overview_news_failed", error=str(e))
-        from data.news_client import _get_demo_news
-
-        return build_news_feed(_get_demo_news())
-
-
 def _build_persona_kpis(
     persona_id: str,
     region: str,
@@ -2946,7 +2927,6 @@ __all__ = [
     "_spotlight_trader",
     "_spotlight_model_accuracy",
     "_build_overview_digest",
-    "_build_overview_news",
     "_build_persona_kpis",
     # 10a — Callback registration
     "register_overview_callbacks",

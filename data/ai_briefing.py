@@ -5,7 +5,7 @@ Uses Anthropic Claude API to produce persona-specific, data-driven
 briefings for the Overview tab. Falls back to a deterministic
 rule-based summary when no API key is configured or the API fails.
 
-Cache: 15-minute TTL in SQLite (same pattern as news_client).
+Cache: 15-minute TTL in SQLite (the shared ``data.cache`` pattern).
 """
 
 from __future__ import annotations

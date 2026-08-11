@@ -509,7 +509,6 @@ Some older documentation may reference news-specific keys or older fallback assu
 │   ├── eia_client.py          # EIA client
 │   ├── weather_client.py      # Open-Meteo client
 │   ├── noaa_client.py         # NOAA/NWS client
-│   ├── news_client.py         # External news/signals client
 │   ├── preprocessing.py       # Data merge / align / validate
 │   ├── feature_engineering.py # Derived features
 │   ├── audit.py               # Forecast audit trail
