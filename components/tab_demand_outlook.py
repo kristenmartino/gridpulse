@@ -16,6 +16,7 @@ existing IDs as inner spans of MetricsBar cells / ModelMetricsCard slots.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from components.accessibility import model_display_name
 from components.cards import build_page_footer
 
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
@@ -49,13 +50,13 @@ def _model_segmented() -> html.Div:
     scoring job at ``jobs/phases.py:364`` writes only XGBoost output to
     ``gridpulse:forecast:{region}:1h``, and the v1 inline-compute fallback
     in ``_run_forecast_outlook`` is gated by ``REQUIRE_REDIS`` (returns a
-    warming state instead of training Prophet / ARIMA on the request
+    warming state instead of training Prophet / SARIMAX on the request
     thread). Surface only the option the data path can actually fulfill —
     in dev (``REQUIRE_REDIS=False``) all four are still trainable inline,
     so we keep the full segmented set there.
 
     Plan: lift the single-option restriction once the scoring job is
-    extended to write Prophet + ARIMA + Ensemble predictions to Redis
+    extended to write Prophet + SARIMAX + Ensemble predictions to Redis
     alongside XGBoost (option B in the post-redesign discussion).
     """
     # All four models now land in Redis via jobs/phases.py
@@ -64,10 +65,8 @@ def _model_segmented() -> html.Div:
     # scoring phase via inverse-MAPE weighting over each region's loaded
     # models — same options either way.
     options = [
-        {"label": "XGBoost", "value": "xgboost"},
-        {"label": "Prophet", "value": "prophet"},
-        {"label": "ARIMA", "value": "arima"},
-        {"label": "Ensemble", "value": "ensemble"},
+        {"label": model_display_name(key), "value": key}
+        for key in ("xgboost", "prophet", "arima", "ensemble")
     ]
 
     return html.Div(

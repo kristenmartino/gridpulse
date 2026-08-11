@@ -77,7 +77,7 @@ from components._callbacks_shared import (
     _latest_real_demand,
     _layout,
 )
-from components.accessibility import CB_PALETTE
+from components.accessibility import CB_PALETTE, model_display_name
 from components.cards import (
     build_insight_card,
     build_kpi_row,
@@ -682,7 +682,7 @@ def _build_overview_model_card(region: str) -> html.Div:
         "MAE": _fmt("mae", ",.0f", " MW"),
         "R²": _fmt("r2", ".3f"),
     }
-    name = "XGBoost" if primary_key == "xgboost" else primary_key.title()
+    name = model_display_name(primary_key)
     badge = "trained" if is_trained(region) else "simulated"
 
     caption = None
@@ -694,7 +694,7 @@ def _build_overview_model_card(region: str) -> html.Div:
         }
         if single:
             best_key = min(single, key=single.get)
-            best_name = "XGBoost" if best_key == "xgboost" else best_key.title()
+            best_name = model_display_name(best_key)
             caption = f"Production blend — most accurate single model: {best_name} {single[best_key]:.1f}%"
         else:
             caption = "Production blend — combines all models for stability."
@@ -1342,13 +1342,10 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
         )
 
     order = ("prophet", "arima", "xgboost", "ensemble", "eia")
-    display_names = {
-        "prophet": "Prophet",
-        "arima": "SARIMAX",
-        "xgboost": "XGBoost",
-        "ensemble": "Ensemble",
-        "eia": "EIA Reference",
-    }
+    display_names = {k: model_display_name(k) for k in order}
+    # EIA is the reference series on this panel, not one of our models —
+    # the only place a longer label than the canonical one is wanted.
+    display_names["eia"] = "EIA Reference"
 
     # Hero pick: model with lowest mape
     valid = [(k, v) for k, v in metrics_dict.items() if isinstance(v, dict) and "mape" in v]
@@ -1363,7 +1360,7 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
             # An absent metric must render as unavailable, not as 0.0%.
             items.append(
                 {
-                    "label": display_names.get(key, key.title()),
+                    "label": display_names.get(key, model_display_name(key)),
                     "value": "—",
                     "unit": "metrics unavailable",
                     "tone": "secondary",
@@ -1376,7 +1373,7 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
         tone = _leaderboard_mape_tone(mape)
         items.append(
             {
-                "label": display_names.get(key, key.title()),
+                "label": display_names.get(key, model_display_name(key)),
                 "value": f"{mape:.1f}%",
                 "unit": f"MAE {float(mae):,.0f}" if mae is not None else "",
                 "tone": tone,
@@ -2352,7 +2349,7 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(
         go.Bar(
-            x=[m.title() for m in models],
+            x=[model_display_name(m) for m in models],
             y=mape_values,
             marker_color=colors,
             text=[f"{v:.1f}%" for v in mape_values],

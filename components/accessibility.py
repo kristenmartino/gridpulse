@@ -6,7 +6,52 @@ Provides:
 - ARIA label generators for charts and interactive elements
 - Keyboard navigation helpers
 - Screen reader text generators for KPI cards and alerts
+- Canonical model display names (one spelling per model, everywhere)
 """
+
+# ── Model display names ───────────────────────────────────────
+# ONE spelling per model key, for every user-visible surface.
+#
+# Before this map the same model wore three names in one product:
+# "SARIMAX" on Models, "ARIMA" on Forecast, and "Arima" wherever a
+# label was derived with ``model_name.title()`` — that helper already
+# special-cased "xgboost" (``.title()`` gives "Xgboost"), which was the
+# same bug caught once and never generalised. A user switching tabs saw
+# two or three names for one model.
+#
+# SARIMAX is the resolved spelling: it is what the model actually is
+# (``models/arima_model.py`` fits a seasonal order with exogenous
+# weather regressors — the S and the X are both load-bearing and both
+# pinned by tests in ``tests/unit/test_arima_model.py``), and it is
+# what README.md, PRD.md, TECHNICAL_SPEC.md §5.3, CLAUDE.md's module
+# map and web/landing.html already say. "arima" stays the internal key
+# — it is the Redis payload key, the config key, and the callback
+# value, none of which are user-visible.
+#
+# Read this map instead of writing a label literal. ``.title()`` on a
+# model key is never correct.
+MODEL_DISPLAY_NAMES = {
+    "prophet": "Prophet",
+    "arima": "SARIMAX",
+    "xgboost": "XGBoost",
+    "ensemble": "Ensemble",
+    "eia": "EIA",
+}
+
+
+def model_display_name(model_key: str) -> str:
+    """Return the user-visible name for a model key.
+
+    Args:
+        model_key: Internal model key (e.g. ``"arima"``).
+
+    Returns:
+        The canonical display name, or the key unchanged if unknown —
+        an unmapped key is a missing entry, not a reason to render a
+        blank label.
+    """
+    return MODEL_DISPLAY_NAMES.get(model_key, model_key)
+
 
 # ── Colorblind-Safe Palette ───────────────────────────────────
 # Verified distinguishable under protanopia, deuteranopia, tritanopia.
@@ -15,7 +60,7 @@ Provides:
 CB_PALETTE = {
     "blue": "#0072B2",  # Actual demand
     "orange": "#E69F00",  # Prophet
-    "green": "#009E73",  # ARIMA / positive
+    "green": "#009E73",  # SARIMAX / positive
     "vermillion": "#D55E00",  # Ensemble / alert
     "sky_blue": "#56B4E9",  # XGBoost / info
     "yellow": "#F0E442",  # Solar / warning
