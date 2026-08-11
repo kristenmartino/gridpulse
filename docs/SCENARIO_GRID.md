@@ -332,6 +332,53 @@ sides of every ratio coming from different inference paths, the exact failure
 this module was built to prevent. `origin_drift` is now in the payload and
 warns above 0.001.
 
+## The origin cell found a bug on its first run (#474)
+
+Measured 2026-08-11, the first tick that computed the origin instead of
+defining it as 1.0:
+
+| BA | origin_drift |
+|---|---:|
+| FPL | **0.013** |
+| CAISO | 0.00473 |
+| ISONE | 0.0041 |
+| ERCOT | 0.00405 |
+| MISO | 0.00114 |
+| PJM | 0.00067 |
+
+Five of six above the 0.001 warn threshold. A zero-delta scenario was **not**
+reproducing its own baseline, so every ratio in every payload carried a
+non-weather component of up to 1.3%.
+
+**Cause.** `compute_temperature_deviation` is a **720-hour rolling mean**, and
+`apply_weather_deltas` called `_recompute_derived_features` unconditionally on
+the simulator's **24-row** frame. With `min_periods=1` that is an expanding
+mean over 24 hours, not a 30-day reference — so identical weather produced a
+different feature. Drift tracks how much a BA's temperature swings within a
+day, which is why FPL is worst and the large thermally-sluggish BAs (PJM,
+MISO) are lowest.
+
+**Fix.** CDD/HDD, wind power, solar CF and temp x hour are pointwise functions
+of their drivers and are still recomputed. `temperature_deviation` is now
+carried from the input and shifted by the delta: the 30-day reference is
+dominated by history the scenario does not touch (24 shifted hours against a
+720-hour window), so a uniform shift of d moves the deviation by d. At zero
+delta that is exactly a no-op, which is what makes the origin a parity check
+rather than a measurement of this bug.
+
+**What survived the contamination.** The BA-dependence result stands: a
+13.3-point spread against <=1.3% contamination is roughly 10x the noise, and
+SPA's sign flip is not explicable by a 1% offset. The saturation result also
+stands, because the offset is common-mode within a payload and identical cells
+stay identical. What does NOT stand is the **precision**: factors were quoted
+to four decimals off a zero point that was wrong by up to 1.3%. Read the
+pre-#474 numbers as ~+4%, not 4.17%.
+
+**The generalisable part.** The origin cell was removed on the argument that it
+could only ever reproduce a row of 1.0s. The first time it ran, it did not.
+A parity check whose expected value is "obviously" a constant is exactly the
+check worth keeping, because that is what makes its failure legible.
+
 ## Status and what is not yet verified
 
 Shipped behind `FEATURE_FLAGS["scenario_grid"]`. **Enabled 2026-08-10 (#460)**
