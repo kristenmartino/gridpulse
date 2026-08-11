@@ -2323,33 +2323,97 @@ def _spotlight_trader(demand_df: pd.DataFrame | None, region: str) -> go.Figure:
     return fig
 
 
+_SPOTLIGHT_ACCURACY_TITLE = "Model MAPE Comparison"
+
+
+def _spotlight_model_accuracy_empty(message: str) -> go.Figure:
+    """Titled empty/warming placeholder for the model-accuracy spotlight.
+
+    Keeps the panel's identity (same title) while stating plainly that no
+    measured MAPE is available, so a cold read is visibly a cold read rather
+    than a chart with nothing in it.
+    """
+    fig = _empty_figure(message)
+    fig.update_layout(
+        title=dict(text=_SPOTLIGHT_ACCURACY_TITLE, font=dict(size=13, color="#DDE6F2"))
+    )
+    return fig
+
+
 def _spotlight_model_accuracy(region: str) -> go.Figure:
-    """Model accuracy bar chart for data scientists."""
-    # Pull from backtest cache if available
+    """Model accuracy bar chart for data scientists.
+
+    Every bar is a **measured** training-time holdout MAPE from
+    ``get_model_metrics`` — the same strict-gated source the Models
+    leaderboard on this tab reads, so the two agree and every bar shares one
+    provenance (all 168h holdout, never a walk-forward number set beside a
+    holdout one).
+
+    Two rules, both from the #131 / #149 precedent:
+
+    - A model with no measured MAPE is **omitted and disclosed** in a
+      sub-caption, never drawn from a stand-in. The prior fallback
+      (``4.5 + len(model_name) * 0.3``) rendered Prophet at 6.6% and arima at
+      6.0% purely as a function of how many letters were in the key, labelled
+      and hovered identically to a real measurement.
+    - When no model has a measured MAPE the chart renders the warming state.
+      Under ``REQUIRE_REDIS`` ``get_model_metrics`` already returns ``{}``
+      rather than its simulated/hardcoded layers, so a cold web tier lands
+      here instead of on a confident-looking number.
+
+    The old in-memory ``_BACKTEST_CACHE`` read is gone. It could not have
+    supplied a real value anyway: the writer nests metrics under
+    ``result["metrics"]["mape"]``, so the ``"mape" in result_dict`` test never
+    matched and *every* bar came from the fallback — and the cache is empty on
+    the stateless web tier regardless (the web-tier I/O guardrail).
+    """
+    try:
+        from models.model_service import get_model_metrics
+    except ImportError:  # pragma: no cover — defensive
+        return _spotlight_model_accuracy_empty("Model metrics unavailable")
+
+    try:
+        metrics_dict = get_model_metrics(region) or {}
+    except Exception as e:  # pragma: no cover — defensive (Redis/GCS outage)
+        log.debug("spotlight_model_accuracy_metrics_error", region=region, error=str(e))
+        metrics_dict = {}
+
     models = ["prophet", "arima", "xgboost"]
-    mape_values = []
+    palette = {
+        "prophet": CB_PALETTE.get("vermillion", "#D55E00"),
+        "arima": CB_PALETTE.get("blue", "#0072B2"),
+        "xgboost": CB_PALETTE.get("green", "#009E73"),
+    }
+
+    labels: list[str] = []
+    mape_values: list[float] = []
+    colors: list[str] = []
+    missing: list[str] = []
 
     for model_name in models:
-        mape = None
-        for horizon in [168, 24, 720]:
-            bt_key = (region, horizon, model_name, DEFAULT_BACKTEST_EXOG_MODE)
-            if bt_key in _BACKTEST_CACHE:
-                result_dict, _, _ = _BACKTEST_CACHE[bt_key]
-                if isinstance(result_dict, dict) and "mape" in result_dict:
-                    mape = result_dict["mape"]
-                    break
-        mape_values.append(mape if mape is not None else 4.5 + len(model_name) * 0.3)
+        entry = metrics_dict.get(model_name)
+        mape = entry.get("mape") if isinstance(entry, dict) else None
+        try:
+            mape = float(mape) if mape is not None else None
+        except (TypeError, ValueError):
+            mape = None
+        if mape is None or not np.isfinite(mape):
+            missing.append(model_display_name(model_name))
+            continue
+        labels.append(model_display_name(model_name))
+        mape_values.append(mape)
+        colors.append(palette[model_name])
 
-    colors = [
-        CB_PALETTE.get("vermillion", "#D55E00"),
-        CB_PALETTE.get("blue", "#0072B2"),
-        CB_PALETTE.get("green", "#009E73"),
-    ]
+    if not labels:
+        log.info("spotlight_model_accuracy_warming", region=region)
+        return _spotlight_model_accuracy_empty(
+            "Model accuracy not yet measured for this region — awaiting the first training run."
+        )
 
     fig = go.Figure()
     fig.add_trace(
         go.Bar(
-            x=[model_display_name(m) for m in models],
+            x=labels,
             y=mape_values,
             marker_color=colors,
             text=[f"{v:.1f}%" for v in mape_values],
@@ -2361,7 +2425,7 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
 
     model_layout = _layout(
         uirevision=region,
-        margin=dict(l=40, r=10, t=35, b=30),
+        margin=dict(l=40, r=10, t=35, b=30 if not missing else 44),
         yaxis=dict(
             title="MAPE (%)",
             showgrid=True,
@@ -2369,9 +2433,25 @@ def _spotlight_model_accuracy(region: str) -> go.Figure:
         ),
         xaxis=dict(showgrid=False),
     )
+    if missing:
+        # Disclose the omission — a two-bar chart with no note reads as
+        # "this region has two models", not "one model is unmeasured".
+        model_layout["annotations"] = [
+            dict(
+                text=f"Not yet measured: {', '.join(missing)}",
+                showarrow=False,
+                font=dict(size=10, color="#A8B3C7"),
+                xref="paper",
+                yref="paper",
+                x=0,
+                y=-0.22,
+                xanchor="left",
+                yanchor="top",
+            )
+        ]
     fig.update_layout(
         **model_layout,
-        title=dict(text="Model MAPE Comparison", font=dict(size=13, color="#DDE6F2")),
+        title=dict(text=_SPOTLIGHT_ACCURACY_TITLE, font=dict(size=13, color="#DDE6F2")),
         showlegend=False,
     )
     return fig

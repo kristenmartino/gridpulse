@@ -10,9 +10,13 @@ Covers:
 - All personas default to tab-overview
 """
 
+from unittest.mock import patch
+
 import pandas as pd
 import plotly.graph_objects as go
 from dash import html
+
+from components.accessibility import model_display_name
 
 
 class TestOverviewLayout:
@@ -221,11 +225,18 @@ class TestOverviewSpotlight:
     def test_spotlight_model_accuracy(self):
         from components.callbacks import _spotlight_model_accuracy
 
-        fig = _spotlight_model_accuracy("FPL")
+        measured = {
+            "prophet": {"mape": 2.8},
+            "arima": {"mape": 3.5},
+            "xgboost": {"mape": 2.1},
+        }
+        with patch("models.model_service.get_model_metrics", return_value=measured):
+            fig = _spotlight_model_accuracy("FPL")
         assert isinstance(fig, go.Figure)
         assert len(fig.data) > 0
         # Should have 3 bars (prophet, arima, xgboost)
         assert len(fig.data[0].x) == 3
+        assert list(fig.data[0].y) == [2.8, 3.5, 2.1]
 
     def test_spotlight_dispatch_grid_ops(self):
         from components.callbacks import _build_overview_spotlight
@@ -251,6 +262,77 @@ class TestOverviewSpotlight:
         )
         fig = _build_overview_spotlight("renewables", "FPL", None, wdf)
         assert isinstance(fig, go.Figure)
+
+
+class TestSpotlightModelAccuracyHonesty:
+    """The spotlight MAPE chart must never draw a number it did not measure.
+
+    Regression cover for the #131-class bug this chart carried: a missing
+    backtest produced ``4.5 + len(model_name) * 0.3``, so Prophet rendered
+    6.6% and arima 6.0% purely from the letter count of the dict key, drawn
+    with the same bar, the same ``%.1f%%`` label and the same
+    ``%{y:.2f}% MAPE`` hover as a real measurement. Under ``REQUIRE_REDIS``
+    a cold web tier must reach the warming state instead — the #149 rule.
+    """
+
+    @staticmethod
+    def _accuracy_fig(metrics):
+        from components.callbacks import _spotlight_model_accuracy
+
+        with patch("models.model_service.get_model_metrics", return_value=metrics):
+            return _spotlight_model_accuracy("FPL")
+
+    def test_no_metrics_renders_warming_state_not_bars(self):
+        """Cold read (``get_model_metrics`` → ``{}``) draws no bars at all."""
+        fig = self._accuracy_fig({})
+        assert not any(trace.type == "bar" for trace in fig.data)
+        # Panel identity survives so the slot doesn't read as a broken chart.
+        assert fig.layout.title.text == "Model MAPE Comparison"
+        text = " ".join(a.text or "" for a in fig.layout.annotations)
+        assert "not yet measured" in text.lower()
+
+    def test_no_metrics_never_fabricates_from_name_length(self):
+        """The old fallback's exact outputs must not appear anywhere."""
+        fig = self._accuracy_fig({})
+        # 4.5 + len("prophet")*0.3 = 6.6, len("arima")*0.3 → 6.0, "xgboost" → 6.6
+        fabricated = {6.6, 6.0}
+        for trace in fig.data:
+            assert not (set(trace.y or ()) & fabricated)
+
+    def test_partial_metrics_omits_unmeasured_model_and_discloses(self):
+        """One measured model → one bar, plus a note naming what is missing."""
+        fig = self._accuracy_fig({"xgboost": {"mape": 2.1}})
+        bars = [t for t in fig.data if t.type == "bar"]
+        assert len(bars) == 1
+        # Canonical labels (#495) on both the bar and the omission note.
+        assert list(bars[0].x) == [model_display_name("xgboost")] == ["XGBoost"]
+        assert list(bars[0].y) == [2.1]
+        note = " ".join(a.text or "" for a in fig.layout.annotations)
+        assert "Prophet" in note and model_display_name("arima") in note
+
+    def test_non_numeric_mape_is_treated_as_unmeasured(self):
+        """``None``/NaN/garbage must drop the bar, not coerce to a value."""
+        fig = self._accuracy_fig(
+            {
+                "prophet": {"mape": None},
+                "arima": {"mape": float("nan")},
+                "xgboost": {"mape": "n/a"},
+            }
+        )
+        assert not any(trace.type == "bar" for trace in fig.data)
+
+    def test_measured_values_are_passed_through_unmodified(self):
+        fig = self._accuracy_fig(
+            {
+                "prophet": {"mape": 4.02},
+                "arima": {"mape": 5.11},
+                "xgboost": {"mape": 3.44},
+            }
+        )
+        bars = [t for t in fig.data if t.type == "bar"]
+        assert list(bars[0].y) == [4.02, 5.11, 3.44]
+        # Nothing omitted → no disclosure note.
+        assert not fig.layout.annotations
 
 
 class TestOverviewDataHealth:
