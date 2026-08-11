@@ -872,6 +872,57 @@ The tail had one more instance. Merging this work alongside that concurrent PR, 
 
 **Lesson to convey**: *A per-function quality score is a statement about the tests, not about the system — it silently assumes every function is reachable. Before reading a strong score as reassurance, grep for a caller. And when a well-tested helper and an inline copy of it disagree, the tests will always defend the helper, because the helper is what they import; the divergence can only be found by asking which one runs.*
 
+### 24. "Tell me about a bug with no symptom."
+
+**Every unknown path on our production site returned HTTP 200 and the full app shell. No error, no 500, no log line that looked wrong — and the fix was not the one I first reached for.**
+
+Situation: I picked up a discoverability task and started, as usual, by
+measuring rather than reading. Four `curl`s at paths that should not exist —
+`/robots.txt`, `/sitemap.xml`, `/this-page-does-not-exist-12345`, `/wp-admin`
+— returned four identical `200 text/html`, 10,918 bytes each. The site had no
+404. It had never had one.
+
+Task: Understand why before writing anything, because a defect that produces
+no error signal usually means the thing generating it is doing exactly what
+it was told.
+
+Action: It was. Dash registers a `<path:path>` catch-all pointed at its index,
+so by construction every unmatched URL renders the app. Nothing was broken;
+the framework's default was simply wrong for a public deployment. The obvious
+fix is a path allowlist — let `/`, `/_dash-*`, `/assets/*`, `/api/v1/*`,
+`/health` through and 404 the rest. I didn't write it, for two reasons. It
+duplicates Flask's routing table by hand, so it goes stale the day Dash adds
+an internal route or someone registers a blueprint. And a Flask
+`@errorhandler(404)` cannot work here at all — the catch-all returns **200**,
+so `NotFound` is never raised and the handler never fires. What I wanted was
+not a list of valid paths but the question *did anything real match?* — which
+the router already answers. The guard reads `request.url_rule.endpoint` and
+fires only when it equals Dash's catch-all, meaning the request matched
+nothing else. The allowlist maintains itself, because it *is* the routing
+table. I derived the catch-all's endpoint name from
+`routes_pathname_prefix` rather than hardcoding `"/<path:path>"`, so a
+prefix change can't silently disarm it and restore 200-on-everything.
+
+Two things fell out of looking closely. The `after_request` hook stamped
+`Cache-Control: max-age=31536000, immutable` on *any* `/assets/` response —
+including 404s, so one typo'd asset path pinned its own 404 for a year in
+every browser and CDN that saw it. And the fix had a trap of its own: a 404
+page is the classic place to echo the requested path back to the user, and
+this codebase already has a contract that raw input is never reflected. A
+test now requests `/<script>alert(1)</script>` and asserts neither the tag
+nor the payload appears in the body.
+
+Result: `/wp-admin` 404s, `no-store`, `X-Robots-Tag: noindex`; `/api/*` gets
+JSON rather than an HTML page, because handing an API client a web page is a
+second bug on top of the one it came for. Thirteen tests, including one class
+that runs against the *real* url_map rather than a synthetic app — the guard's
+entire safety argument is "it only fires when nothing matched," and that
+claim is only worth anything against the routing table production actually
+has. Before merging I checked the tests weren't vacuous: with the guard
+removed, `/wp-admin` returns 200 again.
+
+**Lesson to convey**: *A bug with no error signal is usually a default doing exactly what it promised, in a context nobody re-read it in. And when you find yourself about to hand-maintain a copy of something the system already knows — a route table, a schema, a list of valid states — that is the signal to go ask the system instead. The allowlist I didn't write would have been correct on the day I wrote it and wrong within a quarter.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:

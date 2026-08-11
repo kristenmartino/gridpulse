@@ -67,7 +67,10 @@ add_request_logging(server)
 @server.after_request
 def _set_cache_headers(response):
     path = request.path
-    if path.startswith("/assets/"):
+    # Gated on 200: this used to stamp the 1-year immutable header on ANY
+    # /assets/ response, so a typo'd asset path had its 404 pinned for a year
+    # in every browser and intermediary that saw it.
+    if path.startswith("/assets/") and response.status_code == 200:
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     elif path.startswith("/_dash-update-component") or path == "/_dash-dependencies":
         response.headers["Cache-Control"] = "no-cache"
@@ -152,6 +155,18 @@ server.register_blueprint(api_v1)
 from landing import landing_bp  # noqa: E402
 
 server.register_blueprint(landing_bp)
+
+# Crawler surfaces: /robots.txt, /sitemap.xml, and a real 404.
+#
+# The guard is registered AFTER the blueprints so their routes already exist
+# in the url_map when it starts asking which rule matched, and BEFORE
+# _rate_limit_dash so scanner traffic short-circuits ahead of anything that
+# touches Redis. It fires only on requests that matched Dash's <path:path>
+# catch-all — i.e. that matched nothing else. See seo.py.
+from seo import register_not_found_guard, seo_bp  # noqa: E402
+
+server.register_blueprint(seo_bp)
+register_not_found_guard(server, app)
 
 
 # Per-IP rate limit on the Dash callback route (#253). ``/_dash-update-component``
