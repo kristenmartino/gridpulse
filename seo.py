@@ -59,6 +59,30 @@ _NOT_FOUND_HTML = _WEB_DIR / "404.html"
 #: enough that a fix lands within an hour of a deploy.
 _CACHE_CONTROL = "public, max-age=3600"
 
+#: Bing Webmaster Tools site-ownership token for
+#: ``https://gridpulse.kristenmartino.ai`` (added 2026-08-11).
+#:
+#: Not a secret — Bing publishes it to anyone who fetches the file, and its
+#: only power is to prove we control this origin. It is committed rather than
+#: an env var precisely so it is reviewable and cannot silently change.
+#:
+#: **Bing keeps checking this after verification succeeds** ("don't remove the
+#: file even after verification"), so deleting the route un-verifies the site
+#: at Bing's next poll rather than at some safe later date.
+#:
+#: Served as a route rather than a static file in ``assets/`` for two reasons:
+#: the file must live at the ORIGIN ROOT (``/BingSiteAuth.xml``), which the
+#: assets mount cannot provide, and anything under ``assets/`` inherits the
+#: 1-year immutable cache header — the trap ``landing.py`` documents.
+#:
+#: Google's equivalent needed no file at all: that property auto-verified
+#: through the domain-name provider (GoDaddy).
+BING_SITE_AUTH_TOKEN = "F0FB65358F028F3BE55531E24E4E4455"
+
+_BING_SITE_AUTH_XML = (
+    '<?xml version="1.0"?>\n<users>\n\t<user>' + BING_SITE_AUTH_TOKEN + "</user>\n</users>\n"
+)
+
 
 class SitemapEntry(NamedTuple):
     """A public page and the file whose mtime dates it.
@@ -95,6 +119,7 @@ SITEMAP_EXCLUDED: frozenset[str] = frozenset(
         "/metrics",  # IP-gated; 403s to anyone else
         "/robots.txt",  # infrastructure, not content
         "/sitemap.xml",
+        "/BingSiteAuth.xml",  # ownership proof, not a page anyone should read
         "/static/<path:filename>",  # Flask's default static mount, unused
     }
 )
@@ -218,6 +243,26 @@ def sitemap_xml() -> Response:
     lines.append("</urlset>")
 
     resp = Response("\n".join(lines) + "\n", mimetype="application/xml")
+    resp.headers["Content-Type"] = "application/xml; charset=utf-8"
+    resp.headers["Cache-Control"] = _CACHE_CONTROL
+    return resp
+
+
+@seo_bp.get("/BingSiteAuth.xml")
+def bing_site_auth() -> Response:
+    """Serve the Bing Webmaster Tools ownership file.
+
+    Deliberately NOT host-aware, unlike robots.txt and sitemap.xml. Those
+    withhold content from the ``*.run.app`` origin to stop it competing with
+    the custom domain in an index; ownership is a different claim — we do
+    control that origin too, and gating it would only break verification if
+    Bing ever resolved the site through it.
+
+    Case matters: Bing fetches this exact path, and Werkzeug's routing is
+    case-sensitive, so ``/bingsiteauth.xml`` correctly falls through to the
+    404 guard.
+    """
+    resp = Response(_BING_SITE_AUTH_XML, mimetype="application/xml")
     resp.headers["Content-Type"] = "application/xml; charset=utf-8"
     resp.headers["Cache-Control"] = _CACHE_CONTROL
     return resp
