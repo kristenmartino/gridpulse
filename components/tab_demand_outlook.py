@@ -441,10 +441,15 @@ def _panel_scenarios() -> dbc.Collapse:
                     "Scenarios",
                     "Stress-test demand against weather shifts",
                 ),
+                # The source line lives in the callback output (below the
+                # KPIs), not here: since #127 this panel may be served either
+                # from real forecasts or from the #119 heuristic, and static
+                # copy cannot tell the difference. It asserted "not a model
+                # re-forecast" for a fortnight while production served exactly
+                # that.
                 html.P(
-                    "Illustrative linear weather-sensitivity — not a model "
-                    "re-forecast. Use these deltas for directional "
-                    "stress-testing, not as calibrated predictions.",
+                    "Stress-test demand against weather shifts. "
+                    "How each scenario was computed is noted with the results.",
                     className="gp-panel__disclosure",
                 ),
                 html.Div(_scenario_preset_chips(), className="gp-preset-chips"),

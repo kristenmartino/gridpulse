@@ -1673,6 +1673,24 @@ def _build_scenarios_panel(
     )
     kpis.className = "gp-metrics-bar gp-metrics-bar--4up"
 
+    # Say which engine produced these numbers. The static panel copy asserted
+    # "not a model re-forecast" for a fortnight while production served
+    # exactly that (#127) — static text cannot track a feature flag, so the
+    # claim belongs with the results it describes.
+    source_note = html.P(
+        (
+            "Real ensemble re-forecast — 81 precomputed weather scenarios, "
+            "interpolated to these slider positions."
+            if scenario_source == "grid"
+            else "Illustrative linear weather-sensitivity — not a model "
+            "re-forecast. Directional stress-testing only, not calibrated "
+            "predictions."
+        ),
+        className="gp-panel__disclosure",
+        **{"data-scenario-source": scenario_source},
+    )
+    kpis = html.Div([kpis, source_note])
+
     # ── Baseline vs scenario chart ─────────────────────────────
     forecast_ts = pd.date_range(
         start=last_actual_ts + pd.Timedelta(hours=1),
