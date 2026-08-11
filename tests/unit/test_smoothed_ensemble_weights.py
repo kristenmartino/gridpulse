@@ -232,3 +232,85 @@ class TestDefaults:
 
         assert 0.0 < config.ENSEMBLE_MAPE_EWMA_ALPHA <= 1.0
         assert math.isfinite(config.ENSEMBLE_MAPE_EWMA_ALPHA)
+
+
+class TestASubOnePercentMapeIsAMeasurementNotNoise:
+    """The usability filter is `v > 0`, not `v > 1` (#484).
+
+    Mutation testing found the same survivor in all three of #451/#478's new
+    functions: relaxing the filter to `> 1` rejects any MAPE in (0, 1] as
+    unusable. That band is not hypothetical — it is the BEST models on the
+    easiest BAs, and this repo's own docs quote a 1.6% figure as a *baseline*.
+
+    Under the mutation, the models with the strongest holdout accuracy are the
+    ones silently dropped, which is the worst possible direction for a filter
+    whose job is to reject junk.
+    """
+
+    def test_the_ewma_accepts_an_excellent_latest_observation(self):
+        """`update_smoothed_mape` — a 0.8% MAPE must update the series.
+
+        Dropped, the EWMA silently ignores the best measurement a model has
+        ever produced and carries the previous, worse value forward.
+        """
+        from models.ensemble import update_smoothed_mape
+
+        assert update_smoothed_mape(None, 0.8) == pytest.approx(0.8)
+        assert update_smoothed_mape(2.0, 0.5, alpha=0.5) == pytest.approx(1.25)
+
+    def test_the_ewma_accepts_an_excellent_previous_value_as_its_seed(self):
+        """The same filter runs over `previous_smoothed`. Rejected, a model
+        whose history is excellent restarts from its latest draw and loses the
+        smoothing #451 exists to provide."""
+        from models.ensemble import update_smoothed_mape
+
+        assert update_smoothed_mape(0.6, None) == pytest.approx(0.6)
+        assert update_smoothed_mape(0.6, 4.0, alpha=0.5) == pytest.approx(2.3)
+
+    def test_the_served_arm_weights_on_an_excellent_smoothed_mape(self, monkeypatch):
+        """`weighting_mape` — with the flag on, a 0.9% EWMA must be used.
+
+        Rejected, it falls back to the raw MAPE, so the best models are exactly
+        the ones that never receive the smoothing being evaluated.
+        """
+        import config
+        from models.ensemble import weighting_mape
+
+        monkeypatch.setitem(config.FEATURE_FLAGS, "smoothed_ensemble_weights", True)
+
+        assert weighting_mape(5.0, {"mape_ewma": 0.9}) == pytest.approx(0.9)
+
+    def test_the_shadow_arm_still_has_an_observation_for_the_best_models(self, monkeypatch):
+        """`shadow_weighting_mape` — the consequence that matters most.
+
+        This function returns ``None`` when the alternative is unavailable, and
+        that is deliberate: inventing a fallback would make both arms identical
+        and the comparison vacuously "no difference". So a filter that rejects
+        sub-1% values does not merely mis-weight — it removes the best models
+        from the shadow arm entirely, biasing a live A/B toward whichever
+        conclusion the remaining, worse models support.
+        """
+        import config
+        from models.ensemble import shadow_weighting_mape
+
+        monkeypatch.setitem(config.FEATURE_FLAGS, "smoothed_ensemble_weights", False)
+
+        assert shadow_weighting_mape(5.0, {"mape_ewma": 0.9}) == pytest.approx(0.9)
+
+    def test_zero_and_negative_are_still_rejected(self):
+        """The filter must stay a filter — this is about where the line sits,
+        not about removing it. A zero MAPE would divide by zero in
+        `compute_ensemble_weights` (the #383 finding)."""
+        import config
+        from models.ensemble import shadow_weighting_mape, update_smoothed_mape, weighting_mape
+
+        assert update_smoothed_mape(None, 0.0) is None
+        assert update_smoothed_mape(None, -3.0) is None
+        assert update_smoothed_mape(0.0, None) is None
+
+        config.FEATURE_FLAGS["smoothed_ensemble_weights"] = True
+        try:
+            assert weighting_mape(5.0, {"mape_ewma": 0.0}) == 5.0
+        finally:
+            config.FEATURE_FLAGS["smoothed_ensemble_weights"] = False
+        assert shadow_weighting_mape(5.0, {"mape_ewma": 0.0}) is None
