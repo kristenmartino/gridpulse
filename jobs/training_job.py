@@ -754,7 +754,26 @@ def _train_region(region: str, force: bool = False) -> dict:
     # Same channel discipline as the scoring job: these ride in
     # `summary["subtimings"]`, never in a dict that something else sums, so a
     # sub-step can never be double-counted against its own parent.
-    with phases.collect_substeps() as _sub:
+    # Bind `region` for the whole per-BA span so EVERY log emitted underneath
+    # carries it, not just the ones whose call site happened to have the name
+    # in scope. `merge_contextvars` has been in the processor chain since the
+    # logging config was written (observability.py) and nothing used it.
+    #
+    # The concrete gap this closes: #446's `arima_trained` records `converged`
+    # and `iterations`, and on 2026-08-11 one fit of 102 failed to converge
+    # with no way to say which BA it was. Attribution needed correlating the
+    # timestamp against neighbouring region-bearing logs. Threading a
+    # `region=` parameter into `train_arima` would fix SARIMAX alone and leave
+    # every other trainer (none of which take a region either) still mute, so
+    # bind once at the span instead.
+    #
+    # `bound_contextvars` resets on exit. That matters even though `run()`
+    # trains sequentially: without the reset, a log emitted between regions
+    # would inherit the previous BA's name, which is worse than no label.
+    with (
+        structlog.contextvars.bound_contextvars(region=region),
+        phases.collect_substeps() as _sub,
+    ):
         summary["subtimings"] = _sub
         return _train_region_inner(region, force, t0, summary)
 
