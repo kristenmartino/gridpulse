@@ -500,3 +500,205 @@ class TestVerdict:
         assert v["n"] == 4
         assert v["decisive"] is True
         assert np.isfinite(v["mean"])
+
+
+class TestWapeIsTheOptimisingMetric:
+    """`wape` carried 10 survivors — the most of any function here (#490).
+
+    `docs/EVALUATION_POLICY.md` makes this the number every A/B optimises, so
+    a wrong WAPE does not produce a wrong report, it produces a wrong
+    *decision*, and the report looks fine.
+    """
+
+    def test_a_row_missing_either_side_is_dropped_not_half_counted(self):
+        """`isfinite(a) & isfinite(f)`, not `|`.
+
+        With `or`, a row where only one side is finite survives the mask and
+        the subtraction yields NaN, so a single gap turns the whole metric into
+        NaN — and `verdict()` then compares NaN against a threshold.
+        """
+        from models.rolling_eval import wape
+
+        actual = np.array([100.0, 200.0, np.nan, 400.0])
+        predicted = np.array([110.0, 180.0, 300.0, np.nan])
+
+        # Only rows 0 and 1 have both sides. |10| + |20| over |100| + |200|.
+        assert wape(actual, predicted) == pytest.approx(10.0)
+
+    def test_it_is_a_ratio_of_totals_not_a_mean_of_ratios(self):
+        """The whole reason WAPE is preferred to MAPE here: a low-demand hour
+        must not dominate. MAPE on this input is 55.0; WAPE is 10.9."""
+        from models.rolling_eval import wape
+
+        actual = np.array([1000.0, 10.0])
+        predicted = np.array([900.0, 11.0])
+
+        assert wape(actual, predicted) == pytest.approx(101.0 / 1010.0 * 100)
+
+    def test_an_all_zero_denominator_is_nan_not_an_exception(self):
+        """`denom == 0` guards a division. Moved to `== 1`, a genuinely
+        zero-demand window raises instead of reporting "unmeasurable", and the
+        A/B harness loses the window rather than recording it as inconclusive.
+        """
+        from models.rolling_eval import wape
+
+        assert np.isnan(wape(np.zeros(4), np.array([1.0, 2.0, 3.0, 4.0])))
+
+    def test_a_denominator_of_one_still_computes(self):
+        """The mutation `denom == 1` is only visible when the denominator IS 1 —
+        a real state for a near-zero-demand BA, and one that must produce a
+        number rather than NaN."""
+        from models.rolling_eval import wape
+
+        assert wape(np.array([1.0]), np.array([1.5])) == pytest.approx(50.0)
+
+    def test_a_perfect_forecast_is_zero(self):
+        from models.rolling_eval import wape
+
+        actual = np.array([100.0, 250.0, 90.0])
+
+        assert wape(actual, actual) == 0.0
+
+
+class TestBiasPctWatchesDirection:
+    """`bias_pct` carried 8 survivors. It is the satisficing constraint's input,
+    and the only thing in the harness that can see *which way* a model is wrong
+    — the reason `EVALUATION_POLICY.md` protects it separately from WAPE.
+    """
+
+    def test_under_forecasting_is_negative(self):
+        """Sign convention, and it is load-bearing: under-forecasting demand is
+        the operationally expensive direction, so a flipped sign would let the
+        constraint approve exactly what it exists to reject."""
+        from models.rolling_eval import bias_pct
+
+        actual = np.array([100.0, 100.0])
+        low = np.array([90.0, 90.0])
+
+        assert bias_pct(actual, low) == pytest.approx(-10.0)
+        assert bias_pct(actual, np.array([110.0, 110.0])) == pytest.approx(10.0)
+
+    def test_a_zero_actual_is_excluded_rather_than_dividing(self):
+        """`(a != 0)` in the mask. Dropped, a zero-demand hour divides by zero
+        and the mean becomes inf — TIDC publishes zeros (STATUS.md), so this is
+        reachable rather than defensive."""
+        from models.rolling_eval import bias_pct
+
+        actual = np.array([0.0, 100.0])
+        predicted = np.array([50.0, 110.0])
+
+        assert bias_pct(actual, predicted) == pytest.approx(10.0)
+
+    def test_nothing_usable_is_nan_not_an_empty_mean(self):
+        """`if not ok.any()` — without it numpy warns and returns NaN anyway,
+        but via a RuntimeWarning that CI can be configured to raise."""
+        from models.rolling_eval import bias_pct
+
+        assert np.isnan(bias_pct(np.zeros(3), np.ones(3)))
+
+    def test_offsetting_errors_cancel_which_is_the_point(self):
+        """Bias is signed by design: +10% and -10% average to zero. That is
+        what makes it a *bias* check rather than a second accuracy metric, and
+        a test asserting it behaved like magnitude would be asserting the
+        wrong contract."""
+        from models.rolling_eval import bias_pct
+
+        assert bias_pct(np.array([100.0, 100.0]), np.array([110.0, 90.0])) == pytest.approx(0.0)
+
+
+class TestRollingOriginSplitsBoundaries:
+    """7 survivors in the window splitter. Every one of them changes *which
+    windows get evaluated*, which is upstream of every number the harness
+    reports — `EVALUATION_POLICY.md` exists because a single window reversed
+    CAISO's sign between two adjacent days.
+    """
+
+    def test_windows_never_see_their_own_future(self):
+        """The invariant the whole design rests on: train ends where test
+        begins."""
+        from models.rolling_eval import rolling_origin_splits
+
+        splits = rolling_origin_splits(1000, n_windows=3, holdout_h=168, min_train_h=100)
+
+        assert splits
+        for train, test in splits:
+            assert train.stop == test.start
+            assert test.stop - test.start == 168
+
+    def test_windows_step_back_by_the_stride(self):
+        """Default stride is `holdout_h`, giving adjacent non-overlapping
+        holdouts. `step <= 0` returning [] is what stops a zero stride from
+        producing the same window forever."""
+        from models.rolling_eval import rolling_origin_splits
+
+        splits = rolling_origin_splits(1000, n_windows=3, holdout_h=100, min_train_h=50)
+
+        assert [t.start for _, t in splits] == [900, 800, 700]
+        assert (
+            rolling_origin_splits(1000, n_windows=3, holdout_h=100, stride_h=0, min_train_h=50)
+            == []
+        )
+
+    def test_a_window_whose_train_slice_is_too_short_is_dropped(self):
+        """`test_start < min_train_h`. At `<=`, a window trains on exactly
+        `min_train_h - 1` rows and is reported as if it met the floor."""
+        from models.rolling_eval import rolling_origin_splits
+
+        # Third window would start at 100, exactly the floor: it must survive.
+        splits = rolling_origin_splits(300, n_windows=5, holdout_h=100, min_train_h=100)
+
+        assert [t.start for _, t in splits] == [200, 100]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "why"),
+        [
+            ({"n_windows": 0, "holdout_h": 10}, "no windows requested"),
+            ({"n_windows": 3, "holdout_h": 0}, "a zero-length holdout"),
+            ({"n_windows": -1, "holdout_h": 10}, "a negative window count"),
+            ({"n_windows": 3, "holdout_h": -5}, "a negative holdout"),
+        ],
+    )
+    def test_degenerate_inputs_return_no_windows(self, kwargs, why):
+        """`holdout_h <= 0 or n_windows <= 0`. Five of the seven survivors were
+        boundary variants of this line; each admits a degenerate configuration
+        that produces windows the caller then evaluates as if they were real."""
+        from models.rolling_eval import rolling_origin_splits
+
+        assert rolling_origin_splits(1000, min_train_h=10, **kwargs) == [], why
+
+    def test_a_zero_holdout_is_refused_even_when_a_stride_is_given(self):
+        """`holdout_h <= 0`, isolated from the `step` guard below it.
+
+        With the default stride, `step` inherits `holdout_h` and the NEXT guard
+        catches a zero holdout anyway — so a fixture that omits `stride_h`
+        cannot tell `<= 0` from `< 0`. Supplying a stride separates them: the
+        weakened guard produces windows whose test slice has zero length, which
+        the harness would then evaluate as real.
+        """
+        from models.rolling_eval import rolling_origin_splits
+
+        assert (
+            rolling_origin_splits(1000, n_windows=3, holdout_h=0, stride_h=5, min_train_h=10) == []
+        )
+
+    def test_a_stride_of_one_is_legal(self):
+        """`step <= 0`, isolated from `step <= 1`.
+
+        A stride of 1 is maximal overlap — every origin one row apart — which
+        is unusual but valid, and the guard exists to stop a stride of ZERO
+        looping on the same window forever, not to impose a minimum.
+        """
+        from models.rolling_eval import rolling_origin_splits
+
+        splits = rolling_origin_splits(500, n_windows=3, holdout_h=100, stride_h=1, min_train_h=50)
+
+        assert [t.start for _, t in splits] == [400, 399, 398]
+
+    def test_running_out_of_history_returns_fewer_windows_not_bad_ones(self):
+        """Documented behaviour: callers check `len()`. The alternative — 8
+        windows where 3 fit — is the failure this module exists to prevent."""
+        from models.rolling_eval import rolling_origin_splits
+
+        splits = rolling_origin_splits(400, n_windows=8, holdout_h=100, min_train_h=100)
+
+        assert 0 < len(splits) < 8

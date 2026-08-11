@@ -246,7 +246,7 @@ line-covered and scored **61.6%** on behavioural mutants. Two rounds of pinning
 took that to **91.6%** while coverage did not move at all — the two instruments
 measure different things. Coverage is a floor, not a verdict.
 
-Fleet logic score is **89.0%** across the seven scoped modules; the per-module
+Fleet logic score is **89.6%** across the seven scoped modules; the per-module
 table and the adjudicated survivor ledger are in
 [`docs/TEST_QUALITY.md`](../docs/TEST_QUALITY.md).
 
