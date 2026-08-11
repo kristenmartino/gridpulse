@@ -1208,12 +1208,21 @@ FEATURE_FLAGS: dict[str, bool] = {
     # single latest value (#451). The daily estimator flaps (median 12%
     # run-to-run, docs/HOLDOUT_STABILITY_STUDY.md), so weights computed from one
     # draw of it partly chase noise. A pre-registered A/B over 8 rolling origins
-    # x 12 BAs gave alpha=0.3 a decisive WAPE win (+0.524 pts, t=2.21, winning 7
-    # of 8 windows) with both satisficing constraints met —
-    # docs/WEIGHTS_AB_STUDY.md. Shipped OFF: that verdict sits close to its own
-    # 2.0 threshold and breaks if FPL is dropped, and it was measured on 12 of
-    # 51 BAs. Flipping it moves served forecasts fleet-wide, so the flip wants a
-    # fleet re-measure, not just a merge.
+    # x 51 BAs (408 cases) gave alpha=0.3 a decisive WAPE win: +0.355 pts,
+    # t=2.62, winning 7 of 8 windows, and surviving the removal of ANY single BA
+    # or window.
+    #
+    # OFF because the ship criterion is still not met, on the constraint rather
+    # than the effect: |bias| lands at +6.01% against a +/-2.0% bound. That bias
+    # is the REPLAY HARNESS, not the treatment -- the control arm measures
+    # +6.042% and 26 of 51 BAs breach the bound before any smoothing is applied,
+    # so treatment-minus-control is -0.029 pts. A harness whose control fails a
+    # constraint cannot certify the treatment against it, and
+    # docs/EVALUATION_POLICY.md counts an unmeasurable constraint as failed.
+    #
+    # Settling it needs production-grade forecasts (a shadow scoring pass, or
+    # #451's original per-arm training runs) -- not a re-run of the replay, whose
+    # WAPE half is already answered. docs/WEIGHTS_AB_STUDY.md.
     "smoothed_ensemble_weights": False,
     # Cooling-response feature pack (CDD accumulation, convexity, humidity
     # interaction). MEASURED AND REJECTED — docs/COOLING_RESPONSE_STUDY.md:

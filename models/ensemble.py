@@ -177,10 +177,13 @@ def update_smoothed_mape(
     with equal weights. A smoothed MAPE must never invent a number for a model
     that has not been scored.
 
-    Evidence for smoothing at all: docs/WEIGHTS_AB_STUDY.md. The short version is
-    that the daily holdout estimator flaps (median 12% run-to-run) and weights
-    computed from a single draw of it chase noise; an EWMA at alpha=0.3 won a
-    pre-registered A/B on WAPE over 8 rolling origins.
+    Evidence: docs/WEIGHTS_AB_STUDY.md. The daily holdout estimator flaps (median
+    12% run-to-run) and weights computed from a single draw of it partly chase
+    noise; an EWMA at alpha=0.3 won the WAPE half of a pre-registered A/B over 8
+    rolling origins x 51 BAs, robustly. It is nonetheless NOT enabled: the bias
+    constraint could not be evaluated in that harness (the control arm itself
+    breaches it), and an unmeasurable constraint counts as failed. This series is
+    persisted anyway so the question stays answerable later.
     """
     from config import ENSEMBLE_MAPE_EWMA_ALPHA
 
