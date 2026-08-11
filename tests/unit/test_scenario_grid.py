@@ -720,3 +720,52 @@ class TestTheDeltasGoTheRightWayAndOnlyWhenAsked:
 
         for col in ("temperature_2m", "wind_speed_80m", "shortwave_radiation"):
             np.testing.assert_allclose(out[col], base[col])
+
+
+class TestTheParityCheckIsObservable:
+    """A parity check nobody can confirm is running is one nobody should trust.
+
+    `origin_drift` logged only on breach, so a healthy 0.0 left no trace and
+    "it held at zero all week" could not be established from logs — the only
+    way to check was polling the API per region per tick, by hand. The
+    strongest available evidence the check was working became the *absence* of
+    a warning across 51 BAs, which is indistinguishable from the grid never
+    being computed (#491).
+    """
+
+    @staticmethod
+    def _one(frame: pd.DataFrame) -> np.ndarray:
+        return 1000.0 + 10.0 * frame["temperature_2m"].to_numpy()
+
+    def _build(self, forecaster):
+        future = _future_frame()
+        return build_scenario_grid(
+            featured=pd.DataFrame(
+                {"demand_mw": np.full(48, 1500.0), "temperature_2m": np.full(48, 70.0)}
+            ),
+            future_df=future,
+            baseline=self._one(future),
+            forecaster=forecaster,
+            horizon=HORIZON,
+        )
+
+    # Asserted against emitted OUTPUT rather than `structlog.testing.capture_logs`.
+    # capture_logs cannot intercept a module-level logger once something else in
+    # the suite has configured structlog with `cache_logger_on_first_use`, so
+    # these tests passed alone and failed in the full run — the event was in
+    # stdout while `caps` was empty. Reading the output is what production
+    # observability actually depends on anyway.
+
+    def test_a_healthy_grid_says_so_rather_than_staying_silent(self, capsys):
+        self._build(lambda frames: [self._one(f) for f in frames])
+
+        out = capsys.readouterr().out
+        assert "scenario_grid_origin_ok" in out, "the healthy path must be visible"
+        assert "scenario_grid_origin_drift" not in out
+
+    def test_a_breach_still_warns_and_does_not_also_report_ok(self, capsys):
+        self._build(lambda frames: [self._one(f) * 1.05 for f in frames])
+
+        out = capsys.readouterr().out
+        assert "scenario_grid_origin_drift" in out
+        assert "scenario_grid_origin_ok" not in out

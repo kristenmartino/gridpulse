@@ -167,8 +167,21 @@ def build_scenario_grid(
     # prevent, and one that defining the origin away made invisible.
     origin = by_coord.get((0.0, 0.0, 0.0), ones)
     origin_drift = float(np.max(np.abs(np.asarray(origin, dtype=float) - 1.0)))
+    # Log the HEALTHY path too, not only the breach. Warning-only meant a drift
+    # of 0.0 left no trace, so "it held at zero all week" could not be
+    # established from logs at all — the only way to check was polling the API
+    # per region per tick, by hand. That makes the strongest evidence the check
+    # is working the *absence* of a warning across 51 BAs, which is
+    # indistinguishable from the grid never being computed.
+    #
+    # Same correction #478 made for shadow weights three commits earlier, and
+    # the "configured and inert" pattern this project keeps re-finding
+    # (docs/monitoring/README.md). A parity check nobody can confirm is running
+    # is a parity check nobody should trust.
     if origin_drift > _ORIGIN_DRIFT_WARN:
         log.warning("scenario_grid_origin_drift", drift=round(origin_drift, 5))
+    else:
+        log.info("scenario_grid_origin_ok", drift=round(origin_drift, 5), cells=len(coords))
 
     return {
         "axes": {"temp_f": list(temps), "wind_mph": list(winds), "solar_wm2": list(solars)},
