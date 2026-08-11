@@ -24,7 +24,14 @@ For any non-trivial PR, before reporting "done":
    → update [`docs/HOW_IT_WORKS.md`](docs/HOW_IT_WORKS.md) + relevant
    Mermaid diagrams in same PR
 2. **A cited fact moved** (value referenced across multiple docs)?
-   → update [`docs/CANONICAL_FACTS.md`](docs/CANONICAL_FACTS.md) in same PR
+   → update [`docs/CANONICAL_FACTS.md`](docs/CANONICAL_FACTS.md) in same PR,
+   **and `grep -rn '<old literal>' web/`** — the public pages at `/about` and
+   `/benchmark` cite these numbers too, and a stale one there is published to
+   the internet rather than merely wrong internally. `/about` shipped `4.8%`
+   for four days after the 2026-08-07 retrain moved it to `4.35%`, because the
+   test that claimed to check this only asserted the literal was on the page
+   and never opened CANONICAL_FACTS. `tests/unit/test_public_copy_traces_to_canonical_facts.py`
+   now fails on the *source* side instead; this grep catches it a step earlier.
 3. **STAR-story trigger hit** (trade-off, debugging arc, surprising
    decision, recovery, scope-cut)?
    → add the story to [`docs/INTERVIEW_PREP.md`](docs/INTERVIEW_PREP.md)
