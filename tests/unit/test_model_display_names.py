@@ -224,3 +224,49 @@ class TestSurfacesAgree:
 
         assert _values(_model_segmented()) == _values(_model_selector())
         assert _values(_model_segmented()) == {"xgboost", "prophet", "arima", "ensemble"}
+
+
+class TestPublicPagesUseTheCanonicalLabel:
+    """The sweep above covers ``components/``. The public pages are the other
+    place a model label is user-visible, and they were missed.
+
+    ``web/landing.html`` shipped **ARIMA** on 2026-08-11 in
+    [#496](https://github.com/kristenmartino/gridpulse/pull/496), which landed
+    an hour after [#495](https://github.com/kristenmartino/gridpulse/pull/495)
+    resolved the spelling the other way. Neither PR was wrong on its own —
+    #496's author saw the Forecast tab's label and matched it, and #495 had
+    not merged yet. What was missing was a check that spans both surfaces, so
+    the second decision could not silently contradict the first.
+
+    Same word-boundary matching as the component sweep, for the same reason:
+    ``"ARIMA" in "SARIMAX"`` is True.
+    """
+
+    @staticmethod
+    def _public_pages() -> list[pathlib.Path]:
+        return sorted((pathlib.Path(__file__).resolve().parents[2] / "web").glob("*.html"))
+
+    def test_no_public_page_uses_a_superseded_spelling(self):
+        for page in self._public_pages():
+            text = page.read_text(encoding="utf-8")
+            # Strip <style> and comments: this file's own docstring-style
+            # prose about the bug must not count as a violation of it.
+            text = re.sub(r"<style\b.*?</style>", " ", text, flags=re.S | re.I)
+            text = re.sub(r"<!--.*?-->", " ", text, flags=re.S)
+            for banned in BANNED_LABEL_LITERALS:
+                assert not re.search(rf"\b{banned}\b", text), (
+                    f"{page.name} uses the superseded label {banned!r}. The "
+                    f"canonical spelling is MODEL_DISPLAY_NAMES — "
+                    f"{banned!r} was resolved away in #495."
+                )
+
+    def test_the_page_that_names_the_models_names_them_canonically(self):
+        """A page could pass the ban by dropping the model names entirely.
+        /about lists them, so pin that it still does — and correctly."""
+        landing = (pathlib.Path(__file__).resolve().parents[2] / "web" / "landing.html").read_text(
+            encoding="utf-8"
+        )
+        for key in ("prophet", "arima", "xgboost"):
+            assert MODEL_DISPLAY_NAMES[key] in landing, (
+                f"/about no longer names {MODEL_DISPLAY_NAMES[key]}"
+            )
