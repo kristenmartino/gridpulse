@@ -67,8 +67,8 @@
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
-| simulation/scenario\_grid.py          |      103 |        9 |     91% |121, 221, 246, 248, 292-294, 297, 301 |
-| **TOTAL**                             | **8925** |  **933** | **90%** |           |
+| simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
+| **TOTAL**                             | **8926** |  **933** | **90%** |           |
 
 
 ## Setup coverage badge
