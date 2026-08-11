@@ -272,6 +272,30 @@ def flag_outlier_ticks(ticks: list[Tick], factor: float = OUTLIER_ELAPSED_FACTOR
     return {id(t) for t in ticks if t.elapsed_s and t.elapsed_s >= threshold}
 
 
+def _print_freshness_hint(obs: list[tuple[Tick, float]], needed: int) -> None:
+    """Say why the miss arm is thin, and name the flag that widens it.
+
+    The miss arm is counted in **UTC days**, not ticks — so the day span of
+    the pull is the actionable number, and the tick count everyone looks at
+    is the misleading one. ``gcloud logging read`` defaults to
+    ``--freshness=1d`` silently, which means a bigger ``--limit`` returns
+    more HITS and never a second miss.
+
+    Printed at the point of the verdict because that is where someone is
+    holding an INCONCLUSIVE they want to resolve. A script written to stop a
+    measurement mistake should not leave the reader to rediscover the default
+    that causes it.
+    """
+    days = sorted({t.timestamp[:10] for t, _ in obs if len(t.timestamp) >= 10})
+    span = f"{len(days)} UTC day(s)"
+    if days:
+        span += f": {days[0]}" + (f" to {days[-1]}" if len(days) > 1 else "")
+    print(f"\n  These ticks span {span} — the miss arm is counted in DAYS, not ticks.")
+    print(f"  {needed} more 00Z boundary(ies) needed. `gcloud logging read` defaults to")
+    print("  --freshness=1d SILENTLY, so a bigger --limit buys only more hits. Use:")
+    print("      --freshness=7d --limit 200")
+
+
 def report_archive_arms(ticks: list[Tick], excluded: set[int] | None = None) -> None:
     """The archive cache's paired arms — the whole point of the flag flip."""
     print("\n" + "=" * 68)
@@ -306,6 +330,8 @@ def report_archive_arms(ticks: list[Tick], excluded: set[int] | None = None) -> 
 
     if not miss or not hit:
         print("\n  VERDICT: none. Both arms are needed and one is empty.")
+        if not miss:
+            _print_freshness_hint(obs, needed=3)
         return
 
     m_med = statistics.median([v for _, v in miss])
@@ -321,6 +347,7 @@ def report_archive_arms(ticks: list[Tick], excluded: set[int] | None = None) -> 
             f"\n  days of pairs, not one (docs/EVALUATION_POLICY.md). A day of logs"
             f"\n  looks like a lot of data and contains one miss."
         )
+        _print_freshness_hint(obs, needed=3 - len(miss))
     else:
         print(f"\n  Both arms n>=3 (miss n={len(miss)}). Report the paired difference,")
         print("  and check upstream counters before attributing it to the cache.")
