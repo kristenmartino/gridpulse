@@ -63,11 +63,11 @@ laptop; a single module is ≈ 1 min.
 | `data/feature_engineering.py` | 919 | 780 | 82 | 57 | 84.9% | **90.5%** | ↑ 83.8% |
 | `data/quality.py` | 188 | 164 | 20 | 4 | 87.2% | **89.1%** | ↑ 71.6% |
 | `models/skill.py` | 194 | 172 | 18 | 4 | 88.7% | **90.5%** | ↑ 88.6% |
-| `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
+| `models/rolling_eval.py` | 327 | 289 | 27 | 11 | 88.4% | **91.5%** | ↑ 86.9% |
 | `simulation/scenario_engine.py` | 288 | 181 | 35 | 72 | 62.8% | **83.8%** | ↑ 77.1% |
 | `models/evaluation.py` | 373 | 320 | 49 | 4 | 85.8% | **86.7%** | ↑ 77.1% |
 | `models/ensemble.py` | 221 | 177 | 11 | 33 | 80.1% | **94.1%** | ↑ 91.6% |
-| **overall** | **2,510** | **2,067** | **256** | **187** | **82.4%** | **89.0%** | ↑ 88.7% |
+| **overall** | **2,510** | **2,083** | **242** | **185** | **83.0%** | **89.6%** | ↑ 89.0% |
 
 > **Three modules were re-run separately**, not one: `models/evaluation.py` in
 > #442, `models/skill.py` in #441, and `models/ensemble.py` in #445. The other
@@ -78,9 +78,9 @@ laptop; a single module is ≈ 1 min.
 > 1,956). **Anything that re-measures one module must re-sum the column, not
 > add its delta to whatever total it last read.**
 
-Eleven rounds of fixes (#377, #383, #385, #386, #416, #426, #441, #442, #445,
-#484, #487) took the overall logic score **78.6% → 89.0%** and killed **314**
-mutants, without changing production behaviour anywhere except the one crash
+Twelve rounds of fixes (#377, #383, #385, #386, #416, #426, #441, #442, #445,
+#484, #487, #490) took the overall logic score **78.6% → 89.6%** and killed
+**330** mutants, without changing production behaviour anywhere except the one crash
 #386 fixed. The mutant total rose from 2,349 to 2,510: #386's fix added lines,
 #423 rewrote `recursive_autoregressive_forecast` for performance, #441 added a
 parameter, #444 added `resolve_ensemble_weights`, #451/#478 added the smoothed
@@ -109,6 +109,7 @@ bought in different places:
 | #445 | the `ensemble` fallback + the warn-only bounds block | +0.8 pts | **+18.3** |
 | #484 | the usability boundary on `ensemble`'s new #451/#478 surface | +0.3 pts | **+2.5** |
 | #487 | `scenario_engine`'s live half — the part #458 put in production | +0.3 pts | **+6.7** |
+| #490 | `rolling_eval`'s metrics and window splitter | +0.6 pts | **+4.6** |
 
 A 2,372-mutant denominator makes every real fix look like rounding error, which
 is exactly why the gate policy below is **per-module**. It is also why the
