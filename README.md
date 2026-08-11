@@ -57,7 +57,7 @@
 | models/persistence.py                 |      306 |       53 |     83% |42, 88-101, 174-175, 200-202, 210-211, 319, 339, 355-372, 384-385, 459-467, 540-548, 568, 570-577, 604-610, 625-626, 638-644, 646-654, 668-676, 695 |
 | models/pricing.py                     |       32 |        0 |    100% |           |
 | models/prophet\_model.py              |       74 |        4 |     95% |208, 231-238 |
-| models/rolling\_eval.py               |       97 |        2 |     98% |  159, 174 |
+| models/rolling\_eval.py               |       97 |        0 |    100% |           |
 | models/skill.py                       |       52 |        0 |    100% |           |
 | models/training.py                    |      100 |        2 |     98% |   184-185 |
 | models/xgboost\_model.py              |       84 |        7 |     92% |83, 107, 127-131 |
@@ -68,7 +68,7 @@
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      103 |        9 |     91% |121, 221, 246, 248, 292-294, 297, 301 |
-| **TOTAL**                             | **8895** |  **939** | **89%** |           |
+| **TOTAL**                             | **8895** |  **937** | **89%** |           |
 
 
 ## Setup coverage badge
