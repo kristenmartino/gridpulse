@@ -443,6 +443,35 @@ def _ensemble_holdout_metrics(
     return oos_metrics, full_weights
 
 
+def _carry_smoothed_mape(region: str, model_name: str, latest_mape: float | None) -> float | None:
+    """Advance this model's EWMA of holdout MAPE by one step (#451).
+
+    Reads the PREVIOUS vintage's ``extra["mape_ewma"]`` — ``get_model_metadata``
+    still points at it, because this run's meta is not written yet — and folds in
+    tonight's holdout. Persisted unconditionally, flag or no flag, so that
+    flipping ``smoothed_ensemble_weights`` on later finds a series already built
+    instead of starting from a single observation.
+
+    Never fatal: a model that trains fine must not fail to save because its
+    history could not be read.
+    """
+    from models.ensemble import update_smoothed_mape
+
+    previous = None
+    try:
+        from models.persistence import get_model_metadata
+
+        meta = get_model_metadata(region, model_name)
+        if meta is not None:
+            previous = (meta.extra or {}).get("mape_ewma")
+    except Exception as e:  # pragma: no cover — advisory; never block a save
+        log.warning("mape_ewma_history_unavailable", region=region, model=model_name, error=str(e))
+    try:
+        return update_smoothed_mape(previous, latest_mape)
+    except Exception:  # pragma: no cover — defensive
+        return None
+
+
 def _train_xgboost(
     region_data: phases.RegionData,
     holdout: dict | None = None,
@@ -504,6 +533,7 @@ def _train_xgboost(
     # so no consumer can mistake one for the other.
     extra["cv_mape"] = cv_mape
     extra["mape_source"] = "holdout" if saved_mape is not None else None
+    extra["mape_ewma"] = _carry_smoothed_mape(region, "xgboost", saved_mape)
     if saved_mape is None:
         log.info(
             "training_xgboost_no_holdout_mape",
@@ -560,6 +590,9 @@ def _train_prophet(
     extra: dict = {}
     if holdout_metrics is not None:
         extra["holdout_metrics"] = holdout_metrics
+    extra["mape_ewma"] = _carry_smoothed_mape(
+        region, "prophet", (holdout_metrics or {}).get("mape")
+    )
 
     return save_model(
         region=region,
@@ -611,6 +644,7 @@ def _train_arima(
     extra: dict = {}
     if holdout_metrics is not None:
         extra["holdout_metrics"] = holdout_metrics
+    extra["mape_ewma"] = _carry_smoothed_mape(region, "arima", (holdout_metrics or {}).get("mape"))
     # Cache the order for next run's fast path. We persist whatever
     # train_arima ended up using — whether that came from the cache
     # itself (round-trip preserves it) or from a fresh auto_arima.

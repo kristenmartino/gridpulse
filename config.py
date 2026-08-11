@@ -803,6 +803,20 @@ GATE_HYSTERESIS_PTS = 3.0
 # docs/BACKTEST_RESULTS.md "Ensemble weighting" and PRD.md ADR-004.
 ENSEMBLE_WEIGHT_EXPONENT: float = 3.0
 
+# EWMA smoothing constant for the holdout MAPE that drives those weights, when
+# ``smoothed_ensemble_weights`` is on (#451). new = a*latest + (1-a)*previous.
+# 0.3 and 0.5 were the two pre-registered arms; both won, 0.3 by roughly twice
+# as much (+0.524 vs +0.271 WAPE pts) and it survived more of the leave-one-out
+# re-cuts, so it is the value carried forward. NOT independently tuned — picking
+# an alpha by sweeping this data would be choosing the conclusion from what
+# suggested it, the reasoning ledger-23 was fixed for.
+#
+# Note the direction, because it is the opposite of the obvious story:
+# smoothing makes the blend MORE concentrated (HHI 0.617 vs 0.603), and simply
+# flattening the exponent loses decisively at every level tested (k=2.5 through
+# k=1.0). The gain is not "spread the weight around". docs/WEIGHTS_AB_STUDY.md.
+ENSEMBLE_MAPE_EWMA_ALPHA: float = 0.3
+
 # Long-horizon forecast sanity guard (#296). A doubly-integrated SARIMAX
 # (d=1 AND D=1) extrapolates the training window's local weather-driven
 # trend as a permanent linear trend — SC/PSCO decayed to 0 MW and BPAT grew
@@ -1190,6 +1204,17 @@ MAX_REQUEST_BYTES = int(os.getenv("MAX_REQUEST_BYTES", str(2 * 1024 * 1024)))
 # Feature Flags (Backlog J2 — simple in-code toggles)
 # ---------------------------------------------------------------------------
 FEATURE_FLAGS: dict[str, bool] = {
+    # Weight the ensemble by an EWMA of each model's holdout MAPE instead of the
+    # single latest value (#451). The daily estimator flaps (median 12%
+    # run-to-run, docs/HOLDOUT_STABILITY_STUDY.md), so weights computed from one
+    # draw of it partly chase noise. A pre-registered A/B over 8 rolling origins
+    # x 12 BAs gave alpha=0.3 a decisive WAPE win (+0.524 pts, t=2.21, winning 7
+    # of 8 windows) with both satisficing constraints met —
+    # docs/WEIGHTS_AB_STUDY.md. Shipped OFF: that verdict sits close to its own
+    # 2.0 threshold and breaks if FPL is dropped, and it was measured on 12 of
+    # 51 BAs. Flipping it moves served forecasts fleet-wide, so the flip wants a
+    # fleet re-measure, not just a merge.
+    "smoothed_ensemble_weights": False,
     # Cooling-response feature pack (CDD accumulation, convexity, humidity
     # interaction). MEASURED AND REJECTED — docs/COOLING_RESPONSE_STUDY.md:
     # 8 of 8 BAs inconclusive, mean effect -0.0033 WAPE pts, 6 of 8 slightly
