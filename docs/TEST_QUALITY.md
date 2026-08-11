@@ -66,8 +66,8 @@ laptop; a single module is ≈ 1 min.
 | `models/rolling_eval.py` | 327 | 273 | 41 | 13 | 83.5% | **86.9%** | ↑ 76.7% |
 | `simulation/scenario_engine.py` | 238 | 127 | 36 | 75 | 53.4% | **77.9%** | dormant |
 | `models/evaluation.py` | 373 | 320 | 49 | 4 | 85.8% | **86.7%** | ↑ 77.1% |
-| `models/ensemble.py` | 163 | 120 | 11 | 32 | 73.6% | **91.6%** | ↑ 73.3% |
-| **overall** | **2,402** | **1,956** | **257** | **189** | **81.4%** | **88.4%** | ↑ 87.6% |
+| `models/ensemble.py` | 221 | 177 | 11 | 33 | 80.1% | **94.1%** | ↑ 91.6% |
+| **overall** | **2,460** | **2,013** | **257** | **190** | **81.8%** | **88.7%** | ↑ 88.4% |
 
 > **Three modules were re-run separately**, not one: `models/evaluation.py` in
 > #442, `models/skill.py` in #441, and `models/ensemble.py` in #445. The other
@@ -98,6 +98,7 @@ bought in different places:
 | #442 | the `evaluation` clusters + the unexercised defaults | +1.6 pts | **+9.6** |
 | #441 | one definition of the skill block + its last two survivors | +0.2 pts | **+1.9** |
 | #445 | the `ensemble` fallback + the warn-only bounds block | +0.8 pts | **+18.3** |
+| #484 | the usability boundary on `ensemble`'s new #451/#478 surface | +0.3 pts | **+2.5** |
 
 A 2,372-mutant denominator makes every real fix look like rounding error, which
 is exactly why the gate policy below is **per-module**. It is also why the
@@ -240,7 +241,25 @@ code. Every live module is now at 86.7% or better.
 **`models/evaluation.py` is now worked** (#442): 81 → 49, and 42 of the 49 that
 remain are the closed `dtype=float` class. Its three clusters went 44 → 21.
 
-**`models/ensemble.py` is now closed** (#445): 23 → 8, logic **73.3% → 91.6%**,
+**`models/ensemble.py` grew and was re-closed** (#484). #451 (EWMA-smoothed
+holdout MAPE) and #478 (shadow weighting) added 58 mutants — 160 → 251 lines —
+and **their own tests killed all but three**. Those three were one shape, in
+all three new functions: the usability filter `v > 0` relaxed to `v > 1`,
+which rejects any MAPE in (0, 1] as unusable.
+
+That band is the *best* models on the easiest BAs, not noise — this repo
+quotes 1.6% as a **baseline** figure. So the mutation drops the strongest
+measurements, which is the worst direction for a filter meant to reject junk.
+The sharpest consequence is in `shadow_weighting_mape`, which returns `None`
+when the alternative is unavailable *by design* (a fallback would make both
+A/B arms identical and the comparison vacuously "no difference"): under the
+mutation the best models vanish from the shadow arm entirely, **biasing a live
+experiment toward whatever the remaining, worse models support**.
+
+Module now **94.1%**, and the 11 remaining survivors are the same set proved
+equivalent in #445.
+
+**`models/ensemble.py` was first closed** (#445): 23 → 8, logic **73.3% → 91.6%**,
 the largest single-module move of any round. Every one of the 8 that remain
 carries a proof — six equivalent (three `zip(..., strict=)` variants, which
 cannot differ because `arrays` is built by iterating `model_names`; three
