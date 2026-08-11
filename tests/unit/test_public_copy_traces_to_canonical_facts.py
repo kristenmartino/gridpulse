@@ -61,6 +61,7 @@ _PUBLIC_FIGURES: dict[str, Path] = {
     "14.72%": _DOCS / "CANONICAL_FACTS.md",  # SEC under the ensemble now — worse
     # ── Coverage and system facts ──
     "100%": _DOCS / "CANONICAL_FACTS.md",  # demand coverage, contiguous lower-48
+    "81%": _DOCS / "CANONICAL_FACTS.md",  # BA-COUNT coverage — the other half
     "51": _DOCS / "CANONICAL_FACTS.md",  # balancing authorities covered
     # ── Study results ──
     "27%": _DOCS / "HOW_IT_WORKS.md",  # vintages that dive in the serve regime
