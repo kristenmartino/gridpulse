@@ -577,8 +577,9 @@ def _run_forecast_outlook(
             # Equal-weight ensemble (no actuals for MAPE weighting).
             # Strategy: reuse cached individual-model predictions when available,
             # then only train/predict for models that aren't cached yet.
-            # ARIMA is excluded beyond 168h — SARIMAX compounds errors at long
-            # horizons and actively degrades ensemble quality.
+            # SARIMAX is excluded beyond 168h — its integrated component
+            # compounds errors at long horizons and actively degrades
+            # ensemble quality.
             from concurrent.futures import ThreadPoolExecutor, as_completed
 
             ensemble_models = (
