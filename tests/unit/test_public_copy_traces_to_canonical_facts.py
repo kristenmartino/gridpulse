@@ -33,21 +33,39 @@ _ROOT = Path(__file__).resolve().parents[2]
 _WEB = _ROOT / "web"
 _DOCS = _ROOT / "docs"
 
-#: published literal -> (page it appears on, doc that sources it)
+#: published literal -> the doc that sources it
+#:
+#: Keyed by literal rather than by page because a figure may legitimately
+#: appear on more than one public page — the served-ensemble median is on
+#: both /about and /methodology, and both must move together when it does.
 #:
 #: Keep the literal in the exact form BOTH files write it. If the page says
 #: "4.35%" and the doc says "4.4%", that is a drift to resolve, not a reason
-#: to loosen the match.
-_PUBLIC_FIGURES: dict[str, tuple[Path, Path]] = {
-    # Served-ensemble median per-BA holdout error, 168h recursive.
-    # Never a pooled across-51 figure (CANONICAL_FACTS "Forecast accuracy").
-    "4.35%": (_WEB / "landing.html", _DOCS / "CANONICAL_FACTS.md"),
-    # Demand coverage of the contiguous-US lower 48.
-    "100%": (_WEB / "landing.html", _DOCS / "CANONICAL_FACTS.md"),
-    # Balancing authorities covered.
-    "51": (_WEB / "landing.html", _DOCS / "CANONICAL_FACTS.md"),
-    # How wrong first-published EIA values run on high-revision feeds.
-    "70%": (_WEB / "benchmark.html", _DOCS / "BENCHMARK_METHODOLOGY.md"),
+#: to loosen the match. Rounding a published figure for prose is how the
+#: page and the source quietly stop meaning the same thing.
+_PUBLIC_FIGURES: dict[str, Path] = {
+    # ── Holdout accuracy, 168h recursive, per BA ──
+    # Never quoted as a pooled across-51 figure (CANONICAL_FACTS
+    # "Forecast accuracy" opens with that rule).
+    "4.35%": _DOCS / "CANONICAL_FACTS.md",  # served ensemble, median
+    "3.69%": _DOCS / "CANONICAL_FACTS.md",  # best-base, median
+    "3.89%": _DOCS / "CANONICAL_FACTS.md",  # ensemble median, in-sample (withdrawn)
+    "1.72%": _DOCS / "CANONICAL_FACTS.md",  # best-base, min (ERCOT)
+    "23.26%": _DOCS / "CANONICAL_FACTS.md",  # best-base, max (SPA)
+    "14.27%": _DOCS / "CANONICAL_FACTS.md",  # ensemble p90
+    "9.87%": _DOCS / "CANONICAL_FACTS.md",  # XGBoost-alone p90
+    # ── The withdrawn tail-robustness claim, and what replaced it ──
+    "38.63%": _DOCS / "CANONICAL_FACTS.md",  # the figure the old claim rested on
+    "13.61%": _DOCS / "CANONICAL_FACTS.md",  # ...and its counterpart
+    "13.68%": _DOCS / "CANONICAL_FACTS.md",  # SEC under XGBoost now
+    "14.72%": _DOCS / "CANONICAL_FACTS.md",  # SEC under the ensemble now — worse
+    # ── Coverage and system facts ──
+    "100%": _DOCS / "CANONICAL_FACTS.md",  # demand coverage, contiguous lower-48
+    "51": _DOCS / "CANONICAL_FACTS.md",  # balancing authorities covered
+    # ── Study results ──
+    "27%": _DOCS / "HOW_IT_WORKS.md",  # vintages that dive in the serve regime
+    "6.96%": _DOCS / "HOW_IT_WORKS.md",  # the visibility-gate generosity example
+    "70%": _DOCS / "BENCHMARK_METHODOLOGY.md",  # first-published EIA revision error
 }
 
 #: Percentages that are presentation, not claims — they appear in prose-ish
@@ -70,30 +88,36 @@ def _prose_of(path: Path) -> str:
     return text
 
 
-@pytest.mark.parametrize(
-    ("literal", "page", "source"),
-    [(lit, page, src) for lit, (page, src) in _PUBLIC_FIGURES.items()],
-)
+def _public_pages() -> list[Path]:
+    return sorted(_WEB.glob("*.html"))
+
+
+@pytest.mark.parametrize(("literal", "source"), sorted(_PUBLIC_FIGURES.items()))
 class TestPublishedFiguresTraceToSource:
-    def test_literal_is_still_on_the_page(self, literal, page, source) -> None:
-        """The page still publishes the figure the registry says it does."""
-        assert literal in _prose_of(page), (
-            f"{page.name} no longer publishes {literal!r}. If the copy was "
-            f"reworded, update _PUBLIC_FIGURES; if the figure was dropped, "
-            f"remove its entry."
+    def test_literal_is_still_published_somewhere(self, literal, source) -> None:
+        """Some public page still publishes the figure the registry claims.
+
+        Keeps the registry from accumulating entries for copy that has been
+        rewritten — a stale allow-list would silently widen the sweep below.
+        """
+        pages = [p.name for p in _public_pages() if literal in _prose_of(p)]
+        assert pages, (
+            f"No public page publishes {literal!r} any more. If the copy was "
+            f"reworded, drop the entry from _PUBLIC_FIGURES."
         )
 
-    def test_literal_is_still_in_the_source_doc(self, literal, page, source) -> None:
-        """The source still says what the page claims it says.
+    def test_literal_is_still_in_the_source_doc(self, literal, source) -> None:
+        """The source still says what the pages claim it says.
 
         THIS is the assertion that catches drift. It fails when a retrain
         regenerates the source and the published copy was not updated with
-        it — naming both files in the message so the fix is mechanical.
+        it — naming every page that has to change so the fix is mechanical.
         """
+        pages = [p.name for p in _public_pages() if literal in _prose_of(p)]
         assert literal in source.read_text(encoding="utf-8"), (
-            f"{source.name} no longer contains {literal!r}, but "
-            f"{page.name} still publishes it. The source moved — update the "
-            f"page to the new value, then update this registry."
+            f"{source.name} no longer contains {literal!r}, but {pages} still "
+            f"publish it. The source moved — update those pages to the new "
+            f"value, then update this registry."
         )
 
 

@@ -161,6 +161,7 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
       <nav aria-label="Site">
         <ul>
           <li><a href="/about">About GridPulse</a></li>
+          <li><a href="/methodology">How GridPulse forecasts demand</a></li>
           <li><a href="/benchmark">Forecast benchmark</a></li>
         </ul>
       </nav>

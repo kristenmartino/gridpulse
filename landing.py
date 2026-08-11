@@ -33,6 +33,7 @@ landing_bp = Blueprint("landing", __name__)
 _WEB_DIR = Path(__file__).resolve().parent / "web"
 _LANDING_HTML = _WEB_DIR / "landing.html"
 _BENCHMARK_HTML = _WEB_DIR / "benchmark.html"
+_METHODOLOGY_HTML = _WEB_DIR / "methodology.html"
 
 #: Iterable cache: long enough to keep repeat visits cheap, short enough
 #: that copy fixes land within an hour of a deploy.
@@ -60,6 +61,18 @@ def _serve(path: Path, what: str) -> Response:
 def about() -> Response:
     """Serve the marketing landing page."""
     return _serve(_LANDING_HTML, "landing page")
+
+
+@landing_bp.get("/methodology")
+def methodology() -> Response:
+    """Serve the methodology page.
+
+    Hand-converted from ``docs/HOW_IT_WORKS.md`` and committed, rather than
+    rendered from that file at request time — ``docs/`` is in
+    ``.dockerignore``, so it does not exist in the production image. A route
+    that read it would 404 in every environment that matters.
+    """
+    return _serve(_METHODOLOGY_HTML, "methodology page")
 
 
 @landing_bp.get("/benchmark")

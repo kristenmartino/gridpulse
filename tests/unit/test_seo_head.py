@@ -92,6 +92,7 @@ def _surfaces() -> list[tuple[str, str]]:
     return [
         ("/", _index_string()),
         ("/about", (_WEB / "landing.html").read_text(encoding="utf-8")),
+        ("/methodology", (_WEB / "methodology.html").read_text(encoding="utf-8")),
         ("/benchmark", (_WEB / "benchmark.html").read_text(encoding="utf-8")),
     ]
 
