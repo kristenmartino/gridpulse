@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 from dash import html
 
+from components.accessibility import model_display_name
 from config import REGION_CAPACITY_MW, feature_enabled, mape_grade
 from personas.config import get_persona
 
@@ -553,12 +554,7 @@ def generate_tab2_insights(
     # Model used — cover every servable model (P2-26/#273: the served model
     # can be any payload primary, and a raw lowercase "prophet" here reads
     # as a bug, not a brand).
-    model_label = {
-        "xgboost": "XGBoost",
-        "ensemble": "Ensemble",
-        "prophet": "Prophet",
-        "arima": "ARIMA",
-    }.get(model_name, model_name)
+    model_label = model_display_name(model_name)
     insights.append(
         Insight(
             text=f"Forecast generated using {model_label} model over {horizon_hours}-hour horizon.",
@@ -609,12 +605,7 @@ def generate_tab3_insights(
         horizon_key = {24: "24h", 168: "7d", 720: "7d"}.get(horizon_hours, "48h")
         grade = mape_grade(mape_val, horizon_key)
         grade_label = grade.capitalize()
-        model_label = {
-            "xgboost": "XGBoost",
-            "ensemble": "Ensemble",
-            "prophet": "Prophet",
-            "arima": "ARIMA",
-        }.get(model_name, model_name)
+        model_label = model_display_name(model_name)
         fold_text = f" across {num_folds} folds" if num_folds > 1 else ""
         insights.append(
             Insight(
@@ -661,20 +652,8 @@ def generate_tab3_insights(
     ):
         spread = bt_stats["mape_spread"] or 0
         if spread > 0.3:
-            best_label = (
-                bt_stats["best_model"]
-                .replace("xgboost", "XGBoost")
-                .replace("prophet", "Prophet")
-                .replace("arima", "ARIMA")
-                .replace("ensemble", "Ensemble")
-            )
-            worst_label = (
-                bt_stats["worst_model"]
-                .replace("xgboost", "XGBoost")
-                .replace("prophet", "Prophet")
-                .replace("arima", "ARIMA")
-                .replace("ensemble", "Ensemble")
-            )
+            best_label = model_display_name(bt_stats["best_model"])
+            worst_label = model_display_name(bt_stats["worst_model"])
             insights.append(
                 Insight(
                     text=f"{best_label} leads with {bt_stats['best_mape']:.2f}% MAPE, outperforming {worst_label} by {spread:.1f} percentage points.",
@@ -724,18 +703,9 @@ def generate_tab3_insights(
     if ensemble_weights and model_name == "ensemble":
         weight_parts = []
         for m in sorted(ensemble_weights, key=ensemble_weights.get, reverse=True):
-            label = (
-                m.replace("xgboost", "XGBoost")
-                .replace("prophet", "Prophet")
-                .replace("arima", "ARIMA")
-            )
-            weight_parts.append(f"{label} {ensemble_weights[m]:.0%}")
+            weight_parts.append(f"{model_display_name(m)} {ensemble_weights[m]:.0%}")
         dominant = max(ensemble_weights, key=ensemble_weights.get)
-        dominant_label = (
-            dominant.replace("xgboost", "XGBoost")
-            .replace("prophet", "Prophet")
-            .replace("arima", "ARIMA")
-        )
+        dominant_label = model_display_name(dominant)
         insights.append(
             Insight(
                 text=f"Ensemble weights: {', '.join(weight_parts)} \u2014 {dominant_label} dominates due to lowest individual MAPE.",

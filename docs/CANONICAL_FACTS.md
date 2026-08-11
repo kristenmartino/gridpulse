@@ -26,7 +26,7 @@
 |---|---|---|
 | Base ML models | **3**: Prophet, SARIMAX, XGBoost | [`models/`](../models/) |
 | Ensemble method | Sharpened inverse-MAPE — `weight_i ∝ (1/MAPE_i)³` normalized (ADR-004, `ENSEMBLE_WEIGHT_EXPONENT=3`, #181) | [`models/ensemble.py`](../models/ensemble.py) |
-| User-selectable forecasts in UI | **4**: XGBoost, Prophet, ARIMA, Ensemble | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |
+| User-selectable forecasts in UI | **4**: XGBoost, Prophet, SARIMAX, Ensemble. The internal key stays `arima` (Redis payload, config, callback values); **SARIMAX is the only user-visible spelling**, resolved from a three-way split — Models said "SARIMAX", Forecast said "ARIMA", and every `.title()`-derived label said "Arima" | [`components/accessibility.py`](../components/accessibility.py) `MODEL_DISPLAY_NAMES`; [`tests/unit/test_model_display_names.py`](../tests/unit/test_model_display_names.py) |
 | Total engineered features | **49** (17 raw weather + 32 derived) | [`data/feature_engineering.py`](../data/feature_engineering.py) |
 | Forecast horizons | 24h, 7d, 30d (UI selectable) | [`components/_callbacks_forecast.py`](../components/_callbacks_forecast.py) |
 | Confidence interval | 80% empirical, last 120h calibration window | [`models/evaluation.py`](../models/evaluation.py) |

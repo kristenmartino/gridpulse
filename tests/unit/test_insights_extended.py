@@ -492,7 +492,11 @@ class TestTab3CrossModelComparison:
         comp_insights = [i for i in result if i.metric_name == "model_comparison"]
         assert len(comp_insights) > 0
         assert "XGBoost" in comp_insights[0].text
-        assert "ARIMA" in comp_insights[0].text
+        # Assert the canonical label, not "ARIMA" — ``"ARIMA" in "SARIMAX"``
+        # is True, so the old assertion passed under either spelling and
+        # could not have caught the three-way label split it looked like it
+        # was guarding. See tests/unit/test_model_display_names.py.
+        assert "SARIMAX" in comp_insights[0].text
         assert "outperforming" in comp_insights[0].text
 
     def test_no_comparison_when_spread_small(self):

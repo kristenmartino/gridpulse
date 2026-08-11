@@ -111,7 +111,7 @@ flowchart TB
     subgraph Hourly["Hourly scoring — gridpulse-scoring-job"]
         H1[Cloud Scheduler fires<br/>at :00 each hour]
         H2[For each of 51 BAs:<br/>fetch EIA + Open-Meteo + NOAA]
-        H3[Load latest XGBoost/Prophet/ARIMA<br/>from GCS]
+        H3[Load latest XGBoost/Prophet/SARIMAX<br/>from GCS]
         H4[Predict 24h ahead<br/>+ compute inverse-MAPE ensemble]
         H5[Write to Redis:<br/>forecast · alerts · diagnostics · weather-correlation]
         H1 --> H2 --> H3 --> H4 --> H5
@@ -164,12 +164,12 @@ flowchart LR
     XGB --> Weights
     Weights --> Combined
 
-    Combined --> UI[UI: 4 selectable forecasts<br/>XGBoost · Prophet · ARIMA · Ensemble]
+    Combined --> UI[UI: 4 selectable forecasts<br/>XGBoost · Prophet · SARIMAX · Ensemble]
 ```
 
 The ensemble is **sharpened inverse-MAPE weighted** — weight ∝ (1/MAPE)³ (`config.ENSEMBLE_WEIGHT_EXPONENT`, ADR-004 refined via #181), so it follows the best recent model and blends meaningfully only when peers are genuinely close. This was chosen over stacking (ADR-004) because the weights are transparent and trivial to debug ("which model is dominating right now and why"). Its measured value is **error decorrelation, not dominance**: on the recursive 51-BA holdout the ensemble beats XGBoost-alone on 21 of 51 BAs (2026-08-07 run; see `docs/BACKTEST_RESULTS.md`, whose ensemble column is now scored out-of-sample) — a useful hedge where model errors decorrelate, not a guarantee of winning, and the k=3 sharpening exists precisely because plain 1/MAPE blending kept 15–30% weight on models running 3–5× worse than the leader.
 
-A real example from the 2026-05-01 training run for FPL: `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`. XGBoost wins because it captures the weather→cooling-load relationship FPL is dominated by; ARIMA gets a small allocation because Florida demand has a strong stationary daily cycle worth capturing.
+A real example from the 2026-05-01 training run for FPL: `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`. XGBoost wins because it captures the weather→cooling-load relationship FPL is dominated by; SARIMAX gets a small allocation because Florida demand has a strong stationary daily cycle worth capturing.
 
 The known limitation surfaced 2026-05-19: holdout MAPE is computed at training time, so the weights stay frozen between trainings. Between-training drift (model A degrades on live actuals while model B holds steady) isn't detected. Closing that gap is [#121 Model drift monitoring](https://github.com/kristenmartino/gridpulse/issues/121).
 

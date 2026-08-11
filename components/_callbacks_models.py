@@ -58,6 +58,7 @@ from components._callbacks_shared import (
     _layout,
     _read_vintage_summary,
 )
+from components.accessibility import model_display_name
 from config import (
     ANCHOR_FED_MODELS,
     FEED_LIMITED_CLASSES,
@@ -170,12 +171,7 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     residual_source = cached.get("residual_source") or {}
 
     # Metrics table
-    name_map = {
-        "Prophet": "prophet",
-        "SARIMAX": "arima",
-        "XGBoost": "xgboost",
-        "Ensemble": "ensemble",
-    }
+    name_map = {model_display_name(k): k for k in ("prophet", "arima", "xgboost", "ensemble")}
     rows = []
     for display_name, key in name_map.items():
         if key not in selected_models:
@@ -477,12 +473,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
     # Render in the same order as the leaderboard so the eye can
     # diff across panels without re-anchoring.
     display_order = ("prophet", "arima", "xgboost", "ensemble")
-    display_names = {
-        "prophet": "Prophet",
-        "arima": "SARIMAX",
-        "xgboost": "XGBoost",
-        "ensemble": "Ensemble",
-    }
+    display_names = {k: model_display_name(k) for k in display_order}
 
     rows: list[html.Tr] = []
     degraded_names: list[str] = []  # off band at BOTH 1h and 24h — confirmed
@@ -503,7 +494,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
         live_7d = drift.get("rolling_mape_7d")
         live_30d = drift.get("rolling_mape_30d")
         holdout = metrics.get(key, {}).get("mape")
-        display = display_names.get(key, key.title())
+        display = display_names.get(key, model_display_name(key))
         chip_title: str | None = None
 
         # Warming for this specific model when its window hasn't filled
@@ -785,12 +776,7 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
     horizons = payload.get("horizons") or ["24h", "48h", "72h"]
     drift_models = payload["models"]
     display_order = ("prophet", "arima", "xgboost", "ensemble")
-    display_names = {
-        "prophet": "Prophet",
-        "arima": "SARIMAX",
-        "xgboost": "XGBoost",
-        "ensemble": "Ensemble",
-    }
+    display_names = {k: model_display_name(k) for k in display_order}
     tone_by_grade = {
         "excellent": "positive",
         "target": "positive",
@@ -807,7 +793,7 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
         if not model_block:
             continue
         cells: list[html.Td] = [
-            html.Td(display_names.get(key, key.title()), style={"fontWeight": "600"})
+            html.Td(display_names.get(key, model_display_name(key)), style={"fontWeight": "600"})
         ]
         for horizon in horizons:
             block = model_block.get(horizon) or {}
@@ -1054,12 +1040,7 @@ def register_models_callbacks(app):
         selected = [m for m in model_order if m in set(selected_models)]
 
         # Metrics table
-        name_map = {
-            "Prophet": "prophet",
-            "SARIMAX": "arima",
-            "XGBoost": "xgboost",
-            "Ensemble": "ensemble",
-        }
+        name_map = {model_display_name(k): k for k in ("prophet", "arima", "xgboost", "ensemble")}
         rows = []
         for display_name, key in name_map.items():
             if key not in selected:
@@ -1085,12 +1066,7 @@ def register_models_callbacks(app):
         )
 
         timestamps = demand_df["timestamp"]
-        model_labels = {
-            "prophet": "Prophet",
-            "arima": "SARIMAX",
-            "xgboost": "XGBoost",
-            "ensemble": "Ensemble",
-        }
+        model_labels = {k: model_display_name(k) for k in model_order}
         model_colors = {
             "prophet": COLORS["prophet"],
             "arima": COLORS["arima"],
@@ -1127,7 +1103,7 @@ def register_models_callbacks(app):
                     x=timestamps,
                     y=residuals,
                     mode="lines",
-                    name=model_labels.get(model_key, model_key.title()),
+                    name=model_labels.get(model_key, model_display_name(model_key)),
                     line=dict(color=model_colors.get(model_key, COLORS["actual"]), width=1),
                 )
             )
@@ -1140,7 +1116,7 @@ def register_models_callbacks(app):
                 go.Histogram(
                     x=residuals,
                     nbinsx=50,
-                    name=model_labels.get(model_key, model_key.title()),
+                    name=model_labels.get(model_key, model_display_name(model_key)),
                     marker_color=model_colors.get(model_key, COLORS["actual"]),
                     opacity=0.6,
                 )
@@ -1162,7 +1138,7 @@ def register_models_callbacks(app):
                     x=preds,
                     y=residuals,
                     mode="markers",
-                    name=model_labels.get(model_key, model_key.title()),
+                    name=model_labels.get(model_key, model_display_name(model_key)),
                     marker=dict(
                         size=3,
                         color=model_colors.get(model_key, COLORS["actual"]),
@@ -1184,7 +1160,7 @@ def register_models_callbacks(app):
                 go.Bar(
                     x=hourly_error.index,
                     y=hourly_error.values,
-                    name=model_labels.get(model_key, model_key.title()),
+                    name=model_labels.get(model_key, model_display_name(model_key)),
                     marker_color=model_colors.get(model_key, COLORS["actual"]),
                     opacity=0.85,
                 )

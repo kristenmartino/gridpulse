@@ -17,6 +17,7 @@ to work without signature changes.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from components.accessibility import model_display_name
 from components.cards import build_page_footer
 
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
@@ -30,10 +31,8 @@ def _model_selector() -> html.Div:
             dbc.Checklist(
                 id="tab3-model-selector",
                 options=[
-                    {"label": "Prophet", "value": "prophet"},
-                    {"label": "SARIMAX", "value": "arima"},
-                    {"label": "XGBoost", "value": "xgboost"},
-                    {"label": "Ensemble", "value": "ensemble"},
+                    {"label": model_display_name(key), "value": key}
+                    for key in ("prophet", "arima", "xgboost", "ensemble")
                 ],
                 value=["prophet", "arima", "xgboost", "ensemble"],
                 inline=True,

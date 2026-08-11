@@ -86,7 +86,7 @@ from components._callbacks_shared import (
     _scoring_pass_completed_since_actuals,
     _widening_interval_from_backtests,
 )
-from components.accessibility import LINE_STYLES
+from components.accessibility import LINE_STYLES, model_display_name
 from config import CACHE_TTL_SECONDS, OPEN_METEO_FORECAST_HOURS, REQUIRE_REDIS
 from data.redis_client import redis_get, redis_key
 
@@ -287,7 +287,7 @@ def _add_confidence_bands(
     if interval_meta["method"] in ("empirical", "empirical_widening"):
         # Disclose the calibration source when the residuals came from a
         # substitute model — the prod backtest payload only carries XGBoost
-        # predictions, so a Prophet/ARIMA/ensemble band is typically
+        # predictions, so a Prophet/SARIMAX/ensemble band is typically
         # XGBoost-calibrated (2026-07 critical-review finding P1-2/F6-003).
         calib = interval_meta.get("calibration_model")
         calib_note = "" if calib in (None, model_name) else f" ({calib}-calibrated)"
@@ -927,7 +927,7 @@ def _guarded_outlook_state(
 
     The scoring job flagged this model's forecast as degenerate at this
     horizon (``horizon_guard`` on the Redis payload). Rendering the line
-    anyway would draw fiction — SC/PSCO ARIMA decayed to 0 MW, BPAT grew
+    anyway would draw fiction — SC/PSCO SARIMAX decayed to 0 MW, BPAT grew
     ~2x — so the chart states what happened and what still works instead.
 
     ``ensemble_ok`` gates the guidance copy: recommending "the Ensemble
@@ -1515,7 +1515,7 @@ def register_forecast_callbacks(app):
             "MAE": _fmt("mae", ",.0f", " MW"),
             "R²": _fmt("r2", ".3f"),
         }
-        name = "XGBoost" if model_name == "xgboost" else model_name.title()
+        name = model_display_name(model_name)
         badge = "trained" if is_trained(region) else "simulated"
         return build_model_metrics_card(model_name=name, metrics=formatted, badge=badge)
 
