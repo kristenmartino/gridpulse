@@ -240,6 +240,71 @@ class TestTheShadowMeasuresTheRightThing:
         persist.assert_not_called()
 
 
+class TestItIsObservableWhenItWorks:
+    """A write nobody can confirm is a write nobody should trust (#478)."""
+
+    def _rows(self, n: int = 3) -> list[dict]:
+        ts = pd.date_range("2026-06-01", periods=n, freq="h", tz="UTC")
+        return [{"timestamp": t.isoformat(), "ensemble": 100.0} for t in ts]
+
+    @patch("data.redis_client.persist")
+    @patch("data.redis_client.redis_get", return_value=None)
+    def test_the_success_path_logs_enough_to_verify_it_ran(self, _get, _persist) -> None:
+        """Only skips and failures logged before this.
+
+        The strongest evidence a reader could get was the *absence* of
+        ``shadow_weights_incomplete`` across 51 BAs, which is indistinguishable
+        from the phase never executing — the "configured and inert" pattern that
+        has bitten this project repeatedly. ``n_records`` is the field that
+        matters: it must climb toward #478's 14 days, and a flat count means
+        grading is broken while the write keeps succeeding.
+        """
+        from unittest.mock import MagicMock
+
+        recorder = MagicMock()
+        with patch("jobs.phases.log", recorder):
+            assert _write_shadow_weights(
+                region="FPL",
+                predictions_by_model={
+                    "xgboost": np.full(3, 100.0),
+                    "prophet": np.full(3, 200.0),
+                },
+                model_mapes_shadow={"xgboost": 2.0, "prophet": 4.0},
+                served_weights={"xgboost": 0.5, "prophet": 0.5},
+                rows=self._rows(),
+                demand_df=None,
+            )
+        calls = [c for c in recorder.info.call_args_list if c.args[0] == "shadow_weights_written"]
+        assert calls, f"success must be observable; got {recorder.info.call_args_list}"
+        assert calls[0].kwargs["region"] == "FPL"
+        assert calls[0].kwargs["members"] == ["prophet", "xgboost"]
+        assert calls[0].kwargs["n_records"] == 0
+        assert calls[0].kwargs["n_forecast_rows"] == 3
+
+    @patch("data.redis_client.persist")
+    @patch("data.redis_client.redis_get", return_value=None)
+    def test_a_skipped_shadow_does_not_log_a_success(self, _get, _persist) -> None:
+        """Otherwise the log line would prove nothing it claims to prove."""
+        from unittest.mock import MagicMock
+
+        recorder = MagicMock()
+        with patch("jobs.phases.log", recorder):
+            assert not _write_shadow_weights(
+                region="FPL",
+                predictions_by_model={
+                    "xgboost": np.full(3, 100.0),
+                    "prophet": np.full(3, 200.0),
+                },
+                model_mapes_shadow={"xgboost": 2.0},
+                served_weights={"xgboost": 0.5, "prophet": 0.5},
+                rows=self._rows(),
+                demand_df=None,
+            )
+        assert not [
+            c for c in recorder.info.call_args_list if c.args[0] == "shadow_weights_written"
+        ]
+
+
 class TestGrading:
     def _previous(self) -> dict:
         ts = pd.date_range("2026-06-01", periods=3, freq="h", tz="UTC")
