@@ -13,18 +13,9 @@ give those BAs no vote and the well-fed ones ten times the weight.
 
 from __future__ import annotations
 
-import importlib.util
-import pathlib
-
 import pytest
 
-_spec = importlib.util.spec_from_file_location(
-    "shadow_weights_eval",
-    pathlib.Path(__file__).resolve().parents[2] / "scripts" / "shadow_weights_eval.py",
-)
-assert _spec and _spec.loader
-sw = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(sw)
+from models import shadow_eval as sw
 
 
 def _ba(n: int, bias: float, mape: float = 5.0, days: float = 10.0) -> dict:
@@ -55,7 +46,7 @@ class TestPerBaWeighting:
         pooled_records = [{"actual": 100.0, "served_predicted": 100.0} for _ in range(200)] + [
             {"actual": 100.0, "served_predicted": 110.0} for _ in range(2)
         ]
-        pooled = sw._arm_stats(pooled_records, "served")
+        pooled = sw.arm_stats(pooled_records, "served")
         per_ba = sw.fleet_stats(per_region, "served")
         assert pooled["bias_pct"] < 1.0
         assert per_ba["bias_pct"] == pytest.approx(5.0)
