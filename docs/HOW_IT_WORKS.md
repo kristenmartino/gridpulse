@@ -56,9 +56,15 @@ flowchart LR
 since #250 a **public read-only JSON API** at `/api/v1` — index, `/regions`,
 `/forecast/{region}?horizon=` (capped at 168h, the weather-driven week),
 `/grid/summary`, `/drift/{region}`, `/benchmark` and `/benchmark/{region}`.
-The `/benchmark` page carries no data of its own: it fetches
-`/api/v1/benchmark` in the browser, so what it renders is exactly what the
-public endpoint will admit to. Its rules, exclusions and limits are
+The `/benchmark` page carries no data of its own. It **server-renders a
+summary** — fleet tiles, the derived verdict and a plain scored-row table —
+from `api.build_benchmark_payload()`, the identical structure and identical
+allow-list `/api/v1/benchmark` returns, then fetches that endpoint in the
+browser to hydrate the sortable table over it. So what it renders is still
+exactly what the public endpoint will admit to; there is no second, friendlier
+path to the data. Before #SEO the page shipped **zero numbers** in its initial
+HTML, which made the one page whose value is a published scoreboard invisible
+to every crawler that does not execute JavaScript. Its rules, exclusions and limits are
 [`docs/BENCHMARK_METHODOLOGY.md`](BENCHMARK_METHODOLOGY.md).
 
 **`/methodology` is this document, hand-converted and committed** as

@@ -814,17 +814,29 @@ def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-@api_v1.get("/benchmark")
-def benchmark():
-    """GridPulse vs each BA's own EIA-930 day-ahead forecast.
+#: Shown when no BA has accumulated enough paired hours yet.
+BENCHMARK_WARMING_DETAIL = (
+    "No benchmark results yet — a BA needs roughly nine days of "
+    "scoring ticks before enough matured forecasts pair with settled "
+    "actuals to publish a verdict."
+)
 
-    The fleet rollup plus every per-BA row — including the excluded ones,
-    which carry their reason. Rules, limits and reproduction scripts:
-    ``docs/BENCHMARK_METHODOLOGY.md``.
+
+def build_benchmark_payload() -> dict[str, Any] | None:
+    """The fleet benchmark body, or None when nothing is scoreable yet.
+
+    Extracted from the route so the ``/benchmark`` *page* can server-render
+    from the identical structure the endpoint returns, rather than growing a
+    second, friendlier path to the same Redis keys. The allow-list
+    (``_export_benchmark_payload``) is applied here, so an SSR consumer
+    cannot reach a field an API consumer could not.
+
+    Shares the endpoint's 30-second memo: a crawl burst on the page must not
+    fan out 51 Redis reads per request.
     """
     memoized = _memo_get("benchmark")
     if memoized is not None:
-        return jsonify(memoized)
+        return memoized
 
     fleet = redis_get(redis_key("meta:benchmark_fleet"))
     regions_out = []
@@ -834,11 +846,7 @@ def benchmark():
             regions_out.append(_export_benchmark_payload(payload))
 
     if not regions_out:
-        return _warming_response(
-            "No benchmark results yet — a BA needs roughly nine days of "
-            "scoring ticks before enough matured forecasts pair with settled "
-            "actuals to publish a verdict."
-        )
+        return None
 
     body = {
         "comparison": "GridPulse forecast vs the balancing authority's own day-ahead forecast",
@@ -861,6 +869,20 @@ def benchmark():
         "attribution": [_ATTRIBUTION["demand"]],
     }
     _memo_set("benchmark", body)
+    return body
+
+
+@api_v1.get("/benchmark")
+def benchmark():
+    """GridPulse vs each BA's own EIA-930 day-ahead forecast.
+
+    The fleet rollup plus every per-BA row — including the excluded ones,
+    which carry their reason. Rules, limits and reproduction scripts:
+    ``docs/BENCHMARK_METHODOLOGY.md``.
+    """
+    body = build_benchmark_payload()
+    if body is None:
+        return _warming_response(BENCHMARK_WARMING_DETAIL)
     return jsonify(body)
 
 
