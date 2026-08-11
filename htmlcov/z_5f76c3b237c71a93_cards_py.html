@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for components/cards.py: 94%</title>
+    <title>Coverage for components/cards.py: 95%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_dd2e7eb5.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>components<span class="sep">/</span>cards.py</b>:
-            <span class="pc_cov">94%</span>
+            <span class="pc_cov">95%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -54,8 +54,8 @@
             </div>
         </aside>
         <h2>
-            <span class="text">107 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">101<span class="text"> run</span></button>
+            <span class="text">110 statements &nbsp;</span>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">104<span class="text"> run</span></button>
             <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">6<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_5f76c3b237c71a93_error_handling_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-11 20:29 +0000
+            created at 2026-08-11 20:38 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -577,37 +577,64 @@
     <p class="run"><span class="n"><a id="t495" href="#t495">495</a></span><span class="t"><span class="key">def</span> <span class="nam">build_page_footer</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t496" href="#t496">496</a></span><span class="t">    <span class="nam">sources</span><span class="op">:</span> <span class="nam">list</span><span class="op">[</span><span class="nam">str</span><span class="op">]</span> <span class="op">|</span> <span class="key">None</span> <span class="op">=</span> <span class="key">None</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
     <p class="run run2"><span class="n"><a id="t497" href="#t497">497</a></span><span class="t">    <span class="nam">note</span><span class="op">:</span> <span class="nam">str</span> <span class="op">|</span> <span class="key">None</span> <span class="op">=</span> <span class="key">None</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t498" href="#t498">498</a></span><span class="t"><span class="op">)</span> <span class="op">-&gt;</span> <span class="nam">html</span><span class="op">.</span><span class="nam">Div</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t499" href="#t499">499</a></span><span class="t">    <span class="str">&quot;&quot;&quot;Small attribution footer at the bottom of the linear stack.</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t500" href="#t500">500</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t501" href="#t501">501</a></span><span class="t"><span class="str">    Open-Meteo is rendered as a link to satisfy its CC-BY-4.0 attribution</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t502" href="#t502">502</a></span><span class="t"><span class="str">    requirement (see ``_FOOTER_SOURCE_LINKS``).</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t503" href="#t503">503</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t504" href="#t504">504</a></span><span class="t"><span class="str">    NOAA earned its credit back in 2026-07: the scoring job now fetches live</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t505" href="#t505">505</a></span><span class="t"><span class="str">    NWS alerts via ``data.noaa_client`` (it was unwired &#8212; and uncredited &#8212;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t506" href="#t506">506</a></span><span class="t"><span class="str">    before that).</span>&nbsp;</span><span class="r"></span></p>
-    <p class="pln"><span class="n"><a id="t507" href="#t507">507</a></span><span class="t"><span class="str">    &quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t508" href="#t508">508</a></span><span class="t">    <span class="nam">sources</span> <span class="op">=</span> <span class="nam">sources</span> <span class="key">or</span> <span class="op">[</span><span class="str">&quot;EIA&quot;</span><span class="op">,</span> <span class="str">&quot;Open-Meteo&quot;</span><span class="op">,</span> <span class="str">&quot;NOAA&quot;</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t509" href="#t509">509</a></span><span class="t">    <span class="nam">rendered</span><span class="op">:</span> <span class="nam">list</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t510" href="#t510">510</a></span><span class="t">    <span class="key">for</span> <span class="nam">i</span><span class="op">,</span> <span class="nam">src</span> <span class="key">in</span> <span class="nam">enumerate</span><span class="op">(</span><span class="nam">sources</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t511" href="#t511">511</a></span><span class="t">        <span class="key">if</span> <span class="nam">i</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t512" href="#t512">512</a></span><span class="t">            <span class="nam">rendered</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="str">&quot; &#183; &quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t513" href="#t513">513</a></span><span class="t">        <span class="nam">href</span> <span class="op">=</span> <span class="nam">_FOOTER_SOURCE_LINKS</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="nam">src</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t514" href="#t514">514</a></span><span class="t">        <span class="nam">rendered</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t515" href="#t515">515</a></span><span class="t">            <span class="nam">html</span><span class="op">.</span><span class="nam">A</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t516" href="#t516">516</a></span><span class="t">                <span class="nam">src</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t517" href="#t517">517</a></span><span class="t">                <span class="nam">href</span><span class="op">=</span><span class="nam">href</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t518" href="#t518">518</a></span><span class="t">                <span class="nam">target</span><span class="op">=</span><span class="str">&quot;_blank&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t519" href="#t519">519</a></span><span class="t">                <span class="nam">rel</span><span class="op">=</span><span class="str">&quot;noopener noreferrer&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t520" href="#t520">520</a></span><span class="t">                <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__source-link&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t521" href="#t521">521</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t522" href="#t522">522</a></span><span class="t">            <span class="key">if</span> <span class="nam">href</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t523" href="#t523">523</a></span><span class="t">            <span class="key">else</span> <span class="nam">html</span><span class="op">.</span><span class="nam">Span</span><span class="op">(</span><span class="nam">src</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run run2"><span class="n"><a id="t524" href="#t524">524</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t525" href="#t525">525</a></span><span class="t">    <span class="nam">parts</span><span class="op">:</span> <span class="nam">list</span> <span class="op">=</span> <span class="op">[</span><span class="nam">html</span><span class="op">.</span><span class="nam">Span</span><span class="op">(</span><span class="nam">rendered</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__sources&quot;</span><span class="op">)</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t526" href="#t526">526</a></span><span class="t">    <span class="key">if</span> <span class="nam">note</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t527" href="#t527">527</a></span><span class="t">        <span class="nam">parts</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="nam">html</span><span class="op">.</span><span class="nam">Span</span><span class="op">(</span><span class="nam">note</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__note&quot;</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
-    <p class="run"><span class="n"><a id="t528" href="#t528">528</a></span><span class="t">    <span class="key">return</span> <span class="nam">html</span><span class="op">.</span><span class="nam">Div</span><span class="op">(</span><span class="nam">parts</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t498" href="#t498">498</a></span><span class="t">    <span class="nam">links</span><span class="op">:</span> <span class="nam">bool</span> <span class="op">=</span> <span class="key">True</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t499" href="#t499">499</a></span><span class="t"><span class="op">)</span> <span class="op">-&gt;</span> <span class="nam">html</span><span class="op">.</span><span class="nam">Div</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t500" href="#t500">500</a></span><span class="t">    <span class="str">&quot;&quot;&quot;Small attribution footer at the bottom of the linear stack.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t501" href="#t501">501</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t502" href="#t502">502</a></span><span class="t"><span class="str">    Open-Meteo is rendered as a link to satisfy its CC-BY-4.0 attribution</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t503" href="#t503">503</a></span><span class="t"><span class="str">    requirement (see ``_FOOTER_SOURCE_LINKS``).</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t504" href="#t504">504</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t505" href="#t505">505</a></span><span class="t"><span class="str">    NOAA earned its credit back in 2026-07: the scoring job now fetches live</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t506" href="#t506">506</a></span><span class="t"><span class="str">    NWS alerts via ``data.noaa_client`` (it was unwired &#8212; and uncredited &#8212;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t507" href="#t507">507</a></span><span class="t"><span class="str">    before that).</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t508" href="#t508">508</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t509" href="#t509">509</a></span><span class="t"><span class="str">    ``links`` adds the cross-page nav to ``/about`` and ``/benchmark``. This</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t510" href="#t510">510</a></span><span class="t"><span class="str">    element is where it belongs rather than the header: the header already</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t511" href="#t511">511</a></span><span class="t"><span class="str">    carries a region select, a persona select and two buttons, and</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t512" href="#t512">512</a></span><span class="t"><span class="str">    ``@media (max-width: 768px)`` hides ``.gp-header__link`` outright, so</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t513" href="#t513">513</a></span><span class="t"><span class="str">    header links would vanish on phones. ``.gp-footer`` is already the calm,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t514" href="#t514">514</a></span><span class="t"><span class="str">    accent-free, ``--text-disabled`` treatment #222 asks for, and all five</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t515" href="#t515">515</a></span><span class="t"><span class="str">    tabs already render it.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t516" href="#t516">516</a></span><span class="t">&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t517" href="#t517">517</a></span><span class="t"><span class="str">    Note these links are invisible to any crawler that does not execute</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t518" href="#t518">518</a></span><span class="t"><span class="str">    JavaScript &#8212; ``app.layout`` is served as JSON from ``/_dash-layout`` and</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t519" href="#t519">519</a></span><span class="t"><span class="str">    rendered client-side. They are here for humans; the ``&lt;noscript&gt;`` nav in</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t520" href="#t520">520</a></span><span class="t"><span class="str">    ``app.index_string`` and ``sitemap.xml`` cover the machines.</span>&nbsp;</span><span class="r"></span></p>
+    <p class="pln"><span class="n"><a id="t521" href="#t521">521</a></span><span class="t"><span class="str">    &quot;&quot;&quot;</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t522" href="#t522">522</a></span><span class="t">    <span class="nam">sources</span> <span class="op">=</span> <span class="nam">sources</span> <span class="key">or</span> <span class="op">[</span><span class="str">&quot;EIA&quot;</span><span class="op">,</span> <span class="str">&quot;Open-Meteo&quot;</span><span class="op">,</span> <span class="str">&quot;NOAA&quot;</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t523" href="#t523">523</a></span><span class="t">    <span class="nam">rendered</span><span class="op">:</span> <span class="nam">list</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t524" href="#t524">524</a></span><span class="t">    <span class="key">for</span> <span class="nam">i</span><span class="op">,</span> <span class="nam">src</span> <span class="key">in</span> <span class="nam">enumerate</span><span class="op">(</span><span class="nam">sources</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t525" href="#t525">525</a></span><span class="t">        <span class="key">if</span> <span class="nam">i</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t526" href="#t526">526</a></span><span class="t">            <span class="nam">rendered</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="str">&quot; &#183; &quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t527" href="#t527">527</a></span><span class="t">        <span class="nam">href</span> <span class="op">=</span> <span class="nam">_FOOTER_SOURCE_LINKS</span><span class="op">.</span><span class="nam">get</span><span class="op">(</span><span class="nam">src</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t528" href="#t528">528</a></span><span class="t">        <span class="nam">rendered</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t529" href="#t529">529</a></span><span class="t">            <span class="nam">html</span><span class="op">.</span><span class="nam">A</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t530" href="#t530">530</a></span><span class="t">                <span class="nam">src</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t531" href="#t531">531</a></span><span class="t">                <span class="nam">href</span><span class="op">=</span><span class="nam">href</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t532" href="#t532">532</a></span><span class="t">                <span class="nam">target</span><span class="op">=</span><span class="str">&quot;_blank&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t533" href="#t533">533</a></span><span class="t">                <span class="nam">rel</span><span class="op">=</span><span class="str">&quot;noopener noreferrer&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t534" href="#t534">534</a></span><span class="t">                <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__source-link&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t535" href="#t535">535</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t536" href="#t536">536</a></span><span class="t">            <span class="key">if</span> <span class="nam">href</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t537" href="#t537">537</a></span><span class="t">            <span class="key">else</span> <span class="nam">html</span><span class="op">.</span><span class="nam">Span</span><span class="op">(</span><span class="nam">src</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t538" href="#t538">538</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t539" href="#t539">539</a></span><span class="t">    <span class="nam">parts</span><span class="op">:</span> <span class="nam">list</span> <span class="op">=</span> <span class="op">[</span><span class="op">]</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t540" href="#t540">540</a></span><span class="t">    <span class="key">if</span> <span class="nam">links</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t541" href="#t541">541</a></span><span class="t">        <span class="nam">parts</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t542" href="#t542">542</a></span><span class="t">            <span class="nam">html</span><span class="op">.</span><span class="nam">Nav</span><span class="op">(</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t543" href="#t543">543</a></span><span class="t">                <span class="op">[</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t544" href="#t544">544</a></span><span class="t">                    <span class="nam">html</span><span class="op">.</span><span class="nam">A</span><span class="op">(</span><span class="str">&quot;About&quot;</span><span class="op">,</span> <span class="nam">href</span><span class="op">=</span><span class="str">&quot;/about&quot;</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__nav-link&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t545" href="#t545">545</a></span><span class="t">                    <span class="nam">html</span><span class="op">.</span><span class="nam">Span</span><span class="op">(</span><span class="str">&quot; &#183; &quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t546" href="#t546">546</a></span><span class="t">                    <span class="nam">html</span><span class="op">.</span><span class="nam">A</span><span class="op">(</span><span class="str">&quot;Benchmark&quot;</span><span class="op">,</span> <span class="nam">href</span><span class="op">=</span><span class="str">&quot;/benchmark&quot;</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__nav-link&quot;</span><span class="op">)</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t547" href="#t547">547</a></span><span class="t">                <span class="op">]</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t548" href="#t548">548</a></span><span class="t">                <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__nav&quot;</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t549" href="#t549">549</a></span><span class="t">                <span class="op">**</span><span class="op">{</span><span class="str">&quot;aria-label&quot;</span><span class="op">:</span> <span class="str">&quot;Site&quot;</span><span class="op">}</span><span class="op">,</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t550" href="#t550">550</a></span><span class="t">            <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run run2"><span class="n"><a id="t551" href="#t551">551</a></span><span class="t">        <span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t552" href="#t552">552</a></span><span class="t">    <span class="nam">parts</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="nam">html</span><span class="op">.</span><span class="nam">Span</span><span class="op">(</span><span class="nam">rendered</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__sources&quot;</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t553" href="#t553">553</a></span><span class="t">    <span class="key">if</span> <span class="nam">note</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t554" href="#t554">554</a></span><span class="t">        <span class="nam">parts</span><span class="op">.</span><span class="nam">append</span><span class="op">(</span><span class="nam">html</span><span class="op">.</span><span class="nam">Span</span><span class="op">(</span><span class="nam">note</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer__note&quot;</span><span class="op">)</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t555" href="#t555">555</a></span><span class="t">    <span class="key">return</span> <span class="nam">html</span><span class="op">.</span><span class="nam">Div</span><span class="op">(</span><span class="nam">parts</span><span class="op">,</span> <span class="nam">className</span><span class="op">=</span><span class="str">&quot;gp-footer&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
 </main>
 <footer>
     <div class="content">
@@ -617,7 +644,7 @@
             <a class="nav" href="z_5f76c3b237c71a93_error_handling_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.15.4">coverage.py v7.15.4</a>,
-            created at 2026-08-11 20:29 +0000
+            created at 2026-08-11 20:38 +0000
         </p>
     </div>
 </footer>

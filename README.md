@@ -16,7 +16,7 @@
 | components/\_callbacks\_weather.py    |       42 |        0 |    100% |           |
 | components/accessibility.py           |       26 |        3 |     88% |169, 186-187 |
 | components/callbacks.py               |      360 |       84 |     77% |152-154, 232, 372-377, 525-573, 749, 789-790, 824-852, 868-882, 899-912, 921-933, 960-961 |
-| components/cards.py                   |      107 |        6 |     94% |275-278, 308, 451 |
+| components/cards.py                   |      110 |        6 |     95% |275-278, 308, 451 |
 | components/error\_handling.py         |      106 |       13 |     88% |52, 99, 248-253, 315, 366-370, 454, 469 |
 | components/icons.py                   |       14 |        1 |     93% |       123 |
 | components/insights.py                |      351 |        1 |     99% |       468 |
@@ -68,7 +68,7 @@
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      103 |        9 |     91% |121, 221, 246, 248, 292-294, 297, 301 |
-| **TOTAL**                             | **8922** |  **933** | **90%** |           |
+| **TOTAL**                             | **8925** |  **933** | **90%** |           |
 
 
 ## Setup coverage badge
