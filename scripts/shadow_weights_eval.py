@@ -78,6 +78,44 @@ def _arm_stats(records: list[dict], arm: str) -> dict[str, float] | None:
     }
 
 
+def fleet_stats(per_region: dict[str, dict], arm: str) -> dict[str, float] | None:
+    """Fleet figure with **each BA counted once**, whatever its record count.
+
+    The pooled alternative (concatenate every record, then average) silently
+    weights well-fed BAs more heavily — and coverage here is very uneven by
+    construction. The #309 quality guard NaNs unreliable hours, so the
+    broken-feed BAs grade far fewer records than the rest: measured on
+    2026-08-11, LDWP graded **0 records in 10 ticks** while 46 of 51 BAs graded
+    one per tick. Pooling would have given LDWP no voice at all and ERCOT ten
+    times AZPS's.
+
+    That matters because #451's whole bias finding turned on *which* BAs were in
+    the average — its 12-BA cut passed the ±2% constraint and the 51-BA cut
+    failed it, from the same code. Repeating that with an implicit weighting
+    would be the same mistake wearing a different hat.
+
+    Both figures are reported; this is the headline because a BA is the unit the
+    product is served in, matching the convention
+    ``scripts/export_holdout_metrics.py`` already states — accuracy is per-BA,
+    and one pooled number hides the tail.
+    """
+    vals = [v[arm] for v in per_region.values() if v.get(arm)]
+    if not vals:
+        return None
+    return {
+        "n_bas": len(vals),
+        "n": int(sum(v["n"] for v in vals)),
+        "bias_pct": float(np.mean([v["bias_pct"] for v in vals])),
+        "mape": float(np.mean([v["mape"] for v in vals])),
+        "wape": float(np.mean([v["wape"] for v in vals])),
+    }
+
+
+def coverage_rows(per_region: dict[str, dict]) -> list[tuple[str, int, float]]:
+    """``(region, n_records, days)`` sorted sparsest first — the tail is the point."""
+    return sorted(((r, v["n"], v["days"]) for r, v in per_region.items()), key=lambda t: t[1])
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--min-days", type=int, default=MIN_DAYS_DEFAULT)
@@ -117,18 +155,47 @@ def main() -> int:
     print(f"regions with records: {len(per_region)}   median span: {span:.1f} days")
     print(f"total graded hours:   {len(all_records)}\n")
 
-    served = _arm_stats(all_records, "served")
-    shadow = _arm_stats(all_records, "shadow")
-    if not served or not shadow:
+    served_pooled = _arm_stats(all_records, "served")
+    shadow_pooled = _arm_stats(all_records, "shadow")
+    served = fleet_stats(per_region, "served")
+    shadow = fleet_stats(per_region, "shadow")
+    if not served or not shadow or not served_pooled or not shadow_pooled:
         print("Records exist but one arm has no usable pairs — cannot compare.")
         return 0
 
+    # ── Coverage BEFORE any statistic, because it decides how to read one. ──
+    print("=" * 68)
+    print("COVERAGE — who is actually in this average?")
+    print("=" * 68)
+    rows = coverage_rows(per_region)
+    zero = [r for r, n, _ in rows if n == 0]
+    for r, n, d in rows[:8]:
+        print(f"    {r:6} {n:5} records   {d:5.1f} days")
+    if len(rows) > 8:
+        print(f"    … {len(rows) - 8} more, up to {rows[-1][1]} records ({rows[-1][0]})")
+    print(
+        f"\n  {len(per_region)} BAs, {rows[0][1]}–{rows[-1][1]} records each. "
+        f"{len(zero)} contributed nothing: {', '.join(zero) if zero else '—'}"
+    )
+    print(
+        "  Coverage is uneven BY CONSTRUCTION: the #309 quality guard NaNs the\n"
+        "  broken-feed BAs' unreliable hours, so they grade fewer records. Both\n"
+        "  arms are graded by the same code on the same hours, so the PAIRED\n"
+        "  comparison holds — but a pooled average would not be one BA, one vote."
+    )
+
     # ── Control first. Not a formality: this is the check #451 failed. ──
+    print()
     print("=" * 68)
     print("CONTROL ARM FIRST (#478 acceptance) — is this harness able to decide?")
     print("=" * 68)
     print(
-        f"  served bias {served['bias_pct']:+.3f}%   MAPE {served['mape']:.3f}%   n={served['n']}"
+        f"  per-BA (headline)  bias {served['bias_pct']:+.3f}%   "
+        f"MAPE {served['mape']:.3f}%   {served['n_bas']} BAs"
+    )
+    print(
+        f"  pooled records     bias {served_pooled['bias_pct']:+.3f}%   "
+        f"MAPE {served_pooled['mape']:.3f}%   n={served_pooled['n']}"
     )
     breached = [
         r
@@ -138,7 +205,15 @@ def main() -> int:
     print(
         f"  BAs whose SERVED arm breaches ±{MAX_ABS_BIAS_PCT}%: {len(breached)}/{len(per_region)}"
     )
-    if abs(served["bias_pct"]) > MAX_ABS_BIAS_PCT:
+    if breached:
+        print(f"    {', '.join(sorted(breached)[:12])}")
+    # Either weighting breaching is enough to stop. An unmeasurable constraint
+    # counts as failed (EVALUATION_POLICY.md), and a bound that holds under one
+    # weighting and fails under another is not measured — it is chosen.
+    if (
+        abs(served["bias_pct"]) > MAX_ABS_BIAS_PCT
+        or abs(served_pooled["bias_pct"]) > MAX_ABS_BIAS_PCT
+    ):
         print()
         print("  STOP. The served arm itself breaches the bias constraint on production")
         print("  forecasts. That is a finding about the fleet, not about the weighting,")
@@ -163,8 +238,15 @@ def main() -> int:
     print("=" * 68)
     print("TREATMENT vs CONTROL")
     print("=" * 68)
-    for label, v in (("served ", served), ("shadow ", shadow)):
-        print(f"  {label} bias {v['bias_pct']:+.3f}%  MAPE {v['mape']:.3f}%  WAPE {v['wape']:.3f}%")
+    for label, v in (
+        ("served  per-BA", served),
+        ("shadow  per-BA", shadow),
+        ("served  pooled", served_pooled),
+        ("shadow  pooled", shadow_pooled),
+    ):
+        print(
+            f"  {label}  bias {v['bias_pct']:+.3f}%  MAPE {v['mape']:.3f}%  WAPE {v['wape']:.3f}%"
+        )
     sat = satisficing_check(
         treatment_bias_pct=shadow["bias_pct"],
         control_mape=served["mape"],
@@ -188,7 +270,15 @@ def main() -> int:
     if args.json:
         with open(args.json, "w") as f:
             json.dump(
-                {"per_region": per_region, "served": served, "shadow": shadow, "satisficing": sat},
+                {
+                    "per_region": per_region,
+                    "coverage": coverage_rows(per_region),
+                    "served_per_ba": served,
+                    "shadow_per_ba": shadow,
+                    "served_pooled": served_pooled,
+                    "shadow_pooled": shadow_pooled,
+                    "satisficing": sat,
+                },
                 f,
                 indent=2,
             )
