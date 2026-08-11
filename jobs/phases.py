@@ -1553,11 +1553,136 @@ def _baseline_substitution(
         return None
 
 
+#: Rolling depth of the shadow-weight record window. Matches
+#: ``drift.DEFAULT_MAX_RECORDS`` (30 days hourly) so both arms are graded over
+#: the same span; #478 asks for >=14 days before evaluating.
+_SHADOW_MAX_RECORDS = 720
+
+
+def _write_shadow_weights(
+    region: str,
+    predictions_by_model: dict[str, np.ndarray],
+    model_mapes_shadow: dict[str, float | None] | None,
+    served_weights: dict[str, float] | None,
+    rows: list[dict[str, Any]],
+    demand_df: Any,
+) -> bool:
+    """Record the not-served weighting alongside the served one (#478).
+
+    #451 proved the WAPE half of the smoothed-weights question with a replay and
+    could not prove the bias half, because a replayed vintage over-forecasts by
+    ~6% in the *control* arm — a harness whose control fails a constraint cannot
+    certify the treatment against it. This closes that by measuring both arms on
+    production forecasts instead of replayed ones.
+
+    Cheap by construction: both arms consume the same ``predictions_by_model``
+    arrays, so the marginal cost over the served blend is one weighted sum.
+
+    **Enrichment only.** Every failure path returns ``False`` and leaves the
+    served forecast — already in Redis by the time this runs — untouched.
+    Returns whether a shadow payload was written.
+    """
+    from config import feature_enabled
+    from data.redis_client import persist, redis_get, redis_key
+    from models.drift import build_records_from_actuals
+    from models.ensemble import ensemble_combine, resolve_ensemble_weights
+
+    if len(predictions_by_model) < 2 or not served_weights:
+        return False
+    try:
+        shadow_input = {
+            name: float(v)
+            for name, v in (model_mapes_shadow or {}).items()
+            if name in predictions_by_model and v is not None and np.isfinite(v) and v > 0
+        }
+        # A shadow arm missing any member would fall back to equal weights and
+        # measure "equal vs cubed" rather than the question asked. Skip instead:
+        # a missing comparison is honest, a mislabelled one is not.
+        if len(shadow_input) != len(predictions_by_model):
+            log.info(
+                "shadow_weights_incomplete",
+                region=region,
+                have=sorted(shadow_input),
+                missing=sorted(set(predictions_by_model) - set(shadow_input)),
+            )
+            return False
+
+        shadow_weights, shadow_rule = resolve_ensemble_weights(
+            list(predictions_by_model), shadow_input
+        )
+        if shadow_rule != "inverse_mape_cubed":
+            return False
+        shadow_preds = np.maximum(ensemble_combine(predictions_by_model, shadow_weights), 0.0)
+
+        key = redis_key(f"shadow_weights:{region}")
+        previous = redis_get(key)
+        previous = previous if isinstance(previous, dict) else None
+
+        # Grade the PREVIOUS payload against actuals that have landed since,
+        # reusing the drift primitives so both arms are graded by identical
+        # code — including the "most recent matchable hour" rule and its
+        # lead-hours bookkeeping (P2-19).
+        records = list((previous or {}).get("records") or [])
+        if previous is not None and demand_df is not None and not demand_df.empty:
+            try:
+                df = demand_df.copy()
+                df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+                df = df.dropna(subset=["demand_mw"])
+                actuals = {
+                    r["timestamp"].isoformat(): float(r["demand_mw"])
+                    for _, r in df.iterrows()
+                    if np.isfinite(r["demand_mw"]) and float(r["demand_mw"]) > 0
+                }
+                graded = build_records_from_actuals(previous, actuals)
+                if graded:
+                    entry: dict[str, Any] = {"lead_hours": None}
+                    for arm in ("served", "shadow"):
+                        rec = graded.get(arm)
+                        if rec is None:
+                            entry = {}
+                            break
+                        entry["timestamp"] = rec.timestamp
+                        entry["actual"] = rec.actual
+                        entry["lead_hours"] = rec.lead_hours
+                        entry[f"{arm}_predicted"] = rec.predicted
+                    if entry:
+                        records.append(entry)
+            except Exception as exc:  # pragma: no cover — grading is advisory
+                log.warning("shadow_weights_grade_failed", region=region, error=str(exc))
+
+        payload = {
+            "region": region,
+            "scored_at": datetime.now(UTC).isoformat(),
+            "served_weights": {k: round(v, 4) for k, v in served_weights.items()},
+            "shadow_weights": {k: round(v, 4) for k, v in shadow_weights.items()},
+            "shadow_arm": "raw" if feature_enabled("smoothed_ensemble_weights") else "ewma",
+            "members": sorted(predictions_by_model),
+            # Same row shape the drift primitives expect, carrying exactly two
+            # series so nothing else can be mistaken for a model.
+            "forecasts": [
+                {
+                    "timestamp": row["timestamp"],
+                    "served": float(row["ensemble"]),
+                    "shadow": float(shadow_preds[i]),
+                }
+                for i, row in enumerate(rows)
+                if "ensemble" in row and i < len(shadow_preds)
+            ],
+            "records": records[-_SHADOW_MAX_RECORDS:],
+        }
+        persist(redis_key(f"shadow_weights:{region}"), payload, ttl=REDIS_TTL)
+        return True
+    except Exception as exc:  # pragma: no cover — enrichment, never fatal
+        log.warning("shadow_weights_failed", region=region, error=str(exc))
+        return False
+
+
 def predict_and_write_forecast(
     data: RegionData,
     models: dict[str, Any] | None,
     model_mapes: dict[str, float | None] | None = None,
     model_metrics: dict[str, dict[str, float]] | None = None,
+    model_mapes_shadow: dict[str, float | None] | None = None,
 ) -> PhaseResult:
     """Run all loaded forward forecasters and write ``gridpulse:forecast:{region}:1h``.
 
@@ -1852,6 +1977,33 @@ def predict_and_write_forecast(
                 redis_payload,
                 ttl=REDIS_TTL,
             )
+        # #478: the shadow weighting. Blends the SAME per-model forecasts under
+        # the arm that is not being served, so the two differ only in weights —
+        # and writes it to its own key, never into ``redis_payload``. That last
+        # part is deliberate: ``drift.extract_one_hour_ahead_predictions``
+        # iterates every numeric key in a forecast row, so a shadow series added
+        # there would silently acquire drift records, a Models-tab entry and a
+        # place in the rolling MAPE the visibility gate reads. The served
+        # payload is already persisted above and is not touched here.
+        #
+        # Guarded at the CALL SITE as well as inside the helper. The phase's
+        # outer ``except`` returns ok=False, and #267 makes ``ok`` the signal
+        # for whether this region was scored — so an exception escaping here
+        # would report a region as failed whose forecast is already in Redis.
+        # That is the #268 mistake inverted, and a test pins it.
+        try:
+            with substep("shadow_weights"):
+                _write_shadow_weights(
+                    region=region,
+                    predictions_by_model=predictions_by_model,
+                    model_mapes_shadow=model_mapes_shadow,
+                    served_weights=ensemble_weights,
+                    rows=fl,
+                    demand_df=data.demand_df,
+                )
+        except Exception as exc:  # pragma: no cover — belt and braces
+            log.warning("shadow_weights_call_failed", region=region, error=str(exc))
+
         # #127: the what-if grid. Computed HERE rather than as its own phase
         # because it needs `future_df`, and rebuilding that costs ~4.3s/BA —
         # more than the grid itself. Enrichment only: it runs after the
