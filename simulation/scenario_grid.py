@@ -42,11 +42,17 @@ from simulation.scenario_engine import apply_weather_deltas
 
 log = structlog.get_logger()
 
-# Ratios are clipped before they are stored. A scenario factor outside this
-# band is not a demand response, it is a diverged recursive forecast — the
-# #296 failure mode — and clipping keeps one bad grid cell from rendering a
-# simulator chart that dwarfs the baseline.
-_MIN_FACTOR, _MAX_FACTOR = 0.25, 4.0
+# A factor outside this band is not a demand response — it is a diverged
+# recursive forecast (#296). The band was 0.25-4.0, which is four times wider
+# in both directions than anything observed: across FPL/ERCOT/SPA/NWMT/ISONE
+# the measured HOURLY factors at the slider extremes span ~0.91 to ~1.20
+# (2026-08-11). A bound that loose can only catch a catastrophe, and this
+# feature's realistic failure is a cell that wanders rather than explodes —
+# which is what SPA did outside its training envelope.
+#
+# 0.6-1.7 is roughly 3x the observed excursion, so it should never bind on
+# real physics, and it is tight enough to notice a wander.
+_MIN_FACTOR, _MAX_FACTOR = 0.6, 1.7
 
 # The origin cell should come back at exactly 1.0. Anything above this is
 # a path disagreement worth an operator's attention rather than float noise.
@@ -115,6 +121,7 @@ def build_scenario_grid(
         raise ValueError(f"forecaster returned {len(results)} curves for {len(frames)} scenarios")
 
     by_coord: dict[tuple[float, float, float], list[float]] = {}
+    implausible: list[list[float]] = []
     for coord, preds_raw in zip(coords, results, strict=True):
         preds = np.asarray(preds_raw, dtype=float)[:horizon]
         if preds.size < horizon or not np.isfinite(preds).all():
@@ -127,7 +134,24 @@ def build_scenario_grid(
             )
             by_coord[coord] = [1.0] * horizon
             continue
-        ratio = np.clip(preds / base, _MIN_FACTOR, _MAX_FACTOR)
+        ratio = preds / base
+        # Do NOT clamp silently. A clamped 0.25 is not a measurement — it is a
+        # diverged forecast wearing a plausible number, and the simulator would
+        # render it as "demand drops 75%" with nothing to say otherwise. Treat
+        # an out-of-band cell exactly like a non-finite one: drop it to the
+        # baseline, count it, and say so.
+        if float(np.min(ratio)) < _MIN_FACTOR or float(np.max(ratio)) > _MAX_FACTOR:
+            log.warning(
+                "scenario_grid_cell_implausible",
+                temp=coord[0],
+                wind=coord[1],
+                solar=coord[2],
+                lo=round(float(np.min(ratio)), 4),
+                hi=round(float(np.max(ratio)), 4),
+            )
+            implausible.append(list(coord))
+            by_coord[coord] = [1.0] * horizon
+            continue
         by_coord[coord] = [round(float(v), 5) for v in ratio]
 
     ones = [1.0] * horizon
@@ -151,6 +175,7 @@ def build_scenario_grid(
         "horizon": horizon,
         "factors": factors,
         "origin_drift": round(origin_drift, 5),
+        "implausible_cells": implausible,
         "envelope": _envelope(featured, future_df, temps, winds, solars),
     }
 
