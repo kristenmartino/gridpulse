@@ -137,7 +137,9 @@ Result: Production restored. The new tests caught a latent bug pattern that exis
 **Lesson to convey**: *Tests that check output shape miss errors that happen during the calls themselves. End-to-end "does this function actually run" tests are cheap insurance.*
 
 ### 3. "Tell me about a time you chose what to NOT do."
-**The scenario simulator heuristic (PR [#119](https://github.com/kristenmartino/gridpulse/pull/119)).**
+**The scenario simulator: heuristic in v1 ([#119](https://github.com/kristenmartino/gridpulse/pull/119)), real physics in v2 ([#127](https://github.com/kristenmartino/gridpulse/issues/127)).**
+
+Two chapters, and the second is the stronger half of the answer: deciding not to build something is only credible if you also know how to build it, and when the reason for not building it has expired.
 
 Situation: User reported the scenario simulator's wind and solar sliders produced **zero ΔPeak** while temperature worked fine. Three hypotheses about callback wiring; none right. The real answer: the panel intentionally **doesn't** call the full physics-based scenario engine. Why? Because the full engine requires loading trained models server-side on every slider drag.
 
@@ -150,6 +152,29 @@ Action: Chose B. Added two small terms — solar contributes +1.5% per 100 W/m²
 Result: Wind and solar deltas now produce visible (small) ΔPeak. Five scenario presets all show non-zero impacts. 10 regression tests lock the behavior. Latency unchanged.
 
 **Lesson to convey**: *"Full fidelity" can be the wrong answer when the cost of fidelity exceeds the value at the current scale. Document the cheaper path AND the expensive path; choose the one matched to the actual user.*
+
+#### v2 (2026-08-10): unparking it — and finding the parked estimate was wrong in both directions
+
+Also answers **"tell me about a time you were wrong"** and **"how do you decide when to revisit a decision?"**
+
+Situation: the heuristic had been the right call for a year. When it was time to unpark, [#127](https://github.com/kristenmartino/gridpulse/issues/127) already contained the analysis — Approach B, precompute a grid in the scoring job, costed at ~200 ms per ensemble re-run giving **~40 minutes** added to an hourly job. That reads as "too expensive, stay parked."
+
+Action: re-measured the assumption instead of re-litigating the decision. **Both numbers in it were wrong, in opposite directions.**
+- The per-run cost was far *worse*: the measured production figure is **763 ms/BA** for XGBoost's 384-step recursive loop alone (~11 s including Prophet). So the issue's own plan was *hours*, and 40 minutes was already fatal against an 1800 s task timeout the job has actually hit.
+- But **the horizon was never questioned.** The simulator charts **24 hours** — its own docstring said so. 24 recursive steps against 384 is ~16x cheaper. That single observation moved it from impossible to ~26 s.
+
+A decision had sat parked for months on arithmetic nobody had re-checked, and the error that unblocked it was in the *scope* of the estimate, not its precision.
+
+Result, and the parts that went wrong on the way:
+- **First attempt measured 2.7x** (1,139 s vs a ~425 s baseline) and was reverted within the hour. Cause: each of the 80 grid cells ran its own recursive forecast — 1,920 single-row predicts per region against production's 384. Batching them into one predict call per step (24 per region) took it to **1.18x, 506/461/515 s**, inside the <600 s criterion.
+- **The correctness trap was the interesting one.** The obvious implementation calls the existing scenario engine — which uses a *different* inference path from production scoring. A scenario from one path divided by a baseline from another reports **the gap between the paths as the response to weather**: more sophisticated-looking, and less truthful, than the heuristic it replaces. Third instance of that same bug class in this repo within a fortnight.
+- **Verified, not assumed.** At +20 °F the heuristic returns +10.0% for every region *by construction*. The grid returns a 13.3-point spread — and for a winter-peaking BA, demand *falls* as it warms, a sign a single positive coefficient cannot produce at any parameter value.
+
+**Lessons to convey**:
+- *Re-measure the assumption, don't re-litigate the decision. The estimate that parks a piece of work is rarely re-checked, and it only has to be wrong about **scope** — here, the horizon — to be wrong by an order of magnitude.*
+- *A cost estimate scaled out of a measurement taken in a different regime is a guess wearing a number's clothes. Mine were optimistic three times in one evening: 28x on the grid cost, wrong-signed on a benchmark that used a free stub, and 11 s over on the final projection.*
+- *Ship it behind a flag, measure in production, revert in an hour. Some numbers genuinely cannot be obtained offline — there were no trained models in CI — and the fastest honest way to get them is to run it and be ready to undo it.*
+- *Keep the check whose expected value is "obviously" a constant.* A parity cell was removed on the argument that it could only ever reproduce a row of 1.0s. Added back under challenge, **it read 0.013 on its first run** — a 720-hour rolling feature was being recomputed on a 24-row frame, contaminating every scenario by ~1%. A check that should be boring is exactly the one whose failure is legible.
 
 ### 4. "Tell me about a data-quality decision."
 **Import-dominated balancing authorities (V3.η).**
