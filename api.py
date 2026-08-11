@@ -372,11 +372,29 @@ def scenario(raw_region: str):
     if curve is None:
         return _warming_response("Scenario grid present but unusable for this position.")
 
+    # Say whether this position is inside the model's observed range. A tree
+    # ensemble does not extrapolate: past the training envelope the response
+    # goes flat, then unconstrained. Returning the numbers without this flag
+    # would present an extrapolation as a forecast.
+    env = payload.get("envelope") or {}
+    axes = payload.get("axes") or {}
+
+    def _in(axis: str, value: float) -> bool:
+        flags, positions = env.get(axis), axes.get(axis)
+        if not flags or not positions or len(flags) != len(positions):
+            return True
+        nearest = min(range(len(positions)), key=lambda i: abs(positions[i] - value))
+        return bool(flags[nearest])
+
+    extrapolated = not all((_in("temp_f", temp), _in("wind_mph", wind), _in("solar_wm2", solar)))
+
     return jsonify(
         {
             "region": region,
             "deltas": {"temp_f": temp, "wind_mph": wind, "solar_wm2": solar},
             "generated_at": payload.get("generated_at"),
+            "extrapolated": extrapolated,
+            "origin_drift": payload.get("origin_drift"),
             "factors": [round(float(v), 5) for v in curve],
         }
     )

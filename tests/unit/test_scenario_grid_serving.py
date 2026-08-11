@@ -210,7 +210,7 @@ class TestScoringJobWritePath:
         # which is defined rather than forecast). Cell-at-a-time issued 1,920
         # single-row predicts per region and cost 2.7x tick runtime (#462).
         assert len(seen) == 1
-        assert seen[0]["n_frames"] == 80
+        assert seen[0]["n_frames"] == 81  # includes the origin parity cell (#472)
         assert seen[0]["rows"] == 24
         # Seeded from the same history the baseline was chained off, which is
         # what keeps scenario and baseline commensurable.

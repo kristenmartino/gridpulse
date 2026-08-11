@@ -48,6 +48,10 @@ log = structlog.get_logger()
 # simulator chart that dwarfs the baseline.
 _MIN_FACTOR, _MAX_FACTOR = 0.25, 4.0
 
+# The origin cell should come back at exactly 1.0. Anything above this is
+# a path disagreement worth an operator's attention rather than float noise.
+_ORIGIN_DRIFT_WARN = 0.001
+
 
 def grid_axes() -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
     """The three delta axes, in the order the payload is indexed."""
@@ -103,12 +107,6 @@ def build_scenario_grid(
     for t in temps:
         for w in winds:
             for s in solars:
-                # The origin is the baseline by definition, so it is not
-                # forecast at all. Re-running it would spend a cell to
-                # reproduce a row of 1.0s, and any drift it showed would be
-                # nondeterminism rather than physics.
-                if t == 0.0 and w == 0.0 and s == 0.0:
-                    continue
                 coords.append((t, w, s))
                 frames.append(apply_weather_deltas(future_df, t, w, s))
 
@@ -137,10 +135,76 @@ def build_scenario_grid(
         [[by_coord.get((t, w, s), ones) for s in solars] for w in winds] for t in temps
     ]
 
+    # The origin is now COMPUTED rather than defined as 1.0, and its deviation
+    # from 1.0 is the grid's own parity check. A zero-delta scenario runs the
+    # same weather through the same forecaster as the baseline, so anything
+    # other than ~1.0 means the two sides of every ratio in this payload came
+    # from different places — the exact failure this module was built to
+    # prevent, and one that defining the origin away made invisible.
+    origin = by_coord.get((0.0, 0.0, 0.0), ones)
+    origin_drift = float(np.max(np.abs(np.asarray(origin, dtype=float) - 1.0)))
+    if origin_drift > _ORIGIN_DRIFT_WARN:
+        log.warning("scenario_grid_origin_drift", drift=round(origin_drift, 5))
+
     return {
         "axes": {"temp_f": list(temps), "wind_mph": list(winds), "solar_wm2": list(solars)},
         "horizon": horizon,
         "factors": factors,
+        "origin_drift": round(origin_drift, 5),
+        "envelope": _envelope(featured, future_df, temps, winds, solars),
+    }
+
+
+def _envelope(
+    featured: pd.DataFrame,
+    future_df: pd.DataFrame,
+    temps: tuple[float, ...],
+    winds: tuple[float, ...],
+    solars: tuple[float, ...],
+) -> dict[str, list[bool]]:
+    """Which axis positions keep their driver inside the model's observed range.
+
+    XGBoost is a tree ensemble and does not extrapolate. Once a shifted driver
+    leaves the range the booster was trained on, every split routes the same
+    way and the response stops depending on the input — measured 2026-08-11:
+    FPL's first-hour factor is 1.0264 at BOTH +10 and +20 F, and 0.979 at both
+    -10 and -20 (Florida has no cold training data). SPA saturates above +5 and
+    then wanders, which is worse than flat: outside the training envelope the
+    prediction is unconstrained rather than merely constant.
+
+    The grid is faithfully reporting what the model says. The model has nothing
+    to say out there, and the UI needs to be able to show that rather than
+    render an extrapolation as physics.
+
+    Compares each shifted forecast series against the observed range in
+    ``featured``, which is this BA's own history. A position is in-envelope
+    only if EVERY hour of the shifted series stays inside it — a partially
+    covered position is still asking the model to extrapolate for some hours.
+
+    Wind and solar are checked the same way. Note the check is per-axis, not
+    per-cell: a cell can be in-envelope on all three axes and still sit in a
+    sparse CORNER the booster never saw jointly. That is a real limitation of
+    this flag, not something it detects.
+    """
+
+    def flags(column: str, deltas: tuple[float, ...]) -> list[bool]:
+        if column not in featured.columns or column not in future_df.columns:
+            return [True] * len(deltas)
+        observed = pd.to_numeric(featured[column], errors="coerce").dropna()
+        future = pd.to_numeric(future_df[column], errors="coerce").dropna()
+        if observed.empty or future.empty:
+            return [True] * len(deltas)
+        lo, hi = float(observed.min()), float(observed.max())
+        out = []
+        for d in deltas:
+            shifted = future + d
+            out.append(bool((shifted >= lo).all() and (shifted <= hi).all()))
+        return out
+
+    return {
+        "temp_f": flags("temperature_2m", temps),
+        "wind_mph": flags("wind_speed_80m", winds),
+        "solar_wm2": flags("shortwave_radiation", solars),
     }
 
 

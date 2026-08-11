@@ -1521,6 +1521,28 @@ def _scenario_factors(
         # last factor rather than letting the curve run out mid-chart.
         if curve.size < n_hours:
             curve = np.concatenate([curve, np.full(n_hours - curve.size, curve[-1])])
+
+        # Outside the booster's observed range the response saturates and then
+        # wanders (measured 2026-08-11). Label it rather than presenting an
+        # extrapolation as a re-forecast.
+        env = payload.get("envelope") or {}
+        axes = payload.get("axes") or {}
+
+        def _in(axis: str, value: float) -> bool:
+            flags, positions = env.get(axis), axes.get(axis)
+            if not flags or not positions or len(flags) != len(positions):
+                return True
+            i = min(range(len(positions)), key=lambda j: abs(positions[j] - value))
+            return bool(flags[i])
+
+        if not all(
+            (
+                _in("temp_f", temp_delta),
+                _in("wind_mph", wind_delta),
+                _in("solar_wm2", solar_delta),
+            )
+        ):
+            return curve[:n_hours], "grid_extrapolated"
         return curve[:n_hours], "grid"
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("scenario_grid_read_failed", region=region, error=str(exc))
@@ -1682,6 +1704,9 @@ def _build_scenarios_panel(
             "Real ensemble re-forecast — 81 precomputed weather scenarios, "
             "interpolated to these slider positions."
             if scenario_source == "grid"
+            else "Beyond this region's observed weather — the model is "
+            "extrapolating and its response flattens here. Directional only."
+            if scenario_source == "grid_extrapolated"
             else "Illustrative linear weather-sensitivity — not a model "
             "re-forecast. Directional stress-testing only, not calibrated "
             "predictions."
