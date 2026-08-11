@@ -225,3 +225,27 @@ def weighting_mape(meta_mape: float | None, meta_extra: dict | None) -> float | 
     if smoothed is not None and np.isfinite(smoothed) and smoothed > 0:
         return float(smoothed)
     return meta_mape
+
+
+def shadow_weighting_mape(meta_mape: float | None, meta_extra: dict | None) -> float | None:
+    """The MAPE of the arm that is NOT being served — the shadow arm (#478).
+
+    Exact mirror of :func:`weighting_mape`: whatever that returns, this returns
+    the other one. With ``smoothed_ensemble_weights`` off (today) the served arm
+    is the raw holdout MAPE and the shadow is the EWMA; flip the flag and the two
+    swap, so the shadow always measures the alternative to whatever ships.
+
+    Returns ``None`` when the alternative is not available — a model with no
+    persisted ``mape_ewma`` yet has no shadow, and inventing one by falling back
+    to the raw value would make the two arms *identical* and the comparison
+    vacuously "no difference". That is the opposite of what ``weighting_mape``
+    should do, which is why this is a separate function rather than a flag on it.
+    """
+    from config import feature_enabled
+
+    smoothed = (meta_extra or {}).get("mape_ewma")
+    smoothed_ok = smoothed is not None and np.isfinite(smoothed) and smoothed > 0
+
+    if feature_enabled("smoothed_ensemble_weights"):
+        return meta_mape
+    return float(smoothed) if smoothed_ok else None
