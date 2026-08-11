@@ -339,6 +339,9 @@
     }
     .card p { font-size: 14px; color: var(--text-secondary); }
     .card .card-link { display: inline-block; margin-top: 12px; font-size: 13px; font-weight: 500; }
+    /* A card may carry more than one link; keep them on separate lines so
+       neither reads as a continuation of the other. */
+    .card .card-link + .card-link { display: block; margin-top: 6px; }
 
     /* Modules table-like list */
     .module {
@@ -530,7 +533,8 @@
           </div>
           <div class="card">
             <h3>Accuracy, measured honestly</h3>
-            <p>Holdout backtests use the recursive multi-step protocol production serves — roughly 2&times; harder on the models than the teacher-forced numbers dashboards usually quote. All 51 BAs, published.</p>
+            <p>Holdout backtests use the recursive multi-step protocol production serves — roughly 2&times; harder on the models than the teacher-forced numbers dashboards usually quote. All 51 BAs, published. Every forecast is also scored against the balancing authority&rsquo;s own day-ahead forecast on the same hours, wins and losses alike.</p>
+            <a class="card-link" href="/benchmark">See the head-to-head benchmark &rarr;</a>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BACKTEST_RESULTS.md" target="_blank" rel="noopener">Backtest results &rarr;</a>
           </div>
           <div class="card">
@@ -552,6 +556,7 @@
     <div class="wrap">
       <nav aria-label="Footer">
         <a href="/">Live platform</a>
+        <a href="/benchmark">Forecast benchmark</a>
         <a href="https://github.com/kristenmartino/gridpulse" target="_blank" rel="noopener">GitHub</a>
         <a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/HOW_IT_WORKS.md" target="_blank" rel="noopener">How it works</a>
         <a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/CANONICAL_FACTS.md" target="_blank" rel="noopener">Canonical facts</a>

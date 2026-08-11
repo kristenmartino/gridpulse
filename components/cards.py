@@ -495,6 +495,7 @@ _FOOTER_SOURCE_LINKS = {"Open-Meteo": "https://open-meteo.com/"}
 def build_page_footer(
     sources: list[str] | None = None,
     note: str | None = None,
+    links: bool = True,
 ) -> html.Div:
     """Small attribution footer at the bottom of the linear stack.
 
@@ -504,6 +505,19 @@ def build_page_footer(
     NOAA earned its credit back in 2026-07: the scoring job now fetches live
     NWS alerts via ``data.noaa_client`` (it was unwired — and uncredited —
     before that).
+
+    ``links`` adds the cross-page nav to ``/about`` and ``/benchmark``. This
+    element is where it belongs rather than the header: the header already
+    carries a region select, a persona select and two buttons, and
+    ``@media (max-width: 768px)`` hides ``.gp-header__link`` outright, so
+    header links would vanish on phones. ``.gp-footer`` is already the calm,
+    accent-free, ``--text-disabled`` treatment #222 asks for, and all five
+    tabs already render it.
+
+    Note these links are invisible to any crawler that does not execute
+    JavaScript — ``app.layout`` is served as JSON from ``/_dash-layout`` and
+    rendered client-side. They are here for humans; the ``<noscript>`` nav in
+    ``app.index_string`` and ``sitemap.xml`` cover the machines.
     """
     sources = sources or ["EIA", "Open-Meteo", "NOAA"]
     rendered: list = []
@@ -522,7 +536,20 @@ def build_page_footer(
             if href
             else html.Span(src)
         )
-    parts: list = [html.Span(rendered, className="gp-footer__sources")]
+    parts: list = []
+    if links:
+        parts.append(
+            html.Nav(
+                [
+                    html.A("About", href="/about", className="gp-footer__nav-link"),
+                    html.Span(" · "),
+                    html.A("Benchmark", href="/benchmark", className="gp-footer__nav-link"),
+                ],
+                className="gp-footer__nav",
+                **{"aria-label": "Site"},
+            )
+        )
+    parts.append(html.Span(rendered, className="gp-footer__sources"))
     if note:
         parts.append(html.Span(note, className="gp-footer__note"))
     return html.Div(parts, className="gp-footer")
