@@ -162,6 +162,7 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
         <ul>
           <li><a href="/about">About GridPulse</a></li>
           <li><a href="/methodology">How GridPulse forecasts demand</a></li>
+          <li><a href="/coverage">The 51 balancing authorities covered</a></li>
           <li><a href="/benchmark">Forecast benchmark</a></li>
         </ul>
       </nav>

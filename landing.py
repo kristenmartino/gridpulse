@@ -45,6 +45,7 @@ _WEB_DIR = Path(__file__).resolve().parent / "web"
 _LANDING_HTML = _WEB_DIR / "landing.html"
 _BENCHMARK_HTML = _WEB_DIR / "benchmark.html"
 _METHODOLOGY_HTML = _WEB_DIR / "methodology.html"
+_COVERAGE_HTML = _WEB_DIR / "coverage.html"
 
 #: Iterable cache: long enough to keep repeat visits cheap, short enough
 #: that copy fixes land within an hour of a deploy.
@@ -72,6 +73,79 @@ def _serve(path: Path, what: str) -> Response:
 def about() -> Response:
     """Serve the marketing landing page."""
     return _serve(_LANDING_HTML, "landing page")
+
+
+_COVERAGE_MARKER = "<!--SSR_COVERAGE_TABLE-->"
+
+
+def _render_coverage_table() -> str:
+    """The 51-BA coverage table, rendered from ``config`` at request time.
+
+    Server-rendered rather than committed as static markup precisely because
+    the source of truth is in the image: ``config.REGION_NAMES`` and friends
+    ship in the container, so generating from them makes it structurally
+    impossible for this page to disagree with what the product covers. A
+    hand-maintained copy of a 51-row list would be stale within a release.
+    """
+    from config import (
+        PEAK_DERIVED_CAPACITY,
+        REGION_CAPACITY_MW,
+        REGION_GROUPS,
+        REGION_NAMES,
+        STATE_TO_BA,
+    )
+
+    group_of = {code: group for group, codes in REGION_GROUPS.items() for code in codes}
+
+    rows = []
+    for code in sorted(REGION_NAMES):
+        capacity = REGION_CAPACITY_MW.get(code)
+        peak_derived = code in PEAK_DERIVED_CAPACITY
+        capacity_cell = "—" if capacity is None else f"{capacity:,}"
+        if peak_derived:
+            capacity_cell += ' <span class="est" title="Peak demand × 1.15">est.</span>'
+        rows.append(
+            f'<tr><th scope="row"><code>{_esc(code)}</code></th>'
+            f"<td>{_esc(REGION_NAMES.get(code, code))}</td>"
+            f"<td>{_esc(group_of.get(code, '—'))}</td>"
+            f"<td>{_esc(', '.join(STATE_TO_BA.get(code) or []) or '—')}</td>"
+            f'<td class="num">{capacity_cell}</td></tr>'
+        )
+
+    return (
+        f'<p class="table-note">{len(rows)} balancing authorities, '
+        f"{len(PEAK_DERIVED_CAPACITY)} of them carrying a peak-derived capacity "
+        f"estimate rather than a summed nameplate figure.</p>"
+        "<table><thead><tr>"
+        '<th scope="col">Code</th><th scope="col">Name</th>'
+        '<th scope="col">Region</th><th scope="col">States served</th>'
+        '<th scope="col" class="num">Capacity (MW)</th>'
+        f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+    )
+
+
+@landing_bp.get("/coverage")
+def coverage() -> Response:
+    """Serve the coverage page with its table already rendered.
+
+    Fails open like the benchmark summary: a render error leaves the marker
+    empty and the prose still stands on its own.
+    """
+    resp = _serve(_COVERAGE_HTML, "coverage page")
+    if resp.status_code != 200:
+        return resp
+
+    table = ""
+    try:
+        table = _render_coverage_table()
+    except Exception as exc:  # noqa: BLE001 — enrichment must never 500 the page
+        log.warning("coverage_table_render_failed", error=str(exc))
+
+    out = Response(
+        resp.get_data(as_text=True).replace(_COVERAGE_MARKER, table), mimetype="text/html"
+    )
+    out.headers["Cache-Control"] = _CACHE_CONTROL
+    return out
 
 
 @landing_bp.get("/methodology")

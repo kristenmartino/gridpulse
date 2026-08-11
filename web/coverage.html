@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The 51 US balancing authorities GridPulse forecasts</title>
+
+  <link rel="canonical" href="https://gridpulse.kristenmartino.ai/coverage">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+  <link rel="preconnect" href="https://www.googletagmanager.com">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-97LE6K3X9N');
+  </script>
+
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
+
+  <meta name="description" content="Every US balancing authority GridPulse forecasts — code, name, states served and capacity. 51 of the 63 in the contiguous US, roughly 100% of lower-48 demand.">
+  <meta name="author" content="Kristen Martino">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://gridpulse.kristenmartino.ai/coverage">
+  <meta property="og:title" content="The 51 US balancing authorities GridPulse forecasts">
+  <meta property="og:description" content="Code, name, states served and capacity for every balancing authority GridPulse covers — and an honest account of the twelve it does not.">
+  <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="The 51 US balancing authorities GridPulse forecasts">
+  <meta name="twitter:description" content="Code, name, states served and capacity for every balancing authority GridPulse covers — and an honest account of the twelve it does not.">
+  <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": "https://gridpulse.kristenmartino.ai/coverage",
+    "url": "https://gridpulse.kristenmartino.ai/coverage",
+    "name": "The 51 US balancing authorities GridPulse forecasts",
+    "description": "Every US balancing authority GridPulse forecasts — code, name, states served and capacity. 51 of the 63 in the contiguous US.",
+    "inLanguage": "en",
+    "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
+    "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
+  }
+  </script>
+
+  <style>
+    /* Design tokens — curated subset of assets/custom.css :root, duplicated
+       deliberately (the landing-page precedent): a public surface must not
+       break when dashboard chrome CSS changes. Keep in sync by value. */
+    :root {
+      --bg-base: #0a0a0b;
+      --bg-raised: #111113;
+      --bg-hover: #18181b;
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-default: rgba(255, 255, 255, 0.12);
+      --text-primary: #e4e4e7;
+      --text-secondary: #a1a1aa;
+      --text-tertiary: #71717a;
+      --accent-base: #3b82f6;
+      --accent-hover: #5b9aff;
+      --accent-dim: rgba(59, 130, 246, 0.15);
+      --warn: #f59e0b;
+      --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-display: 'Sora', 'Inter', sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --content-max: 72rem;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent-base); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    /* --accent-ring is 30% alpha; as an outline it measures ~1.5:1, under the
+       3:1 WCAG 1.4.11 requires of a focus indicator. */
+    a:focus-visible, button:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--accent-base);
+      outline-offset: 2px;
+      border-radius: var(--radius-md);
+    }
+    .wrap { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .site-header {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10, 10, 11, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .site-header .wrap {
+      height: 60px; display: flex; align-items: center;
+      justify-content: space-between; gap: 16px;
+    }
+    .wordmark {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-display); font-weight: 600;
+      font-size: 19px; letter-spacing: -0.02em; color: var(--text-primary);
+    }
+    .wordmark svg { display: block; border-radius: 6px; }
+    .wordmark .pulse { color: var(--accent-base); }
+    .header-cta {
+      font-size: 14px; font-weight: 500; padding: 8px 16px;
+      border: 1px solid var(--border-default); border-radius: var(--radius-md);
+      color: var(--text-primary); white-space: nowrap;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .header-cta:hover { border-color: var(--accent-base); background: var(--accent-dim); }
+
+    /* ── Content ────────────────────────────────────────── */
+    .hero { padding: 56px 0 28px; border-bottom: 1px solid var(--border-subtle); }
+    .eyebrow {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--accent-base); margin-bottom: 12px;
+    }
+    h1 {
+      font-family: var(--font-display); font-size: clamp(30px, 4.2vw, 44px);
+      line-height: 1.14; letter-spacing: -0.025em; font-weight: 700;
+      margin-bottom: 18px; max-width: 22ch;
+    }
+    .lede { font-size: 18px; color: var(--text-secondary); max-width: 64ch; }
+
+    section { padding: 44px 0; border-bottom: 1px solid var(--border-subtle); scroll-margin-top: 76px; }
+    section:last-of-type { border-bottom: none; }
+    h2 {
+      font-family: var(--font-display); font-size: 26px; line-height: 1.25;
+      letter-spacing: -0.02em; font-weight: 600; margin-bottom: 14px;
+    }
+    h3 { font-size: 17px; font-weight: 600; margin: 24px 0 8px; }
+    p { color: var(--text-secondary); margin-bottom: 14px; max-width: 68ch; }
+    strong { color: var(--text-primary); font-weight: 600; }
+    ul { margin: 0 0 14px 1.1rem; color: var(--text-secondary); max-width: 68ch; }
+    li { margin-bottom: 8px; }
+    code {
+      font-family: var(--font-mono); font-size: 0.9em;
+      color: var(--text-primary);
+    }
+
+    /* ── Table ──────────────────────────────────────────── */
+    .table-scroll { overflow-x: auto; }
+    .table-note { font-size: 13px; color: var(--text-tertiary); margin-bottom: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 46rem; }
+    caption { caption-side: top; text-align: left; padding-bottom: 10px; color: var(--text-secondary); font-size: 13px; }
+    th, td {
+      padding: 9px 12px; text-align: left;
+      border-bottom: 1px solid var(--border-subtle);
+      vertical-align: top;
+    }
+    thead th {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--text-tertiary);
+      border-bottom: 1px solid var(--border-default); white-space: nowrap;
+    }
+    tbody th { font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+    tbody tr:hover { background: var(--bg-hover); }
+    td { color: var(--text-secondary); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .est {
+      font-size: 11px; color: var(--warn);
+      border: 1px solid var(--warn); border-radius: 3px;
+      padding: 0 4px; margin-left: 6px; cursor: help;
+    }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 28px 0 40px; font-size: 13px; color: var(--text-tertiary);
+    }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 20px; justify-content: space-between; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 18px; }
+    footer nav a, footer p a { color: var(--text-secondary); }
+    footer nav a:hover, footer p a:hover { color: var(--text-primary); }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="wordmark" href="/about" aria-label="GridPulse — About">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="6" fill="#0a0a0b"/>
+          <path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16"
+                stroke="#3b82f6" stroke-width="2.25"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <span>Grid<span class="pulse">Pulse</span></span>
+      </a>
+      <a class="header-cta" href="/">Open the live platform &rarr;</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Coverage</p>
+        <h1>The 51 balancing authorities GridPulse forecasts</h1>
+        <p class="lede">
+          A balancing authority is the entity responsible for keeping
+          electricity supply and demand matched across a defined slice of the
+          grid. GridPulse forecasts hourly demand for 51 of them.
+        </p>
+      </div>
+    </div>
+
+    <div class="wrap">
+      <section id="scope">
+        <h2>51 of 63, and roughly 100% of lower-48 demand</h2>
+        <p>
+          The EIA&rsquo;s hourly grid dataset covers <strong>63 balancing
+          authorities</strong> in the contiguous United States. GridPulse
+          forecasts <strong>51</strong> of them &mdash; about
+          <strong>81% by count</strong>, but close to
+          <strong>100% by demand</strong>, because the ones not covered are
+          small.
+        </p>
+        <p>
+          Those two percentages describe the same coverage and are worth
+          keeping apart. Counting balancing authorities treats a
+          150,000&nbsp;MW interconnection and a single municipal utility as
+          equals; weighting by demand does not. Neither number is wrong, and
+          quoting only the flattering one would be.
+        </p>
+        <p>
+          Alaska and Hawaii are outside the dataset entirely and are not
+          covered.
+        </p>
+      </section>
+
+      <section id="table">
+        <h2>The full list</h2>
+        <div class="table-scroll">
+          <!-- Rendered at request time from config.REGION_NAMES,
+               config.STATE_TO_BA, config.REGION_CAPACITY_MW and
+               config.PEAK_DERIVED_CAPACITY by landing._render_coverage_table.
+               Generated rather than hand-written precisely because the source
+               of truth ships in the container: a committed copy of a 51-row
+               list would be stale within a release. -->
+          <!--SSR_COVERAGE_TABLE-->
+        </div>
+      </section>
+
+      <section id="capacity">
+        <h2>How capacity is derived &mdash; and where it is an estimate</h2>
+        <p>
+          Most rows sum the nameplate capacity of every generating unit inside
+          the balancing authority that EIA lists as operating.
+        </p>
+        <p>
+          Seven rows cannot be built that way, and are marked
+          <span class="est">est.</span> above. For those authorities the
+          in-territory generation runs below the load they actually serve
+          &mdash; they import a substantial share of their power &mdash; so
+          summing local plates would understate the system badly. Those rows
+          use <strong>peak demand &times; 1.15</strong> instead.
+        </p>
+        <p>
+          <strong>That multiplier is not a reserve margin</strong>, and should
+          not be read as one. It is a rough allowance that keeps a
+          utilization figure from exceeding 100% on an import-heavy system.
+          Those authorities are excluded from utilization and top-stress
+          rankings in the product for the same reason.
+        </p>
+        <p>
+          One authority is deliberately <em>not</em> in that set despite being
+          import-dominated: its capacity is a genuine nameplate figure for a
+          federal dam fleet, so labelling it an estimate would be the
+          inaccuracy rather than the correction.
+        </p>
+      </section>
+
+      <section id="not-covered">
+        <h2>What is not covered, and why</h2>
+        <ul>
+          <li>
+            <strong>Twelve contiguous-US balancing authorities.</strong> They
+            are small, and several report demand too sparsely or too
+            erratically to forecast honestly. Adding a region whose feed cannot
+            support a forecast produces a number, not an answer.
+          </li>
+          <li>
+            <strong>Alaska and Hawaii.</strong> Neither is in the EIA hourly
+            grid dataset this is built on.
+          </li>
+          <li>
+            <strong>Sub-authority geography.</strong> Forecasts are per
+            balancing authority, not per utility, city or node. A row covering
+            fourteen states is one forecast, not fourteen.
+          </li>
+        </ul>
+        <p>
+          Coverage grew in three steps &mdash; 8 authorities, then 16, then the
+          present 51.
+        </p>
+      </section>
+
+      <section id="reading">
+        <h2>Reading a row</h2>
+        <p>
+          <strong>Code</strong> is the EIA identifier, and the same string the
+          public API accepts &mdash; for example
+          <code>/api/v1/forecast/ERCOT</code>.
+          <strong>States served</strong> lists where an authority operates,
+          which for the large interconnections is many states and for a
+          municipal utility is one.
+          <strong>Capacity</strong> is the figure described above.
+        </p>
+        <p>
+          Accuracy is not on this table on purpose. It is measured
+          <strong>per balancing authority</strong> and moves with every
+          retrain, so it belongs where it can be kept current rather than
+          copied into a second place.
+          <a href="/benchmark">The benchmark publishes it per authority &rarr;</a>
+        </p>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <nav aria-label="Footer">
+        <a href="/">Live platform</a>
+        <a href="/about">About GridPulse</a>
+        <a href="/methodology">How it works</a>
+        <a href="/benchmark">Forecast benchmark</a>
+        <a href="https://github.com/kristenmartino/gridpulse" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+      <p>
+        Data: EIA &middot; Open-Meteo &middot; NOAA &nbsp;&nbsp;|&nbsp;&nbsp;
+        Built by <a href="https://github.com/kristenmartino" target="_blank" rel="noopener">Kristen Martino</a>
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>
