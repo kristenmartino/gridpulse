@@ -46,6 +46,8 @@ _ENV_DEFAULTS: dict[str, dict] = {
         # v1 compute fallback when REQUIRE_REDIS is false.
         "precompute_enabled": True,
         "require_redis": False,
+        "public_base_url": "http://localhost:8080",
+        "seo_indexable": False,
     },
     "staging": {
         "cache_ttl": 86400,
@@ -60,6 +62,11 @@ _ENV_DEFAULTS: dict[str, dict] = {
         # Redis-only reader — never fetches/trains inline.
         "precompute_enabled": False,
         "require_redis": True,
+        # Staging ships NO canonical host on purpose: an empty base URL means
+        # robots.txt serves "Disallow: /" and no canonical tag is emitted, so
+        # a staging box cannot out-rank production for its own content.
+        "public_base_url": "",
+        "seo_indexable": False,
     },
     "production": {
         "cache_ttl": 86400,
@@ -71,6 +78,8 @@ _ENV_DEFAULTS: dict[str, dict] = {
         "gcs_enabled": True,
         "precompute_enabled": False,
         "require_redis": True,
+        "public_base_url": "https://gridpulse.kristenmartino.ai",
+        "seo_indexable": True,
     },
 }
 _env = _ENV_DEFAULTS.get(ENVIRONMENT, _ENV_DEFAULTS["development"])
@@ -84,6 +93,26 @@ ENABLE_PROFILING = os.getenv("ENABLE_PROFILING", str(_env["profile"])).lower() i
 GUNICORN_WORKERS = int(os.getenv("GUNICORN_WORKERS", str(_env["workers"])))
 MIN_INSTANCES = int(os.getenv("MIN_INSTANCES", str(_env["min_inst"])))
 MAX_INSTANCES = int(os.getenv("MAX_INSTANCES", str(_env["max_inst"])))
+
+#: Absolute origin this deployment claims as canonical, no trailing slash.
+#:
+#: EVERY absolute URL emitted to a crawler — canonical link, ``og:url``,
+#: sitemap ``<loc>``, the ``Sitemap:`` line in robots.txt — is built from this
+#: and NEVER from ``request.host_url``. Deriving from the request would make
+#: the Cloud Run ``*.run.app`` origin declare *itself* canonical, which is
+#: precisely the duplicate-content bug the canonical tag exists to fix: that
+#: origin is live, unauthenticated, and serves byte-identical content
+#: alongside the custom domain.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", _env["public_base_url"]).rstrip("/")
+
+#: Whether this deployment may be indexed at all. False off production, where
+#: ``PUBLIC_BASE_URL`` is also empty — together those make robots.txt serve
+#: ``Disallow: /`` and suppress canonical emission.
+SEO_INDEXABLE = os.getenv("SEO_INDEXABLE", str(_env["seo_indexable"])).lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 # ---------------------------------------------------------------------------
 # API Keys & URLs
