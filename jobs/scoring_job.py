@@ -376,11 +376,17 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     # they can be persisted to Redis for the web tier. Ensemble row
     # rides on xgb_meta's ``extra["ensemble_holdout_metrics"]`` (existing
     # convention used by models.model_service.get_model_metrics).
+    # #451: which MAPE drives the weights — latest holdout, or its EWMA when
+    # ``smoothed_ensemble_weights`` is on. Routed through one helper so scoring
+    # and training cannot disagree about the INPUT, the same way
+    # ``resolve_ensemble_weights`` stops them disagreeing about the RULE (P2-16).
+    from models.ensemble import weighting_mape
+
     model_metrics: dict[str, dict[str, float]] = {}
     if xgb_loaded is not None:
         xgb_model, xgb_meta = xgb_loaded
         loaded_models["xgboost"] = xgb_model
-        model_mapes["xgboost"] = xgb_meta.mape
+        model_mapes["xgboost"] = weighting_mape(xgb_meta.mape, xgb_meta.extra)
         summary["model_version"] = xgb_meta.version
         xgb_metrics = _extract_holdout_metrics(xgb_meta)
         if xgb_metrics:
@@ -391,7 +397,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     if prophet_loaded is not None:
         prophet_model, prophet_meta = prophet_loaded
         loaded_models["prophet"] = prophet_model
-        model_mapes["prophet"] = prophet_meta.mape
+        model_mapes["prophet"] = weighting_mape(prophet_meta.mape, prophet_meta.extra)
         summary["prophet_version"] = prophet_meta.version
         prophet_metrics = _extract_holdout_metrics(prophet_meta)
         if prophet_metrics:
@@ -399,7 +405,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     if arima_loaded is not None:
         arima_model, arima_meta = arima_loaded
         loaded_models["arima"] = arima_model
-        model_mapes["arima"] = arima_meta.mape
+        model_mapes["arima"] = weighting_mape(arima_meta.mape, arima_meta.extra)
         summary["arima_version"] = arima_meta.version
         arima_metrics = _extract_holdout_metrics(arima_meta)
         if arima_metrics:

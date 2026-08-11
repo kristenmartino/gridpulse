@@ -158,3 +158,67 @@ def ensemble_combine(
         log.warning("ensemble_out_of_bounds", count=int(out_of_bounds))
 
     return result
+
+
+def update_smoothed_mape(
+    previous_smoothed: float | None,
+    latest_mape: float | None,
+    alpha: float | None = None,
+) -> float | None:
+    """One recursive EWMA step over a model's holdout-MAPE history (#451).
+
+    ``new = alpha * latest + (1 - alpha) * previous``, seeded by the first usable
+    observation. Recursive rather than a windowed mean so the training job carries
+    one number forward in its own meta instead of re-reading the vintage history
+    every night — the whole series is already summarised by the previous value.
+
+    Returns ``None`` when nothing usable is available, which
+    :func:`resolve_ensemble_weights` already treats as "not measured" and answers
+    with equal weights. A smoothed MAPE must never invent a number for a model
+    that has not been scored.
+
+    Evidence for smoothing at all: docs/WEIGHTS_AB_STUDY.md. The short version is
+    that the daily holdout estimator flaps (median 12% run-to-run) and weights
+    computed from a single draw of it chase noise; an EWMA at alpha=0.3 won a
+    pre-registered A/B on WAPE over 8 rolling origins.
+    """
+    from config import ENSEMBLE_MAPE_EWMA_ALPHA
+
+    a = ENSEMBLE_MAPE_EWMA_ALPHA if alpha is None else float(alpha)
+    if not (0.0 < a <= 1.0):
+        raise ValueError(f"alpha must be in (0, 1]; got {a}")
+
+    def usable(v: float | None) -> float | None:
+        return float(v) if v is not None and np.isfinite(v) and v > 0 else None
+
+    latest, prev = usable(latest_mape), usable(previous_smoothed)
+    if latest is None:
+        return prev
+    if prev is None:
+        return latest
+    return a * latest + (1.0 - a) * prev
+
+
+def weighting_mape(meta_mape: float | None, meta_extra: dict | None) -> float | None:
+    """The MAPE that should drive ensemble weights for one model (#451).
+
+    Flag-gated: with ``smoothed_ensemble_weights`` off this is exactly today's
+    behaviour — the latest holdout MAPE. With it on, the persisted EWMA is used
+    when the training job has published one.
+
+    Both weight callers route through here so the two cannot drift apart on
+    *which number* they weight by, the same reason
+    :func:`resolve_ensemble_weights` exists for *how* they weight (P2-16).
+
+    Falls back to the raw MAPE whenever the smoothed value is absent, so the
+    first run after the flag flips — and any model whose meta predates the field
+    — still weights on a real measurement rather than dropping to equal weights.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("smoothed_ensemble_weights"):
+        return meta_mape
+    smoothed = (meta_extra or {}).get("mape_ewma")
+    if smoothed is not None and np.isfinite(smoothed) and smoothed > 0:
+        return float(smoothed)
+    return meta_mape
