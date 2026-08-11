@@ -27,8 +27,18 @@ Usage::
       'resource.type="cloud_run_job"
        AND resource.labels.job_name="gridpulse-scoring-job"
        AND jsonPayload.event="scoring_phase_rollup"' \\
-      --project=nextera-portfolio --limit 48 --format=json > rollup.json
+      --project=nextera-portfolio --freshness=7d --limit 200 \\
+      --format=json > rollup.json
     python scripts/analyze_phase_rollup.py rollup.json
+
+``--freshness`` is NOT optional, and leaving it off is the trap this script
+was written to catch rather than fall into. ``gcloud logging read`` defaults
+to **1 day**, silently — so ``--limit 200`` without it returns ~24 ticks
+containing exactly **one** 00Z miss, and the archive verdict can never come
+back anything but ``INCONCLUSIVE`` no matter how large the limit. The limit
+bounds the rows; the freshness bounds the *days*, and days are what the miss
+arm is counted in. Seven days is ~168 ticks, so ``--limit 200`` is sized to
+not truncate the window it asks for.
 
 Also accepts the ``--format='value(...)'`` text that gcloud prints when you
 ask for named fields, and reads stdin when given no path.
