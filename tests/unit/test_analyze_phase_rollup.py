@@ -157,6 +157,43 @@ class TestArchiveArms:
         out = capsys.readouterr().out
         assert "INCONCLUSIVE" not in out
 
+    def test_inconclusive_names_the_flag_that_widens_the_arm(self, capsys):
+        """An INCONCLUSIVE that does not say how to resolve it sends the reader
+        back to a bigger --limit, which buys only more hits."""
+        mod.report_archive_arms(self._day())
+        out = capsys.readouterr().out
+        assert "--freshness=7d" in out
+        assert "1 UTC day(s)" in out  # the diagnosis, not just the advice
+        assert "2 more 00Z boundary(ies) needed" in out
+
+    def test_the_hint_counts_days_not_ticks(self, capsys):
+        """23 hits and 1 miss is a lot of ticks and one day. The hint must
+        report the span, since that is what the miss arm is counted in."""
+        mod.report_archive_arms(self._day(n_hits=23))
+        assert "1 UTC day(s)" in capsys.readouterr().out
+
+    def test_an_empty_miss_arm_also_gets_the_hint(self, capsys):
+        """n=0 misses is the same 1-day pull, one hour earlier — the reader
+        needs the flag there too, not only once a single miss has landed."""
+        hits = [
+            _tick(
+                ts=f"2026-08-08T{h:02d}:07:00Z",
+                substeps={"fetch_substeps": {"weather_archive": {"total_s": 16.0, "n": 48}}},
+            )
+            for h in range(1, 6)
+        ]
+        mod.report_archive_arms(hits)
+        out = capsys.readouterr().out
+        assert "VERDICT: none" in out
+        assert "--freshness=7d" in out
+
+    def test_no_hint_once_the_arm_is_sufficient(self, capsys):
+        """Advice that prints on a healthy result is noise, and trains people
+        to skip the block that matters."""
+        ticks = self._day(n_hits=3) + self._day(n_hits=3) + self._day(n_hits=3)
+        mod.report_archive_arms(ticks)
+        assert "--freshness" not in capsys.readouterr().out
+
     def test_missing_instrumentation_is_named_not_read_as_zero(self, capsys):
         """An absent field must never be reported as a small number — the
         20:06 tick had no `fetch_substeps` at all because it predated the
