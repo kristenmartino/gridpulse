@@ -544,3 +544,69 @@ class TestWindowDependentFeatures:
         out = apply_weather_deltas(base, 20.0, 0.0, 0.0)
 
         assert out["cooling_degree_days"].max() > 0.0
+
+
+class TestImplausibleCells:
+    """The clip band was 0.25-4.0 and silent. Both were wrong (#475)."""
+
+    @staticmethod
+    def _one(frame: pd.DataFrame) -> np.ndarray:
+        return 1000.0 + 10.0 * frame["temperature_2m"].to_numpy()
+
+    def _build(self, forecaster):
+        future = _future_frame()
+        return build_scenario_grid(
+            featured=pd.DataFrame(
+                {"demand_mw": np.full(48, 1500.0), "temperature_2m": np.linspace(0, 140, 48)}
+            ),
+            future_df=future,
+            baseline=self._one(future),
+            forecaster=forecaster,
+            horizon=HORIZON,
+        )
+
+    def test_the_band_is_tight_enough_to_notice_a_wander(self):
+        """0.25-4.0 could only catch a catastrophe. The realistic failure here
+        is a cell that wanders outside the training envelope, not one that
+        explodes — which is what SPA did, measured live."""
+        from simulation.scenario_grid import _MAX_FACTOR, _MIN_FACTOR
+
+        assert _MIN_FACTOR >= 0.5
+        assert _MAX_FACTOR <= 2.0
+
+    def test_the_band_does_not_bind_on_observed_physics(self):
+        """Measured hourly factors span ~0.91 to ~1.20 across five BAs. A bound
+        that clipped real physics would be worse than no bound."""
+        from simulation.scenario_grid import _MAX_FACTOR, _MIN_FACTOR
+
+        assert _MIN_FACTOR < 0.91
+        assert _MAX_FACTOR > 1.20
+
+    def test_a_diverged_cell_is_dropped_and_reported_not_clamped(self):
+        """A clamped 0.25 is a diverged forecast wearing a plausible number.
+
+        The simulator would render it as "demand drops 75%" with nothing to
+        say otherwise, so an out-of-band cell is treated like a non-finite one:
+        dropped to the baseline, counted, and named in the payload.
+        """
+
+        def diverging(frames):
+            return [
+                np.full(len(f), 50.0)  # ~0.05x the baseline — a dive
+                if f["temperature_2m"].mean() > 80.0
+                else self._one(f)
+                for f in frames
+            ]
+
+        payload = self._build(diverging)
+
+        assert payload["implausible_cells"], "a diverged cell must be reported"
+        flat = np.asarray(payload["factors"], dtype=float)
+        assert flat.min() >= 0.6, "nothing below the band survives into the payload"
+        assert np.isfinite(flat).all()
+
+    def test_a_healthy_grid_reports_no_implausible_cells(self):
+        payload = self._build(lambda frames: [self._one(f) for f in frames])
+
+        assert payload["implausible_cells"] == []
+        assert payload["origin_drift"] == 0.0

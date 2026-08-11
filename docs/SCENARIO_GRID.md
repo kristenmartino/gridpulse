@@ -379,6 +379,27 @@ could only ever reproduce a row of 1.0s. The first time it ran, it did not.
 A parity check whose expected value is "obviously" a constant is exactly the
 check worth keeping, because that is what makes its failure legible.
 
+## The plausibility band (#475)
+
+Was `0.25-4.0`, and silent. Both wrong.
+
+**Too wide.** Measured hourly factors at the slider extremes span ~0.91 to
+~1.20 across FPL/ERCOT/SPA/NWMT/ISONE. A band four times wider than that in
+both directions can only catch a catastrophe, and this feature's realistic
+failure is not a catastrophe — it is a cell that *wanders* outside the
+training envelope, which is what SPA does above +5 F. Now `0.6-1.7`: roughly
+3x the observed excursion, so it should never bind on real physics.
+
+**Silent was the worse half.** `np.clip` clamped an out-of-band cell to the
+edge and stored it as if it were a measurement — a diverged forecast reaching
+the simulator as "demand drops 75%", with nothing anywhere saying otherwise.
+An out-of-band cell is now treated exactly like a non-finite one: dropped to
+the baseline, logged as `scenario_grid_cell_implausible` with its coordinates
+and extremes, and listed in the payload as `implausible_cells`.
+
+The distinction that matters: a clamped value is indistinguishable from a real
+one at the point of use. A dropped-and-counted one is not.
+
 ## Status and what is not yet verified
 
 Shipped behind `FEATURE_FLAGS["scenario_grid"]`. **Enabled 2026-08-10 (#460)**
