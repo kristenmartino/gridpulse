@@ -1,0 +1,75 @@
+name: Deploy divergence check
+
+# Is production actually running main's newest validated commit?
+#
+# `deploy-prod.yml`'s staleness guard skips a deploy whose commit is no longer
+# main's tip, on the reasoning that "a newer deploy covers it". That is an
+# assumption about the future and it fails in at least three ways, all of which
+# leave every workflow GREEN:
+#
+#   1. The next commit is red — the skipped commit's deploy never gets another
+#      turn, because the workflow is gated on CI success.
+#   2. Merges outrun the pipeline. Observed live 2026-08-11: four commits landed
+#      in 14 minutes and every deploy found the tip had moved before its guard
+#      ran. Production stayed two commits behind for ~25 minutes with nothing
+#      reporting it.
+#   3. A deploy half-lands. 2026-08-04 (#418): the service advanced while both
+#      Cloud Run Jobs froze on a 12-hour-old image.
+#
+# A skipped deploy is indistinguishable from a real one at the workflow level —
+# both report success — which is why this asks Cloud Run what is RUNNING rather
+# than asking Actions what ran.
+#
+# This does not prevent a skip; it makes one impossible to miss. The reasoning
+# for detecting rather than making the guard smarter is in the script's
+# docstring: the guard is the file that has already produced two production
+# incidents, and adding conditions to it trades a visible problem for a subtler
+# one.
+
+on:
+  schedule:
+    # Hourly at :23. Not :00 — every scheduled workflow on the platform fires
+    # there, and GitHub delays the resulting pile-up unpredictably.
+    - cron: "23 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deploy-divergence
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Is production running main's tip?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          # Enough history for the script to walk main newest-first looking for
+          # the first commit with a green CI run. It reads 30; 60 leaves room.
+          fetch-depth: 60
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check for divergence
+        env:
+          # The script shells out to `gh run list` to find which commits have a
+          # green CI run.
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/check_deploy_divergence.py
+
+      # Exit codes are the alert: 0 converged or in flight, 1 diverged,
+      # 2 the check could not reach a verdict. 2 is deliberately non-zero — a
+      # check that cannot run is not protecting anything, and treating it as a
+      # pass is how an alert goes quiet exactly when it should fire.
