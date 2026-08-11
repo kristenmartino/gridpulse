@@ -149,7 +149,31 @@ def apply_weather_deltas(
             lower=0.0
         )
 
-    return _recompute_derived_features(scenario)
+    # CDD/HDD, wind power, solar CF and temp x hour are POINTWISE functions of
+    # their drivers, so recomputing them on a 24-row scenario frame gives the
+    # same answer it would on the full frame.
+    scenario = _recompute_derived_features(scenario)
+
+    # `temperature_deviation` is NOT pointwise — it is a 720-hour rolling mean
+    # (`compute_temperature_deviation`), and `_recompute_derived_features`
+    # recomputed it against whatever slice it was handed. On the simulator's
+    # 24-row frame `min_periods=1` made each row's reference a <=24h mean
+    # instead of 30 days, so a scenario with IDENTICAL weather still got
+    # different features from the baseline. Measured 2026-08-11 on the first
+    # tick that computed the origin cell: up to 0.013 drift on FPL, non-zero
+    # on 5 of 6 BAs.
+    #
+    # The correct adjustment is analytic rather than a recomputation. The
+    # 30-day reference is dominated by history this scenario does not touch —
+    # 24 shifted hours against a 720-hour window — so a uniform shift of d
+    # moves the deviation by d and leaves everything else alone. At zero delta
+    # that is exactly a no-op, which is what makes the origin cell a real
+    # parity check rather than a measurement of this bug.
+    if "temperature_deviation" in features.columns:
+        base_dev = features["temperature_deviation"]
+        scenario["temperature_deviation"] = base_dev + temp_delta_f
+
+    return scenario
 
 
 def compute_scenario_impact(

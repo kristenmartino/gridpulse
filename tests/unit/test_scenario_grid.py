@@ -455,3 +455,92 @@ class TestEnvelopeFlags:
             ("solar_wm2", "solar_wm2"),
         ):
             assert len(payload["envelope"][axis]) == len(payload["axes"][positions])
+
+
+class TestWindowDependentFeatures:
+    """`temperature_deviation` is a 720h rolling mean, not a pointwise function.
+
+    Recomputing it on the simulator's 24-row frame made a zero-delta scenario
+    differ from the baseline despite identical weather — measured live at up to
+    0.013 on FPL, non-zero on 5 of 6 BAs, on the first tick that computed the
+    origin cell (#474).
+    """
+
+    @staticmethod
+    def _frame(n: int = 24) -> pd.DataFrame:
+        hours = np.arange(n)
+        temp = 70.0 + 15.0 * np.sin(hours / 24 * 2 * np.pi)
+        return pd.DataFrame(
+            {
+                "temperature_2m": temp,
+                "hour_sin": np.sin(hours / 24 * 2 * np.pi),
+                # As the production frame builder leaves it: computed against
+                # 30 days of history, most of which a scenario never touches.
+                "temperature_deviation": temp - 68.0,
+                "wind_speed_80m": np.full(n, 8.0),
+                "shortwave_radiation": np.full(n, 300.0),
+            }
+        )
+
+    def test_a_zero_delta_scenario_is_identical_to_its_input(self):
+        """The property the origin cell measures. Anything else means every
+        ratio in the payload has a non-weather component."""
+        base = self._frame()
+
+        out = apply_weather_deltas(base, 0.0, 0.0, 0.0)
+
+        pd.testing.assert_series_equal(
+            out["temperature_deviation"], base["temperature_deviation"], check_names=False
+        )
+
+    def test_deviation_shifts_by_the_delta_rather_than_being_recomputed(self):
+        """A 24h shift against a 720h reference moves the deviation by ~the
+        full delta; recomputing on the slice would instead re-centre it on the
+        slice's own mean and lose the anomaly entirely."""
+        base = self._frame()
+
+        out = apply_weather_deltas(base, 10.0, 0.0, 0.0)
+
+        np.testing.assert_allclose(
+            out["temperature_deviation"].to_numpy(),
+            base["temperature_deviation"].to_numpy() + 10.0,
+        )
+
+    def test_recomputing_on_a_slice_disagrees_with_the_carried_value(self):
+        """Characterises the bug so it cannot come back quietly.
+
+        `window=720, min_periods=1` on a 24-row frame is an EXPANDING mean over
+        those 24 hours, not a 30-day reference. The result disagrees materially
+        with the value the production frame builder computed against real
+        history — which is why a zero-delta scenario used to differ from its
+        own baseline.
+        """
+        from data.feature_engineering import compute_temperature_deviation
+
+        base = self._frame()
+        sliced = compute_temperature_deviation(base["temperature_2m"])
+
+        disagreement = float(
+            np.max(np.abs(sliced.to_numpy() - base["temperature_deviation"].to_numpy()))
+        )
+        assert disagreement > 1.0, "a slice recomputation is not the same feature"
+
+    def test_the_fix_does_not_reintroduce_the_slice_recomputation(self):
+        """`apply_weather_deltas` must carry-and-shift, never recompute."""
+        from data.feature_engineering import compute_temperature_deviation
+
+        base = self._frame()
+        out = apply_weather_deltas(base, 10.0, 0.0, 0.0)
+        sliced = compute_temperature_deviation(base["temperature_2m"] + 10.0)
+
+        assert not np.allclose(out["temperature_deviation"].to_numpy(), sliced.to_numpy())
+
+    def test_pointwise_features_are_still_recomputed(self):
+        """Only the window-dependent one is special-cased — CDD and friends
+        must still follow their drivers."""
+        base = self._frame()
+        base["cooling_degree_days"] = 0.0
+
+        out = apply_weather_deltas(base, 20.0, 0.0, 0.0)
+
+        assert out["cooling_degree_days"].max() > 0.0
