@@ -26,6 +26,48 @@ Both web-tier policies apply the same way as the job policies (see "Apply /
 re-apply" below). The **uptime check** and the **billing budget** are separate
 GCP resource types — their `gcloud` recipes are in the two sections just below.
 
+### Not a Cloud Monitoring policy: the deploy-divergence check
+
+`.github/workflows/deploy-divergence.yml` runs
+[`scripts/check_deploy_divergence.py`](../../scripts/check_deploy_divergence.py)
+hourly and asks whether the three Cloud Run surfaces are running main's newest
+**CI-validated** commit. It lives in GitHub Actions rather than here for a
+simple reason: **Cloud Monitoring cannot see main's tip.** Half the comparison
+is a git fact, so no metric or log filter can express the condition — the same
+shape as the frequency signal below, resolved the same way, in code.
+
+What it catches that nothing else does: **a deploy that was skipped is
+indistinguishable from one that ran**, because `deploy-prod.yml`'s staleness
+guard turns a superseded run into a no-op and the run still reports success.
+The guard is correct to skip — it is what stopped an older commit shipping over
+a newer one on 2026-08-05 — but its notice says *"a newer deploy covers it"*,
+and that is an assumption about the future which fails three ways:
+
+1. **The next commit is red.** The skipped commit never gets another turn,
+   because the deploy workflow is gated on CI success. Production sits on the
+   pre-merge image indefinitely with every workflow green.
+2. **Merges outrun the pipeline.** Observed live 2026-08-11: four commits landed
+   in 14 minutes, and each deploy found the tip had moved before its guard ran.
+   Production stayed two commits behind for ~25 minutes and nothing reported it.
+3. **A deploy half-lands.** 2026-08-04 (#418): `gcloud run jobs deploy` rejected
+   a flag `gcloud run deploy` accepted, so the service advanced while **both
+   jobs froze on a 12-hour-old image**. This check compares each surface
+   separately and names that case ("partially deployed") distinctly, because a
+   half-landed deploy is a different investigation from one that never started.
+
+Exit codes are the alert — a non-zero exit fails the workflow and notifies:
+`0` converged or still in flight (45-minute grace, since a mismatch is the
+normal state for minutes after every merge), `1` diverged, `2` the check could
+not reach a verdict. **`2` is deliberately non-zero.** A check that cannot run
+is not protecting anything, and folding that into a pass is the exact failure
+mode called out under "Log-based policies were inert" below.
+
+Run it by hand any time — it needs `gh` and `gcloud` auth and touches nothing:
+
+```bash
+python3 scripts/check_deploy_divergence.py
+```
+
 ## Notification channel
 
 One email channel (`GridPulse ops (Kristen)` →
