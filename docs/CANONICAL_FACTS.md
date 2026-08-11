@@ -180,6 +180,29 @@ Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 | ADR-012 | Multi-point weather, up to 12 cells per BA, unweighted | +1.14 sMAPE pts (MISO +1.77); population weighting measured as adding nothing |
 | ADR-013 | Precomputed scenario grid, trilinearly interpolated in the web tier | Keeps model inference out of the request path at unchanged slider latency |
 
+## Structured data on public pages
+
+Schema.org types the public surfaces are allowed to emit — pinned by
+`tests/unit/test_seo_head.py::_ALLOWED_LD_TYPES`:
+
+| Type | Where | Why it is honest |
+|---|---|---|
+| `WebSite` | `/` | Trivially true |
+| `WebPage` | `/about`, `/benchmark` | `isPartOf` is what consolidates three separately-reachable pages into one entity |
+| `SoftwareApplication` | `/about` | No `offers` node — see below |
+| `Person` | shared `@id` node | Kristen Martino, `https://github.com/kristenmartino`. The only publicly verifiable account the repo can cite |
+
+**Banned, and enforced as a test** (`_BANNED_LD`): `AggregateRating` and
+`Review` (no ratings exist — the fastest route to a manual action),
+`Organization` (a personal project is not a legal entity; the type reads as
+puffery), and `offers`/`priceCurrency`. That last one is the subtle one: it
+is *true* that the app is free, and Google's docs encourage it — but a
+machine-readable price tag is commercial framing on a page whose posture
+suite exists to exclude commercial framing, and `priceCurrency` does not
+contain the substring that suite bans, so it would have passed a prose-only
+check. `Dataset` is deferred, not banned: it wants a `license`, and the
+*derived forecasts* have none declared anywhere ([#256]).
+
 Numbering traces to [`PRD.md`](../PRD.md) §10 (ADR-001–012) plus
 [`CLAUDE.md`](../CLAUDE.md) (ADR-013). **Do not publish a count of these** —
 the number moves, and both public pages have already shipped a stale one.

@@ -94,8 +94,12 @@ app = dash.Dash(
 # in parallel with the rest of HTML parsing — saves 100–200ms of RTT on
 # cold loads. fonts.gstatic.com requires crossorigin since the @font-face
 # request itself is anonymous CORS.
-app.index_string = """<!DOCTYPE html>
-<html>
+#: NOTE: this is a template, not an f-string, and cannot become one — the
+#: body contains {%metas%}, {%css%}, {%app_entry%}, {%config%}, {%scripts%}
+#: and {%renderer%}, and `{` opens a replacement field. Absolute URLs are
+#: substituted via the __BASE__ sentinel below.
+_INDEX_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
   <head>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -113,18 +117,43 @@ app.index_string = """<!DOCTYPE html>
     <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
     <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
+    <meta name="theme-color" content="#0a0a0b">
+    <link rel="canonical" href="__BASE__/">
     <meta name="description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
     <meta property="og:type" content="website">
+    <meta property="og:url" content="__BASE__/">
     <meta property="og:title" content="GridPulse — Energy Intelligence Platform">
     <meta property="og:description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
-    <meta property="og:image" content="/assets/og-image.png">
+    <meta property="og:image" content="__BASE__/assets/og-image.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
     <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="GridPulse — Energy Intelligence Platform">
     <meta name="twitter:description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
-    <meta name="twitter:image" content="/assets/og-image.png">
+    <meta name="twitter:image" content="__BASE__/assets/og-image.png">
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "__BASE__/#website",
+          "url": "__BASE__/",
+          "name": "GridPulse",
+          "description": "Weather-aware energy demand forecasting and grid visibility for 51 US balancing authorities.",
+          "inLanguage": "en",
+          "publisher": {"@id": "__BASE__/#person"}
+        },
+        {
+          "@type": "Person",
+          "@id": "__BASE__/#person",
+          "name": "Kristen Martino",
+          "url": "https://github.com/kristenmartino"
+        }
+      ]
+    }
+    </script>
     {%css%}
   </head>
   <body>
@@ -132,6 +161,19 @@ app.index_string = """<!DOCTYPE html>
     <footer>{%config%}{%scripts%}{%renderer%}</footer>
   </body>
 </html>"""
+
+# The canonical tag on ``/`` is deliberately static. The C2 bookmark flow
+# generates unbounded query-param variants (?region=&persona=&tab=&f.*=) of
+# what is one page; a fixed canonical collapses that whole space to a single
+# URL. Absolute, and built from PUBLIC_BASE_URL rather than the request host —
+# the *.run.app origin serves identical content and must not self-canonicalize.
+#
+# og:image and twitter:image were RELATIVE until 2026-08-11, which meant every
+# share of the production URL unfurled without a card on Facebook, LinkedIn,
+# Slack and X. The Open Graph spec requires absolute URLs.
+from config import PUBLIC_BASE_URL  # noqa: E402
+
+app.index_string = _INDEX_TEMPLATE.replace("__BASE__", PUBLIC_BASE_URL)
 
 # Layout
 from components.layout import build_layout  # noqa: E402

@@ -114,7 +114,15 @@ class TestLandingContent:
     def test_posture_pins_no_commercial_language(self, body) -> None:
         """The BSC-era guardrail as a test: portfolio-neutral, nothing
         commercial, no combat claims (market-entry plan rule; archived
-        spec postmortem). Flipping these later is a deliberate edit HERE."""
+        spec postmortem). Flipping these later is a deliberate edit HERE.
+
+        Scans the WHOLE document including structured data. The obvious
+        SoftwareApplication completion is an ``offers`` node with
+        ``priceCurrency`` — true, and encouraged by Google's docs — and it
+        would have slipped past a prose-only check, because "pricecurrency"
+        does not contain "pricing". A posture pin silently circumvented by
+        machine-readable markup is worse than one that fails cleanly.
+        """
         lowered = body.lower()
         for banned in (
             "request a demo",

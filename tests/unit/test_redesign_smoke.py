@@ -237,6 +237,48 @@ class TestBrandIdentity:
         assert "#38D0FF" not in idx
         assert "#38d0ff" not in idx
 
+    def test_no_relative_social_image(self):
+        """The regression pin for a live defect (fixed 2026-08-11).
+
+        og:image and twitter:image pointed at ``/assets/og-image.png``. The
+        Open Graph spec requires absolute URLs and no unfurler resolves a
+        relative one, so every share of the production URL rendered a card
+        with no image — on Facebook, LinkedIn, Slack and X alike. Written in
+        the style of the cyan check above: name the exact wrong string.
+        """
+        import app as app_module
+
+        idx = app_module.app.index_string
+        assert 'content="/assets/og-image.png"' not in idx
+
+    def test_canonical_and_lang_present(self):
+        """``<html lang>`` is WCAG 3.1.1; the shell shipped without it.
+
+        The canonical is what collapses the C2 bookmark flow's unbounded
+        query-param variants (?region=&persona=&tab=) into a single URL.
+        """
+        import app as app_module
+
+        idx = app_module.app.index_string
+        assert '<html lang="en">' in idx
+        assert 'rel="canonical"' in idx
+        assert 'property="og:url"' in idx
+
+    def test_index_template_is_not_an_fstring(self):
+        """The Dash placeholders must survive substitution.
+
+        ``index_string`` contains {%metas%}, {%css%}, {%app_entry%} and
+        friends, so making the template an f-string is a SyntaxError — the
+        absolute URLs are substituted through a __BASE__ sentinel instead.
+        This asserts the sentinel was consumed and no placeholder was eaten.
+        """
+        import app as app_module
+
+        idx = app_module.app.index_string
+        assert "__BASE__" not in idx
+        for placeholder in ("{%metas%}", "{%css%}", "{%app_entry%}", "{%config%}"):
+            assert placeholder in idx, placeholder
+
 
 # ── Header (R3, R5b) ─────────────────────────────────────────────────
 

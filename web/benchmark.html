@@ -3,24 +3,61 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Forecast Benchmark — GridPulse</title>
+  <title>Benchmark: GridPulse vs each balancing authority's own forecast</title>
 
   <link rel="canonical" href="https://gridpulse.kristenmartino.ai/benchmark">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+  <link rel="preconnect" href="https://www.googletagmanager.com">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-97LE6K3X9N');
+  </script>
 
   <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
   <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
   <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
 
-  <meta name="description" content="GridPulse scored against each balancing authority's own EIA-930 day-ahead forecast — same hours, same settled truth, published rules, published exclusions.">
+  <meta name="description" content="GridPulse scored against each US balancing authority's own EIA-930 day-ahead forecast — same hours, same settled actuals, rules and limits published.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/benchmark">
   <meta property="og:title" content="Forecast Benchmark — GridPulse">
   <meta property="og:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
+  <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+  <!-- summary_large_image without an image renders as a bare link. This page
+       declared the card type from the start and supplied no image until
+       2026-08-11 — title and description were missing too. -->
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Forecast Benchmark — GridPulse">
+  <meta name="twitter:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
+  <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta name="author" content="Kristen Martino">
+
+  <!-- isPartOf is what consolidates three separately-reachable pages into one
+       entity for a search engine. No Dataset type here: that schema wants a
+       `license`, and the derived forecasts have none declared (#256). -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": "https://gridpulse.kristenmartino.ai/benchmark",
+    "url": "https://gridpulse.kristenmartino.ai/benchmark",
+    "name": "Benchmark: GridPulse vs each balancing authority's own forecast",
+    "description": "GridPulse scored against each US balancing authority's own EIA-930 day-ahead forecast — same hours, same settled actuals, with the rules, exclusions and limits published.",
+    "inLanguage": "en",
+    "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
+    "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
+  }
+  </script>
 
   <style>
     /* Design tokens — curated subset of assets/custom.css :root, duplicated
@@ -504,7 +541,7 @@
 
   <footer>
     <div class="wrap">
-      <span>Built by Kristen Martino &middot; GridPulse</span>
+      <span>Built by <a href="https://github.com/kristenmartino" target="_blank" rel="noopener">Kristen Martino</a> &middot; GridPulse</span>
       <nav>
         <a href="/about">About</a>
         <a href="/">Live platform</a>
