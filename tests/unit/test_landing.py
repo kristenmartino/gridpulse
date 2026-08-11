@@ -58,13 +58,18 @@ class TestLandingContent:
         assert 'href="/"' in body
         assert "github.com/kristenmartino/gridpulse" in body
 
-    def test_numbers_are_the_canonical_ones(self, body) -> None:
-        """Every number traces to docs/CANONICAL_FACTS.md (51 BAs; 4.8%
-        median per-BA served-ensemble holdout — the sanctioned quoting
-        form, never a pooled across-51 figure)."""
+    def test_accuracy_uses_the_sanctioned_per_ba_quoting_form(self, body) -> None:
+        """Accuracy must be quoted per-BA, never as a pooled across-51 figure
+        (CANONICAL_FACTS "Forecast accuracy" opens with that rule).
+
+        The *values* are checked in
+        ``test_public_copy_traces_to_canonical_facts.py``, which asserts each
+        one against its source doc. This test only pins the framing — the
+        earlier version asserted the literal ``"4.8%"`` here, which meant a
+        stale number could not be corrected without a test change, and the
+        source doc was never consulted at all.
+        """
         assert "balancing authorities" in body
-        assert "51" in body
-        assert "4.8%" in body
         assert "median per-BA" in body
 
     def test_in_product_module_names_only(self, body) -> None:

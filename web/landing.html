@@ -373,7 +373,7 @@
             <span class="chip"><strong>51</strong> balancing authorities &middot; ~100% of lower-48 demand</span>
             <span class="chip"><strong>3 models + ensemble</strong> &middot; retrained daily, gated before serving</span>
             <span class="chip">Scored <strong>hourly</strong> against live EIA data</span>
-            <span class="chip"><strong>4.8%</strong> median per-BA holdout error (served ensemble, 168&nbsp;h recursive)</span>
+            <span class="chip"><strong>4.35%</strong> median per-BA holdout error (served ensemble, 168&nbsp;h recursive)</span>
           </div>
         </div>
         <div class="hero-visual">
@@ -441,7 +441,7 @@
           <div class="module" role="listitem">
             <span class="module-name">Forecast</span>
             <span class="module-q">What will happen?</span>
-            <span class="module-what">Forward predictions from Prophet, SARIMAX, XGBoost, and the ensemble — with confidence bands.</span>
+            <span class="module-what">Forward predictions from Prophet, ARIMA, XGBoost, and the ensemble — with confidence bands.</span>
           </div>
           <div class="module" role="listitem">
             <span class="module-name">Risk</span>
@@ -471,7 +471,7 @@
         <div class="grid-2">
           <div class="card">
             <h3>The decision record</h3>
-            <p>Ten architecture decision records cover everything from the ensemble weighting to why a freshly retrained model must replay sanely through the real serve path before it may serve.</p>
+            <p>Every architecture decision — including the ones that turned out to be wrong — is written down, from the ensemble weighting to why a freshly retrained model must replay sanely through the real serve path before it may serve.</p>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/PRD.md" target="_blank" rel="noopener">ADR trail in PRD.md &rarr;</a>
           </div>
           <div class="card">

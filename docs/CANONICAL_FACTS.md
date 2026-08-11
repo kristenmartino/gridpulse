@@ -87,7 +87,7 @@
 | Tagline | See demand sooner. Decide with confidence. |
 | Personas | 4: Grid Operations, Renewables, Trader, Data Scientist |
 | Production URL | https://gridpulse.kristenmartino.ai |
-| Test count | **2,989 collected** — 2,986 passed, 3 skipped, in ~79s. Split: unit 2,762 / integration 204 / smoke 23 (the smoke tier was named `tests/e2e/` when this was measured; renamed in #399). Measured 2026-08-05 via `pytest tests/ -q` at `db13c06` (previously "1,589 passing as of #119" — stale by ~1,400). The 3 skips are environment-conditional: `test_scenarios_heuristic.py` skips when no Redis-backed ensemble forecast is reachable. **This number moves most weeks** — re-measure at the merge base rather than citing this row's figure back at it (it went 2,977 → 2,989 across a single intervening PR while this row was being written) |
+| Test count | **3,377 collected** — 3,374 passed, 3 skipped, in ~121s. Split: unit 3,138 / integration 215 / smoke 24. Measured 2026-08-11 via `pytest tests/ -q` at `87cb8cd`. The 3 skips are environment-conditional: `test_scenarios_heuristic.py` skips when no Redis-backed ensemble forecast is reachable. **This number moves most weeks** — re-measure at the merge base rather than citing this row's figure back at it. History: 1,589 (#119) → 2,989 (2026-08-05, `db13c06`) → 3,377; it moved 2,977 → 2,989 across a single intervening PR while an earlier version of this row was being written |
 
 ## Data sources
 
@@ -155,8 +155,9 @@ holdout-NaN crash. Per-BA holdout metrics are produced every daily training
 run, persisted to each model's GCS `meta.json`, and surfaced live in the
 Models tab via Redis `model_metrics`. Full per-BA, per-model table:
 [`docs/BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md). Also cited on the
-`/about` landing page (`web/landing.html` — the "4.8% median per-BA" chip);
-update it when this table regenerates.)
+`/about` landing page (`web/landing.html` — the "4.35% median per-BA" chip);
+update it when this table regenerates. `tests/unit/test_public_copy_traces_to_canonical_facts.py`
+fails on the *source* side when it drifts and names the page to fix.)
 
 Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`.
@@ -168,9 +169,20 @@ Latest ensemble weights example (FPL, 2026-05-01 09:00 UTC scoring run):
 | ADR-001 | Dash + Plotly (not Streamlit) | Callback architecture scales to many interaction groups |
 | ADR-002 | SQLite cache on Cloud Run ephemeral disk | Survives across requests, acceptable to lose on recycle |
 | ADR-003 | Open-Meteo (not NOAA NWS) for weather | No API key, 17 vars in one call, historical + forecast |
-| ADR-004 | Sharpened (1/MAPE)³ weighted ensemble | Simpler than stacking; value is error decorrelation (beats XGBoost-alone on 17/51 — see "Forecast accuracy" above), not a guarantee of dominance |
-| ADR-005 | Scenario engine copies features, never mutates | Pure function, safe for concurrent callbacks |
+| ADR-004 | Sharpened (1/MAPE)³ weighted ensemble | Simpler than stacking; value is error decorrelation (beats XGBoost-alone on 21/51 — see "Forecast accuracy" above), not a guarantee of dominance |
+| ADR-005 | XGBoost as the primary single-model forecaster | Strong empirical performance on the engineered-feature demand problem |
 | ADR-006 | Full multi-tab architecture | Mission control + drill-downs |
+| ADR-007 | Scenario engine copies features, never mutates | Pure function, safe for concurrent callbacks |
+| ADR-008 | Climatology fallback past Open-Meteo's 16-day coverage, visibly labeled | Operationally honest about extended-range uncertainty rather than fabricating signal |
+| ADR-009 | Class-conditional anchor conditioning | Broken-feed BAs anchor on their own day-ahead forecast for trailing unsettled hours |
+| ADR-010 | Serve-path acceptance gate before `latest.json` repoints | Daily retrains are a measured fit lottery and the holdout is blind to it; stale-but-sane beats fresh-but-insane |
+| ADR-011 | NBM-composite forecast weather | +0.921 sMAPE pts through the real serve path; enrichment-only, fail-open |
+| ADR-012 | Multi-point weather, up to 12 cells per BA, unweighted | +1.14 sMAPE pts (MISO +1.77); population weighting measured as adding nothing |
+| ADR-013 | Precomputed scenario grid, trilinearly interpolated in the web tier | Keeps model inference out of the request path at unchanged slider latency |
+
+Numbering traces to [`PRD.md`](../PRD.md) §10 (ADR-001–012) plus
+[`CLAUDE.md`](../CLAUDE.md) (ADR-013). **Do not publish a count of these** —
+the number moves, and both public pages have already shipped a stale one.
 
 ## How this file gets maintained
 
