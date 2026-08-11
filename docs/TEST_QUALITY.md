@@ -78,12 +78,21 @@ laptop; a single module is ≈ 1 min.
 > 1,956). **Anything that re-measures one module must re-sum the column, not
 > add its delta to whatever total it last read.**
 
-Nine rounds of fixes (#377, #383, #385, #386, #416, #426, #442, #441, #445) took
-the overall logic score **78.6% → 88.4%** and killed **288** mutants, without
-changing production behaviour anywhere except the one crash #386 fixed. The
-mutant total rose from 2,349 to 2,402: #386's fix added lines, #423 rewrote
-`recursive_autoregressive_forecast` for performance, #441 added a parameter, and
-#444 added `resolve_ensemble_weights`.
+Eleven rounds of fixes (#377, #383, #385, #386, #416, #426, #441, #442, #445,
+#484, #487) took the overall logic score **78.6% → 89.0%** and killed **314**
+mutants, without changing production behaviour anywhere except the one crash
+#386 fixed. The mutant total rose from 2,349 to 2,510: #386's fix added lines,
+#423 rewrote `recursive_autoregressive_forecast` for performance, #441 added a
+parameter, #444 added `resolve_ensemble_weights`, #451/#478 added the smoothed
+and shadow weighting surface, and #458 added `apply_weather_deltas`.
+
+> **This sentence was wrong for two rounds**, reading 88.4% and nine rounds
+> while the table beside it read 89.0% and listed eleven. #484 and #487 each
+> added a row to the rounds table without touching the prose above it. Recorded
+> rather than quietly corrected because it is the failure mode this document
+> exists to prevent in code: **a derived number maintained by hand, next to the
+> table it is derived from.** If it drifts again, compute it from the table
+> instead of editing it.
 
 **The most useful number here is not the total.** Compare what equal effort
 bought in different places:
