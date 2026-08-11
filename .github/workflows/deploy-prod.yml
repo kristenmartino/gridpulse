@@ -50,11 +50,29 @@ concurrency:
 jobs:
   # Gate 1 (#146): CI must have SUCCEEDED. ``workflow_run`` delivers failed and
   # cancelled runs too.
-  # Gate 2 (2026-08-05): the commit CI validated must still be the branch tip.
-  # Order-independent — whichever of two racing deploys runs second finds the
-  # tip has moved past it and skips.
+  # Gate 2 (2026-08-05, relaxed 2026-08-11): don't ship a commit that something
+  # newer is about to supersede.
+  #
+  # This used to require DEPLOY_SHA to be main's exact tip, and skipped
+  # otherwise with the notice "a newer deploy covers it". That is a PREDICTION,
+  # and it is false whenever the newer commit is red: its deploy never runs
+  # (this workflow is gated on CI success), so the skipped commit never gets
+  # another turn and production sits on the pre-merge image indefinitely —
+  # every workflow green. Measured 2026-08-11: three commits in 12 minutes, two
+  # of three deploys skipped, #488 reaching production 22 minutes after merge
+  # via a later commit's deploy rather than its own.
+  #
+  # Now it skips only when a strictly-newer commit has ALREADY PASSED CI, which
+  # is exactly when "a newer deploy covers it" is a fact. The 2026-08-05
+  # inversion still skips correctly — replay it and the newer commit's CI had
+  # already gone green — so this only loosens the case the tip rule got wrong.
+  #
+  # Logic lives in scripts/deploy_guard.py with unit tests, deliberately: this
+  # file has produced two production incidents (the cancel-in-progress order
+  # inversion, and a deploy that reported success while changing nothing), and
+  # untested inline bash is how both of them looked right.
   guard:
-    name: Guard — is this commit still main's HEAD?
+    name: Guard — will something newer supersede this commit?
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success'
     permissions:
@@ -65,19 +83,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
-          fetch-depth: 1
+          # Was 1. The guard now walks main between DEPLOY_SHA and the tip, so
+          # a shallow clone would report "not an ancestor" and refuse to deploy.
+          fetch-depth: 60
       - id: check
-        run: |
-          TIP=$(git rev-parse HEAD)
-          echo "main tip:   $TIP"
-          echo "deploy sha: ${DEPLOY_SHA}"
-          if [ "$TIP" = "${DEPLOY_SHA}" ]; then
-            echo "proceed=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Deploying ${DEPLOY_SHA} — it is main's tip."
-          else
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Skipping ${DEPLOY_SHA} — main has advanced to ${TIP}. A newer deploy covers it."
-          fi
+        env:
+          # For `gh run list` — which commits have finished CI, and how.
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/deploy_guard.py --deploy-sha "${DEPLOY_SHA}"
 
   deploy-production:
     name: Build & Deploy to Cloud Run (Production)
