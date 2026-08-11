@@ -69,6 +69,20 @@ Verdict: **delete the implementation** (the builders + their re-exports + `ai_br
 + `generate_tab1_insights` + the dead `tab3-insight-card` slot + the direct-import tests
 that pin them). The intent survives as the new honest surface (§3).
 
+> **Status note, 2026-08-11 — row 1's fabrication is fixed in place; the row's
+> *dead* half stands.** `_spotlight_model_accuracy` now sources every bar from
+> `get_model_metrics` (strict-gated, uniform 168h-holdout provenance), omits any
+> model with no measured MAPE behind a "Not yet measured: …" caption, and renders
+> a warming figure when none is measured. The string-length fallback is gone,
+> along with the `_BACKTEST_CACHE` read that the audit correctly found could
+> never match. This does **not** revive the builder or pre-empt the delete
+> verdict: `overview-spotlight-chart` is still filled by
+> `_build_overview_hero_chart`, so `_build_overview_spotlight` and its three
+> `_spotlight_*` branches remain unreachable from the live UI. The fix was taken
+> because a fabrication sitting in the tree is a fabrication one wiring change
+> away from a user, and the delete decision is still un-approved. If §1a/§3
+> proceeds, delete it as planned — the honesty work costs nothing either way.
+
 ### 1c. Phase 0 precondition — relocate, don't delete, the 6 live helpers
 Six helpers physically living in `_callbacks_overview.py` are **not dead** — live tabs
 call them. They must be **moved** before the dead-code deletion, or live tabs break:
