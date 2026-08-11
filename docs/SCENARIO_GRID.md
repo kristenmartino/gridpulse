@@ -424,6 +424,42 @@ and extremes, and listed in the payload as `implausible_cells`.
 The distinction that matters: a clamped value is indistinguishable from a real
 one at the point of use. A dropped-and-counted one is not.
 
+## Criterion 3 — the physics test (#481)
+
+`tests/unit/test_scenario_physics.py`. The blocker was that CI has no trained
+models and "a synthetic booster only re-measures the stub". That holds for a
+hand-written stub function; it does NOT hold for a **real XGBoost trained on
+data with a deliberately encoded temperature response**, which is what this
+does. The test then asserts the whole pipeline — override, derived-feature
+recompute, recursive inference, ratio against baseline — recovers a
+relationship that genuinely exists in the training data.
+
+Two fixtures: a cooling-driven model with its forecast window in the cooling
+regime (FPL in August) and a heating-driven one in the heating regime (SPA in
+January).
+
+**Two drafts of this test were wrong, and both failures were informative.**
+
+1. The first placed both windows at the tail of a synthetic seasonal cycle,
+   which landed at ~29 F. The "cooling-driven" model then correctly showed
+   demand FALLING as it warmed, because **the regime of the forecast window
+   decides the sign, not the size of the coefficients**. That is the same
+   reason FPL and SPA differ in production, and the fixture now places each
+   window deliberately.
+2. The second asserted "the grid differs from the heuristic's 1.10 at +20 F"
+   and failed at a 0.004 gap — the fixture's cooling model happened to return
+   1.0959. **Coincidental agreement on one region is not evidence the
+   coefficients are still in use**, so a magnitude threshold measures the
+   fixture's tuning rather than the code path. It now asserts what the
+   heuristic *cannot* do at any coefficient values: return different answers
+   for two regions given the same slider, and return a value below 1.0 for
+   warming.
+
+What it buys: the machinery is pinned end to end and a grid that stopped
+responding to weather would fail. What it does not: it says nothing about
+whether the PRODUCTION boosters are well calibrated — only the live checks
+above answer that.
+
 ## Status and what is not yet verified
 
 Shipped behind `FEATURE_FLAGS["scenario_grid"]`. **Enabled 2026-08-10 (#460)**
