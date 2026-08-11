@@ -41,6 +41,18 @@ circuit trips) whose ticks were fast *because they had stopped fetching*.
 Identical to 2026-08-04T23:00, when a 736s run read as a 2.2x win and was the
 fleet serving last-known data. Both are now in CANONICAL_FACTS.
 
+> **Superseded 2026-08-11 — the ~$180 below was a projection and it was
+> pessimistic.** With the BigQuery billing export live, the whole-project
+> run-rate **measures $115.91/mo** (net of credits, mean 2026-08-07..09), and
+> steady state is ~$110 once the weekly backtest cadence is fully reflected —
+> **under the $150 budget**, not $30 over it. By service: Cloud Run $67.66,
+> Memorystore $35.28, Artifact Registry $9.41, Cloud Storage $3.09. The
+> per-item narrative below still reads correctly as *what was projected at the
+> time*; only the total moved. The projection's one systematic error was not
+> crediting the GCP free tier. **Memorystore is now the second-largest line and
+> the largest untouched one.** Detail, method and caveats: the whole-project
+> run-rate row in [`docs/CANONICAL_FACTS.md`](docs/CANONICAL_FACTS.md).
+
 **Bill: ~$317/mo → ~$180/mo** against a $150 budget. Web tier $114 → ~$38
 (resize + `--cpu-throttling` + `--min-instances 0`); Artifact Registry $32 →
 ~$9 (**measured** 407 → 124 versions, ~207 GiB, ~$20.74/mo — the policy existed
