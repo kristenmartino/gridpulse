@@ -214,10 +214,10 @@ class TestBuildScenarioGrid:
 
         self._grid(counting_forecaster)
 
-        # ONE batched call carrying 80 scenarios — 81 cells minus the origin,
-        # which is defined rather than computed. Cell-at-a-time was 80 calls
-        # and 2.7x tick runtime (#462).
-        assert batches == [80]
+        # ONE batched call carrying all 81 cells. The origin is forecast too
+        # since #472 — it is the grid's parity check, and defining it as 1.0
+        # hid exactly the path disagreement this module exists to prevent.
+        assert batches == [81]
 
     def test_a_cell_that_forecasts_garbage_degrades_to_the_baseline(self):
         """One diverged cell must not take the panel down or dwarf the chart.
@@ -352,3 +352,106 @@ class TestFeatureFlag:
         """`_scenario_demand_factor` documents a 24h baseline, and the 24 is
         the entire reason this is affordable — 384 steps would not be."""
         assert config.SCENARIO_GRID_HORIZON_HOURS == 24
+
+
+class TestOriginIsComputed:
+    """The origin cell is the grid's own parity check (#472).
+
+    It was defined as 1.0 to save one forecast in 81. That saved cell was the
+    only thing that could have caught the two sides of every ratio coming from
+    different inference paths — the exact failure this module exists to
+    prevent. Defining it away made the check invisible, so it is computed now.
+    """
+
+    @staticmethod
+    def _one(frame: pd.DataFrame) -> np.ndarray:
+        return 1000.0 + 10.0 * frame["temperature_2m"].to_numpy()
+
+    def _build(self, forecaster):
+        future = _future_frame()
+        return build_scenario_grid(
+            featured=pd.DataFrame(
+                {"demand_mw": np.full(48, 1500.0), "temperature_2m": np.full(48, 70.0)}
+            ),
+            future_df=future,
+            baseline=self._one(future),
+            forecaster=forecaster,
+            horizon=HORIZON,
+        )
+
+    def test_every_cell_including_the_origin_is_forecast(self):
+        calls: list[int] = []
+
+        def counting(frames):
+            calls.append(len(frames))
+            return [self._one(f) for f in frames]
+
+        self._build(counting)
+
+        assert calls == [81], "81 cells, none of them assumed"
+
+    def test_matching_paths_report_no_origin_drift(self):
+        payload = self._build(lambda frames: [self._one(f) for f in frames])
+
+        assert payload["origin_drift"] == 0.0
+
+    def test_a_path_disagreement_shows_up_as_origin_drift(self):
+        """A forecaster that disagrees with the baseline by a constant — which
+        is what two different inference paths look like — is now visible in the
+        payload instead of being hidden behind a hard-coded 1.0."""
+        payload = self._build(lambda frames: [self._one(f) * 1.05 for f in frames])
+
+        assert payload["origin_drift"] == pytest.approx(0.05, abs=1e-3)
+
+
+class TestEnvelopeFlags:
+    """Tree models do not extrapolate; the payload has to say where that starts."""
+
+    @staticmethod
+    def _one(frame: pd.DataFrame) -> np.ndarray:
+        return 1000.0 + 10.0 * frame["temperature_2m"].to_numpy()
+
+    def _build(self, observed_temps: np.ndarray):
+        future = _future_frame()
+        return build_scenario_grid(
+            featured=pd.DataFrame(
+                {
+                    "demand_mw": np.full(len(observed_temps), 1500.0),
+                    "temperature_2m": observed_temps,
+                }
+            ),
+            future_df=future,
+            baseline=self._one(future),
+            forecaster=lambda frames: [self._one(f) for f in frames],
+            horizon=HORIZON,
+        )
+
+    def test_a_narrow_history_marks_the_extremes_extrapolated(self):
+        """SPA's shape, measured live: saturates above +5 F and then wanders.
+
+        A BA whose history spans a narrow band cannot answer a +20 F question,
+        and the flag is what lets the UI stop pretending it can.
+        """
+        payload = self._build(np.linspace(60.0, 80.0, 200))
+
+        flags = payload["envelope"]["temp_f"]
+        temps = payload["axes"]["temp_f"]
+
+        assert flags[temps.index(20.0)] is False
+        assert flags[temps.index(-20.0)] is False
+
+    def test_a_wide_history_keeps_positions_in_envelope(self):
+        payload = self._build(np.linspace(0.0, 140.0, 200))
+
+        assert all(payload["envelope"]["temp_f"])
+
+    def test_every_axis_is_flagged(self):
+        payload = self._build(np.linspace(60.0, 80.0, 200))
+
+        assert set(payload["envelope"]) == {"temp_f", "wind_mph", "solar_wm2"}
+        for axis, positions in (
+            ("temp_f", "temp_f"),
+            ("wind_mph", "wind_mph"),
+            ("solar_wm2", "solar_wm2"),
+        ):
+            assert len(payload["envelope"][axis]) == len(payload["axes"][positions])

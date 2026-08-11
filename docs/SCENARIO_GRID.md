@@ -261,6 +261,77 @@ exists so the physics checks below go through `interpolate_scenario_factors`,
 the same helper the web tier uses. Reading Redis directly would confirm the
 payload exists and skip the serving path, which is the half that was untested.
 
+## The physics checks, run 2026-08-11
+
+Both were run against `/api/v1/scenario/{region}` on the live grid.
+
+**Check 1 — BA-dependence: PASSED, decisively.** At +20 F the #119 heuristic
+returns **+10.0% for every BA by construction** (it takes only the three
+deltas). The grid returns:
+
+| BA | mean factor at +20 F |
+|---|---:|
+| ERCOT | 1.1007 |
+| NWMT | 1.0830 |
+| ISONE | 1.0506 |
+| FPL | 1.0417 |
+| **SPA** | **0.9677** |
+
+A 13.3-point spread, and **SPA's demand falls as it warms** — the
+winter-peaking signature a single positive coefficient cannot produce at any
+parameter value. The response also varies BY HOUR within each BA, which a
+scalar factor cannot express at all.
+
+**Check 2 — the 65 F kink: the check was badly specified, and the answer is
+more interesting than the question.** The axis is a DELTA from each BA's own
+baseline weather, not an absolute temperature, so a kink at absolute 65 F
+lands at a different delta for every BA and cannot be read off this axis. What
+the walk did show is saturation:
+
+| BA | -20 | -10 | +5 | +10 | +20 |
+|---|---:|---:|---:|---:|---:|
+| FPL | 0.9790 | **0.9786** | 1.0228 | **1.0264** | **1.0264** |
+| ERCOT | 0.9445 | 0.9502 | 1.0113 | **1.0123** | **1.0123** |
+| SPA | 0.9925 | 0.9968 | **0.9498** | **0.9498** | **0.9498** |
+
+Identical to four decimals across 10-15 F spans. **XGBoost is a tree ensemble
+and does not extrapolate**: past the training range every split routes the same
+way and the response stops depending on the input. FPL saturating on the COLD
+side is the tell — Florida has no cold training data, so -10 and -20 land in
+the same empty region.
+
+SPA is worse than flat: it saturates above +5 F and then WANDERS, with the mean
+turning down through +15 (0.9917) to +20 (0.9677). Outside the envelope a tree
+model is unconstrained, not merely constant.
+
+Two hypotheses were tested and rejected on the way: it is not a diverged
+recursive forecast (the decline does not compound with hour index) and not a
+path-parity offset (the first-hour factor does vary with temperature for FPL,
+ERCOT and ISONE).
+
+**The grid is faithfully reporting what the model says. The model has nothing
+to say out there.** That is a product-honesty problem, not a defect in the
+batching or the serving path — both of which these checks exercised end to end.
+
+## Envelope flags and the origin parity cell (#472)
+
+**Envelope.** Each payload now carries `envelope.{temp_f,wind_mph,solar_wm2}`,
+one flag per axis position, computed by comparing the shifted forecast series
+against that BA's own observed range in `featured`. A position is in-envelope
+only if EVERY hour stays inside. The API returns `extrapolated: true/false` for
+the requested position and the panel says so instead of calling it a
+re-forecast.
+
+Known limitation, stated rather than papered over: the check is **per-axis, not
+per-cell**. A cell can be in-envelope on all three axes and still sit in a
+sparse corner the booster never saw jointly.
+
+**The origin is now computed.** It was defined as `1.0` to save one forecast in
+81 — and that saved cell was the only thing that could have caught the two
+sides of every ratio coming from different inference paths, the exact failure
+this module was built to prevent. `origin_drift` is now in the payload and
+warns above 0.001.
+
 ## Status and what is not yet verified
 
 Shipped behind `FEATURE_FLAGS["scenario_grid"]`. **Enabled 2026-08-10 (#460)**
