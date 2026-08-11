@@ -7,8 +7,11 @@ resulting weights move 0.220 L1 per day, about 11% of the blend mass relocating
 between models daily. **Do weights computed from a smoothed MAPE forecast
 better?** Stability was never the objective; accuracy is.
 
-**Answer.** Yes, decisively, at α=0.3 — and not for the reason anyone would
-guess. Shipped **off** pending a fleet re-measure; see *Why the flag is off*.
+**Answer.** The WAPE win is real and survives every re-cut at 51 BAs. **But the
+ship criterion is not met**, because the bias constraint cannot be evaluated in a
+replay harness — the *control* arm breaches it by 3×. Per the pre-registered rule
+(an unmeasurable constraint counts as failed), **nothing ships**. Details in
+*The fleet re-measure*.
 
 Reproduce: `python scripts/weights_ab_study.py --end 2026-08-10`
 
@@ -94,23 +97,77 @@ more often. The dose-response supports it: gain correlates **+0.40** with how fa
 the weights actually moved (L1), averaging **+0.897** where they moved most
 against **+0.152** where they barely moved. Noise would show no such gradient.
 
+## The fleet re-measure — 51 BAs, 408 cases
+
+The 12-BA cut above was the hard tail. Re-run across **all 51 BAs**, the two
+halves of the result move in *opposite* directions, which is why the fleet run
+was worth doing.
+
+| | 12 BAs | 51 BAs |
+|---|---|---|
+| `ewma_0.3` Δ WAPE | +0.524 | **+0.355** |
+| t | 2.21 | **2.62** |
+| windows won | 7 of 8 | 7 of 8 |
+| breaks if one BA is dropped | **FPL** | **none** |
+| breaks if one window is dropped | **3 of 8** | **none** |
+| treatment bias | +0.08% | **+6.01%** ❌ |
+| **ships** | ✅ | ❌ |
+
+**The WAPE win got more robust, not less.** At 51 BAs it survives dropping any
+single BA and any single window — the fragility that qualified the 12-BA result
+was a small-sample artifact.
+
+**And the ship criterion still fails, on the constraint.** `|bias| ≤ 2.0%` is
+breached at +6.01%.
+
+### The bias belongs to the harness, not to smoothing
+
+`satisficing_check` only ever sees the *treatment's* bias, so the number above
+invites the reading "smoothing over-forecasts". It does not:
+
+| arm | mean bias |
+|---|---|
+| `raw` (control) | **+6.042%** |
+| `ewma_0.3` | +6.013% |
+| `ewma_0.5` | +6.023% |
+
+**Treatment minus control: −0.029 pts.** Smoothing very slightly *reduces* bias.
+**26 of 51 BAs breach ±2% in the control arm alone** — TIDC +43%, PGE +31%,
+ISONE +31%, NYISO +30%. This is a replay artifact: a vintage carried forward 168h
+against partly-imputed weather over-forecasts, and the 12-BA subset simply
+happened to average near zero.
+
+That last part is a correction to this document's earlier reading. The 12-BA run
+recorded bias +0.08% and passed the constraint — **by luck of the subset, not
+because the harness could measure it.**
+
+### So the honest verdict
+
+**Ships nothing**, and for a stronger reason than "the number was too small":
+
+> A replay whose control arm is +6% biased cannot certify that the treatment
+> holds bias within ±2%. The constraint is **unmeasurable in this harness**, and
+> `EVALUATION_POLICY.md` is explicit that an unmeasurable constraint counts as
+> failed.
+
+**This retroactively justifies #451's own instinct — for a reason the issue did
+not state.** It called for real training runs per arm. That is not needed to
+compare *weights* (the replay does that fine, and better). It **is** needed to
+check the bias constraint, because only production-quality forecasts have
+production-quality bias. The scheduled run was the right call about the wrong
+half of the experiment.
+
+### What would settle it
+
+Arms measured on production-grade forecasts — either a shadow scoring pass that
+writes both weightings, or the per-arm training runs #451 originally specified.
+The WAPE half is already answered and would not need re-running.
+
 ## Why the flag is off
 
-The pre-registered criterion is met and is not being relitigated. The flag is off
-because of a question the pre-registration did not cover — **scope** — plus a
-fragility a reader is owed:
-
-- **Measured on 12 of 51 BAs**, chosen for the hard tail. Flipping the flag moves
-  served forecasts fleet-wide.
-- **The verdict sits near its own threshold.** t = 2.21 against a 2.0 filter, and
-  it moved 2.26 → 2.21 between two runs hours apart (EIA data settling).
-- **Leave-one-out** (not a ship criterion — disclosure): `ewma_0.3` stops being
-  decisive if **FPL alone** is dropped, or if any of 3 of the 8 windows is.
-  `ewma_0.5` is worse — 2 BAs and 6 of 8 windows.
-
-`update_smoothed_mape` persists the series **regardless of the flag**, so a later
-flip finds real history instead of starting from a single observation. Flipping
-is a one-line change plus a fleet re-measure.
+Because the ship criterion is not met. `update_smoothed_mape` persists the series
+**regardless of the flag**, so whenever the bias half is settled the flip finds
+real history rather than starting from a single observation.
 
 ## Limitations
 

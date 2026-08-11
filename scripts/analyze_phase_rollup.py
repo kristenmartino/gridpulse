@@ -233,14 +233,46 @@ def report_attribution(t: Tick) -> list[str]:
     return problems
 
 
-def report_archive_arms(ticks: list[Tick]) -> None:
+#: A tick this many times the median elapsed is an upstream event, not a
+#: measurement of our code. Deliberately loose — the 2026-08-10T13:19 tick was
+#: 2.8x, and anything near 2x is already unmistakable in this job.
+OUTLIER_ELAPSED_FACTOR = 2.0
+
+
+def flag_outlier_ticks(ticks: list[Tick], factor: float = OUTLIER_ELAPSED_FACTOR) -> set[int]:
+    """Ticks whose wall clock says an upstream dependency was in trouble.
+
+    Added after this script MISSED one. Its only confound check keyed on
+    ``n != 51``, and the 2026-08-10T13:19 tick had all 51 regions while taking
+    2.8x the median elapsed with `eia_generation` at 4531.5s — a real EIA
+    degradation event that the check waved through.
+
+    Excluding these is the CONSERVATIVE direction, not a convenient one: that
+    tick's `weather_archive` was 6.4s, the lowest hit-arm value in the window,
+    so pooling it makes the cache look BETTER. A confound that flatters the
+    result is the one most worth removing.
+
+    Needs >=3 ticks for the median to mean anything; returns an empty set
+    below that rather than guessing.
+    """
+    vals = [t.elapsed_s for t in ticks if t.elapsed_s]
+    if len(vals) < 3:
+        return set()
+    threshold = statistics.median(vals) * factor
+    return {id(t) for t in ticks if t.elapsed_s and t.elapsed_s >= threshold}
+
+
+def report_archive_arms(ticks: list[Tick], excluded: set[int] | None = None) -> None:
     """The archive cache's paired arms — the whole point of the flag flip."""
     print("\n" + "=" * 68)
     print("ARCHIVE CACHE — paired arms (window moves at 00Z)")
     print("=" * 68)
 
-    obs = [(t, t.leg("fetch_substeps", "weather_archive")) for t in ticks]
+    excluded = excluded or set()
+    obs = [(t, t.leg("fetch_substeps", "weather_archive")) for t in ticks if id(t) not in excluded]
     obs = [(t, v) for t, v in obs if v is not None]
+    if excluded:
+        print(f"  ({len(excluded)} tick(s) excluded as upstream events — see CONFOUNDS below)")
     if not obs:
         print("  no `fetch_substeps.weather_archive` in these ticks — is the")
         print("  instrumentation deployed? (it shipped in #414)")
@@ -303,9 +335,25 @@ def main(argv: list[str]) -> int:
         if t.substeps:
             problems += report_attribution(t)
 
-    report_archive_arms(ticks)
+    outliers = flag_outlier_ticks(ticks)
+    report_archive_arms(ticks, excluded=outliers)
 
     # Confounds worth seeing before anyone reads a verdict off the numbers.
+    if outliers:
+        med = statistics.median([t.elapsed_s for t in ticks if t.elapsed_s])
+        print("\n  CONFOUNDS — upstream events, EXCLUDED from the arms above")
+        print(f"  (elapsed >= {OUTLIER_ELAPSED_FACTOR}x the {med:.0f}s median):")
+        for t in ticks:
+            if id(t) in outliers:
+                worst = max(
+                    ((n, float(v.get("total_s", 0))) for n, v in t.phases.items()),
+                    key=lambda kv: kv[1],
+                    default=("?", 0.0),
+                )
+                print(
+                    f"    {t.timestamp}  elapsed {t.elapsed_s}s "
+                    f"({t.elapsed_s / med:.1f}x)  worst phase: {worst[0]} {worst[1]:.0f}s"
+                )
     partial = [t for t in ticks if any(v.get("n", 51) not in (51, None) for v in t.phases.values())]
     if partial:
         print(
