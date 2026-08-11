@@ -1671,6 +1671,23 @@ def _write_shadow_weights(
             "records": records[-_SHADOW_MAX_RECORDS:],
         }
         persist(redis_key(f"shadow_weights:{region}"), payload, ttl=REDIS_TTL)
+        # Log the SUCCESS path, not only the skips. Without this the strongest
+        # available evidence that the shadow is running is the *absence* of
+        # ``shadow_weights_incomplete`` across 51 BAs — which is indistinguishable
+        # from the phase never executing at all. That is the "configured and
+        # inert" pattern this project keeps finding (docs/monitoring/README.md),
+        # and #478 cannot be evaluated from a key nobody can confirm is being
+        # written. ``n_records`` is the one to watch: it must climb toward the
+        # 14 days #478 asks for, and a flat count means grading is failing while
+        # the write succeeds.
+        log.info(
+            "shadow_weights_written",
+            region=region,
+            members=sorted(predictions_by_model),
+            n_records=len(payload["records"]),
+            n_forecast_rows=len(payload["forecasts"]),
+            shadow_arm=payload["shadow_arm"],
+        )
         return True
     except Exception as exc:  # pragma: no cover — enrichment, never fatal
         log.warning("shadow_weights_failed", region=region, error=str(exc))
