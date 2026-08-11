@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How GridPulse forecasts US electricity demand</title>
+
+  <link rel="canonical" href="https://gridpulse.kristenmartino.ai/methodology">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&display=swap">
+  <link rel="preconnect" href="https://www.googletagmanager.com">
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-97LE6K3X9N"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-97LE6K3X9N');
+  </script>
+
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="/assets/favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
+  <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
+
+  <meta name="description" content="Inside GridPulse: 49 weather-derived features, three base models plus a sharpened inverse-MAPE ensemble, and the gate a model passes before it serves.">
+  <meta name="author" content="Kristen Martino">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://gridpulse.kristenmartino.ai/methodology">
+  <meta property="og:title" content="How GridPulse forecasts US electricity demand">
+  <meta property="og:description" content="49 weather-derived features, three base models and a sharpened inverse-MAPE ensemble, scored on a recursive 168-hour holdout per balancing authority.">
+  <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="How GridPulse forecasts US electricity demand">
+  <meta name="twitter:description" content="49 weather-derived features, three base models and a sharpened inverse-MAPE ensemble, scored on a recursive 168-hour holdout per balancing authority.">
+  <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "@id": "https://gridpulse.kristenmartino.ai/methodology",
+    "url": "https://gridpulse.kristenmartino.ai/methodology",
+    "name": "How GridPulse forecasts US electricity demand",
+    "description": "The architecture behind GridPulse: 49 weather-derived features, three base models plus a sharpened inverse-MAPE ensemble, and the gate a model passes before it serves.",
+    "inLanguage": "en",
+    "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
+    "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
+  }
+  </script>
+
+  <style>
+    /* Design tokens — curated subset of assets/custom.css :root, duplicated
+       deliberately (the landing-page precedent): a public surface must not
+       break when dashboard chrome CSS changes. Keep in sync by value. */
+    :root {
+      --bg-base: #0a0a0b;
+      --bg-raised: #111113;
+      --border-subtle: rgba(255, 255, 255, 0.06);
+      --border-default: rgba(255, 255, 255, 0.12);
+      --text-primary: #e4e4e7;
+      --text-secondary: #a1a1aa;
+      --text-tertiary: #71717a;
+      --accent-base: #3b82f6;
+      --accent-hover: #5b9aff;
+      --accent-dim: rgba(59, 130, 246, 0.15);
+      --accent-ring: rgba(59, 130, 246, 0.30);
+      --forecast: #f97316;
+      --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --font-display: 'Sora', 'Inter', sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+      --radius-md: 6px;
+      --radius-lg: 8px;
+      --content-max: 72rem;
+      --prose-max: 44rem;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg-base);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent-base); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    /* --accent-ring is 30% alpha; as an outline it measures ~1.5:1 here,
+       under the 3:1 WCAG 1.4.11 requires of a focus indicator. The opaque
+       accent is what the dashboard and the other public pages use. */
+    a:focus-visible, button:focus-visible, summary:focus-visible {
+      outline: 2px solid var(--accent-base);
+      outline-offset: 2px;
+      border-radius: var(--radius-md);
+    }
+    .wrap { max-width: var(--content-max); margin: 0 auto; padding: 0 24px; }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .site-header {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(10, 10, 11, 0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .site-header .wrap {
+      height: 60px; display: flex; align-items: center;
+      justify-content: space-between; gap: 16px;
+    }
+    .wordmark {
+      display: flex; align-items: center; gap: 10px;
+      font-family: var(--font-display); font-weight: 600;
+      font-size: 19px; letter-spacing: -0.02em; color: var(--text-primary);
+    }
+    .wordmark svg { display: block; border-radius: 6px; }
+    .wordmark .pulse { color: var(--accent-base); }
+    .header-cta {
+      font-size: 14px; font-weight: 500; padding: 8px 16px;
+      border: 1px solid var(--border-default); border-radius: var(--radius-md);
+      color: var(--text-primary); white-space: nowrap;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .header-cta:hover {
+      border-color: var(--accent-base); background: var(--accent-dim);
+      color: var(--text-primary);
+    }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    .hero { padding: 56px 0 28px; border-bottom: 1px solid var(--border-subtle); }
+    .eyebrow {
+      font-size: 12px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--accent-base); margin-bottom: 12px;
+    }
+    h1 {
+      font-family: var(--font-display); font-size: clamp(30px, 4.2vw, 44px);
+      line-height: 1.14; letter-spacing: -0.025em; font-weight: 700;
+      margin-bottom: 18px; max-width: 22ch;
+    }
+    .lede { font-size: 18px; color: var(--text-secondary); max-width: 64ch; }
+
+    .layout { display: grid; grid-template-columns: 15rem minmax(0, 1fr); gap: 48px; padding: 40px 0 64px; }
+    @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 24px; } }
+
+    /* ── Contents rail ──────────────────────────────────── */
+    .toc { position: sticky; top: 84px; align-self: start; font-size: 13px; }
+    @media (max-width: 900px) { .toc { position: static; } }
+    .toc p {
+      font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text-tertiary); margin-bottom: 12px;
+    }
+    .toc a { display: block; color: var(--text-secondary); padding: 5px 0; line-height: 1.4; }
+    .toc a:hover { color: var(--text-primary); }
+
+    /* ── Prose ──────────────────────────────────────────── */
+    article { max-width: var(--prose-max); }
+    article section { margin-bottom: 52px; scroll-margin-top: 84px; }
+    article h2 {
+      font-family: var(--font-display); font-size: 26px; line-height: 1.25;
+      letter-spacing: -0.02em; font-weight: 600; margin-bottom: 16px;
+    }
+    article h3 {
+      font-size: 17px; font-weight: 600; margin: 28px 0 10px;
+      color: var(--text-primary);
+    }
+    article p { color: var(--text-secondary); margin-bottom: 16px; }
+    article strong { color: var(--text-primary); font-weight: 600; }
+    article ul { margin: 0 0 16px 1.1rem; color: var(--text-secondary); }
+    article li { margin-bottom: 8px; }
+    code {
+      font-family: var(--font-mono); font-size: 0.88em;
+      background: var(--bg-raised); border: 1px solid var(--border-subtle);
+      border-radius: 4px; padding: 1px 5px; color: var(--text-primary);
+    }
+
+    /* A claim the page argues against itself. Visually distinct because
+       burying it would defeat the point of writing it down. */
+    .counterpoint {
+      background: var(--bg-raised);
+      border: 1px solid var(--border-subtle);
+      border-left: 2px solid var(--forecast);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px; margin: 22px 0;
+    }
+    .counterpoint p:last-child { margin-bottom: 0; }
+    .counterpoint .label {
+      display: block; font-size: 11px; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--forecast); margin-bottom: 8px;
+    }
+
+    .source {
+      font-size: 13px; color: var(--text-tertiary);
+      padding-top: 10px; border-top: 1px solid var(--border-subtle);
+    }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    footer {
+      border-top: 1px solid var(--border-subtle);
+      padding: 28px 0 40px; font-size: 13px; color: var(--text-tertiary);
+    }
+    footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 20px; justify-content: space-between; }
+    footer nav { display: flex; flex-wrap: wrap; gap: 18px; }
+    footer nav a, footer p a { color: var(--text-secondary); }
+    footer nav a:hover, footer p a:hover { color: var(--text-primary); }
+  </style>
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="wordmark" href="/about" aria-label="GridPulse — About">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="26" height="26" fill="none" aria-hidden="true">
+          <rect width="32" height="32" rx="6" fill="#0a0a0b"/>
+          <path d="M4 16 L11 16 L14 8 L16 24 L18 12 L21 16 L28 16"
+                stroke="#3b82f6" stroke-width="2.25"
+                stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        </svg>
+        <span>Grid<span class="pulse">Pulse</span></span>
+      </a>
+      <a class="header-cta" href="/">Open the live platform &rarr;</a>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <p class="eyebrow">Methodology</p>
+        <h1>How GridPulse forecasts US electricity demand</h1>
+        <p class="lede">
+          Three base models, one ensemble, 49 weather-derived features, and
+          51 balancing authorities scored every hour against live EIA data.
+          This page describes what the system actually does &mdash; including
+          the places the architecture is measurably worse than the simpler
+          alternative.
+        </p>
+      </div>
+    </div>
+
+    <div class="wrap layout">
+      <nav class="toc" aria-label="Contents">
+        <p>Contents</p>
+        <a href="#tiers">Three runtime tiers</a>
+        <a href="#request-path">Why the web tier does no work</a>
+        <a href="#features">49 features from 17 variables</a>
+        <a href="#models">Three models and one ensemble</a>
+        <a href="#ensemble-cost">What the ensemble costs</a>
+        <a href="#accuracy">How accuracy is measured</a>
+        <a href="#gates">The gates before serving</a>
+        <a href="#horizon">The day-16 boundary</a>
+        <a href="#limits">What this does not do</a>
+      </nav>
+
+      <article>
+        <section id="tiers">
+          <h2>Three runtime tiers, four external data sources</h2>
+          <p>
+            GridPulse runs as three separate things, and keeping them separate
+            is the single most load-bearing decision in the system.
+          </p>
+          <ul>
+            <li>
+              A <strong>stateless web service</strong> serves the dashboard and
+              the public JSON API. It reads from Redis and nothing else.
+            </li>
+            <li>
+              An <strong>hourly scoring job</strong> fetches demand and weather,
+              loads the current models from cloud storage, and writes forecasts,
+              alerts and diagnostics into Redis.
+            </li>
+            <li>
+              A <strong>daily training job</strong> retrains all three model
+              families, validates each candidate, and persists the accepted
+              ones.
+            </li>
+          </ul>
+          <p>
+            Data comes from four places: the <strong>EIA</strong> API for
+            demand, generation and interchange; <strong>Open-Meteo</strong> for
+            17 weather variables; <strong>NOAA&rsquo;s National Weather
+            Service</strong> for severe-weather alerts; and NOAA&rsquo;s
+            <strong>National Blend of Models</strong> for forecast-hour weather.
+          </p>
+        </section>
+
+        <section id="request-path">
+          <h2>Why the web tier never does heavy work in the request path</h2>
+          <p>
+            The web container has no trained models on disk, no model metadata,
+            and no path to the model store. That is deliberate, and it is
+            enforced rather than merely intended: any component that reaches for
+            model output must read it from Redis, because the scoring job is the
+            only writer.
+          </p>
+          <p>
+            The rule exists because breaking it fails <em>quietly</em>. A
+            function that reads a model from local disk does not crash in
+            production when the disk is empty &mdash; it falls back to a
+            simulated path and returns a plausible-looking series. Two real bugs
+            shipped that way in a single day: an overview chart rendering noisy
+            historical actuals at forward timestamps on every page load, and a
+            model badge reporting &ldquo;simulated&rdquo; while the forecasts in
+            Redis were real. Both looked fine.
+          </p>
+          <p>
+            So the fallbacks are now gated: when the web tier is configured for
+            Redis-only operation and no real data is available, it returns
+            nothing and the interface says it is warming up. An empty state is a
+            worse demo and a much better product.
+          </p>
+        </section>
+
+        <section id="features">
+          <h2>What goes into a forecast: 49 features from 17 weather variables</h2>
+          <p>
+            Each region&rsquo;s feature matrix carries <strong>49
+            features</strong> &mdash; 17 raw weather variables and 32 derived
+            from them. The derived set includes cooling and heating degree days
+            against a 65&deg;F baseline, wind power density, solar capacity
+            factor, and a family of lag and rolling-window statistics over
+            recent demand.
+          </p>
+          <p>
+            Every feature is <strong>backward-looking</strong>. Nothing in the
+            matrix can see a value from after the timestamp it describes, which
+            is what makes the holdout numbers below mean anything.
+          </p>
+          <h3>Where the weather is sampled</h3>
+          <p>
+            A balancing authority responds to weather across its whole
+            territory, but the fetch originally sampled one representative
+            point &mdash; for MISO, a single spot in rural Illinois standing in
+            for fifteen states. Each footprint is now sampled at up to
+            <strong>12 fixed cells</strong> and averaged, worth
+            <strong>+1.14 sMAPE points</strong> overall (MISO +1.77, PJM +1.41)
+            and approximately nothing for compact single-metro authorities,
+            which keep their single point.
+          </p>
+          <p>
+            Two details matter more than they look. Wind direction uses a
+            circular mean, because averaging 350&deg; and 10&deg;
+            arithmetically points the wind due south. And the aggregation is
+            <strong>unweighted</strong>, because population weighting was
+            measured and added nothing &mdash; so production carries
+            coordinates and needs no census data at runtime.
+          </p>
+        </section>
+
+        <section id="models">
+          <h2>Three base models and one ensemble</h2>
+          <p>
+            <strong>XGBoost</strong> learns the non-linear weather-to-demand
+            relationship from the full engineered feature set and is the best
+            base model for 42 of 51 balancing authorities.
+            <strong>Prophet</strong> fits additive seasonality with weather
+            regressors. <strong>SARIMAX</strong> captures stationary structure,
+            with its order selected automatically.
+          </p>
+          <h3>Why inverse-MAPE weighting instead of stacking</h3>
+          <p>
+            The ensemble weights each model by
+            <code>weight &prop; (1/MAPE)&sup3;</code>, normalised to sum to one.
+            Stacking would be the more fashionable choice; this was picked
+            because the weights are transparent and trivial to debug &mdash;
+            you can always answer &ldquo;which model is dominating right now,
+            and why&rdquo; by reading three numbers.
+          </p>
+          <p>
+            The cubing is not decoration. Plain inverse-MAPE blending kept
+            15&ndash;30% of the weight on models running three to five times
+            worse than the leader. The exponent makes the blend follow the best
+            recent model and mix meaningfully only when its peers are genuinely
+            close.
+          </p>
+        </section>
+
+        <section id="ensemble-cost">
+          <h2>What the ensemble actually buys &mdash; and where it costs accuracy</h2>
+          <div class="counterpoint">
+            <span class="label">A claim this project withdrew</span>
+            <p>
+              GridPulse used to say the ensemble bought variance reduction in
+              the tail. <strong>That claim is withdrawn.</strong> It rested on
+              one balancing authority improving from 38.63% to 13.61%. On the
+              current run that same authority is 13.68% under XGBoost alone and
+              14.72% under the ensemble &mdash; the blend is
+              <em>worse</em> there.
+            </p>
+            <p>
+              More broadly, the served ensemble <strong>trails best-base in
+              aggregate</strong>: 4.35% median per-BA error against 3.69%, and
+              a 90th percentile of 14.27% against XGBoost-alone&rsquo;s 9.87%.
+              It wins on 21 of 51 balancing authorities.
+            </p>
+          </div>
+          <p>
+            The honest statement is that blending buys error decorrelation on
+            some authorities and costs accuracy on others. It is a hedge, not a
+            guarantee, and the per-authority table is the only reliable guide.
+          </p>
+          <p>
+            One further correction worth stating plainly: ensemble figures
+            published before August 2026 were <strong>optimistically
+            biased</strong>. The weights were fitted on the same window the
+            blend was scored against. Re-scoring strictly out-of-sample moved
+            the median from 3.89% to 4.35% and made it worse on 33 of 51
+            authorities. Base-model numbers were never affected.
+          </p>
+        </section>
+
+        <section id="accuracy">
+          <h2>How accuracy is measured: recursive, 168 hours, per authority</h2>
+          <h3>Why recursive scoring runs about twice the usual number</h3>
+          <p>
+            Most dashboards quote <em>teacher-forced</em> error: the model
+            predicts one step ahead, then receives the true value before
+            predicting the next. That measures a nowcast. A seven-day forecast
+            has no true values to receive &mdash; the model&rsquo;s own
+            predictions feed forward as its lag features, and errors compound.
+          </p>
+          <p>
+            GridPulse scores the way it serves, recursively over a 168-hour
+            holdout. That runs roughly <strong>2&times; harder</strong> on the
+            models than the teacher-forced equivalent. It is the number a
+            seven-day forecast deserves.
+          </p>
+          <h3>Why there is no single &ldquo;across-51&rdquo; number</h3>
+          <p>
+            Accuracy is quoted <strong>per balancing authority</strong>, never
+            pooled. The distribution is too wide for a mean to describe: on
+            the best-achievable-per-authority view the best sits at
+            <strong>1.72%</strong> and the worst at <strong>23.26%</strong>.
+            A single
+            headline figure would be a different claim depending on which
+            authority a reader cared about &mdash; which is to say, not a claim
+            at all.
+          </p>
+          <p>
+            Every forecast is also scored against the balancing
+            authority&rsquo;s <em>own</em> published day-ahead forecast, on the
+            same hours and the same settled actuals, with wins and losses both
+            published.
+          </p>
+          <p class="source">
+            <a href="/benchmark">See the head-to-head benchmark &rarr;</a>
+          </p>
+        </section>
+
+        <section id="gates">
+          <h2>The gates a model passes before it serves</h2>
+          <h3>The serve-path acceptance gate</h3>
+          <p>
+            Retraining daily means drawing a new model daily, and the draws are
+            not all good. Replaying every persisted vintage for one authority
+            showed <strong>about 27% produce recursive forecasts that collapse
+            overnight demand</strong> into a phantom regime &mdash; a failure
+            the published holdout <em>cannot see</em>, because it scores a fresh
+            model on sliced historical rows rather than running the deployed
+            candidate through the recursion path production actually uses.
+          </p>
+          <p>
+            So before the training job promotes a candidate, it replays that
+            candidate through the <strong>real serve path</strong> from three
+            anchors. A candidate that fails is still kept for forensics, but the
+            pointer stays on yesterday&rsquo;s accepted model.
+            Stale-but-sane beats fresh-but-insane &mdash; the same principle the
+            data layer applies when an upstream API degrades.
+          </p>
+          <h3>The visibility gate, and why it asks the most generous question</h3>
+          <p>
+            A second gate decides which authorities appear in the product at
+            all. It is judged on the training holdout against the seven-day
+            band &mdash; deliberately the most generous question available,
+            because hiding a balancing authority is a heavy act. As measured, it
+            hides none of the 51.
+          </p>
+          <p>
+            The cost of that generosity is real, and worth stating: one
+            authority sat at 6.96% on the holdout, well inside the bar, while
+            every served model graded a rollback at 24 hours on the live path.
+            Both numbers were right about their own question, and nothing
+            compared them. A second opinion is now computed every hour, published
+            beside the verdict, and logged whenever the two disagree.
+          </p>
+        </section>
+
+        <section id="horizon">
+          <h2>Where the forecast stops being a forecast</h2>
+          <p>
+            The scoring job produces a 30-day hourly demand forecast, but real
+            weather forecast data only covers the first <strong>16 days</strong>.
+            Past that boundary the weather inputs are driven from a per-authority
+            seasonal normal &mdash; a trailing ten-year &ldquo;normal weather
+            year&rdquo; &mdash; with the current weather regime decaying into
+            that normal over about five days.
+          </p>
+          <p>
+            The Forecast tab draws a visible divider at day 16 and labels both
+            sides. Demand past that line reflects seasonal and daily patterns,
+            not forward-looking signal, and the interface says so rather than
+            drawing one continuous confident line. Atmospheric chaos limits
+            deterministic forecast skill to roughly 10&ndash;14 days regardless
+            of model, so this is the correct answer past that coverage rather
+            than a cost-driven shortcut.
+          </p>
+        </section>
+
+        <section id="limits">
+          <h2>What this does not do</h2>
+          <ul>
+            <li>
+              <strong>It does not detect drift between trainings.</strong>
+              Ensemble weights come from holdout error computed at training
+              time, so they stay frozen for a day. If one model degrades on live
+              actuals while another holds steady, nothing notices until the next
+              retrain.
+            </li>
+            <li>
+              <strong>It does not price energy or recommend trades.</strong>
+              There is a merit-order cost model for context, not for
+              decisions.
+            </li>
+            <li>
+              <strong>It does not cover Alaska or Hawaii</strong>, and it covers
+              51 of the 63 balancing authorities that report to EIA &mdash;
+              which is roughly 100% of lower-48 demand, because the missing ones
+              are small.
+            </li>
+            <li>
+              <strong>Its per-authority champion is not stable.</strong> Which
+              base model wins for a given authority changes between retrains, so
+              a specific claim about one is only true on the run that produced
+              it.
+            </li>
+          </ul>
+          <p class="source">
+            Every number on this page traces to
+            <a href="https://github.com/kristenmartino/gridpulse/blob/main/docs/CANONICAL_FACTS.md" target="_blank" rel="noopener">CANONICAL_FACTS.md</a>,
+            and the architecture decisions behind it &mdash; including the ones
+            that turned out to be wrong &mdash; are in
+            <a href="https://github.com/kristenmartino/gridpulse/blob/main/PRD.md" target="_blank" rel="noopener">PRD.md</a>.
+          </p>
+        </section>
+      </article>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <nav aria-label="Footer">
+        <a href="/">Live platform</a>
+        <a href="/about">About GridPulse</a>
+        <a href="/benchmark">Forecast benchmark</a>
+        <a href="https://github.com/kristenmartino/gridpulse" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+      <p>
+        Data: EIA &middot; Open-Meteo &middot; NOAA &nbsp;&nbsp;|&nbsp;&nbsp;
+        Built by <a href="https://github.com/kristenmartino" target="_blank" rel="noopener">Kristen Martino</a>
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

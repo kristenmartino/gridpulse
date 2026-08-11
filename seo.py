@@ -82,6 +82,7 @@ class SitemapEntry(NamedTuple):
 PUBLIC_PAGES: tuple[SitemapEntry, ...] = (
     SitemapEntry("/", None),
     SitemapEntry("/about", _WEB_DIR / "landing.html"),
+    SitemapEntry("/methodology", _WEB_DIR / "methodology.html"),
     SitemapEntry("/benchmark", _WEB_DIR / "benchmark.html"),
 )
 
