@@ -227,11 +227,17 @@ After #465 batched the cells, the first flag-on tick came in at **506s**
 baseline. **1.18x, +79s** — against 1,139s and 2.7x for the cell-at-a-time
 version. Clears #171's 600s criterion.
 
-Two caveats. **It is n=1**, and this file's own scoring-runtime row records a
-370.7s reading that a 17-tick median later revised to 406s, so treat 506s as
-one observation rather than the steady state. And **it overshot the ~495s
-projection** — the third time in this line of work that a cost estimate came
-in optimistic, so weight the measurement and discount the estimates.
+**Updated 2026-08-11 — now n=3: 506s, 461s, 515s** (23:00, 00:00, 01:00
+ticks), mean 494s, all inside #171's 600s criterion. The n=1 caveat below is
+retained because it was the right caution at the time, and because 461-515s is
+a ~54s spread on three observations — a median over a full day is still the
+number to quote if this ever needs defending.
+
+The original caveats, kept: 506s **overshot the ~495s projection**, the third
+time in this line of work a cost estimate came in optimistic, so weight the
+measurement and discount the estimates. And this file's own scoring-runtime row
+records a 370.7s reading that a 17-tick median later revised to 406s — small
+samples of this job have misled before.
 
 Headroom is the real question rather than the criterion: 506s leaves 1,294s to
 the hard timeout, and the 2026-08-04 EIA outage added ~800s on its own. A
@@ -373,6 +379,24 @@ stands, because the offset is common-mode within a payload and identical cells
 stay identical. What does NOT stand is the **precision**: factors were quoted
 to four decimals off a zero point that was wrong by up to 1.3%. Read the
 pre-#474 numbers as ~+4%, not 4.17%.
+
+**CONFIRMED FIXED 2026-08-11.** The first tick after #474 deployed (grids
+written 02:02:21-25) returned `origin_drift` of **exactly 0.0 on all six BAs**
+— FPL 0.013 -> 0.0, CAISO 0.00473 -> 0.0, ISONE 0.0041 -> 0.0, ERCOT
+0.00405 -> 0.0, MISO 0.00114 -> 0.0, PJM 0.00067 -> 0.0. `implausible_cells`
+was empty everywhere, so #475's narrowed 0.6-1.7 band does not bind on real
+physics either.
+
+Exact zeros matter here rather than merely small ones: a zero-delta scenario
+now reproduces its baseline bit for bit, so both sides of every ratio come from
+the same place. **That retroactively validates the physics results above** —
+the BA-dependence spread and SPA's sign flip are pure weather response with no
+path or feature contamination in them, and the precision caveat attached to the
+pre-#474 numbers can be lifted for grids written from 02:00 onward.
+
+The diagnosis is confirmed rather than merely consistent: 0.0 was predicted
+from a specific mechanism (a 720-hour rolling feature recomputed on a 24-row
+frame), and fixing exactly that produced exactly that.
 
 **The generalisable part.** The origin cell was removed on the argument that it
 could only ever reproduce a row of 1.0s. The first time it ran, it did not.
