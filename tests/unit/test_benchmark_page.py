@@ -46,6 +46,22 @@ def client():
     return app.test_client()
 
 
+def _data_script(body: str) -> str:
+    """The page's own data script, selected by content rather than position.
+
+    These assertions used to index ``body.split("<script>")[1]``, which
+    silently assumed the rendering script was the first bare ``<script>`` on
+    the page. Adding the GA4 snippet to the head in 2026-08-11 made that
+    index point at analytics plus the prose that follows it, and the tests
+    started failing on the "23.80–23.95h" methodology copy — a sentence that
+    had been there all along. Select the block that actually does the work.
+    """
+    blocks = re.findall(r"<script>(.*?)</script>", body, re.S)
+    matches = [b for b in blocks if "renderAll" in b or "observed_lead_h" in b]
+    assert matches, "no data script found on the benchmark page"
+    return "\n".join(matches)
+
+
 def _lead_block(**over):
     block = {
         "scoreable": True,
@@ -470,7 +486,7 @@ class TestBenchmarkPagePosture:
         assert "observed_lead_h" in body
         assert "Math.min.apply" in body and "Math.max.apply" in body
         # no literal lead figure anywhere in the rendered sidebar
-        assert "23.9" not in body.split("<script>")[1]
+        assert "23.9" not in _data_script(body)
 
     def test_spread_tile_names_its_statistic_and_population(self, body) -> None:
         """A bare ratio invites confusion with the median-APE spread in the
@@ -498,6 +514,6 @@ class TestBenchmarkPagePosture:
     def test_the_verdict_is_derived_not_written_in(self, body) -> None:
         """No literal from any particular run may appear in the script — the
         page must restate itself from whatever the payload says."""
-        script = body.split("<script>")[1]
+        script = _data_script(body)
         for stale in ("28 of 43", "4.82", "3.80", "8.3\u00d7", "PSEI", "SEC"):
             assert stale not in script, f"hard-coded result in the page: {stale!r}"

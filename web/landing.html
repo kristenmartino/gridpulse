@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>About GridPulse — Energy Intelligence Platform</title>
+  <title>GridPulse — US grid demand forecasting | Kristen Martino</title>
 
   <link rel="canonical" href="https://gridpulse.kristenmartino.ai/about">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,7 +23,10 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
   <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
 
-  <meta name="description" content="GridPulse unifies weather-aware demand forecasting, forecast confidence, grid visibility, and scenario-based decision support across 51 US balancing authorities.">
+  <!-- ~152 chars. The previous version ran 189 and truncated in results. -->
+  <meta name="description" content="Weather-aware hourly demand forecasts for 51 US balancing authorities, with per-BA holdout accuracy published in the open. Built by Kristen Martino.">
+  <meta name="author" content="Kristen Martino">
+  <meta name="theme-color" content="#0a0a0b">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/about">
   <meta property="og:title" content="About GridPulse — Energy Intelligence Platform">
@@ -36,6 +39,57 @@
   <meta name="twitter:title" content="About GridPulse — Energy Intelligence Platform">
   <meta name="twitter:description" content="See demand sooner. Decide with confidence. Weather-aware forecasting, model validation, and grid visibility for 51 US balancing authorities — built in the open.">
   <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
+
+  <!-- Structured data. Only types this page's content honestly supports.
+       Deliberately ABSENT:
+         Organization    — GridPulse is a personal project, not a legal
+                           entity; the type would read as puffery.
+         AggregateRating — no ratings exist. Fabricating one is the fastest
+                           route to a manual action.
+         offers          — true (the app is free) and Google's docs suggest
+                           it, but a machine-readable price tag is commercial
+                           framing on a page whose posture suite exists to
+                           keep commercial framing off it. The suite bans a
+                           substring that `priceCurrency` does not contain,
+                           so this would have slipped past prose-only checks
+                           — worse than failing cleanly. See
+                           tests/unit/test_seo_head.py::_BANNED_LD.
+         Dataset         — wants a `license`; the derived forecasts have none
+                           declared anywhere (#256).
+         BreadcrumbList  — three flat pages, no hierarchy to describe. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebPage",
+        "@id": "https://gridpulse.kristenmartino.ai/about",
+        "url": "https://gridpulse.kristenmartino.ai/about",
+        "name": "GridPulse — US grid demand forecasting",
+        "description": "Weather-aware hourly demand forecasts for 51 US balancing authorities, with per-BA holdout accuracy published in the open.",
+        "inLanguage": "en",
+        "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
+        "about": {"@id": "https://gridpulse.kristenmartino.ai/#software"}
+      },
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://gridpulse.kristenmartino.ai/#software",
+        "name": "GridPulse",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Web",
+        "url": "https://gridpulse.kristenmartino.ai/",
+        "description": "Energy intelligence platform combining weather-aware demand forecasting, model validation, grid visibility and scenario analysis across 51 US balancing authorities.",
+        "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
+      },
+      {
+        "@type": "Person",
+        "@id": "https://gridpulse.kristenmartino.ai/#person",
+        "name": "Kristen Martino",
+        "url": "https://github.com/kristenmartino"
+      }
+    ]
+  }
+  </script>
 
   <style>
     /* Design tokens — curated subset of assets/custom.css :root (the
@@ -504,7 +558,7 @@
       </nav>
       <p>
         Data: EIA &middot; Open-Meteo &middot; NOAA &nbsp;&nbsp;|&nbsp;&nbsp;
-        Built by Kristen Martino
+        Built by <a href="https://github.com/kristenmartino" target="_blank" rel="noopener">Kristen Martino</a>
       </p>
     </div>
   </footer>
