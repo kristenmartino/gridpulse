@@ -62,6 +62,22 @@ def _data_script(body: str) -> str:
     return "\n".join(matches)
 
 
+def _ssr_summary(body: str) -> str:
+    """The server-rendered summary block only.
+
+    Sliced by its wrapper rather than by a nested closing tag, which would
+    end at the first inner div. The CSS also mentions .ssr-summary, so a
+    naive substring search over the whole page proves nothing.
+    """
+    match = re.search(
+        r'<div id="ssr-summary".*?</table></div>|<div id="ssr-summary".*?</div>\s*<noscript',
+        body,
+        re.S,
+    )
+    assert match, "no server-rendered summary in the page"
+    return match.group(0)
+
+
 def _lead_block(**over):
     block = {
         "scoreable": True,
@@ -365,9 +381,110 @@ class TestBenchmarkPageRoute:
         assert client.get("/benchmark").status_code == 404
 
     def test_about_page_still_served(self, client) -> None:
-        """The two routes now share a helper — a refactor must not break the
+        """The routes share a helper — a refactor must not break the
         page that was already live."""
         assert client.get("/about").status_code == 200
+
+    def test_shorter_cache_than_the_marketing_pages(self, client) -> None:
+        """This route now carries live numbers. An hour-stale scoreboard is
+        worse than an hour-stale description of the product."""
+        resp = client.get("/benchmark")
+        assert resp.headers["Cache-Control"] == "public, max-age=300"
+
+
+class TestBenchmarkServerRender:
+    """The page shipped ZERO numbers in its initial HTML until 2026-08-11.
+
+    ``#content`` was hidden and every figure arrived from one client-side
+    ``fetch``. Googlebot renders JavaScript but defers it; Bingbot and most
+    LLM fetchers do not — so the page whose entire value is a published
+    scoreboard was invisible to them.
+    """
+
+    @patch("api.redis_get")
+    def test_numbers_are_in_the_initial_html(self, mock_get, client) -> None:
+        mock_get.side_effect = _redis([_payload()], _FLEET)
+        body = client.get("/benchmark").get_data(as_text=True)
+        summary = _ssr_summary(body)
+
+        assert "3.50%" in summary  # our median
+        assert "3.05%" in summary  # their median
+        assert "PJM" in summary  # a scored row
+        assert "44" in summary  # scoreable count
+
+    @patch("api.redis_get")
+    def test_precision_matches_the_client_render(self, mock_get, client) -> None:
+        """The client replaces this block on hydration, so both must format
+        the same way — otherwise a figure visibly changes as the page loads.
+        The page's num() defaults to two decimals."""
+        mock_get.side_effect = _redis([_payload()], _FLEET)
+        summary = _ssr_summary(client.get("/benchmark").get_data(as_text=True))
+        assert "4.20%" in summary  # official mape 4.2 -> two decimals
+        assert "4.2%<" not in summary
+
+    @patch("api.redis_get")
+    def test_goes_through_the_api_allow_list(self, mock_get, client) -> None:
+        """The route's standing posture: it cannot render a figure the public
+        endpoint would not also return. Preserved by calling
+        api.build_benchmark_payload rather than reading Redis directly — so
+        internal fields stay internal on this surface too.
+        """
+        mock_get.side_effect = _redis([_payload()], _FLEET)
+        body = client.get("/benchmark").get_data(as_text=True)
+
+        assert "_debug_scratch" not in body
+        assert "must not publish" not in body
+        assert "_internal" not in body
+
+    @patch("api.redis_get")
+    def test_verdict_is_derived_in_both_directions(self, mock_get, client) -> None:
+        """A written-in conclusion becomes a lie the first time the numbers
+        move, so the server derives it the same way the browser does."""
+        # Operators closer: their median below ours.
+        losing = dict(_FLEET, fleet=dict(_FLEET["fleet"], median_official_mape=2.0))
+        mock_get.side_effect = _redis([_payload()], losing)
+        body = client.get("/benchmark").get_data(as_text=True)
+        assert "the operators' median error is" in body
+
+    @patch("api.redis_get")
+    def test_rows_without_a_verdict_are_omitted(self, mock_get, client) -> None:
+        """A BA still accumulating paired hours has no winner. Rendering a
+        blank verdict would read as a result rather than an absence."""
+        unscored = _payload(region="SEC", leads={"24h": _lead_block(winner=None)})
+        mock_get.side_effect = _redis([_payload(), unscored], _FLEET)
+        summary = client.get("/benchmark").get_data(as_text=True).split('id="ssr-summary"')[1]
+        assert "PJM" in summary
+        assert "SEC" not in summary.split("</table>")[0]
+
+    @patch("api.redis_get")
+    def test_warming_leaves_the_page_intact(self, mock_get, client) -> None:
+        """No scoreable BA means no summary — and the page must degrade to
+        exactly its pre-SSR behaviour, not to a broken half-render."""
+        mock_get.side_effect = _redis([], None)
+        resp = client.get("/benchmark")
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert 'id="ssr-summary"' not in body  # the block, not the CSS class
+        assert "SSR_BENCHMARK_SUMMARY" not in body  # marker consumed, not leaked
+        assert 'id="content"' in body  # the client path is untouched
+
+    @patch("api.build_benchmark_payload", side_effect=RuntimeError("boom"))
+    def test_render_failure_never_500s_the_page(self, _boom, client) -> None:
+        """Enrichment must fail open. A benchmark page that 500s because its
+        decoration failed is a worse outcome than one a crawler cannot read.
+        """
+        resp = client.get("/benchmark")
+        assert resp.status_code == 200
+        assert "SSR_BENCHMARK_SUMMARY" not in resp.get_data(as_text=True)
+
+    @patch("api.redis_get")
+    def test_client_render_removes_the_server_summary(self, mock_get, client) -> None:
+        """Hydration must not leave the reader two copies of the medians."""
+        mock_get.side_effect = _redis([_payload()], _FLEET)
+        body = client.get("/benchmark").get_data(as_text=True)
+        script = _data_script(body)
+        assert "getElementById('ssr-summary')" in script
+        assert ".remove()" in script
 
 
 @pytest.fixture()

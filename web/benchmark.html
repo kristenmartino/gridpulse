@@ -191,6 +191,22 @@
     .tile.ours .value { color: var(--ours); }
     .tile.theirs .value { color: var(--theirs); }
 
+    /* Server-rendered summary. Present in the initial HTML so a crawler that
+       does not execute JavaScript still reads the scoreboard; removed by
+       render() once the interactive table carries the same window. Reuses
+       .tiles / .tile / table styling — it is the same content, not a second
+       design. */
+    .ssr-summary { margin-bottom: 28px; }
+    .ssr-summary .tiles { grid-template-columns: repeat(3, 1fr); margin-bottom: 18px; }
+    .ssr-summary .verdict { margin-bottom: 20px; }
+    .ssr-summary caption {
+      caption-side: top; text-align: left; padding-bottom: 10px;
+      font-size: 13px; color: var(--text-secondary);
+    }
+    @media (max-width: 720px) {
+      .ssr-summary .tiles { grid-template-columns: 1fr; }
+    }
+
     /* ── Table ──────────────────────────────────────────── */
     .table-scroll { overflow-x: auto; border-radius: var(--radius-lg); border: 1px solid var(--border-subtle); }
     /* overflow-x:auto makes overflow-y auto too, so `position: sticky` on the
@@ -343,12 +359,21 @@
     <div class="wrap">
       <div class="cols">
         <div>
+          <!-- Server-rendered summary. Replaced at request time by
+               landing._render_benchmark_summary from the same allow-listed
+               payload /api/v1/benchmark returns; left empty when the
+               benchmark is warming, or if rendering it fails. The client
+               fetch below hydrates the full sortable table over this and
+               hides it. -->
+          <!--SSR_BENCHMARK_SUMMARY-->
+
           <noscript>
             <p class="state">
-              This page renders from the public JSON endpoint
-              <strong>/api/v1/benchmark</strong>, which needs JavaScript to
-              fetch. The endpoint itself is plain JSON and can be read
-              directly.
+              The summary above is rendered server-side. The full sortable
+              table, the per-BA drop counts and the exclusion detail come from
+              the public JSON endpoint <strong>/api/v1/benchmark</strong>,
+              which needs JavaScript to fetch — the endpoint itself is plain
+              JSON and can be read directly.
             </p>
           </noscript>
 
@@ -970,6 +995,11 @@
       markSortState();
       state.hidden = true;
       content.hidden = false;
+      /* Hydration: the interactive table now shows the same window the
+         server-rendered summary did, so remove the summary rather than
+         leaving the reader two copies of the fleet medians. */
+      var ssr = document.getElementById('ssr-summary');
+      if (ssr) { ssr.remove(); }
     }
 
     /* aria-sort is the only thing that tells a screen-reader user the table
