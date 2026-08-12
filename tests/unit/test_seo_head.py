@@ -173,6 +173,49 @@ class TestHeadInvariants:
         assert desc, f"{name} has no meta description"
         assert len(desc) <= 165, f"{name}: description is {len(desc)} chars"
 
+    def test_has_an_h1_in_the_initial_html(self, surface) -> None:
+        """Bing URL Inspection flagged `/` for a missing H1 (2026-08-12).
+
+        The four static pages always had one. The Dash shell did not: it
+        renders its heading client-side via ``cards.build_page_title``, so
+        the initial bytes carried none, and a crawler that does not execute
+        JavaScript saw a page with no heading at all. The ``<noscript>``
+        block now carries one — the same content a no-JS reader gets, which
+        is why this is a fix rather than a trick.
+        """
+        name, html, _ = surface
+        assert re.search(r"<h1[\s>]", html), f"{name} has no <h1> in its initial HTML"
+
+    def test_title_is_descriptive(self, surface) -> None:
+        """A title is what a search result shows. "GridPulse" alone says
+        nothing to someone who has not heard of it — Bing flagged exactly
+        that on `/`."""
+        name, html, _ = surface
+        match = re.search(r"<title>([^<]*)</title>", html)
+        assert match, f"{name} has no <title>"
+        title = match.group(1).strip()
+        if title == "{%title%}":
+            # Dash substitutes this from the constructor; asserted below.
+            return
+        assert 20 <= len(title) <= 70, f"{name}: title is {len(title)} chars — {title!r}"
+
+    def test_shell_title_is_descriptive_and_distinct_from_about(self) -> None:
+        """The Dash shell's title comes from the constructor, not the
+        template, so the parametrised check above cannot see it.
+
+        It must also differ from ``/about``'s: that page is *about* the
+        platform and this one *is* it, and two near-identical titles compete
+        with each other for the same query.
+        """
+        import app as app_module
+
+        shell = app_module.app.title
+        assert 20 <= len(shell) <= 70, f"shell title is {len(shell)} chars — {shell!r}"
+
+        about_html = (_WEB / "landing.html").read_text(encoding="utf-8")
+        about = re.search(r"<title>([^<]*)</title>", about_html).group(1).strip()
+        assert shell != about, "shell and /about publish the same title"
+
 
 class TestStructuredData:
     @staticmethod

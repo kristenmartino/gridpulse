@@ -83,7 +83,12 @@ app = dash.Dash(
     server=server,
     external_stylesheets=[dbc.themes.DARKLY],
     suppress_callback_exceptions=True,
-    title="GridPulse",
+    # Descriptive rather than just the wordmark: this is the <title> a search
+    # result shows, and "GridPulse" alone says nothing to someone who has not
+    # heard of it (Bing URL Inspection flagged it as too short, 2026-08-12).
+    # Deliberately NOT the same as /about's title — that page is *about* the
+    # platform, this one *is* it, and two near-identical titles compete.
+    title="GridPulse — live US electricity demand forecasts",
     update_title="Loading...",
     meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}],
 )
@@ -118,6 +123,10 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
     <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
     <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
     <meta name="theme-color" content="#0a0a0b">
+    <!-- content-language is superseded by <html lang="en"> above and is not
+         needed by Google. Bing's URL Inspection still checks for it, and one
+         obsolete line is cheaper than a permanent warning nobody reads. -->
+    <meta http-equiv="content-language" content="en">
     <link rel="canonical" href="__BASE__/">
     <meta name="description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
     <meta property="og:type" content="website">
@@ -163,6 +172,9 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
   </head>
   <body>
     <noscript>
+      <h1>GridPulse — live US electricity demand forecasts</h1>
+      <p>Weather-aware hourly demand forecasts for 51 US balancing
+         authorities, with per-BA accuracy published in the open.</p>
       <nav aria-label="Site">
         <ul>
           <li><a href="/about">About GridPulse</a></li>
@@ -171,7 +183,7 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
           <li><a href="/benchmark">Forecast benchmark</a></li>
         </ul>
       </nav>
-      <p>GridPulse is an interactive dashboard and needs JavaScript. The two
+      <p>GridPulse is an interactive dashboard and needs JavaScript. The
          pages above are static and work without it.</p>
     </noscript>
     {%app_entry%}
