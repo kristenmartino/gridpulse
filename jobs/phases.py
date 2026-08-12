@@ -2278,9 +2278,27 @@ def write_drift_metrics(
         redis_set(redis_key(f"drift:{region}"), payload, ttl=DRIFT_REDIS_TTL)
 
         # Compact summary for the scoring-job log line.
+        #
+        # #170: these figures used to come from ``models_with_records[0]`` — the
+        # ALPHABETICAL first model, i.e. always ``arima``, typically the weakest
+        # and the one carrying the least ensemble weight. The user-facing
+        # headline (Overview, ``_resolve_forecast_mape``) and the visibility gate
+        # both read the **ensemble**, so the live log could not confirm the number
+        # anyone actually sees: during the PR-G9 verification LDWP's arima drift
+        # read 188% MAPE while the ensemble's was unobservable from outside the
+        # VPC.
+        #
+        # Headline on the ensemble, fall back to the alphabetical first only when
+        # a BA has no ensemble record, and **say which model these came from** —
+        # the underlying defect was not the choice of model, it was that the line
+        # never named the one it was describing.
         models_with_records = sorted(payload["models"].keys())
-        sample_model = models_with_records[0] if models_with_records else None
-        sample = payload["models"][sample_model] if sample_model else {}
+        headline_model = (
+            "ensemble"
+            if "ensemble" in payload["models"]
+            else (models_with_records[0] if models_with_records else None)
+        )
+        headline = payload["models"].get(headline_model, {}) if headline_model else {}
         # P2-19 (#273): the lead this tick's record actually had, and how many
         # OTHER matchable hours were dropped to keep one-record-per-tick. Both
         # are logged rather than acted on — the pooled statistic still calls
@@ -2299,15 +2317,23 @@ def write_drift_metrics(
             lead_hours=sample_record.lead_hours,
             matchable_hours=n_matchable,
             dropped_hours=max(0, n_matchable - 1),
-            sample_rolling_smape_7d=sample.get("rolling_smape_7d"),
-            sample_rolling_mape_7d=sample.get("rolling_mape_7d"),
-            sample_low_actual_excluded_7d=sample.get("n_low_actual_excluded_7d"),
+            headline_model=headline_model,
+            rolling_smape_7d=headline.get("rolling_smape_7d"),
+            rolling_mape_7d=headline.get("rolling_mape_7d"),
+            n_low_actual_excluded_7d=headline.get("n_low_actual_excluded_7d"),
             # #512: the window's DEPTH, logged every write. A key expiry drops
             # this from 720 to 1 and nothing else in the system notices — the
             # job is stateless, so it cannot tell "history lost" from "new BA".
             # AZPS lost 30 days on 2026-08-05 and it surfaced six days later,
             # via the public API, by accident.
-            n_records=sample.get("n_records"),
+            n_records=headline.get("n_records"),
+            # Per-model depth, because the models do NOT have to agree: a model
+            # absent from a forecast row grades no record that tick, so its
+            # window is shallower. #512 added the depth signal reading only the
+            # alphabetical sample, which is the same #170 defect one field over.
+            n_records_by_model={
+                m: payload["models"][m].get("n_records") for m in models_with_records
+            },
         )
         return PhaseResult(
             region=region,
