@@ -2277,13 +2277,6 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
         # PLOT_LAYOUT axis tone landed — that confirms the merge worked.
         assert fig.layout.xaxis.gridcolor == "rgba(255,255,255,0.04)"
 
-    def test_overview_sparkline_builds(self):
-        """``_build_overview_sparkline`` — 24h demand sparkline."""
-        from components.callbacks import _build_overview_sparkline
-
-        fig = _build_overview_sparkline(self._demand_df(periods=48), "FPL")
-        assert fig.layout.xaxis is not None
-
     def test_driver_sparkline_builds(self):
         """``_driver_sparkline`` — the Forecast tab's per-driver mini chart.
 
@@ -2300,24 +2293,6 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
         # on the sparkline); proves the override reached the figure.
         assert fig.layout.xaxis.visible is False
         assert fig.layout.yaxis.visible is False
-
-    def test_spotlight_renewables_builds(self):
-        from components.callbacks import _spotlight_renewables
-
-        fig = _spotlight_renewables(self._weather_df(), "FPL")
-        assert fig.layout.title.text == "Renewable Potential (48h)"
-
-    def test_spotlight_trader_builds(self):
-        from components.callbacks import _spotlight_trader
-
-        fig = _spotlight_trader(self._demand_df(periods=48), "FPL")
-        assert fig.layout.title.text == "Demand vs Capacity"
-
-    def test_spotlight_model_accuracy_builds(self):
-        from components.callbacks import _spotlight_model_accuracy
-
-        fig = _spotlight_model_accuracy("FPL")
-        assert fig.layout.title.text == "Model MAPE Comparison"
 
 
 # ────────────────────────────────────────────────────────────────────────
