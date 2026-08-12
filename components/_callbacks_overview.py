@@ -12,22 +12,26 @@ Continues the per-tab split established by:
 
 ## Scope of this module
 
-The Overview tab is the largest single tab in callbacks.py (~1,900 lines
-of helpers in total). To keep PR diffs reviewable, this module is being
-populated in three sub-steps:
+The three-sub-step population plan this docstring used to describe
+(headline block → panels → briefing surface) completed, and then the
+third sub-step was **deleted in full**. The briefing surface —
+sparklines, AI briefing, digest, spotlights, data-health, changes card
+and persona KPIs, ~2,200 lines across this module and two `data/`
+clients — was dead code that no layout slot targeted, and several of its
+builders invented signal they could not source. Removed across #513,
+#518, #524, #525 and #526 under the GP-P1-04 decision (#221).
 
-1. **This file's initial pass (PR #104):** the headline / mission-control
-   block — title, 5-up MetricsBar items, hero chart, model card,
-   insight narrative.
-2. **Next:** Overview panels (drivers / generation / models leaderboard /
-   risk / scenarios) — adds ~600 lines here.
-3. **Next:** Overview briefing surface (sparklines / briefing / digest /
-   spotlights / weather context / data-health / changes /
-   persona KPIs) — adds ~900 lines here.
+So this file is no longer "the single home for every
+``_build_overview_*`` / ``_spotlight_*`` helper" — there is no
+``_spotlight_*`` family any more, and the ``_build_overview_*`` helpers
+that remain are exactly the five the live callback calls. The Overview
+panels (drivers / generation / models leaderboard / risk / scenarios)
+still live here but are called from other tabs' modules; relocating
+them is §1c of the proposal, still open.
 
-After all three land, the file is the single home for every
-``_build_overview_*`` / ``_spotlight_*`` / ``_build_persona_kpis``
-helper. ``register_callbacks`` re-imports them by name from here.
+What replaces the deleted surface is §3 of
+``docs/internal/OVERVIEW_DECISION_LAYER_PROPOSAL.md`` — an honest
+Redis-backed briefing. #523 is its first piece.
 
 ## What lives here today
 
