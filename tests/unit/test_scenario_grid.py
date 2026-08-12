@@ -750,11 +750,31 @@ class TestTheParityCheckIsObservable:
         )
 
     # Asserted against emitted OUTPUT rather than `structlog.testing.capture_logs`.
-    # capture_logs cannot intercept a module-level logger once something else in
-    # the suite has configured structlog with `cache_logger_on_first_use`, so
-    # these tests passed alone and failed in the full run — the event was in
-    # stdout while `caps` was empty. Reading the output is what production
-    # observability actually depends on anyway.
+    #
+    # THE OBSERVED FACT: written with `capture_logs`, these two passed in
+    # isolation and failed in the full suite — the event was visibly in
+    # captured stdout while `caps` was empty.
+    #
+    # THE EXPLANATION GIVEN IN #492 WAS WRONG, and is corrected here rather
+    # than quietly dropped. That commit claimed `capture_logs` cannot intercept
+    # a module-level logger once something has configured structlog with
+    # `cache_logger_on_first_use`. Tested three ways and disproved:
+    #   * `pytest-randomly` is not installed, so order is deterministic —
+    #     "passes by ordering luck" was not a description of anything;
+    #   * running `test_sprint3.py` (which calls `configure_logging`) BEFORE
+    #     `test_ensemble.py` leaves all its `capture_logs` assertions passing;
+    #   * forcing it in-process — `configure_logging(json_output=True)`, then
+    #     `capture_logs()` around `ensemble_combine` — still captures the event.
+    #
+    # So the real cause of the full-suite failure is UNKNOWN. Something in the
+    # suite interferes; it is not this. Output assertions are kept because they
+    # are robust to whatever it is and because reading emitted output is what
+    # production observability depends on anyway — not because the mechanism
+    # above was ever established.
+    #
+    # The generalisable bit: a plausible mechanism that explains a failure is
+    # not the same as the mechanism that caused it, and #492 shipped the former
+    # as the latter into a commit message, a PR body and this comment.
 
     def test_a_healthy_grid_says_so_rather_than_staying_silent(self, capsys):
         self._build(lambda frames: [self._one(f) for f in frames])
