@@ -66,10 +66,8 @@ import structlog
 from dash import Input, Output, State, dcc, html, no_update
 
 from components._callbacks_shared import (
-    _BACKTEST_CACHE,
     _EIA_FUEL_MAP,
     _GENERATION_CACHE,
-    DEFAULT_BACKTEST_EXOG_MODE,
     _empirical_interval_from_backtests,
     _empty_figure,
     _guard_max_ok,
@@ -79,7 +77,6 @@ from components._callbacks_shared import (
 from components.accessibility import model_display_name
 from components.cards import (
     build_insight_card,
-    build_kpi_row,
     build_metrics_bar,
     build_model_metrics_card,
     build_page_title,
@@ -1900,256 +1897,6 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
     return dbc.Row(cards, className="g-2")
 
 
-def _build_persona_kpis(
-    persona_id: str,
-    region: str,
-    demand_df: pd.DataFrame | None = None,
-    weather_df: pd.DataFrame | None = None,
-) -> dbc.Row:
-    """Build persona-specific KPI cards from live demand/weather data."""
-    capacity = REGION_CAPACITY_MW.get(region, 50000)
-
-    # Extract real stats from demand data
-    peak_mw = None
-    avg_mw = None
-    min_mw = None
-    pct_of_capacity = None
-    if demand_df is not None and "demand_mw" in demand_df.columns:
-        # Drop NaN and non-positive values — EIA occasionally emits spurious
-        # zero rows (e.g. NYISO 2026-02-10 had 6 consecutive zero-hours)
-        # that collapse Demand Range to the full peak. Utility demand is
-        # never physically 0 or negative for any covered BA.
-        valid = demand_df.dropna(subset=["demand_mw"])
-        valid = valid[valid["demand_mw"] > 0]
-        if not valid.empty:
-            peak_mw = valid["demand_mw"].max()
-            avg_mw = valid["demand_mw"].mean()
-            min_mw = valid["demand_mw"].min()
-            pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
-
-    # Fallback: read demand stats from Redis
-    if peak_mw is None:
-        actuals_redis = redis_get(redis_key(f"actuals:{region}"))
-        if actuals_redis and actuals_redis.get("demand_mw"):
-            demand_vals = [v for v in actuals_redis["demand_mw"] if v is not None and v > 0]
-            if demand_vals:
-                peak_mw = max(demand_vals)
-                avg_mw = sum(demand_vals) / len(demand_vals)
-                min_mw = min(demand_vals)
-                pct_of_capacity = peak_mw / capacity * 100 if capacity > 0 else 0
-
-    # Extract weather stats. pandas ``.mean()`` is NaN-aware but returns NaN
-    # when every value is null — coerce that to ``None`` so the downstream
-    # ``is not None`` guards (and Redis fallback) behave consistently.
-    avg_wind = None
-    avg_solar = None
-    if weather_df is not None:
-        if "wind_speed_80m" in weather_df.columns:
-            mean = weather_df["wind_speed_80m"].mean()
-            avg_wind = float(mean) if pd.notna(mean) else None
-        if "shortwave_radiation" in weather_df.columns:
-            mean = weather_df["shortwave_radiation"].mean()
-            avg_solar = float(mean) if pd.notna(mean) else None
-
-    # Fallback: read weather stats from Redis. Gate each metric independently
-    # so a missing column in ``weather_df`` still triggers the Redis lookup
-    # for that metric (previously both had to be ``None`` for any fallback).
-    # Also filter None/NaN entries before averaging — Redis arrays can have
-    # gaps where Open-Meteo emitted nulls.
-    if avg_wind is None or avg_solar is None:
-        weather_redis = redis_get(redis_key(f"weather:{region}"))
-        if weather_redis:
-            if avg_wind is None and "wind_speed_80m" in weather_redis:
-                vals = [v for v in weather_redis["wind_speed_80m"] if pd.notna(v)]
-                if vals:
-                    avg_wind = sum(vals) / len(vals)
-            if avg_solar is None and "shortwave_radiation" in weather_redis:
-                vals = [v for v in weather_redis["shortwave_radiation"] if pd.notna(v)]
-                if vals:
-                    avg_solar = sum(vals) / len(vals)
-
-    # Get backtest MAPE from cache if available
-    backtest_mape = None
-    backtest_rmse = None
-    for horizon in [168, 24, 720]:  # prefer 7-day, then 24h, then 30d
-        bt_key = (region, horizon, "xgboost", DEFAULT_BACKTEST_EXOG_MODE)
-        if bt_key in _BACKTEST_CACHE:
-            cached_result, _, _ = _BACKTEST_CACHE[bt_key]
-            if "metrics" in cached_result:
-                backtest_mape = cached_result["metrics"].get("mape")
-                backtest_rmse = cached_result["metrics"].get("rmse")
-                break
-
-    # Fallback: read from Redis if in-memory cache is empty
-    if backtest_mape is None:
-        for horizon in [168, 24, 720]:
-            bt_redis = redis_get(
-                redis_key(f"backtest:{DEFAULT_BACKTEST_EXOG_MODE}:{region}:{horizon}")
-            )
-            if bt_redis is None:
-                bt_redis = redis_get(redis_key(f"backtest:{region}:{horizon}"))
-            if bt_redis and "metrics" in bt_redis:
-                xgb_metrics = bt_redis["metrics"].get("xgboost", {})
-                if xgb_metrics:
-                    backtest_mape = xgb_metrics.get("mape")
-                    backtest_rmse = xgb_metrics.get("rmse")
-                    break
-
-    # Compute derived metrics
-    headroom_pct = (100.0 - pct_of_capacity) if pct_of_capacity is not None else None
-    demand_range = (peak_mw - min_mw) if peak_mw is not None and min_mw is not None else None
-
-    # Wind capacity factor (approximate: avg_wind / rated_wind)
-    wind_cf = None
-    if avg_wind is not None:
-        from config import WIND_CUTOUT_SPEED_MPH
-
-        wind_cf = min(avg_wind / WIND_CUTOUT_SPEED_MPH * 100, 100.0)
-
-    # Solar capacity factor (approximate: avg_irradiance / rated_irradiance)
-    solar_cf = None
-    if avg_solar is not None:
-        from config import SOLAR_RATED_IRRADIANCE
-
-        solar_cf = avg_solar / SOLAR_RATED_IRRADIANCE * 100
-
-    # Estimate price from utilization (merit-order approximation)
-    from config import PRICING_BASE_USD_MWH
-
-    price_estimate = None
-    if pct_of_capacity is not None:
-        utilization = pct_of_capacity / 100
-        if utilization < 0.70:
-            price_estimate = PRICING_BASE_USD_MWH
-        elif utilization < 0.90:
-            price_estimate = PRICING_BASE_USD_MWH * (1 + (utilization - 0.70) * 5)
-        else:
-            price_estimate = PRICING_BASE_USD_MWH * (2 + (utilization - 0.90) * 20)
-
-    # Format values
-    peak_str = f"{int(peak_mw):,} MW" if peak_mw is not None else "No data"
-    avg_str = f"{int(avg_mw):,} MW" if avg_mw is not None else "No data"
-    cap_str = f"{pct_of_capacity:.0f}% of capacity" if pct_of_capacity is not None else ""
-    mape_str = f"{backtest_mape:.1f}%" if backtest_mape is not None else "No data"
-    mape_dir = "positive" if backtest_mape is not None and backtest_mape < 5 else "negative"
-    rmse_str = f"{int(backtest_rmse):,} MW" if backtest_rmse is not None else "No data"
-
-    persona_kpis = {
-        "grid_ops": [
-            {
-                "label": "Peak Demand",
-                "value": peak_str,
-                "delta": cap_str,
-                "direction": "negative" if pct_of_capacity and pct_of_capacity > 80 else "neutral",
-            },
-            {
-                "label": "Capacity Headroom",
-                "value": f"{headroom_pct:.0f}%" if headroom_pct is not None else "No data",
-                "delta": "Nameplate; below 15% is tight",
-                "direction": "negative"
-                if headroom_pct is not None and headroom_pct < 15
-                else "positive"
-                if headroom_pct is not None
-                else "neutral",
-            },
-            {
-                "label": "Forecast Error",
-                "value": mape_str,
-                "delta": f"Walk-forward MAPE ({DEFAULT_BACKTEST_EXOG_MODE})",
-                "direction": mape_dir,
-            },
-            {
-                "label": "Demand Range",
-                "value": f"{int(demand_range):,} MW" if demand_range is not None else "No data",
-                "delta": "Peak - Min",
-                "direction": "neutral",
-            },
-        ],
-        "renewables": [
-            {
-                "label": "Wind CF",
-                "value": f"{wind_cf:.0f}%" if wind_cf is not None else "No data",
-                "delta": "Capacity factor",
-                "direction": "positive" if wind_cf is not None and wind_cf > 25 else "neutral",
-            },
-            {
-                "label": "Solar CF",
-                "value": f"{solar_cf:.0f}%" if solar_cf is not None else "No data",
-                "delta": "Capacity factor",
-                "direction": "positive" if solar_cf is not None and solar_cf > 15 else "neutral",
-            },
-            {
-                "label": "Avg Wind",
-                "value": f"{avg_wind:.1f} mph" if avg_wind is not None else "No data",
-                "delta": "80m hub height",
-                "direction": "neutral",
-            },
-            {
-                "label": "Avg Solar",
-                "value": f"{avg_solar:.0f} W/m²" if avg_solar is not None else "No data",
-                "delta": "Shortwave radiation",
-                "direction": "neutral",
-            },
-        ],
-        "trader": [
-            {
-                "label": "Est. Price",
-                "value": f"${price_estimate:.0f}/MWh" if price_estimate is not None else "No data",
-                "delta": "Merit-order estimate",
-                "direction": "negative"
-                if price_estimate is not None and price_estimate > 100
-                else "neutral",
-            },
-            {
-                "label": "Peak Demand",
-                "value": peak_str,
-                "delta": cap_str,
-                "direction": "neutral",
-            },
-            {
-                "label": "Avg Demand",
-                "value": avg_str,
-                "delta": f"Range: {int(demand_range):,} MW" if demand_range is not None else "",
-                "direction": "neutral",
-            },
-            {
-                "label": "Forecast Error",
-                "value": mape_str,
-                "delta": f"Walk-forward MAPE ({DEFAULT_BACKTEST_EXOG_MODE})",
-                "direction": mape_dir,
-            },
-        ],
-        "data_scientist": [
-            {
-                "label": "XGBoost MAPE",
-                "value": mape_str,
-                "delta": f"Target: <5% ({DEFAULT_BACKTEST_EXOG_MODE})",
-                "direction": mape_dir,
-            },
-            {
-                "label": "RMSE",
-                "value": rmse_str,
-                "delta": "Walk-forward backtest",
-                "direction": "neutral",
-            },
-            {
-                "label": "Peak Demand",
-                "value": peak_str,
-                "delta": cap_str,
-                "direction": "neutral",
-            },
-            {
-                "label": "Demand Range",
-                "value": f"{int(demand_range):,} MW" if demand_range is not None else "No data",
-                "delta": "Max variability",
-                "direction": "neutral",
-            },
-        ],
-    }
-    kpis = persona_kpis.get(persona_id, persona_kpis["grid_ops"])
-    return build_kpi_row(kpis)
-
-
 # ── Callback registration (Step 10 — register_callbacks split) ──────
 
 
@@ -2249,7 +1996,6 @@ __all__ = [
     "_driver_sparkline",
     # 7c — Overview briefing surface
     "_build_weather_context",
-    "_build_persona_kpis",
     # 10a — Callback registration
     "register_overview_callbacks",
 ]

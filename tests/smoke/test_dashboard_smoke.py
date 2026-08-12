@@ -98,32 +98,6 @@ class TestTabRendering:
 class TestCardComponents:
     """Test reusable card components."""
 
-    def test_kpi_card_basic(self):
-        from components.cards import build_kpi_card
-
-        card = build_kpi_card("Peak Demand", "28,450 MW")
-        assert card is not None
-
-    def test_kpi_card_with_delta(self):
-        from components.cards import build_kpi_card
-
-        card = build_kpi_card(
-            "MAPE", "2.8%", delta="↓0.3% vs last week", delta_direction="positive"
-        )
-        assert card is not None
-
-    def test_kpi_row(self):
-        from components.cards import build_kpi_row
-
-        kpis = [
-            {"label": "A", "value": "1"},
-            {"label": "B", "value": "2", "delta": "+5%", "direction": "positive"},
-            {"label": "C", "value": "3"},
-            {"label": "D", "value": "4"},
-        ]
-        row = build_kpi_row(kpis)
-        assert row is not None
-
     def test_welcome_card(self):
         from components.cards import build_welcome_card
 

@@ -1,64 +1,10 @@
 """
-Reusable card components: KPI cards, welcome cards, alert cards.
+Reusable card components: welcome cards, alert cards, metrics bars.
 
 All card builders return Dash HTML/Bootstrap components.
 """
 
-import dash_bootstrap_components as dbc
 from dash import html
-
-
-def build_kpi_card(
-    label: str,
-    value: str,
-    delta: str | None = None,
-    delta_direction: str = "neutral",
-) -> dbc.Col:
-    """
-    Build a single KPI card.
-
-    Args:
-        label: Metric name (e.g., "Peak Demand").
-        value: Formatted value (e.g., "28,450 MW").
-        delta: Optional delta string (e.g., "↑6% vs yesterday").
-        delta_direction: "positive", "negative", or "neutral".
-    """
-    delta_el = html.P(delta, className=f"kpi-delta {delta_direction}") if delta else None
-
-    return dbc.Col(
-        html.Div(
-            [
-                html.P(label, className="kpi-label"),
-                html.H3(value, className="kpi-value"),
-                delta_el,
-            ],
-            className="kpi-card",
-        ),
-        xs=6,
-        sm=6,
-        md=3,
-        lg=3,
-    )
-
-
-def build_kpi_row(kpis: list[dict]) -> dbc.Row:
-    """
-    Build a row of KPI cards.
-
-    Args:
-        kpis: List of dicts with keys: label, value, delta (optional), direction (optional).
-    """
-    cards = []
-    for kpi in kpis:
-        cards.append(
-            build_kpi_card(
-                label=kpi.get("label", ""),
-                value=kpi.get("value", "No data"),
-                delta=kpi.get("delta"),
-                delta_direction=kpi.get("direction", "neutral"),
-            )
-        )
-    return dbc.Row(cards, className="kpi-row g-2")
 
 
 def build_welcome_card(
