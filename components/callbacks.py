@@ -77,7 +77,6 @@ from components._callbacks_overview import (
     _build_overview_metrics_items,  # noqa: F401 — re-export (tests/unit/test_overview_metrics_nan_guard.py)
     _build_overview_model_card,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_title,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
-    _build_persona_kpis,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
     _fetch_generation_cached,  # noqa: F401 — re-export (tests/unit/test_callbacks_*)
     register_overview_callbacks,
 )
