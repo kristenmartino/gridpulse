@@ -190,7 +190,7 @@ Schema.org types the public surfaces are allowed to emit — pinned by
 | `WebSite` | `/` | Trivially true |
 | `WebPage` | `/about`, `/benchmark` | `isPartOf` is what consolidates three separately-reachable pages into one entity |
 | `SoftwareApplication` | `/about` | No `offers` node — see below |
-| `Person` | shared `@id` node | Kristen Martino, `https://github.com/kristenmartino`. The only publicly verifiable account the repo can cite |
+| `Person` | shared `@id` node | Kristen Martino. `url` is `https://kristenmartino.ai`; `sameAs` carries that plus `linkedin.com/in/kristenmartino` and `github.com/kristenmartino`. All three verified reachable before being added ([#517](https://github.com/kristenmartino/gridpulse/pull/517)) — a `sameAs` pointing at a dead page asks a search engine to merge identities on an assertion nothing corroborates. **Two surfaces DEFINE this node** (`/` and `/about`) and three reference it by `@id`, so `test_seo_head.py` compares the definitions against each other rather than each against a constant |
 
 **Banned, and enforced as a test** (`_BANNED_LD`): `AggregateRating` and
 `Review` (no ratings exist — the fastest route to a manual action),
@@ -202,6 +202,42 @@ suite exists to exclude commercial framing, and `priceCurrency` does not
 contain the substring that suite bans, so it would have passed a prose-only
 check. `Dataset` is deferred, not banned: it wants a `license`, and the
 *derived forecasts* have none declared anywhere ([#256]).
+
+## Search-engine registration (state that lives OUTSIDE this repo)
+
+Recorded here because nothing in the codebase can observe it, and two of
+these facts are load-bearing in ways a reasonable cleanup would break.
+
+| Fact | Value |
+|---|---|
+| Google Search Console | Domain property `kristenmartino.ai` on **krissi889@gmail.com**, set up 2026-08-11. A *Domain* property covers the apex, `gridpulse.`, any future subdomain, and both schemes — one property, not one per host |
+| Google verification method | **Auto-verified via the domain-name provider.** No DNS record was added for it |
+| Bing Webmaster Tools | Site `https://gridpulse.kristenmartino.ai`, verified 2026-08-11 by XML file. Bing sites are **per-URL-prefix**: the pre-existing `kristenmartino.ai` property does NOT cover the subdomain |
+| Bing verification file | `/BingSiteAuth.xml`, served by [`seo.py`](../seo.py) — a route, not a static file, because it must sit at the origin root and `assets/` would stamp a 1-year immutable header on it |
+| Sitemaps submitted | Google: 5 pages, status Success. Bing: submitted 2026-08-12 |
+| DNS host | **GoDaddy** (`domaincontrol.com` nameservers), *not* Cloud DNS — so there is no `gcloud` path to any DNS change on this domain |
+
+**⚠️ Two deletions that silently un-verify us.**
+
+1. The apex `kristenmartino.ai` carries **two `google-site-verification` TXT
+   records** (alongside an SPF record and a Microsoft 365 one). Google's own
+   confirmation says *"to stay verified, don't remove the DNS record."* A
+   future TXT tidy-up that drops them un-verifies Search Console at Google's
+   next check — with no alert, because losing verification is not an error
+   anything monitors. Adding a second verification method under
+   **Settings → Ownership verification** would remove that single point of
+   failure.
+2. Deleting the `/BingSiteAuth.xml` route does the same at Bing, which keeps
+   checking the file *after* verification succeeds. `test_seo.py` asserts the
+   route exists, so this fails in CI rather than in production — but the test
+   is the only thing standing between a "dead route cleanup" and losing it.
+
+**The identity chain is already reciprocal, and that is worth knowing before
+"fixing" it.** LinkedIn's Contact-info website field points at
+`kristenmartino.ai`; that site's `/work/gridpulse` case study links to
+`https://gridpulse.kristenmartino.ai`; and this app's `Person.sameAs` points
+back at both. `sameAs` is our assertion — those inbound links are what
+corroborate it, and they exist.
 
 Numbering traces to [`PRD.md`](../PRD.md) §10 (ADR-001–012) plus
 [`CLAUDE.md`](../CLAUDE.md) (ADR-013). **Do not publish a count of these** —
