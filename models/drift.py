@@ -45,6 +45,16 @@ import numpy as np
 # per model. Each record is ~80 bytes of JSON → ~57 KB per model × 4
 # models = ~230 KB per region × 51 regions ≈ 12 MB total in Redis.
 # Well within Memorystore capacity.
+#: Grading cadence is NOT one record per hour for every BA, and the spread is an
+#: order of magnitude: measured 2026-08-11, LDWP graded 2 records in 24h against a
+#: fleet median of 24, because `build_records_from_actuals` keeps only the most
+#: recent matchable hour and the #309 quality guard NaNs the broken-feed BAs'
+#: unreliable readings. So this cap is ~30 days for a healthy BA and several
+#: months for a starved one — the window is bounded by RECORDS, not by time, and
+#: `_within_window` is what makes the 7d/30d figures time-bounded.
+#:
+#: That cadence spread is why #512 was reachable: a BA grading twice a day can
+#: cross a 24h key TTL between writes and lose the whole window.
 DEFAULT_MAX_RECORDS = 720
 WINDOW_7D_HOURS = 24 * 7
 WINDOW_30D_HOURS = 24 * 30
