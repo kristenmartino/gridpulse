@@ -341,6 +341,16 @@ def _ensemble_holdout_metrics(
     persisted ``meta.mape`` (``jobs/scoring_job.py``) and never reads these.
     Only the *metric* was biased, so only the metric changes.
 
+    **This function does not route through ``models.ensemble.weighting_mape``,
+    deliberately (#514).** That helper returns the EWMA-smoothed MAPE when
+    ``smoothed_ensemble_weights`` is on, and an EWMA is a series across training
+    *runs* — there is no within-window analogue. The weights here must come from
+    MAPEs measured on the fit slice, or the out-of-sample property above is lost.
+    So under a flipped flag the served blend and this metric weight by different
+    inputs, by design. ``weight_input`` below records which basis this one used
+    so the difference is visible rather than assumed away; scoring publishes the
+    same field and logs ``ensemble_composition_divergence`` when they disagree.
+
     For one release the in-sample figure is logged alongside as
     ``mape_in_sample`` so the size of the correction is observable rather
     than inferred — the same pattern used when the XGBoost holdout moved to
@@ -348,7 +358,11 @@ def _ensemble_holdout_metrics(
     """
     import numpy as np
 
-    from models.ensemble import ensemble_combine, resolve_ensemble_weights
+    from models.ensemble import (
+        WEIGHT_INPUT_HOLDOUT,
+        ensemble_combine,
+        resolve_ensemble_weights,
+    )
     from models.evaluation import compute_all_metrics
 
     valid = {name: payload for name, payload in per_model_holdouts.items() if payload is not None}
@@ -424,6 +438,7 @@ def _ensemble_holdout_metrics(
         in_sample_metrics["scored"] = "in_sample"
         in_sample_metrics["members"] = sorted(valid)
         in_sample_metrics["weight_rule"] = full_rule
+        in_sample_metrics["weight_input"] = WEIGHT_INPUT_HOLDOUT
         return in_sample_metrics, full_weights
 
     log.info(
@@ -440,6 +455,9 @@ def _ensemble_holdout_metrics(
     # consumer can tell whether it matches what production actually serves.
     oos_metrics["members"] = sorted(valid)
     oos_metrics["weight_rule"] = full_rule
+    # #514: and WHICH number those weights came from. Always the holdout MAPE
+    # here — see the docstring for why an EWMA cannot be used in-window.
+    oos_metrics["weight_input"] = WEIGHT_INPUT_HOLDOUT
     return oos_metrics, full_weights
 
 

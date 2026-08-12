@@ -202,29 +202,73 @@ def update_smoothed_mape(
     return a * latest + (1.0 - a) * prev
 
 
+#: Weight-input bases, published so a consumer can tell which number a set of
+#: weights was derived from. See :func:`weighting_input`.
+WEIGHT_INPUT_HOLDOUT = "holdout_mape"
+WEIGHT_INPUT_EWMA = "mape_ewma"
+
+
+def _weighting_choice(meta_mape: float | None, meta_extra: dict | None) -> tuple[float | None, str]:
+    """The weight input for one model, and the name of the basis it came from.
+
+    One branch, two readers. :func:`weighting_mape` and :func:`weighting_input`
+    both derive from this rather than each re-deciding, because a label that
+    can disagree with the value it describes is worse than no label — it is the
+    same failure this pair exists to detect, one level down.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("smoothed_ensemble_weights"):
+        return meta_mape, WEIGHT_INPUT_HOLDOUT
+    smoothed = (meta_extra or {}).get("mape_ewma")
+    if smoothed is not None and np.isfinite(smoothed) and smoothed > 0:
+        return float(smoothed), WEIGHT_INPUT_EWMA
+    return meta_mape, WEIGHT_INPUT_HOLDOUT
+
+
 def weighting_mape(meta_mape: float | None, meta_extra: dict | None) -> float | None:
-    """The MAPE that should drive ensemble weights for one model (#451).
+    """The MAPE that drives the SERVED ensemble weights for one model (#451).
 
     Flag-gated: with ``smoothed_ensemble_weights`` off this is exactly today's
     behaviour — the latest holdout MAPE. With it on, the persisted EWMA is used
     when the training job has published one.
 
-    Both weight callers route through here so the two cannot drift apart on
-    *which number* they weight by, the same reason
-    :func:`resolve_ensemble_weights` exists for *how* they weight (P2-16).
-
     Falls back to the raw MAPE whenever the smoothed value is absent, so the
     first run after the flag flips — and any model whose meta predates the field
     — still weights on a real measurement rather than dropping to equal weights.
-    """
-    from config import feature_enabled
 
-    if not feature_enabled("smoothed_ensemble_weights"):
-        return meta_mape
-    smoothed = (meta_extra or {}).get("mape_ewma")
-    if smoothed is not None and np.isfinite(smoothed) and smoothed > 0:
-        return float(smoothed)
-    return meta_mape
+    **There is exactly ONE caller: the scoring job** (#514). An earlier version
+    of this docstring claimed "both weight callers route through here so the two
+    cannot drift apart on *which number* they weight by" — the parallel to
+    :func:`resolve_ensemble_weights`, which really does bind both sides to one
+    *rule*. That claim was never true, and a false guarantee is worse than none,
+    because it is the reason nobody checks.
+
+    The training job deliberately does **not** route through here, and should
+    not. Its persisted ensemble metric is scored strictly out-of-sample
+    (ledger-23 / #404): weights are fitted on the leading slice of the holdout
+    from MAPEs computed *on that slice*. An EWMA is a series across training
+    *runs*, so it has no within-window analogue — feeding one in would either
+    reintroduce the in-sample bias #404 removed or weight the scored half by a
+    number drawn from outside it.
+
+    So the two sides legitimately weight by different inputs, and under a
+    flipped flag they *will*. What must not happen is their doing so silently,
+    which is what :func:`weighting_input` and the ``weight_input`` field on both
+    records exist to prevent.
+    """
+    return _weighting_choice(meta_mape, meta_extra)[0]
+
+
+def weighting_input(meta_mape: float | None, meta_extra: dict | None) -> str:
+    """Which basis :func:`weighting_mape` used for this model.
+
+    Published on both the served payload and the persisted metric so the two
+    can be compared. Training always reports ``holdout_mape``; scoring reports
+    whatever the flag and the available history produced, per model — the
+    fallback means a fleet can be genuinely mixed on the first run after a flip.
+    """
+    return _weighting_choice(meta_mape, meta_extra)[1]
 
 
 def shadow_weighting_mape(meta_mape: float | None, meta_extra: dict | None) -> float | None:

@@ -314,3 +314,63 @@ class TestASubOnePercentMapeIsAMeasurementNotNoise:
         finally:
             config.FEATURE_FLAGS["smoothed_ensemble_weights"] = False
         assert shadow_weighting_mape(5.0, {"mape_ewma": 0.0}) is None
+
+
+class TestWeightingInputLabel:
+    """``weighting_input`` names the basis ``weighting_mape`` used (#514).
+
+    The two must agree by construction, not by both being edited together —
+    a label that can disagree with the value it describes is the same defect
+    this pair exists to detect, one level down. Both derive from
+    ``_weighting_choice``; these tests pin that they stay in step.
+    """
+
+    META = {"mape_ewma": 4.0}
+
+    def _both(self, monkeypatch, flag, extra):
+        from models import ensemble
+
+        monkeypatch.setattr(ensemble, "feature_enabled", lambda _n: flag, raising=False)
+        monkeypatch.setitem(__import__("config").FEATURE_FLAGS, "smoothed_ensemble_weights", flag)
+        return (
+            ensemble.weighting_mape(6.0, extra),
+            ensemble.weighting_input(6.0, extra),
+        )
+
+    def test_flag_off_reports_the_holdout_basis(self, monkeypatch):
+        from models.ensemble import WEIGHT_INPUT_HOLDOUT
+
+        value, basis = self._both(monkeypatch, False, self.META)
+        assert value == 6.0
+        assert basis == WEIGHT_INPUT_HOLDOUT
+
+    def test_flag_on_with_a_series_reports_the_ewma_basis(self, monkeypatch):
+        from models.ensemble import WEIGHT_INPUT_EWMA
+
+        value, basis = self._both(monkeypatch, True, self.META)
+        assert value == 4.0
+        assert basis == WEIGHT_INPUT_EWMA
+
+    def test_the_fallback_reports_holdout_not_ewma(self, monkeypatch):
+        """The subtle one. With the flag ON but no series yet, the VALUE falls
+        back to the raw MAPE — so the label must say ``holdout_mape`` too.
+
+        Labelling it ``mape_ewma`` because the flag is on would make the
+        divergence check compare a basis nothing actually used, and the first
+        run after a flip is exactly when that happens fleet-wide.
+        """
+        from models.ensemble import WEIGHT_INPUT_HOLDOUT
+
+        value, basis = self._both(monkeypatch, True, {})
+        assert value == 6.0
+        assert basis == WEIGHT_INPUT_HOLDOUT
+
+    @pytest.mark.parametrize("flag", [True, False])
+    @pytest.mark.parametrize("extra", [{}, {"mape_ewma": 4.0}, {"mape_ewma": float("nan")}])
+    def test_label_never_disagrees_with_the_value(self, monkeypatch, flag, extra):
+        """Across the whole gate: the basis is ``mape_ewma`` if and only if the
+        returned value is the smoothed one."""
+        from models.ensemble import WEIGHT_INPUT_EWMA
+
+        value, basis = self._both(monkeypatch, flag, extra)
+        assert (basis == WEIGHT_INPUT_EWMA) == (value == 4.0)
