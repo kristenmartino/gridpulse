@@ -80,7 +80,6 @@ from components._callbacks_overview import (
     _build_overview_insight,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_metrics_items,  # noqa: F401 — re-export (tests/unit/test_overview_metrics_nan_guard.py)
     _build_overview_model_card,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
-    _build_overview_news,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_sparkline,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_spotlight,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_title,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)

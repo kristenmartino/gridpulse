@@ -720,3 +720,72 @@ class TestTheDeltasGoTheRightWayAndOnlyWhenAsked:
 
         for col in ("temperature_2m", "wind_speed_80m", "shortwave_radiation"):
             np.testing.assert_allclose(out[col], base[col])
+
+
+class TestTheParityCheckIsObservable:
+    """A parity check nobody can confirm is running is one nobody should trust.
+
+    `origin_drift` logged only on breach, so a healthy 0.0 left no trace and
+    "it held at zero all week" could not be established from logs — the only
+    way to check was polling the API per region per tick, by hand. The
+    strongest available evidence the check was working became the *absence* of
+    a warning across 51 BAs, which is indistinguishable from the grid never
+    being computed (#491).
+    """
+
+    @staticmethod
+    def _one(frame: pd.DataFrame) -> np.ndarray:
+        return 1000.0 + 10.0 * frame["temperature_2m"].to_numpy()
+
+    def _build(self, forecaster):
+        future = _future_frame()
+        return build_scenario_grid(
+            featured=pd.DataFrame(
+                {"demand_mw": np.full(48, 1500.0), "temperature_2m": np.full(48, 70.0)}
+            ),
+            future_df=future,
+            baseline=self._one(future),
+            forecaster=forecaster,
+            horizon=HORIZON,
+        )
+
+    # Asserted against emitted OUTPUT rather than `structlog.testing.capture_logs`.
+    #
+    # THE OBSERVED FACT: written with `capture_logs`, these two passed in
+    # isolation and failed in the full suite — the event was visibly in
+    # captured stdout while `caps` was empty.
+    #
+    # THE EXPLANATION GIVEN IN #492 WAS WRONG, and is corrected here rather
+    # than quietly dropped. That commit claimed `capture_logs` cannot intercept
+    # a module-level logger once something has configured structlog with
+    # `cache_logger_on_first_use`. Tested three ways and disproved:
+    #   * `pytest-randomly` is not installed, so order is deterministic —
+    #     "passes by ordering luck" was not a description of anything;
+    #   * running `test_sprint3.py` (which calls `configure_logging`) BEFORE
+    #     `test_ensemble.py` leaves all its `capture_logs` assertions passing;
+    #   * forcing it in-process — `configure_logging(json_output=True)`, then
+    #     `capture_logs()` around `ensemble_combine` — still captures the event.
+    #
+    # So the real cause of the full-suite failure is UNKNOWN. Something in the
+    # suite interferes; it is not this. Output assertions are kept because they
+    # are robust to whatever it is and because reading emitted output is what
+    # production observability depends on anyway — not because the mechanism
+    # above was ever established.
+    #
+    # The generalisable bit: a plausible mechanism that explains a failure is
+    # not the same as the mechanism that caused it, and #492 shipped the former
+    # as the latter into a commit message, a PR body and this comment.
+
+    def test_a_healthy_grid_says_so_rather_than_staying_silent(self, capsys):
+        self._build(lambda frames: [self._one(f) for f in frames])
+
+        out = capsys.readouterr().out
+        assert "scenario_grid_origin_ok" in out, "the healthy path must be visible"
+        assert "scenario_grid_origin_drift" not in out
+
+    def test_a_breach_still_warns_and_does_not_also_report_ok(self, capsys):
+        self._build(lambda frames: [self._one(f) * 1.05 for f in frames])
+
+        out = capsys.readouterr().out
+        assert "scenario_grid_origin_drift" in out
+        assert "scenario_grid_origin_ok" not in out

@@ -112,7 +112,6 @@ For live EIA data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia
 │   ├── eia_client.py               # EIA API v2
 │   ├── weather_client.py           # Open-Meteo
 │   ├── noaa_client.py              # NOAA/NWS alerts
-│   ├── news_client.py              # External news feed integration
 │   ├── redis_client.py             # Memorystore client (read-only at request time)
 │   ├── cache.py                    # SQLite cache with TTL
 │   ├── preprocessing.py            # Merge, align, interpolate, LTTB downsample

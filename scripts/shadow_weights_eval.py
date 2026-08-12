@@ -42,10 +42,19 @@ os.environ.setdefault("ENVIRONMENT", "production")
 
 import numpy as np  # noqa: E402
 
-MIN_DAYS_DEFAULT = 14
-#: #451's pre-registered thresholds, reused verbatim rather than re-chosen.
-MAX_ABS_BIAS_PCT = 2.0
-MAX_MAPE_REGRESSION_PTS = 0.5
+# The pure statistics live in ``models/shadow_eval.py``. This module sets
+# ENVIRONMENT at import time to reach production Redis, and nothing importable
+# by a test may carry that side effect with it — doing so leaked the var into
+# the whole pytest session and flipped unrelated tests into the strict
+# production gate.
+from models.shadow_eval import (  # noqa: E402
+    MAX_ABS_BIAS_PCT,
+    MAX_MAPE_REGRESSION_PTS,
+    MIN_DAYS_DEFAULT,
+    arm_stats,
+    coverage_rows,
+    fleet_stats,
+)
 
 
 def _load(region: str) -> dict[str, Any] | None:
@@ -53,29 +62,6 @@ def _load(region: str) -> dict[str, Any] | None:
 
     payload = redis_get(redis_key(f"shadow_weights:{region}"))
     return payload if isinstance(payload, dict) else None
-
-
-def _arm_stats(records: list[dict], arm: str) -> dict[str, float] | None:
-    """Bias and MAPE for one arm over graded records."""
-    pairs = [
-        (float(r["actual"]), float(r[f"{arm}_predicted"]))
-        for r in records
-        if r.get("actual") and r.get(f"{arm}_predicted") is not None
-    ]
-    pairs = [(a, p) for a, p in pairs if np.isfinite(a) and np.isfinite(p) and a > 0]
-    if not pairs:
-        return None
-    actual = np.array([a for a, _ in pairs])
-    pred = np.array([p for _, p in pairs])
-    return {
-        "n": len(pairs),
-        # Signed: the constraint is about systematic DIRECTION. MAPE's asymmetry
-        # biases optimisation toward under-forecasting, which is the expensive
-        # direction for a grid, so the sign is the point.
-        "bias_pct": float(np.mean((pred - actual) / actual) * 100.0),
-        "mape": float(np.mean(np.abs(pred - actual) / actual) * 100.0),
-        "wape": float(np.sum(np.abs(pred - actual)) / np.sum(actual) * 100.0),
-    }
 
 
 def main() -> int:
@@ -102,8 +88,8 @@ def main() -> int:
         per_region[region] = {
             "days": round(days, 2),
             "n": len(records),
-            "served": _arm_stats(records, "served"),
-            "shadow": _arm_stats(records, "shadow"),
+            "served": arm_stats(records, "served"),
+            "shadow": arm_stats(records, "shadow"),
             "shadow_arm": payload.get("shadow_arm"),
         }
         all_records.extend(records)
@@ -117,18 +103,47 @@ def main() -> int:
     print(f"regions with records: {len(per_region)}   median span: {span:.1f} days")
     print(f"total graded hours:   {len(all_records)}\n")
 
-    served = _arm_stats(all_records, "served")
-    shadow = _arm_stats(all_records, "shadow")
-    if not served or not shadow:
+    served_pooled = arm_stats(all_records, "served")
+    shadow_pooled = arm_stats(all_records, "shadow")
+    served = fleet_stats(per_region, "served")
+    shadow = fleet_stats(per_region, "shadow")
+    if not served or not shadow or not served_pooled or not shadow_pooled:
         print("Records exist but one arm has no usable pairs — cannot compare.")
         return 0
 
+    # ── Coverage BEFORE any statistic, because it decides how to read one. ──
+    print("=" * 68)
+    print("COVERAGE — who is actually in this average?")
+    print("=" * 68)
+    rows = coverage_rows(per_region)
+    zero = [r for r, n, _ in rows if n == 0]
+    for r, n, d in rows[:8]:
+        print(f"    {r:6} {n:5} records   {d:5.1f} days")
+    if len(rows) > 8:
+        print(f"    … {len(rows) - 8} more, up to {rows[-1][1]} records ({rows[-1][0]})")
+    print(
+        f"\n  {len(per_region)} BAs, {rows[0][1]}–{rows[-1][1]} records each. "
+        f"{len(zero)} contributed nothing: {', '.join(zero) if zero else '—'}"
+    )
+    print(
+        "  Coverage is uneven BY CONSTRUCTION: the #309 quality guard NaNs the\n"
+        "  broken-feed BAs' unreliable hours, so they grade fewer records. Both\n"
+        "  arms are graded by the same code on the same hours, so the PAIRED\n"
+        "  comparison holds — but a pooled average would not be one BA, one vote."
+    )
+
     # ── Control first. Not a formality: this is the check #451 failed. ──
+    print()
     print("=" * 68)
     print("CONTROL ARM FIRST (#478 acceptance) — is this harness able to decide?")
     print("=" * 68)
     print(
-        f"  served bias {served['bias_pct']:+.3f}%   MAPE {served['mape']:.3f}%   n={served['n']}"
+        f"  per-BA (headline)  bias {served['bias_pct']:+.3f}%   "
+        f"MAPE {served['mape']:.3f}%   {served['n_bas']} BAs"
+    )
+    print(
+        f"  pooled records     bias {served_pooled['bias_pct']:+.3f}%   "
+        f"MAPE {served_pooled['mape']:.3f}%   n={served_pooled['n']}"
     )
     breached = [
         r
@@ -138,7 +153,15 @@ def main() -> int:
     print(
         f"  BAs whose SERVED arm breaches ±{MAX_ABS_BIAS_PCT}%: {len(breached)}/{len(per_region)}"
     )
-    if abs(served["bias_pct"]) > MAX_ABS_BIAS_PCT:
+    if breached:
+        print(f"    {', '.join(sorted(breached)[:12])}")
+    # Either weighting breaching is enough to stop. An unmeasurable constraint
+    # counts as failed (EVALUATION_POLICY.md), and a bound that holds under one
+    # weighting and fails under another is not measured — it is chosen.
+    if (
+        abs(served["bias_pct"]) > MAX_ABS_BIAS_PCT
+        or abs(served_pooled["bias_pct"]) > MAX_ABS_BIAS_PCT
+    ):
         print()
         print("  STOP. The served arm itself breaches the bias constraint on production")
         print("  forecasts. That is a finding about the fleet, not about the weighting,")
@@ -163,8 +186,15 @@ def main() -> int:
     print("=" * 68)
     print("TREATMENT vs CONTROL")
     print("=" * 68)
-    for label, v in (("served ", served), ("shadow ", shadow)):
-        print(f"  {label} bias {v['bias_pct']:+.3f}%  MAPE {v['mape']:.3f}%  WAPE {v['wape']:.3f}%")
+    for label, v in (
+        ("served  per-BA", served),
+        ("shadow  per-BA", shadow),
+        ("served  pooled", served_pooled),
+        ("shadow  pooled", shadow_pooled),
+    ):
+        print(
+            f"  {label}  bias {v['bias_pct']:+.3f}%  MAPE {v['mape']:.3f}%  WAPE {v['wape']:.3f}%"
+        )
     sat = satisficing_check(
         treatment_bias_pct=shadow["bias_pct"],
         control_mape=served["mape"],
@@ -188,7 +218,15 @@ def main() -> int:
     if args.json:
         with open(args.json, "w") as f:
             json.dump(
-                {"per_region": per_region, "served": served, "shadow": shadow, "satisficing": sat},
+                {
+                    "per_region": per_region,
+                    "coverage": coverage_rows(per_region),
+                    "served_per_ba": served,
+                    "shadow_per_ba": shadow,
+                    "served_pooled": served_pooled,
+                    "shadow_pooled": shadow_pooled,
+                    "satisficing": sat,
+                },
                 f,
                 indent=2,
             )

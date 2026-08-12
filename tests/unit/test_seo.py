@@ -12,6 +12,7 @@ a choice is deliberate, flipping it should mean editing the test on purpose.
 
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -325,6 +326,59 @@ class TestNotFoundDoesNotBreakTheApp:
         resp = client.get("/assets/definitely-missing.png")
         assert resp.status_code == 404
         assert "immutable" not in resp.headers.get("Cache-Control", "")
+
+
+class TestBingSiteAuth:
+    """Ownership proof for Bing Webmaster Tools.
+
+    Google's property needed no file at all — it auto-verified through the
+    domain-name provider. Bing has no equivalent for a subdomain, and its
+    existing ``kristenmartino.ai`` property is apex-only, so
+    ``gridpulse.`` needs its own proof.
+    """
+
+    def test_serves_the_token_as_xml(self, client) -> None:
+        resp = client.get("/BingSiteAuth.xml")
+        assert resp.status_code == 200
+        assert resp.headers["Content-Type"] == "application/xml; charset=utf-8"
+        assert seo.BING_SITE_AUTH_TOKEN in resp.get_data(as_text=True)
+
+    def test_is_well_formed_in_bings_expected_shape(self, client) -> None:
+        """Bing parses this; a malformed body reads as 'not verified' rather
+        than as an error anyone would notice."""
+        body = client.get("/BingSiteAuth.xml").get_data(as_text=True)
+        root = ET.fromstring(body)
+        assert root.tag == "users"
+        assert [e.text for e in root.findall("user")] == [seo.BING_SITE_AUTH_TOKEN]
+
+    def test_token_shape(self) -> None:
+        """32 uppercase hex chars. Pins a transcription error — the token was
+        read off a screen, and one wrong character fails verification with no
+        useful message."""
+        assert re.fullmatch(r"[0-9A-F]{32}", seo.BING_SITE_AUTH_TOKEN)
+
+    def test_served_from_the_origin_root(self) -> None:
+        """Bing fetches exactly /BingSiteAuth.xml. It cannot live under
+        assets/ — wrong path, and that mount also stamps a 1-year immutable
+        cache header (the trap landing.py documents)."""
+        import app as app_module
+
+        rules = {r.rule for r in app_module.server.url_map.iter_rules()}
+        assert "/BingSiteAuth.xml" in rules
+
+    def test_wrong_case_still_404s(self, client) -> None:
+        """Werkzeug routing is case-sensitive, so the lowercase spelling must
+        fall through to the not-found guard rather than quietly succeed."""
+        app = Flask(__name__)
+        app.register_blueprint(seo_bp)
+        app.add_url_rule("/<path:path>", "/<path:path>", lambda path: "shell")
+        seo.register_not_found_guard(app, _FakeDash())
+        assert app.test_client().get("/bingsiteauth.xml").status_code == 404
+
+    def test_is_classified_in_the_sitemap_registry(self) -> None:
+        """Ownership proof is not content — it must be excluded on purpose,
+        not merely absent."""
+        assert "/BingSiteAuth.xml" in SITEMAP_EXCLUDED
 
 
 class TestInternalLinkGraph:

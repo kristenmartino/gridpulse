@@ -73,6 +73,27 @@ log = structlog.get_logger()
 
 # Redis keys + TTL kept in sync with components/callbacks.py consumers.
 REDIS_TTL = 86400
+
+from models.drift import WINDOW_30D_HOURS as DRIFT_WINDOW_HOURS  # noqa: E402
+
+#: TTL for ``gridpulse:drift:{region}`` — DERIVED from the window it stores, not
+#: set independently (#512). The drift payload is a 30-day rolling history, and it
+#: was previously written with the generic 24h ``REDIS_TTL`` every snapshot key
+#: uses. Because the phase returns *before* persisting when there is no matchable
+#: actual hour, a BA that cannot grade for 24 consecutive hours never refreshed
+#: the TTL and lost its ENTIRE 30-day window, silently restarting from one record.
+#:
+#: That is not hypothetical: AZPS had a 25.0h gap on 2026-08-04 (inside the #389
+#: incident) and its window restarted, sitting at 54 records against 720 for every
+#: other BA a week later. Grading cadence varies by an order of magnitude across
+#: the fleet — LDWP grades ~2x/day against a median of 24x/day — so the broken-feed
+#: BAs live near this cliff permanently.
+#:
+#: Expressed as ``window + margin`` so the two cannot drift apart: if the window
+#: ever grows, the TTL follows. A test asserts the relationship rather than the
+#: literal.
+DRIFT_TTL_MARGIN_HOURS = 48
+DRIFT_REDIS_TTL = (DRIFT_WINDOW_HOURS + DRIFT_TTL_MARGIN_HOURS) * 3600
 DEFAULT_BACKTEST_EXOG_MODE = "forecast_exog"
 BACKTEST_HORIZONS = (24, 168, 720)
 FORECAST_HORIZON_HOURS = 720
@@ -2254,7 +2275,7 @@ def write_drift_metrics(
         if regrade_stats.get("n_regraded"):
             log.info("drift_regraded", region=region, **regrade_stats)
 
-        redis_set(redis_key(f"drift:{region}"), payload, ttl=REDIS_TTL)
+        redis_set(redis_key(f"drift:{region}"), payload, ttl=DRIFT_REDIS_TTL)
 
         # Compact summary for the scoring-job log line.
         models_with_records = sorted(payload["models"].keys())
@@ -2281,6 +2302,12 @@ def write_drift_metrics(
             sample_rolling_smape_7d=sample.get("rolling_smape_7d"),
             sample_rolling_mape_7d=sample.get("rolling_mape_7d"),
             sample_low_actual_excluded_7d=sample.get("n_low_actual_excluded_7d"),
+            # #512: the window's DEPTH, logged every write. A key expiry drops
+            # this from 720 to 1 and nothing else in the system notices — the
+            # job is stateless, so it cannot tell "history lost" from "new BA".
+            # AZPS lost 30 days on 2026-08-05 and it surfaced six days later,
+            # via the public API, by accident.
+            n_records=sample.get("n_records"),
         )
         return PhaseResult(
             region=region,

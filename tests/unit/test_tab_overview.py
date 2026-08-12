@@ -398,24 +398,6 @@ class TestOverviewDigest:
             assert isinstance(result, html.Div)
 
 
-class TestOverviewNews:
-    """Test news feed integration into overview."""
-
-    def test_news_returns_div(self):
-        from components.callbacks import _build_overview_news
-
-        result = _build_overview_news()
-        assert isinstance(result, html.Div)
-
-    def test_news_has_content(self):
-        from components.callbacks import _build_overview_news
-
-        result = _build_overview_news()
-        # Should have news-ribbon class or contain articles
-        text = str(result)
-        assert "news" in text.lower() or "Energy" in text
-
-
 # ── Helpers ──────────────────────────────────────────────────
 
 
