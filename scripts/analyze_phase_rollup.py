@@ -40,12 +40,25 @@ bounds the rows; the freshness bounds the *days*, and days are what the miss
 arm is counted in. Seven days is ~168 ticks, so ``--limit 200`` is sized to
 not truncate the window it asks for.
 
+**And then narrow it back down.** The two flags pull against each other and
+both directions are traps. A window wide enough to give the MISS arm ``n>=3``
+is wide enough to reach back past a deploy, and a tick from before
+``weather_archive_cache`` was switched on is a full uncached fetch sitting in
+the HIT arm. On 2026-08-12 a 7-day pull cleared ``n>=3`` for the first time
+and did it by pooling ~46 pre-cache ticks at 148-286s apiece — a larger sample
+of the wrong thing. ``REGIME_BOUNDARIES`` below lists the deploys that matter;
+the script names any it straddles and refuses the archive verdict when the
+cache flip is one of them::
+
+    python scripts/analyze_phase_rollup.py rollup.json --since 2026-08-08
+
 Also accepts the ``--format='value(...)'`` text that gcloud prints when you
 ask for named fields, and reads stdin when given no path.
 """
 
 from __future__ import annotations
 
+import argparse
 import ast
 import json
 import re
@@ -68,6 +81,38 @@ SUBSTEP_CHANNELS: dict[str, str] = {
 #: forced cache miss and the rest are hits. That is the paired contrast — same
 #: code, same BAs, an hour apart.
 MISS_ARM_HOUR = 0
+
+#: Deploys that change what a number MEASURES, not merely how large it is.
+#: Pooling ticks across one of these reports two different systems under one
+#: name — and the wider the window, the likelier you have.
+#:
+#: This registry exists because the fix for one confound created another. The
+#: MISS arm accrues one observation per UTC day, so reaching n>=3 forces a
+#: multi-day window; a multi-day window reaches back past deploys. On
+#: 2026-08-12 a 7-day pull finally cleared n>=3 and did it by including ~46
+#: pre-cache ticks in the HIT arm at 148-286s apiece, which is what made the
+#: arms appear to overlap. Both directions are traps and the tool has to know
+#: about both.
+#:
+#: ``at`` is the commit/merge time. A deploy lands some unknown minutes later,
+#: so a cutoff should be the NEXT day boundary, not this timestamp — which is
+#: what ``safe_since`` is for.
+REGIME_BOUNDARIES: list[dict[str, Any]] = [
+    {
+        "at": "2026-08-05T19:30",
+        "safe_since": "2026-08-06",
+        "label": "climatology vectorisation",
+        "affects": "forecast, frame_climatology, future_frame",
+        "breaks_archive_arms": False,
+    },
+    {
+        "at": "2026-08-07T13:30",
+        "safe_since": "2026-08-08",
+        "label": "weather_archive_cache flipped ON (#432, beaa2d2)",
+        "affects": "fetch, weather_archive",
+        "breaks_archive_arms": True,
+    },
+]
 
 _DICT_FIELD = re.compile(r"(\w+)=(\{[^{}]*\})")
 
@@ -272,6 +317,46 @@ def flag_outlier_ticks(ticks: list[Tick], factor: float = OUTLIER_ELAPSED_FACTOR
     return {id(t) for t in ticks if t.elapsed_s and t.elapsed_s >= threshold}
 
 
+def filter_since(ticks: list[Tick], since: str) -> list[Tick]:
+    """Ticks at or after ``since`` (an ISO prefix — ``2026-08-08`` is enough).
+
+    Lexicographic comparison, which is correct for the fixed-width ISO-8601
+    UTC stamps gcloud emits and needs no timezone handling to get wrong.
+    """
+    return [t for t in ticks if t.timestamp >= since]
+
+
+def spanned_boundaries(ticks: list[Tick]) -> list[dict[str, Any]]:
+    """Regime boundaries that fall strictly inside this window."""
+    stamps = sorted(t.timestamp for t in ticks if t.timestamp and t.timestamp != "?")
+    if len(stamps) < 2:
+        return []
+    return [b for b in REGIME_BOUNDARIES if stamps[0] < b["at"] < stamps[-1]]
+
+
+def report_regimes(ticks: list[Tick]) -> list[dict[str, Any]]:
+    """Name every deploy this window straddles. Returns them for the caller.
+
+    Warned rather than auto-excluded, deliberately: silently dropping ticks
+    would make the sample size disagree with the window the operator asked
+    for, and quiet correction is the failure mode this whole script exists to
+    avoid. Naming the cutoff and letting them pass ``--since`` keeps the
+    decision where it belongs.
+    """
+    spanned = spanned_boundaries(ticks)
+    if not spanned:
+        return []
+    print("\n" + "=" * 68)
+    print("REGIME BOUNDARIES INSIDE THIS WINDOW — pooling across these")
+    print("compares two different systems under one name")
+    print("=" * 68)
+    for b in spanned:
+        print(f"  {b['at']}  {b['label']}")
+        print(f"      affects: {b['affects']}")
+        print(f"      post-change window: --since {b['safe_since']}")
+    return spanned
+
+
 def _print_freshness_hint(obs: list[tuple[Tick, float]], needed: int) -> None:
     """Say why the miss arm is thin, and name the flag that widens it.
 
@@ -338,6 +423,22 @@ def report_archive_arms(ticks: list[Tick], excluded: set[int] | None = None) -> 
     h_med = statistics.median([v for _, v in hit])
     print(f"\n  miss - hit = {m_med - h_med:.1f}s per tick (summed worker time)")
 
+    # A regime change beats a sample size. n>=3 across the cache flip is not
+    # a better measurement than n=1 within one regime — it is a comparison of
+    # cached-vs-uncached against uncached-vs-uncached, pooled.
+    breaking = [b for b in spanned_boundaries([t for t, _ in obs]) if b["breaks_archive_arms"]]
+    if breaking:
+        b = breaking[0]
+        print(
+            f"\n  VERDICT: INCONCLUSIVE — this window straddles {b['label']}."
+            f"\n  Ticks before {b['at']} had NO cache, so their non-00Z ticks are"
+            f"\n  sitting in the HIT arm as full uncached fetches. That inflates the"
+            f"\n  hit arm and can make the arms appear to overlap; n>=3 does not fix"
+            f"\n  it, because the extra observations are what broke it."
+            f"\n  Re-run with --since {b['safe_since']}."
+        )
+        return
+
     # The binding constraint, stated rather than buried: the miss arm gains
     # exactly one observation per UTC day.
     if len(miss) < 3:
@@ -354,8 +455,24 @@ def report_archive_arms(ticks: list[Tick], excluded: set[int] | None = None) -> 
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) > 1:
-        with open(argv[1]) as fh:
+    ap = argparse.ArgumentParser(
+        prog="analyze_phase_rollup.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    ap.add_argument("path", nargs="?", help="gcloud output file; omit to read stdin")
+    ap.add_argument(
+        "--since",
+        metavar="ISO",
+        help=(
+            "drop ticks before this ISO prefix (e.g. 2026-08-08). Use to keep a "
+            "window inside one regime when it would otherwise span a deploy."
+        ),
+    )
+    args = ap.parse_args(argv[1:])
+
+    if args.path:
+        with open(args.path) as fh:
             text = fh.read()
     else:
         text = sys.stdin.read()
@@ -363,6 +480,14 @@ def main(argv: list[str]) -> int:
     if not ticks:
         print("no scoring_phase_rollup payloads found", file=sys.stderr)
         return 1
+
+    if args.since:
+        before = len(ticks)
+        ticks = filter_since(ticks, args.since)
+        print(f"--since {args.since}: kept {len(ticks)} of {before} tick(s)")
+        if not ticks:
+            print("no ticks at or after --since", file=sys.stderr)
+            return 1
 
     print(f"parsed {len(ticks)} tick(s)")
     problems: list[str] = []
@@ -372,6 +497,7 @@ def main(argv: list[str]) -> int:
         if t.substeps:
             problems += report_attribution(t)
 
+    report_regimes(ticks)
     outliers = flag_outlier_ticks(ticks)
     report_archive_arms(ticks, excluded=outliers)
 
