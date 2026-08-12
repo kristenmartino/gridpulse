@@ -93,7 +93,6 @@ from config import (
     mape_grade,
 )
 from data.redis_client import redis_get, redis_key
-from personas.config import get_persona
 
 log = structlog.get_logger()
 
@@ -1835,79 +1834,6 @@ def _build_overview_sparkline(demand_df: pd.DataFrame | None, region: str) -> go
     return fig
 
 
-def _build_overview_briefing(
-    persona_id: str,
-    region: str,
-    demand_df: pd.DataFrame | None,
-    weather_df: pd.DataFrame | None,
-) -> html.Div:
-    """Build the AI executive briefing section."""
-    from data.ai_briefing import generate_briefing
-
-    try:
-        result = generate_briefing(persona_id, region, demand_df, weather_df)
-    except Exception as exc:
-        log.error("overview_briefing_failed", error=str(exc))
-        return html.Div(
-            "Briefing unavailable",
-            style={"color": "#A8B3C7", "fontStyle": "italic"},
-        )
-
-    persona = get_persona(persona_id)
-
-    children = [
-        html.P(
-            result.summary,
-            style={
-                "color": "#DDE6F2",
-                "fontSize": "0.9rem",
-                "lineHeight": "1.6",
-                "marginBottom": "12px",
-            },
-        ),
-    ]
-
-    if result.observations:
-        obs_items = []
-        for obs in result.observations:
-            obs_items.append(
-                html.Li(
-                    obs,
-                    style={
-                        "color": "#A8B3C7",
-                        "fontSize": "0.82rem",
-                        "marginBottom": "4px",
-                        "lineHeight": "1.5",
-                    },
-                )
-            )
-        children.append(
-            html.Ul(
-                obs_items,
-                style={"paddingLeft": "20px", "marginBottom": "8px"},
-            )
-        )
-
-    source_label = "AI Analysis" if result.source == "claude" else "Data Summary"
-    children.append(
-        html.Span(
-            source_label,
-            style={
-                "fontSize": "0.65rem",
-                "color": "#A8B3C7",
-                "textTransform": "uppercase",
-                "letterSpacing": "0.5px",
-            },
-        )
-    )
-
-    return html.Div(
-        children,
-        style={"borderLeft": f"4px solid {persona.color}"},
-        className="briefing-card-content",
-    )
-
-
 def _build_weather_context(latest: pd.Series) -> html.Div:
     """Build a row of weather KPI mini-cards from the latest weather reading."""
 
@@ -2918,7 +2844,6 @@ __all__ = [
     "_driver_sparkline",
     # 7c — Overview briefing surface
     "_build_overview_sparkline",
-    "_build_overview_briefing",
     "_build_weather_context",
     "_build_changes_card",
     "_build_overview_data_health",

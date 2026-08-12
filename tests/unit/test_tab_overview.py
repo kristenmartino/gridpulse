@@ -3,7 +3,6 @@ Unit tests for the Overview tab (#7 reimagined).
 
 Covers:
 - Layout returns html.Div with all required component IDs
-- AI briefing module (rule-based fallback)
 - Spotlight chart returns per-persona figures
 - Insight digest returns valid content
 - Config has tab-overview first in TAB_IDS
@@ -100,76 +99,6 @@ class TestOverviewConfig:
             assert "tab-overview" in persona.priority_tabs, (
                 f"Persona '{pid}' missing 'tab-overview' in priority_tabs"
             )
-
-
-class TestOverviewBriefing:
-    """Test the AI briefing module (rule-based path)."""
-
-    def test_rule_based_briefing_returns_result(self):
-        from data.ai_briefing import BriefingResult, generate_briefing
-
-        result = generate_briefing("grid_ops", "FPL")
-        assert isinstance(result, BriefingResult)
-        assert result.source == "rule_based"
-        assert len(result.summary) > 0
-
-    def test_rule_based_briefing_with_data(self):
-        from data.ai_briefing import generate_briefing
-
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
-                "demand_mw": range(20000, 20048),
-            }
-        )
-        result = generate_briefing("grid_ops", "FPL", demand_df=df)
-        assert len(result.summary) > 0
-        assert isinstance(result.observations, list)
-
-    def test_rule_based_briefing_all_personas(self):
-        from data.ai_briefing import generate_briefing
-        from personas.config import PERSONAS
-
-        for pid in PERSONAS:
-            result = generate_briefing(pid, "FPL")
-            assert len(result.summary) > 0
-
-    def test_extract_data_context(self):
-        from data.ai_briefing import _extract_data_context
-
-        df = pd.DataFrame(
-            {
-                "timestamp": pd.date_range("2024-01-01", periods=48, freq="h"),
-                "demand_mw": range(20000, 20048),
-            }
-        )
-        ctx = _extract_data_context("FPL", df, None)
-        assert ctx["peak_mw"] is not None
-        assert ctx["peak_mw"] > 0
-        assert ctx["data_points"] == 48
-
-    def test_extract_data_context_none(self):
-        from data.ai_briefing import _extract_data_context
-
-        ctx = _extract_data_context("FPL", None, None)
-        assert ctx["peak_mw"] is None
-        assert ctx["data_points"] == 0
-
-    def test_briefing_result_has_timestamp(self):
-        from data.ai_briefing import BriefingResult
-
-        result = BriefingResult(summary="test")
-        assert result.generated_at != ""
-        assert result.source == "rule_based"
-
-    def test_parse_claude_response(self):
-        from data.ai_briefing import _parse_claude_response
-
-        raw = "This is a summary.\n---\n- Point one\n- Point two\n- Point three"
-        result = _parse_claude_response(raw)
-        assert "summary" in result.summary.lower() or len(result.summary) > 0
-        assert len(result.observations) == 3
-        assert result.source == "claude"
 
 
 class TestOverviewSpotlight:
