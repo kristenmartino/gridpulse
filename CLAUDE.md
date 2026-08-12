@@ -493,7 +493,9 @@ Any A/B or model change routes its verdict through
 
 ### Feature Flags
 - All flags in `config.FEATURE_FLAGS`
-- Use `config.feature_enabled(flag)` — unknown flags default to True
+- Use `config.feature_enabled(flag)` — unknown flags default to **False**
+  (fail-closed since PR-G8 / #145, 2026-05-29: a typo must never silently
+  *enable* behavior). Register every flag you read in `FEATURE_FLAGS`.
 
 ---
 

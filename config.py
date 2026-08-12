@@ -183,9 +183,6 @@ WEATHER_NORMAL_TTL_SECONDS = 200 * 24 * 3600  # Redis TTL > refresh cadence so i
 
 NOAA_BASE_URL = "https://api.weather.gov"
 
-# AI Briefing (Overview tab executive briefing via Claude)
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
-
 # ---------------------------------------------------------------------------
 # Redis (v2 pre-computation pipeline)
 # ---------------------------------------------------------------------------
@@ -1272,7 +1269,6 @@ FEATURE_FLAGS: dict[str, bool] = {
     "scenario_bookmarks": True,  # Sprint 4 (C2)
     "api_fallback_badges": True,  # Sprint 4 (G2)
     "ai_insights": True,  # Persona-aware insight cards on all tabs
-    "ai_briefing": True,  # Claude-powered executive briefing on Overview tab
     "what_changed": True,  # NEXD-8: session-aware change detection
     "smart_defaults": True,  # NEXD-9: remember last filter state in localStorage
     # Serve a seasonal-naive baseline for regions whose model measurably

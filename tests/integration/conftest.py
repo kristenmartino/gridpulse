@@ -28,9 +28,9 @@ def _isolate_cache(tmp_path, monkeypatch):
       leaves fabricated alerts for the dashboard to serve.
 
     Patching the ``data.cache._cache`` singleton rather than any one module's
-    ``get_cache`` covers every client: eia, weather, noaa, and
-    ai_briefing all resolve ``get_cache()`` per call, and nothing in the app
-    constructs a ``Cache`` any other way.
+    ``get_cache`` covers every client: eia, weather and noaa all resolve
+    ``get_cache()`` per call, and nothing in the app constructs a ``Cache``
+    any other way.
     """
     from data import cache as cache_module
 

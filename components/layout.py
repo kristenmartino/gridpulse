@@ -206,7 +206,6 @@ def build_layout() -> dbc.Container:
             dcc.Store(id="meeting-mode-store", data="false"),
             dcc.Store(id="audit-store"),
             dcc.Store(id="pipeline-log-store"),
-            dcc.Store(id="briefing-store"),
             # NEXD-8: Session snapshot for "What Changed" (R4a-reserved)
             dcc.Store(id="session-snapshot-store", storage_type="local"),
             dcc.Store(id="changes-store"),
