@@ -225,17 +225,56 @@ class TestStructuredData:
                             referenced.add(value["@id"])
         assert referenced <= defined, f"dangling @id: {sorted(referenced - defined)}"
 
-    def test_author_is_the_repo_owner(self, surface) -> None:
-        """Pinned against the GitHub identity test_landing.py:59 already
-        asserts, so the author entity cannot drift away from the one
-        verifiable public account."""
+    #: Every profile the Person node claims. `url` is the primary page;
+    #: `sameAs` is how a search engine collapses several profiles into one
+    #: entity, which is the whole reason this node exists.
+    #:
+    #: **A sameAs pointing at a page that does not exist, or that does not
+    #: link back, is worse than omitting it** — it asks a search engine to
+    #: merge identities on an assertion nothing corroborates. Both were
+    #: checked to return 200 before being added (2026-08-11); the reciprocal
+    #: links from those profiles back to this domain are the owner's to add
+    #: and are what actually make the claim mutual.
+    _PERSON_PROFILES = (
+        "https://kristenmartino.ai",
+        "https://www.linkedin.com/in/kristenmartino",
+        "https://github.com/kristenmartino",
+    )
+
+    def test_author_identity_is_pinned(self, surface) -> None:
+        """The author entity must not drift, and every surface that defines
+        the Person node must define it IDENTICALLY.
+
+        Two pages define it (`/` and `/about`); the other three reference it
+        by ``@id``. If the two definitions disagreed, a search engine would
+        see one identifier making two different claims — which is worse than
+        the orphaned-pages problem the node was added to solve.
+        """
         _, html, _ = surface
         for block in self._blocks(html):
             data = json.loads(block)
             for node in data.get("@graph", [data]):
-                if node.get("@type") == "Person":
-                    assert node["name"] == "Kristen Martino"
-                    assert node["url"] == "https://github.com/kristenmartino"
+                if node.get("@type") != "Person":
+                    continue
+                assert node["name"] == "Kristen Martino"
+                assert node["url"] == "https://kristenmartino.ai"
+                assert tuple(node["sameAs"]) == self._PERSON_PROFILES
+
+    def test_every_person_definition_agrees(self) -> None:
+        """Compares the definitions across surfaces directly, rather than
+        each against a constant — a single edited copy would otherwise pass
+        its own assertion while contradicting the other."""
+        seen = []
+        for name, html in _surfaces():
+            for block in self._blocks(html):
+                data = json.loads(block)
+                for node in data.get("@graph", [data]):
+                    if node.get("@type") == "Person":
+                        seen.append((name, json.dumps(node, sort_keys=True)))
+        assert len(seen) >= 2, "expected the Person node on at least two surfaces"
+        assert len({payload for _, payload in seen}) == 1, (
+            f"Person node differs across surfaces: {[n for n, _ in seen]}"
+        )
 
 
 class TestHardcodedHostsStayInSyncWithConfig:

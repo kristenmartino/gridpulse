@@ -149,7 +149,12 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
           "@type": "Person",
           "@id": "__BASE__/#person",
           "name": "Kristen Martino",
-          "url": "https://github.com/kristenmartino"
+          "url": "https://kristenmartino.ai",
+          "sameAs": [
+            "https://kristenmartino.ai",
+            "https://www.linkedin.com/in/kristenmartino",
+            "https://github.com/kristenmartino"
+          ]
         }
       ]
     }
