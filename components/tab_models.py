@@ -5,13 +5,19 @@ v2 linear-stack rhythm:
 
   Title → Model leaderboard MetricsBar → multi-select selector →
   metrics table → residual analysis 3-up grid → error+SHAP 2-up grid
-  → InsightCard → footer
+  → footer
 
 All existing component IDs are preserved (tab3-model-selector,
 tab3-metrics-table, tab3-residuals-time, -hist, -pred,
-tab3-error-heatmap, tab3-shap, tab3-insight-card) so the existing
-6-output update_models_tab and 1-output insight callbacks continue
-to work without signature changes.
+tab3-error-heatmap, tab3-shap) so the existing 6-output
+update_models_tab callback continues to work without signature
+changes.
+
+There is deliberately no InsightCard slot. R4c shipped a
+``tab3-insight-card`` div and this docstring claimed a "1-output
+insight callback" filled it; no such callback was ever registered, so
+the slot rendered empty on every load and the claim was false in the
+one place a reader would check it (#221 §1b, step 4).
 """
 
 import dash_bootstrap_components as dbc
@@ -183,9 +189,7 @@ def layout() -> html.Div:
                     _residual_grid(),
                     # 6. Error + SHAP 2-up grid
                     _error_shap_grid(),
-                    # 7. InsightCard (existing tab3-insight-card)
-                    html.Div(id="tab3-insight-card", className="gp-insight-card-slot"),
-                    # 8. Footer
+                    # 7. Footer
                     build_page_footer(
                         sources=["EIA", "Open-Meteo"],
                         note="Backtests run on the most recent week of holdout data.",
