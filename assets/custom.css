@@ -350,8 +350,7 @@ button,
 .gp-preset-chip,
 .gp-header__link,
 .gp-segmented .form-check-label,
-.cross-tab-link,
-.overview-quick-nav-card {
+.cross-tab-link {
     cursor: pointer;
 }
 
@@ -1770,67 +1769,6 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     transition: color 120ms var(--ease-out-quint);
 }
 
-.overview-quick-nav-card {
-    transition: background var(--duration-base) var(--ease),
-                border-color var(--duration-base) var(--ease),
-                box-shadow var(--duration-base) var(--ease);
-}
-.overview-quick-nav-card:hover {
-    background: var(--bg-elevated) !important;
-    border-color: var(--border-default) !important;
-    box-shadow: var(--shadow-sm);
-}
-
-/* ── What Changed Card ────────────────────────────────── */
-.changes-card {
-    background: var(--bg-raised);
-    border: 1px solid var(--border-subtle);
-    border-left: 3px solid var(--warning);
-    border-radius: var(--radius-lg);
-    padding: var(--space-3) var(--space-4);
-    margin: var(--space-2) 0;
-    box-shadow: var(--shadow-xs);
-    animation: fadeIn var(--duration-slow) var(--ease);
-}
-
-.changes-card:empty {
-    display: none;
-}
-
-.changes-card .changes-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--space-2);
-}
-
-.changes-card .changes-title {
-    font-weight: 600;
-    color: var(--text-primary);
-    font-size: var(--text-base);
-}
-
-.changes-card .changes-timestamp {
-    color: var(--text-tertiary);
-    font-size: var(--text-xs);
-}
-
-.changes-card .change-item {
-    padding: var(--space-1) 0;
-    border-bottom: 1px solid var(--border-subtle);
-    font-size: var(--text-base);
-    color: var(--text-secondary);
-    line-height: var(--leading-base);
-}
-
-.changes-card .change-item:last-child {
-    border-bottom: none;
-}
-
-.changes-card .change-icon {
-    margin-right: var(--space-2);
-}
-
 /* ── Scenario Simulator Sliders ───────────────────────── */
 .slider-container {
     background: var(--bg-raised);
@@ -2134,8 +2072,6 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 @media (prefers-reduced-motion: reduce) {
     .welcome-card,
     .insight-card,
-    .changes-card { animation: none; }
-    .overview-quick-nav-card { transition: none !important; }
     .kpi-card { transition: none; }
     .gp-region-card { transition: none !important; }
     * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }

@@ -71,22 +71,14 @@ from components._callbacks_models import (
     register_models_callbacks,
 )
 from components._callbacks_overview import (
-    _build_changes_card,  # noqa: F401 — re-export (tests + helper-callable surface)
     _build_models_leaderboard,  # noqa: F401 — re-export (tests/unit/test_models_tab_consistency.py)
-    _build_overview_data_health,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
-    _build_overview_digest,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_hero_chart,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_insight,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_metrics_items,  # noqa: F401 — re-export (tests/unit/test_overview_metrics_nan_guard.py)
     _build_overview_model_card,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
-    _build_overview_sparkline,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
-    _build_overview_spotlight,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     _build_overview_title,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_persona_kpis,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
     _fetch_generation_cached,  # noqa: F401 — re-export (tests/unit/test_callbacks_*)
-    _spotlight_model_accuracy,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
-    _spotlight_renewables,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
-    _spotlight_trader,  # noqa: F401 — re-export (tests/unit/test_tab_overview.py)
     register_overview_callbacks,
 )
 from components._callbacks_shared import (

@@ -318,7 +318,22 @@ def generate_tab1_insights(
     weather_df: pd.DataFrame | None,
     timerange_hours: int = 168,
 ) -> list[Insight]:
-    """Generate Historical Demand tab insights."""
+    """Generate Historical Demand tab insights.
+
+    **Deliberately callerless — do NOT delete as dead code (#523).** Its last
+    caller was ``_build_overview_digest``, removed with the rest of the
+    GP-P1-04 dead surface (#221 step 3). It is kept because it is the working
+    half of a feature that is not built yet: it emits seven ``Insight``
+    objects tagged with ``persona_relevance``, which ``_filter_for_persona``
+    already ranks and caps per role. The Overview's insight card today uses
+    ``persona_id`` only to pick a four-word eyebrow label — #523 wires this
+    in as its body, which is what makes "role-aware" an honest claim again
+    (the landing page's version of it was reworded away in #522 precisely
+    because the product did not support it).
+
+    Sibling generators ``generate_tab2/3/4_insights`` have live callers in
+    ``_callbacks_forecast`` / ``_callbacks_backtest`` / ``_callbacks_generation``.
+    """
     if demand_df is None or len(demand_df) == 0:
         return []
 
