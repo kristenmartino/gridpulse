@@ -376,19 +376,23 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     # they can be persisted to Redis for the web tier. Ensemble row
     # rides on xgb_meta's ``extra["ensemble_holdout_metrics"]`` (existing
     # convention used by models.model_service.get_model_metrics).
-    # #451: which MAPE drives the weights — latest holdout, or its EWMA when
-    # ``smoothed_ensemble_weights`` is on. Routed through one helper so scoring
-    # and training cannot disagree about the INPUT, the same way
-    # ``resolve_ensemble_weights`` stops them disagreeing about the RULE (P2-16).
-    from models.ensemble import shadow_weighting_mape, weighting_mape
+    # #451: which MAPE drives the SERVED weights — latest holdout, or its EWMA
+    # when ``smoothed_ensemble_weights`` is on. This is the only caller; the
+    # training job weights its out-of-sample metric from within-window MAPEs by
+    # design (#514 — an earlier comment here claimed both sides routed through
+    # this helper, which was never true). ``weighting_input`` labels the basis
+    # so the two records can be compared rather than assumed equal.
+    from models.ensemble import shadow_weighting_mape, weighting_input, weighting_mape
 
     model_mapes_shadow: dict[str, float | None] = {}
+    weight_input: dict[str, str] = {}
     model_metrics: dict[str, dict[str, float]] = {}
     if xgb_loaded is not None:
         xgb_model, xgb_meta = xgb_loaded
         loaded_models["xgboost"] = xgb_model
         model_mapes["xgboost"] = weighting_mape(xgb_meta.mape, xgb_meta.extra)
         model_mapes_shadow["xgboost"] = shadow_weighting_mape(xgb_meta.mape, xgb_meta.extra)
+        weight_input["xgboost"] = weighting_input(xgb_meta.mape, xgb_meta.extra)
         summary["model_version"] = xgb_meta.version
         xgb_metrics = _extract_holdout_metrics(xgb_meta)
         if xgb_metrics:
@@ -401,6 +405,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         loaded_models["prophet"] = prophet_model
         model_mapes["prophet"] = weighting_mape(prophet_meta.mape, prophet_meta.extra)
         model_mapes_shadow["prophet"] = shadow_weighting_mape(prophet_meta.mape, prophet_meta.extra)
+        weight_input["prophet"] = weighting_input(prophet_meta.mape, prophet_meta.extra)
         summary["prophet_version"] = prophet_meta.version
         prophet_metrics = _extract_holdout_metrics(prophet_meta)
         if prophet_metrics:
@@ -410,6 +415,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         loaded_models["arima"] = arima_model
         model_mapes["arima"] = weighting_mape(arima_meta.mape, arima_meta.extra)
         model_mapes_shadow["arima"] = shadow_weighting_mape(arima_meta.mape, arima_meta.extra)
+        weight_input["arima"] = weighting_input(arima_meta.mape, arima_meta.extra)
         summary["arima_version"] = arima_meta.version
         arima_metrics = _extract_holdout_metrics(arima_meta)
         if arima_metrics:
@@ -483,6 +489,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
                 model_mapes,
                 model_metrics=model_metrics,
                 model_mapes_shadow=model_mapes_shadow,
+                weight_input=weight_input,
             )
         summary["subtimings"] = dict(_sub)
         summary["phases"]["forecast"] = {

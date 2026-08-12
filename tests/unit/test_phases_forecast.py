@@ -1304,3 +1304,155 @@ class TestBaselineSubstitutionBlock:
 
     def test_a_winning_model_is_not_substituted(self, monkeypatch):
         assert self._run(monkeypatch, model_mape=0.5) is None
+
+
+class TestEnsembleCompositionDivergence:
+    """The guard that must fire when a flag flip changes the weight INPUT (#514).
+
+    #444 made training and scoring share the weighting *rule* and record their
+    *membership*, and logs ``ensemble_composition_divergence`` when the two
+    memberships disagree. It does not compare the numbers fed to that rule.
+
+    That gap is harmless while `smoothed_ensemble_weights` is off, because
+    ``weighting_mape`` is then an identity function and both sides weight by the
+    same holdout MAPE. Flip it and scoring weights by the EWMA while the
+    persisted metric still weights by within-window holdout MAPEs — same three
+    members, same rule, different numbers. That is P2-16's shape exactly, and
+    before #514 the comparison was silent on it.
+    """
+
+    def _run(self, monkeypatch, fake_redis, region_data, *, weight_input, persisted_input):
+        from jobs import phases
+
+        _patch_predict_one(
+            monkeypatch,
+            {
+                "xgboost": np.full(HORIZON, 41_000.0),
+                "prophet": np.full(HORIZON, 39_000.0),
+                "arima": np.full(HORIZON, 40_000.0),
+            },
+        )
+        return phases.predict_and_write_forecast(
+            region_data,
+            models={"xgboost": object(), "prophet": object(), "arima": object()},
+            model_mapes={"xgboost": 1.0, "prophet": 2.0, "arima": 4.0},
+            model_metrics={
+                "ensemble": {
+                    "mape": 3.0,
+                    "members": ["arima", "prophet", "xgboost"],
+                    "weight_rule": "inverse_mape_cubed",
+                    "weight_input": persisted_input,
+                }
+            },
+            weight_input=weight_input,
+        )
+
+    ALL_HOLDOUT = {"xgboost": "holdout_mape", "prophet": "holdout_mape", "arima": "holdout_mape"}
+    ALL_EWMA = {"xgboost": "mape_ewma", "prophet": "mape_ewma", "arima": "mape_ewma"}
+
+    def test_the_served_basis_is_published(self, fake_redis, region_data, monkeypatch):
+        """A reader of the payload can tell which number produced the weights."""
+        result = self._run(
+            monkeypatch,
+            fake_redis,
+            region_data,
+            weight_input=self.ALL_HOLDOUT,
+            persisted_input="holdout_mape",
+        )
+        assert result.ok
+        comp = fake_redis["gridpulse:forecast:ERCOT:1h"]["ensemble_composition"]
+        assert comp["weight_input"] == ["holdout_mape"]
+        assert comp["members"] == ["arima", "prophet", "xgboost"]
+
+    @staticmethod
+    def _divergence_calls(recorder):
+        return [
+            c
+            for c in recorder.info.call_args_list
+            if c.args and c.args[0] == "ensemble_composition_divergence"
+        ]
+
+    def test_matching_bases_do_not_warn(self, fake_redis, region_data, monkeypatch):
+        """No divergence when both sides weight by the same basis.
+
+        Patches the module logger rather than using ``structlog.testing.\
+        capture_logs``, for the reason recorded in ``test_shadow_weights.py``:
+        capture_logs is defeated by a bound logger cached before it installed
+        its processor, so it passes alone and fails in the full suite depending
+        on which test configured structlog first. This assertion does not touch
+        structlog's global state.
+        """
+        from unittest.mock import MagicMock, patch
+
+        recorder = MagicMock()
+        with patch("jobs.phases.log", recorder):
+            result = self._run(
+                monkeypatch,
+                fake_redis,
+                region_data,
+                weight_input=self.ALL_HOLDOUT,
+                persisted_input="holdout_mape",
+            )
+        assert result.ok
+        assert not self._divergence_calls(recorder)
+
+    def test_a_basis_mismatch_warns_even_with_identical_membership(
+        self, fake_redis, region_data, monkeypatch
+    ):
+        """The whole point. Same three members, same rule — only the input
+        differs, which is precisely what flipping the flag does."""
+        from unittest.mock import MagicMock, patch
+
+        recorder = MagicMock()
+        with patch("jobs.phases.log", recorder):
+            result = self._run(
+                monkeypatch,
+                fake_redis,
+                region_data,
+                weight_input=self.ALL_EWMA,
+                persisted_input="holdout_mape",
+            )
+        assert result.ok
+        hit = self._divergence_calls(recorder)
+        assert len(hit) == 1, "a basis-only difference must not be silent"
+        kw = hit[0].kwargs
+        assert kw["served_input"] == ["mape_ewma"]
+        assert kw["persisted_input"] == "holdout_mape"
+        assert kw["served"] == kw["persisted_metric"], (
+            "membership is identical — the input is the only difference"
+        )
+
+    def test_a_mixed_fleet_is_reported_as_mixed_not_collapsed(
+        self, fake_redis, region_data, monkeypatch
+    ):
+        """The first run after a flip can genuinely be mixed: models whose meta
+        predates the field fall back to the raw MAPE. Publishing one basis for
+        the blend would hide that, so both are listed."""
+        mixed = dict(self.ALL_EWMA, arima="holdout_mape")
+        result = self._run(
+            monkeypatch,
+            fake_redis,
+            region_data,
+            weight_input=mixed,
+            persisted_input="holdout_mape",
+        )
+        assert result.ok
+        comp = fake_redis["gridpulse:forecast:ERCOT:1h"]["ensemble_composition"]
+        assert comp["weight_input"] == ["holdout_mape", "mape_ewma"]
+
+    def test_a_payload_without_the_field_still_publishes_a_basis(
+        self, fake_redis, region_data, monkeypatch
+    ):
+        """``weight_input`` is optional on the call. Absent, the served basis
+        must read ``unknown`` rather than silently claiming ``holdout_mape`` —
+        an unlabelled run is not a holdout-weighted one."""
+        result = self._run(
+            monkeypatch,
+            fake_redis,
+            region_data,
+            weight_input=None,
+            persisted_input=None,
+        )
+        assert result.ok
+        comp = fake_redis["gridpulse:forecast:ERCOT:1h"]["ensemble_composition"]
+        assert comp["weight_input"] == ["unknown"]

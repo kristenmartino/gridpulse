@@ -1700,6 +1700,7 @@ def predict_and_write_forecast(
     model_mapes: dict[str, float | None] | None = None,
     model_metrics: dict[str, dict[str, float]] | None = None,
     model_mapes_shadow: dict[str, float | None] | None = None,
+    weight_input: dict[str, str] | None = None,
 ) -> PhaseResult:
     """Run all loaded forward forecasters and write ``gridpulse:forecast:{region}:1h``.
 
@@ -1936,20 +1937,43 @@ def predict_and_write_forecast(
             # metric and the served blend are computed from different inputs
             # by necessity, so they can legitimately differ — what must never
             # happen again is differing silently under one name.
+            # #514: the INPUT is published too, not just the membership and
+            # the rule. Scoring may weight by the EWMA while the persisted
+            # metric weights by within-window holdout MAPEs — legitimate, and
+            # by design, but a difference the two fields below are the only way
+            # to see. Sorted+deduped because the per-model fallback can leave a
+            # fleet genuinely mixed on the first run after a flag flip.
+            served_inputs = sorted(
+                {(weight_input or {}).get(m) or "unknown" for m in ensemble_weights}
+            )
             redis_payload["ensemble_composition"] = {
                 "members": sorted(ensemble_weights),
                 "weight_rule": weight_rule,
+                "weight_input": served_inputs,
             }
             persisted = ((model_metrics or {}).get("ensemble") or {}) if model_metrics else {}
             persisted_members = persisted.get("members")
-            if persisted_members and sorted(persisted_members) != sorted(ensemble_weights):
+            persisted_input = persisted.get("weight_input")
+            members_differ = bool(
+                persisted_members and sorted(persisted_members) != sorted(ensemble_weights)
+            )
+            # A basis mismatch counts even when membership matches — that is
+            # exactly the P2-16 shape a flag flip would otherwise reintroduce
+            # silently, since the members are identical and only the numbers
+            # feeding them change.
+            input_differs = bool(persisted_input and served_inputs != sorted({persisted_input}))
+            if members_differ or input_differs:
                 log.info(
                     "ensemble_composition_divergence",
                     region=region,
                     served=sorted(ensemble_weights),
-                    persisted_metric=sorted(persisted_members),
+                    persisted_metric=sorted(persisted_members or []),
                     served_rule=weight_rule,
                     persisted_rule=persisted.get("weight_rule"),
+                    served_input=served_inputs,
+                    persisted_input=persisted_input,
+                    differs=("members" if members_differ else "")
+                    + ("input" if input_differs else ""),
                 )
         if horizon_guard:
             redis_payload["horizon_guard"] = horizon_guard
