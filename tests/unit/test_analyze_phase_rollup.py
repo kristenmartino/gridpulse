@@ -228,6 +228,111 @@ class TestParsing:
         assert mod.parse("   ") == []
 
 
+class TestRegimeBoundaries:
+    """The confound the fix for the LAST confound created.
+
+    Reaching n>=3 on the MISS arm forces a multi-day window; a multi-day
+    window reaches back past deploys. The real 2026-08-12 pull cleared n>=3
+    for the first time and did it by pooling ~46 pre-cache ticks into the HIT
+    arm at 148-286s apiece — a larger sample of the wrong thing, which is
+    strictly worse than a small sample of the right one.
+    """
+
+    @staticmethod
+    def _archive_tick(ts, v):
+        t = _tick(ts=ts, elapsed=414.0)
+        t.substeps = {"fetch_substeps": {"weather_archive": {"total_s": v, "n": 51}}}
+        return t
+
+    def _pre_flip(self):
+        """08-05/08-06: no cache existed, so EVERY hour is a full fetch."""
+        out = []
+        for day, vals in (("05", [214.4, 284.7, 244.3]), ("06", [201.5, 235.6, 178.3])):
+            out.append(self._archive_tick(f"2026-08-{day}T00:07:00Z", 205.4))
+            out += [
+                self._archive_tick(f"2026-08-{day}T{20 + i:02d}:07:00Z", v)
+                for i, v in enumerate(vals)
+            ]
+        return out
+
+    def _post_flip(self):
+        out = []
+        for day in ("08", "09", "10", "11", "12"):
+            out.append(self._archive_tick(f"2026-08-{day}T00:07:00Z", 301.6))
+            out += [self._archive_tick(f"2026-08-{day}T{h:02d}:07:00Z", 15.9) for h in range(1, 20)]
+        return out
+
+    def test_a_window_straddling_the_flip_refuses_the_verdict(self, capsys):
+        mod.report_archive_arms(self._pre_flip() + self._post_flip())
+        out = capsys.readouterr().out
+        assert "INCONCLUSIVE" in out
+        assert "weather_archive_cache flipped ON" in out
+        assert "--since 2026-08-08" in out
+
+    def test_a_regime_change_beats_a_sample_size(self, capsys):
+        """n=7 across the flip must NOT read as better than n=1 within it.
+        The regime check has to run BEFORE the n>=3 check, or the extra
+        observations — the very ones that broke the arm — license the verdict."""
+        ticks = self._pre_flip() + self._post_flip()
+        misses = [t for t in ticks if t.hour == 0]
+        assert len(misses) >= 3  # the n gate would pass
+        mod.report_archive_arms(ticks)
+        out = capsys.readouterr().out
+        assert "Both arms n>=3" not in out  # ...and is overruled anyway
+
+    def test_a_single_regime_window_concludes_normally(self, capsys):
+        mod.report_archive_arms(self._post_flip())
+        out = capsys.readouterr().out
+        assert "Both arms n>=3" in out
+        assert "INCONCLUSIVE" not in out
+
+    def test_since_filters_to_the_post_change_window(self):
+        ticks = self._pre_flip() + self._post_flip()
+        kept = mod.filter_since(ticks, "2026-08-08")
+        assert len(kept) == len(self._post_flip())
+        assert all(t.timestamp >= "2026-08-08" for t in kept)
+
+    def test_since_is_inclusive_of_an_exact_timestamp(self):
+        """`--since` is documented as "at or after". A date prefix cannot tell
+        `>` from `>=` — no tick is ever exactly `2026-08-08` — so only an exact
+        stamp pins it, and pasting a stamp off a tick is real usage. Found by
+        mutating `>=` to `>` and watching every other test still pass."""
+        ticks = self._post_flip()
+        exact = ticks[0].timestamp
+        assert mod.filter_since(ticks, exact)[0].timestamp == exact
+
+    def test_boundaries_outside_the_window_are_not_reported(self, capsys):
+        assert mod.spanned_boundaries(self._post_flip()) == []
+        assert mod.report_regimes(self._post_flip()) == []
+        assert capsys.readouterr().out == ""
+
+    def test_a_non_archive_boundary_is_named_but_does_not_veto(self, capsys):
+        """The climatology deploy corrupts `forecast` comparisons and has
+        nothing to do with the archive arms. Naming it must not block a
+        verdict it cannot affect — an over-broad veto is its own failure."""
+        ticks = [
+            self._archive_tick("2026-08-05T18:00:00Z", 200.0),
+            *self._post_flip(),
+        ]
+        spanned = mod.report_regimes(ticks)
+        labels = {b["label"] for b in spanned}
+        assert "climatology vectorisation" in labels
+        assert any(b["breaks_archive_arms"] for b in spanned)  # the flip is here too
+
+        only_climatology = [
+            self._archive_tick("2026-08-05T18:00:00Z", 200.0),
+            self._archive_tick("2026-08-06T00:07:00Z", 205.4),
+            self._archive_tick("2026-08-06T01:07:00Z", 201.5),
+            self._archive_tick("2026-08-06T02:07:00Z", 235.6),
+        ]
+        assert [b["label"] for b in mod.spanned_boundaries(only_climatology)] == [
+            "climatology vectorisation"
+        ]
+        capsys.readouterr()
+        mod.report_archive_arms(only_climatology)
+        assert "straddles" not in capsys.readouterr().out
+
+
 class TestOutlierConfound:
     """The check this script did NOT have, added after it missed a real event.
 
