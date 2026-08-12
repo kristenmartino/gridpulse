@@ -265,7 +265,6 @@ data/
   eia_client.py           → EIA API v2: demand, generation, interchange
   weather_client.py       → Open-Meteo: 17 weather vars, historical + forecast
   noaa_client.py          → NOAA/NWS: severe weather alerts
-  news_client.py          → External news feed integration
   preprocessing.py        → Merge, align UTC, interpolate gaps <6h, flag gaps ≥6h
   feature_engineering.py  → 49 features (17 raw + 32 derived): CDD/HDD, wind power, solar CF, lags, rolling
   demo_data.py            → Synthetic data generator for offline/demo mode where explicitly used
