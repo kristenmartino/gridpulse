@@ -121,6 +121,17 @@ class TestRemovedIDsStayRemoved:
         ]:
             assert legacy not in ids, f"R2 cut {legacy}; it must stay absent"
 
+    def test_unfilled_slots_removed(self):
+        ids = _layout_ids()
+        # #221 step 4 — a slot no callback ever filled. It rendered empty on
+        # every load while tab_models' docstring claimed an insight callback
+        # populated it. Re-adding the div without also registering an Output
+        # for it puts the empty slot back.
+        assert "tab3-insight-card" not in ids, (
+            "tab3-insight-card was cut because nothing filled it; "
+            "re-add it only together with a callback that does"
+        )
+
     def test_layout_level_clutter_removed(self):
         ids = _layout_ids()
         # R3 — pre-tab-strip welcome-card + kpi-cards rows
@@ -195,7 +206,6 @@ class TestV2SurfacesPresent:
             "tab3-residuals-pred",
             "tab3-error-heatmap",
             "tab3-shap",
-            "tab3-insight-card",
         ]:
             assert v2_id in ids, f"Models missing v2 surface: {v2_id}"
 
