@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import io
 
+import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.graph_objects as go
 import structlog
@@ -59,7 +60,7 @@ from components._callbacks_shared import (
     _empty_figure,
     _layout,
 )
-from components.cards import build_alert_card
+from components.cards import build_alert_card, build_insight_card
 from config import REQUIRE_REDIS
 from data.redis_client import redis_get, redis_key
 
@@ -426,8 +427,6 @@ def _alerts_tab_from_redis(region):
     weather_context = html.Div()
     weather_current = cached.get("weather_current")
     if weather_current:
-        from components._callbacks_overview import _build_weather_context
-
         weather_context = _build_weather_context(pd.Series(weather_current))
     elif t_vals:
         # Back-compat: older payloads (pre this change, or Redis not yet
@@ -501,7 +500,6 @@ def register_alerts_callbacks(app):
     callbacks but left the breadcrumb. Corrected when this section
     moved into ``register_alerts_callbacks(app)``.
     """
-    from components._callbacks_overview import _build_risk_insight, _build_weather_context
     from components.cards import build_page_title
     from config import REGION_NAMES
 
@@ -702,6 +700,187 @@ def register_alerts_callbacks(app):
             weather_context=weather_context,
         )
 
+
+# ── Relocated from ``_callbacks_overview`` (§1c of the GP-P1-04 proposal) ──
+#
+# These render THIS tab's surfaces. They lived in the Overview module only
+# because that module was written first and the panels were prototyped
+# there; every caller has always been here.
+
+
+def _build_risk_insight(
+    region: str | None,
+    demand_json: str | None,
+    weather_json: str | None,
+) -> html.Div:
+    """3-sentence narrative for the Risk tab — composes the same fragments
+    the alerts/stress callback already computes, just rendered as prose."""
+    region = region or "FPL"
+
+    # Demand-anomaly stat: pct of last-24h hours outside ±3σ
+    anomaly_clause = "Demand sits within normal bounds."
+    try:
+        if demand_json:
+            ddf = pd.read_json(io.StringIO(demand_json))
+            ddf["timestamp"] = pd.to_datetime(ddf["timestamp"])
+            ddf = ddf.sort_values("timestamp")
+            last_24 = ddf.tail(24)["demand_mw"].dropna()
+            if len(last_24) >= 6:
+                m = float(last_24.mean())
+                s = float(last_24.std()) or 1.0
+                outliers = int(((last_24 - m).abs() > 2.5 * s).sum())
+                if outliers > 0:
+                    anomaly_clause = (
+                        f"{outliers} hour{'s' if outliers > 1 else ''} of demand sat "
+                        "outside ±2.5σ in the last 24h."
+                    )
+    except Exception as exc:  # pragma: no cover
+        log.warning("risk_insight_anomaly_failed", region=region, error=str(exc))
+
+    # Weather-severity stat: |temperature_2m − 65| ≥ 25 (peak heat / cold band)
+    weather_clause = "Weather is in a comfortable band."
+    try:
+        if weather_json:
+            wdf = pd.read_json(io.StringIO(weather_json))
+            wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
+            wdf = wdf.sort_values("timestamp")
+            recent = wdf.tail(24)
+            if "temperature_2m" in recent.columns and not recent["temperature_2m"].isna().all():
+                temps = recent["temperature_2m"].dropna()
+                t_max = float(temps.max())
+                t_min = float(temps.min())
+                if t_max >= 90:
+                    weather_clause = f"Heat-driven demand risk is elevated (peak {t_max:.0f} °F)."
+                elif t_min <= 30:
+                    weather_clause = f"Cold-driven demand risk is elevated (low {t_min:.0f} °F)."
+                elif t_max >= 80:
+                    weather_clause = f"Temperatures trending warm (peak {t_max:.0f} °F)."
+                elif t_min <= 40:
+                    weather_clause = f"Temperatures trending cool (low {t_min:.0f} °F)."
+    except Exception as exc:  # pragma: no cover
+        log.warning("risk_insight_weather_failed", region=region, error=str(exc))
+
+    body = [
+        anomaly_clause,
+        " ",
+        weather_clause,
+        " Check the timeline above for active alerts.",
+    ]
+    return build_insight_card("Risk summary", body)
+
+
+def _build_weather_context(latest: pd.Series) -> html.Div:
+    """Build a row of weather KPI mini-cards from the latest weather reading."""
+
+    def _val(key: str) -> float | None:
+        # None AND NaN both mean "no reading" — skip the card. (pd.Series coerces
+        # a None to NaN, and archive-unstable columns like wind_speed_80m arrive
+        # NaN, so a plain ``is not None`` check would render a "nan" card.)
+        v = latest.get(key)
+        return float(v) if v is not None and pd.notna(v) else None
+
+    temp = _val("temperature_2m")
+    # 80m is the preferred anemometer height but is archive-unstable (#164);
+    # fall through to 10m when it's missing/NaN, which get()'s default can't do.
+    wind = _val("wind_speed_80m")
+    if wind is None:
+        wind = _val("wind_speed_10m")
+    humidity = _val("relative_humidity_2m")
+    cloud = _val("cloud_cover")
+
+    cards = []
+
+    if temp is not None:
+        t = float(temp)
+        color = "#FF5C7A" if t >= 95 else ("#FFB84D" if t >= 85 else "#2BD67B")
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("TEMPERATURE", className="kpi-label"),
+                        html.H4(
+                            f"{t:.0f}°F",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if wind is not None:
+        w = float(wind)
+        color = "#FF5C7A" if w >= 40 else ("#FFB84D" if w >= 25 else "#2BD67B")
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("WIND SPEED", className="kpi-label"),
+                        html.H4(
+                            f"{w:.0f} mph",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if humidity is not None:
+        h = float(humidity)
+        color = "#FFB84D" if h >= 80 else "#2BD67B"
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("HUMIDITY", className="kpi-label"),
+                        html.H4(
+                            f"{h:.0f}%",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if cloud is not None:
+        c = float(cloud)
+        color = "#A8B3C7"
+        cards.append(
+            dbc.Col(
+                html.Div(
+                    [
+                        html.P("CLOUD COVER", className="kpi-label"),
+                        html.H4(
+                            f"{c:.0f}%",
+                            className="kpi-value",
+                            style={"fontSize": "1.3rem"},
+                        ),
+                    ],
+                    className="kpi-card",
+                    style={"borderTop": f"3px solid {color}"},
+                ),
+                md=3,
+            )
+        )
+
+    if not cards:
+        return html.Div()
+
+    return dbc.Row(cards, className="g-2")
+
+
+# ── Callback registration (Step 10 — register_callbacks split) ──────
 
 __all__ = [
     "_alerts_tab_from_redis",

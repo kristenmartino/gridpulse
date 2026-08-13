@@ -59,6 +59,7 @@ from components._callbacks_shared import (
     _read_vintage_summary,
 )
 from components.accessibility import model_display_name
+from components.cards import build_metrics_bar
 from config import (
     ANCHOR_FED_MODELS,
     FEED_LIMITED_CLASSES,
@@ -926,7 +927,6 @@ def register_models_callbacks(app):
     be deleted entirely — see the per-model coverage check in
     ``_models_tab_from_redis``.
     """
-    from components._callbacks_overview import _build_models_leaderboard
     from components.cards import build_page_title
     from config import REGION_NAMES
 
@@ -1185,6 +1185,98 @@ def register_models_callbacks(app):
             fig_shap = _empty_figure("SHAP is available only for XGBoost. Select XGBoost above.")
 
         return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
+
+
+# Leaderboard MAPEs are 168h-holdout numbers → grade them on the 7d governance
+# band (config.MAPE_BY_HORIZON). Map the H2 grade to a MetricsBar tone so a
+# model's color on the live surface matches the governance rule for the very
+# metric shown, instead of ad-hoc 2.5/5.0 literals (2026-07 review P2-24).
+_MAPE_GRADE_TONE = {
+    "excellent": "positive",
+    "target": "positive",
+    "acceptable": "secondary",
+    "rollback": "negative",
+}
+
+# ── Relocated from ``_callbacks_overview`` (§1c of the GP-P1-04 proposal) ──
+#
+# These render THIS tab's surfaces. They lived in the Overview module only
+# because that module was written first and the panels were prototyped
+# there; every caller has always been here.
+
+
+def _leaderboard_mape_tone(mape: float) -> str:
+    return _MAPE_GRADE_TONE.get(mape_grade(mape, "7d"), "secondary")
+
+
+def _build_models_leaderboard(region: str | None) -> html.Div:
+    """5-up MetricsBar leaderboard — Prophet / SARIMAX / XGBoost / Ensemble / EIA.
+
+    Hero highlight goes to the model with the lowest MAPE. Sub-line shows
+    MAE; tone comes from the H2 governance grade (``mape_grade`` on the 7d
+    band, since these are 168h-holdout MAPEs) via ``_leaderboard_mape_tone``
+    — not ad-hoc thresholds, so the color matches governance (#P2-24).
+    """
+    region = region or "FPL"
+    try:
+        from models.model_service import get_model_metrics
+    except ImportError:  # pragma: no cover
+        return html.Div()
+
+    metrics_dict = get_model_metrics(region) or {}
+    if not metrics_dict:
+        return html.Div(
+            "Model metrics not yet available for this region.",
+            className="gp-panel__placeholder",
+        )
+
+    order = ("prophet", "arima", "xgboost", "ensemble", "eia")
+    display_names = {k: model_display_name(k) for k in order}
+    # EIA is the reference series on this panel, not one of our models —
+    # the only place a longer label than the canonical one is wanted.
+    display_names["eia"] = "EIA Reference"
+
+    # Hero pick: model with lowest mape
+    valid = [(k, v) for k, v in metrics_dict.items() if isinstance(v, dict) and "mape" in v]
+    hero_key = min(valid, key=lambda kv: float(kv[1].get("mape", 999)))[0] if valid else None
+
+    items: list[dict] = []
+    for key in order:
+        if key not in metrics_dict:
+            continue
+        m = metrics_dict[key]
+        if m.get("mape") is None:
+            # An absent metric must render as unavailable, not as 0.0%.
+            items.append(
+                {
+                    "label": display_names.get(key, model_display_name(key)),
+                    "value": "—",
+                    "unit": "metrics unavailable",
+                    "tone": "secondary",
+                    "hero": key == hero_key,
+                }
+            )
+            continue
+        mape = float(m["mape"])
+        mae = m.get("mae")
+        tone = _leaderboard_mape_tone(mape)
+        items.append(
+            {
+                "label": display_names.get(key, model_display_name(key)),
+                "value": f"{mape:.1f}%",
+                "unit": f"MAE {float(mae):,.0f}" if mae is not None else "",
+                "tone": tone,
+                "hero": key == hero_key,
+            }
+        )
+    if not items:
+        return html.Div(
+            "Model metrics not yet available for this region.",
+            className="gp-panel__placeholder",
+        )
+    bar = build_metrics_bar(items)
+    bar.className = f"gp-metrics-bar gp-metrics-bar--{len(items)}up"
+    return bar
 
 
 __all__ = [

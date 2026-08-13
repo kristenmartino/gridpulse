@@ -24,10 +24,16 @@ builders invented signal they could not source. Removed across #513,
 So this file is no longer "the single home for every
 ``_build_overview_*`` / ``_spotlight_*`` helper" — there is no
 ``_spotlight_*`` family any more, and the ``_build_overview_*`` helpers
-that remain are exactly the five the live callback calls. The Overview
-panels (drivers / generation / models leaderboard / risk / scenarios)
-still live here but are called from other tabs' modules; relocating
-them is §1c of the proposal, still open.
+that remain are exactly the five the live callback calls.
+
+§1c — relocating the helpers that render OTHER tabs' surfaces — is half
+done. The models leaderboard went to ``_callbacks_models``; the risk
+insight and weather context went to ``_callbacks_alerts``. The three
+Forecast panels (drivers / generation / scenarios) still live here and
+are still imported by ``_callbacks_forecast``; they move next. Nothing
+about that is load-bearing — the delete above proved the "relocate
+first or live tabs break" precondition binds only when deleting the
+MODULE, not its functions.
 
 What replaces the deleted surface is §3 of
 ``docs/internal/OVERVIEW_DECISION_LAYER_PROPOSAL.md`` — an honest
@@ -62,7 +68,6 @@ from __future__ import annotations
 import io
 import json
 
-import dash_bootstrap_components as dbc
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -90,26 +95,10 @@ from config import (
     REGION_CAPACITY_MW,
     REGION_NAMES,
     REQUIRE_REDIS,
-    mape_grade,
 )
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
-
-# Leaderboard MAPEs are 168h-holdout numbers → grade them on the 7d governance
-# band (config.MAPE_BY_HORIZON). Map the H2 grade to a MetricsBar tone so a
-# model's color on the live surface matches the governance rule for the very
-# metric shown, instead of ad-hoc 2.5/5.0 literals (2026-07 review P2-24).
-_MAPE_GRADE_TONE = {
-    "excellent": "positive",
-    "target": "positive",
-    "acceptable": "secondary",
-    "rollback": "negative",
-}
-
-
-def _leaderboard_mape_tone(mape: float) -> str:
-    return _MAPE_GRADE_TONE.get(mape_grade(mape, "7d"), "secondary")
 
 
 def _read_ensemble_forecast_from_redis(
@@ -1352,137 +1341,6 @@ def _generation_empty() -> html.Div:
     )
 
 
-def _build_models_leaderboard(region: str | None) -> html.Div:
-    """5-up MetricsBar leaderboard — Prophet / SARIMAX / XGBoost / Ensemble / EIA.
-
-    Hero highlight goes to the model with the lowest MAPE. Sub-line shows
-    MAE; tone comes from the H2 governance grade (``mape_grade`` on the 7d
-    band, since these are 168h-holdout MAPEs) via ``_leaderboard_mape_tone``
-    — not ad-hoc thresholds, so the color matches governance (#P2-24).
-    """
-    region = region or "FPL"
-    try:
-        from models.model_service import get_model_metrics
-    except ImportError:  # pragma: no cover
-        return html.Div()
-
-    metrics_dict = get_model_metrics(region) or {}
-    if not metrics_dict:
-        return html.Div(
-            "Model metrics not yet available for this region.",
-            className="gp-panel__placeholder",
-        )
-
-    order = ("prophet", "arima", "xgboost", "ensemble", "eia")
-    display_names = {k: model_display_name(k) for k in order}
-    # EIA is the reference series on this panel, not one of our models —
-    # the only place a longer label than the canonical one is wanted.
-    display_names["eia"] = "EIA Reference"
-
-    # Hero pick: model with lowest mape
-    valid = [(k, v) for k, v in metrics_dict.items() if isinstance(v, dict) and "mape" in v]
-    hero_key = min(valid, key=lambda kv: float(kv[1].get("mape", 999)))[0] if valid else None
-
-    items: list[dict] = []
-    for key in order:
-        if key not in metrics_dict:
-            continue
-        m = metrics_dict[key]
-        if m.get("mape") is None:
-            # An absent metric must render as unavailable, not as 0.0%.
-            items.append(
-                {
-                    "label": display_names.get(key, model_display_name(key)),
-                    "value": "—",
-                    "unit": "metrics unavailable",
-                    "tone": "secondary",
-                    "hero": key == hero_key,
-                }
-            )
-            continue
-        mape = float(m["mape"])
-        mae = m.get("mae")
-        tone = _leaderboard_mape_tone(mape)
-        items.append(
-            {
-                "label": display_names.get(key, model_display_name(key)),
-                "value": f"{mape:.1f}%",
-                "unit": f"MAE {float(mae):,.0f}" if mae is not None else "",
-                "tone": tone,
-                "hero": key == hero_key,
-            }
-        )
-    if not items:
-        return html.Div(
-            "Model metrics not yet available for this region.",
-            className="gp-panel__placeholder",
-        )
-    bar = build_metrics_bar(items)
-    bar.className = f"gp-metrics-bar gp-metrics-bar--{len(items)}up"
-    return bar
-
-
-def _build_risk_insight(
-    region: str | None,
-    demand_json: str | None,
-    weather_json: str | None,
-) -> html.Div:
-    """3-sentence narrative for the Risk tab — composes the same fragments
-    the alerts/stress callback already computes, just rendered as prose."""
-    region = region or "FPL"
-
-    # Demand-anomaly stat: pct of last-24h hours outside ±3σ
-    anomaly_clause = "Demand sits within normal bounds."
-    try:
-        if demand_json:
-            ddf = pd.read_json(io.StringIO(demand_json))
-            ddf["timestamp"] = pd.to_datetime(ddf["timestamp"])
-            ddf = ddf.sort_values("timestamp")
-            last_24 = ddf.tail(24)["demand_mw"].dropna()
-            if len(last_24) >= 6:
-                m = float(last_24.mean())
-                s = float(last_24.std()) or 1.0
-                outliers = int(((last_24 - m).abs() > 2.5 * s).sum())
-                if outliers > 0:
-                    anomaly_clause = (
-                        f"{outliers} hour{'s' if outliers > 1 else ''} of demand sat "
-                        "outside ±2.5σ in the last 24h."
-                    )
-    except Exception as exc:  # pragma: no cover
-        log.warning("risk_insight_anomaly_failed", region=region, error=str(exc))
-
-    # Weather-severity stat: |temperature_2m − 65| ≥ 25 (peak heat / cold band)
-    weather_clause = "Weather is in a comfortable band."
-    try:
-        if weather_json:
-            wdf = pd.read_json(io.StringIO(weather_json))
-            wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
-            wdf = wdf.sort_values("timestamp")
-            recent = wdf.tail(24)
-            if "temperature_2m" in recent.columns and not recent["temperature_2m"].isna().all():
-                temps = recent["temperature_2m"].dropna()
-                t_max = float(temps.max())
-                t_min = float(temps.min())
-                if t_max >= 90:
-                    weather_clause = f"Heat-driven demand risk is elevated (peak {t_max:.0f} °F)."
-                elif t_min <= 30:
-                    weather_clause = f"Cold-driven demand risk is elevated (low {t_min:.0f} °F)."
-                elif t_max >= 80:
-                    weather_clause = f"Temperatures trending warm (peak {t_max:.0f} °F)."
-                elif t_min <= 40:
-                    weather_clause = f"Temperatures trending cool (low {t_min:.0f} °F)."
-    except Exception as exc:  # pragma: no cover
-        log.warning("risk_insight_weather_failed", region=region, error=str(exc))
-
-    body = [
-        anomaly_clause,
-        " ",
-        weather_clause,
-        " Check the timeline above for active alerts.",
-    ]
-    return build_insight_card("Risk summary", body)
-
-
 def _scenario_demand_factor(temp_delta: float, wind_delta: float, solar_delta: float) -> float:
     """Linear demand-sensitivity factor for the scenario simulator heuristic.
 
@@ -1824,120 +1682,6 @@ def _driver_sparkline(df: pd.DataFrame, column: str, color: str, fillcolor: str)
 # ── Overview briefing block (Step 7c — sparklines / briefing / digest / spotlights / persona) ──
 
 
-def _build_weather_context(latest: pd.Series) -> html.Div:
-    """Build a row of weather KPI mini-cards from the latest weather reading."""
-
-    def _val(key: str) -> float | None:
-        # None AND NaN both mean "no reading" — skip the card. (pd.Series coerces
-        # a None to NaN, and archive-unstable columns like wind_speed_80m arrive
-        # NaN, so a plain ``is not None`` check would render a "nan" card.)
-        v = latest.get(key)
-        return float(v) if v is not None and pd.notna(v) else None
-
-    temp = _val("temperature_2m")
-    # 80m is the preferred anemometer height but is archive-unstable (#164);
-    # fall through to 10m when it's missing/NaN, which get()'s default can't do.
-    wind = _val("wind_speed_80m")
-    if wind is None:
-        wind = _val("wind_speed_10m")
-    humidity = _val("relative_humidity_2m")
-    cloud = _val("cloud_cover")
-
-    cards = []
-
-    if temp is not None:
-        t = float(temp)
-        color = "#FF5C7A" if t >= 95 else ("#FFB84D" if t >= 85 else "#2BD67B")
-        cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("TEMPERATURE", className="kpi-label"),
-                        html.H4(
-                            f"{t:.0f}°F",
-                            className="kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
-            )
-        )
-
-    if wind is not None:
-        w = float(wind)
-        color = "#FF5C7A" if w >= 40 else ("#FFB84D" if w >= 25 else "#2BD67B")
-        cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("WIND SPEED", className="kpi-label"),
-                        html.H4(
-                            f"{w:.0f} mph",
-                            className="kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
-            )
-        )
-
-    if humidity is not None:
-        h = float(humidity)
-        color = "#FFB84D" if h >= 80 else "#2BD67B"
-        cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("HUMIDITY", className="kpi-label"),
-                        html.H4(
-                            f"{h:.0f}%",
-                            className="kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
-            )
-        )
-
-    if cloud is not None:
-        c = float(cloud)
-        color = "#A8B3C7"
-        cards.append(
-            dbc.Col(
-                html.Div(
-                    [
-                        html.P("CLOUD COVER", className="kpi-label"),
-                        html.H4(
-                            f"{c:.0f}%",
-                            className="kpi-value",
-                            style={"fontSize": "1.3rem"},
-                        ),
-                    ],
-                    className="kpi-card",
-                    style={"borderTop": f"3px solid {color}"},
-                ),
-                md=3,
-            )
-        )
-
-    if not cards:
-        return html.Div()
-
-    return dbc.Row(cards, className="g-2")
-
-
-# ── Callback registration (Step 10 — register_callbacks split) ──────
-
-
 def register_overview_callbacks(app):
     """Register Overview-tab callbacks with the Dash app.
 
@@ -2044,12 +1788,9 @@ __all__ = [
     "_driver_cell_empty",
     "_build_generation_panel",
     "_generation_empty",
-    "_build_models_leaderboard",
-    "_build_risk_insight",
     "_build_scenarios_panel",
     "_driver_sparkline",
     # 7c — Overview briefing surface
-    "_build_weather_context",
     # 10a — Callback registration
     "register_overview_callbacks",
 ]
