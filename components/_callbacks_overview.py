@@ -748,8 +748,26 @@ def _build_overview_insight(
     demand_df: pd.DataFrame | None,
     persona_id: str,
     artifact_exclusions: list[dict] | None = None,
+    weather_df: pd.DataFrame | None = None,
 ) -> html.Div:
-    """3-sentence narrative paragraph with semantic-color delta spans."""
+    """Narrative paragraph with semantic-color delta spans, then role-specific lines.
+
+    The narrative is identical for every persona — demand level, last-24h
+    peak, next-24h forecast with live MAPE and staleness disclosure. What
+    varies is what follows it: ``generate_tab1_insights`` emits observations
+    tagged with ``persona_relevance``, and ``_filter_for_persona`` keeps and
+    ranks the ones this role cares about. Grid Ops sees ramp rate and
+    variability; Renewables sees the temperature-demand correlation; the
+    Data Scientist leads with variability.
+
+    Before #523 the persona changed only the eyebrow label — four words —
+    which is why the landing page's "role-aware briefing" claim was reworded
+    away in #522. This is the half that earns it back.
+
+    The ``peak_demand`` insight is dropped: the narrative above already
+    states the last-24h peak, and the two together read as a stutter. Matched
+    on ``metric_name``, not on the rendered string.
+    """
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
         return build_insight_card(
             "Summary",
@@ -884,7 +902,23 @@ def _build_overview_insight(
     # verdict. clean/unknown/missing → silence — callouts stay rare, which is
     # what keeps them credible.
     body.extend(_provenance_note(region))
-    # Persona influences eyebrow only — keeps the card tonally consistent
+
+    # #523: the role-aware half. Appended as sentences rather than a bullet
+    # list because ``build_insight_card`` renders ``body`` inside an
+    # ``html.P`` — nesting a ``<ul>`` there is invalid HTML and browsers
+    # break the paragraph around it.
+    try:
+        from components.insights import generate_tab1_insights
+
+        for ins in generate_tab1_insights(persona_id, region, demand_df, weather_df):
+            # The narrative already reported the peak two sentences ago.
+            if ins.metric_name == "peak_demand":
+                continue
+            body.append(f" {ins.text}")
+    except Exception as exc:  # pragma: no cover — never let this drop the card
+        log.warning("overview_insight_persona_lines_failed", region=region, error=str(exc))
+
+    # Eyebrow names the role; the lines above are what make it true.
     eyebrow_map = {
         "grid_ops": "Operating summary",
         "renewables": "Renewables outlook",
@@ -1948,8 +1982,22 @@ def register_overview_callbacks(app):
             demand_df = None
             if demand_json:
                 demand_df = pd.read_json(io.StringIO(demand_json))
-            # weather_json reserved for a future inline drivers panel
-            del weather_json
+            # #523: weather feeds the Renewables persona's temperature-demand
+            # line in the insight card. Without it that persona gets nothing
+            # role-specific at all — the one it most needs. Parsing a store
+            # payload is CPU, not a web-tier I/O-guardrail read; the writer
+            # serialises it exactly like demand-store above.
+            #
+            # Caught in its own try: weather here is an ENRICHMENT, so a
+            # malformed payload must cost the enrichment, not the page. The
+            # enclosing handler returns an error div for all five outputs,
+            # which would blank the whole Overview over one optional sentence.
+            weather_df = None
+            if weather_json:
+                try:
+                    weather_df = pd.read_json(io.StringIO(weather_json))
+                except Exception as exc:
+                    log.warning("overview_weather_parse_failed", region=region, error=str(exc))
             artifact_exclusions = _exclusions_from_freshness(freshness_data)
 
             # 1. Title block (region name + subtitle)
@@ -1967,7 +2015,9 @@ def register_overview_callbacks(app):
             model_card = _build_overview_model_card(region)
 
             # 5. InsightCard
-            insight = _build_overview_insight(region, demand_df, persona_id, artifact_exclusions)
+            insight = _build_overview_insight(
+                region, demand_df, persona_id, artifact_exclusions, weather_df
+            )
 
             return (title, metrics_bar, chart, model_card, insight)
         except Exception as exc:

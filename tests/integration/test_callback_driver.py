@@ -268,3 +268,74 @@ class TestSerialisation:
         )
         assert result.ok
         json.dumps(result.payload)  # raises if anything slipped through
+
+
+class TestOverviewInsightIsRoleAwareThroughDispatch:
+    """#523 through the real callback, not the helper.
+
+    The unit tests call ``_build_overview_insight`` directly. This tier is
+    what proves the wiring: the callback now parses ``weather-store`` and
+    passes it on, so an argument-order mistake or a store the callback cannot
+    read is visible here and nowhere else.
+    """
+
+    @staticmethod
+    def _stores() -> tuple[str, str]:
+        import numpy as np
+        import pandas as pd
+
+        rng = pd.date_range("2026-08-05", periods=168, freq="h", tz="UTC")
+        h = np.arange(168)
+        demand = pd.DataFrame(
+            {"timestamp": rng, "demand_mw": 20000 + 4000 * np.sin(2 * np.pi * (h - 10) / 24)}
+        )
+        weather = pd.DataFrame(
+            {
+                "timestamp": rng,
+                "temperature_2m": 70 + 15 * np.sin(2 * np.pi * (h - 10) / 24),
+                "wind_speed_80m": np.linspace(4, 26, 168),
+                "shortwave_radiation": np.clip(600 * np.sin(2 * np.pi * h / 24), 0, None),
+            }
+        )
+        # Exactly how the store writer serialises them (callbacks.py:254).
+        return demand.to_json(date_format="iso"), weather.to_json(date_format="iso")
+
+    def _insight_text(self, driver: DashDriver, persona: str, weather_json: str | None) -> str:
+        demand_json, wj = self._stores()
+        res = driver.dispatch(
+            "overview-insight-card.children",
+            inputs={
+                "demand-store": demand_json,
+                "dashboard-tabs": "tab-overview",
+                "persona-selector": persona,
+            },
+            state={
+                "weather-store": wj if weather_json is None else weather_json,
+                "region-selector": "PJM",
+                "data-freshness-store": None,
+            },
+        )
+        assert res.ok, f"dispatch failed: {res.status}"
+        return res.text("overview-insight-card")
+
+    def test_personas_get_different_insight_text_through_dispatch(self, driver: DashDriver) -> None:
+        bodies = {
+            p: self._insight_text(driver, p, None)
+            for p in ("grid_ops", "renewables", "trader", "data_scientist")
+        }
+        assert all(bodies.values()), "callback returned an empty insight card"
+        assert len(set(bodies.values())) == 4, (
+            "the persona must change the card body through the real callback, "
+            f"not only in a direct helper call: { {k: v[:50] for k, v in bodies.items()} }"
+        )
+
+    def test_malformed_weather_store_does_not_blank_the_overview(self, driver: DashDriver) -> None:
+        """Weather is an enrichment; a bad payload must cost the sentence, not the page.
+
+        The callback's outer handler returns an error div for all five
+        outputs, so an unguarded ``read_json`` here would blank the whole
+        Overview over one optional line.
+        """
+        text = self._insight_text(driver, "renewables", "{not valid json")
+        assert "Demand is" in text
+        assert "Error" not in text and "error" not in text

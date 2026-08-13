@@ -11,6 +11,7 @@ Covers:
   training holdout → None
 * "Last 24h peak" label in insight body (was the ambiguous "Recent
   peak")
+* #523 — the insight card varies its BODY by persona, not just its eyebrow
 """
 
 from __future__ import annotations
@@ -279,6 +280,103 @@ class TestInsightBodyLabel:
         assert "Last 24h peak:" in text
         # Old label is gone
         assert "Recent peak:" not in text
+
+
+# ── #523: the insight card is role-aware in its BODY, not just its label ──
+
+
+class TestInsightCardIsRoleAware:
+    """Before #523 the persona picked a four-word eyebrow and nothing else.
+
+    That gap is why the landing page's "role-aware briefing" claim was
+    reworded away in #522. These pin the claim being true, so it can go back.
+    """
+
+    @staticmethod
+    def _weather_df(last_ts: str = "2026-05-20 14:00") -> pd.DataFrame:
+        end = pd.Timestamp(last_ts, tz="UTC")
+        ts = pd.date_range(end=end, periods=168, freq="h")
+        hours = np.arange(168)
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "temperature_2m": 70 + 15 * np.sin(2 * np.pi * (hours - 10) / 24),
+                "wind_speed_80m": np.linspace(4, 26, 168),
+                "shortwave_radiation": np.clip(600 * np.sin(2 * np.pi * hours / 24), 0, None),
+            }
+        )
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_every_persona_gets_a_different_body(self, _mock_redis):
+        from components._callbacks_overview import _build_overview_insight
+
+        df, wdf = _demand_df(), self._weather_df()
+        bodies = {
+            p: _all_text(_build_overview_insight("PJM", df, p, None, wdf))
+            for p in ("grid_ops", "renewables", "trader", "data_scientist")
+        }
+        assert len(set(bodies.values())) == 4, (
+            "personas must differ in body text, not only in the eyebrow label: "
+            f"{ {k: v[:60] for k, v in bodies.items()} }"
+        )
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_renewables_gets_the_weather_line(self, _mock_redis):
+        """The persona that most needs differentiation is the one weather serves."""
+        from components._callbacks_overview import _build_overview_insight
+
+        text = _all_text(
+            _build_overview_insight("PJM", _demand_df(), "renewables", None, self._weather_df())
+        )
+        assert "orrelation" in text and "emperature" in text
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_grid_ops_gets_operational_lines(self, _mock_redis):
+        from components._callbacks_overview import _build_overview_insight
+
+        text = _all_text(
+            _build_overview_insight("PJM", _demand_df(), "grid_ops", None, self._weather_df())
+        )
+        assert "ramp rate" in text.lower()
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_peak_is_not_stated_twice(self, _mock_redis):
+        """The narrative already reports the peak; the generator repeats it."""
+        from components._callbacks_overview import _build_overview_insight
+
+        text = _all_text(
+            _build_overview_insight("PJM", _demand_df(), "grid_ops", None, self._weather_df())
+        )
+        assert "Last 24h peak:" in text
+        assert "Peak demand reached" not in text
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_no_weather_still_renders(self, _mock_redis):
+        """Weather store empty (cold start) must not drop the card."""
+        from components._callbacks_overview import _build_overview_insight
+
+        text = _all_text(_build_overview_insight("PJM", _demand_df(), "renewables", None, None))
+        assert "Demand is" in text
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_empty_state_unchanged(self, _mock_redis):
+        """No demand → the honest awaiting-data card, not persona lines."""
+        from components._callbacks_overview import _build_overview_insight
+
+        text = _all_text(_build_overview_insight("PJM", None, "grid_ops"))
+        assert "Awaiting demand data" in text
+        assert "ramp rate" not in text.lower()
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_generator_failure_does_not_drop_the_card(self, _mock_redis):
+        """The role-aware half is additive: if it raises, the narrative survives."""
+        from components._callbacks_overview import _build_overview_insight
+
+        with patch("components.insights.generate_tab1_insights", side_effect=RuntimeError("boom")):
+            text = _all_text(
+                _build_overview_insight("PJM", _demand_df(), "grid_ops", None, self._weather_df())
+            )
+        assert "Last 24h peak:" in text
 
 
 def _all_text(node) -> str:
