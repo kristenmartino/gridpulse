@@ -1,6 +1,6 @@
 """Unit tests for the Risk-tab "Current Conditions" cards.
 
-Covers ``_build_weather_context`` in ``components/_callbacks_overview.py``. It
+Covers ``_build_weather_context`` in ``components/_callbacks_alerts.py``. It
 renders one KPI mini-card per available reading (temperature / wind / humidity /
 cloud). Two behaviors this pins:
 
@@ -39,7 +39,7 @@ def _card_labels(div) -> list[str]:
 
 class TestBuildWeatherContext:
     def test_all_four_cards_when_all_present(self):
-        from components._callbacks_overview import _build_weather_context
+        from components._callbacks_alerts import _build_weather_context
 
         s = pd.Series(
             {
@@ -57,7 +57,7 @@ class TestBuildWeatherContext:
         ]
 
     def test_none_and_nan_fields_are_skipped_not_rendered_as_nan(self):
-        from components._callbacks_overview import _build_weather_context
+        from components._callbacks_alerts import _build_weather_context
 
         # None (coerced to NaN by pd.Series) and an explicit NaN must both be
         # dropped — never a "nan%" card.
@@ -74,20 +74,20 @@ class TestBuildWeatherContext:
         assert labels == ["TEMPERATURE", "CLOUD COVER"]  # no wind, no humidity
 
     def test_wind_falls_back_from_80m_to_10m(self):
-        from components._callbacks_overview import _build_weather_context
+        from components._callbacks_alerts import _build_weather_context
 
         s = pd.Series({"temperature_2m": 90.0, "wind_speed_80m": np.nan, "wind_speed_10m": 12.0})
         labels = _card_labels(_build_weather_context(s))
         assert "WIND SPEED" in labels  # 10m carried it
 
     def test_temperature_only_renders_one_card(self):
-        from components._callbacks_overview import _build_weather_context
+        from components._callbacks_alerts import _build_weather_context
 
         labels = _card_labels(_build_weather_context(pd.Series({"temperature_2m": 90.0})))
         assert labels == ["TEMPERATURE"]
 
     def test_empty_reading_renders_nothing(self):
-        from components._callbacks_overview import _build_weather_context
+        from components._callbacks_alerts import _build_weather_context
 
         div = _build_weather_context(pd.Series({}, dtype=float))
         assert _card_labels(div) == []

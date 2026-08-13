@@ -65,13 +65,13 @@ from components._callbacks_generation import (
 )
 from components._callbacks_models import (
     _build_drift_panel,  # noqa: F401 — re-export (tests/unit/test_drift_panel.py — #121 part 2)
+    _build_models_leaderboard,  # noqa: F401 — re-export (tests/unit/test_models_tab_consistency.py)
     _format_metric,  # noqa: F401 — re-export (callback now lives in _callbacks_models)
     _get_feature_importance,  # noqa: F401 — re-export (callback now lives in _callbacks_models)
     _models_tab_from_redis,  # noqa: F401 — re-export (callback now lives in _callbacks_models)
     register_models_callbacks,
 )
 from components._callbacks_overview import (
-    _build_models_leaderboard,  # noqa: F401 — re-export (tests/unit/test_models_tab_consistency.py)
     _build_overview_hero_chart,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_insight,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_metrics_items,  # noqa: F401 — re-export (tests/unit/test_overview_metrics_nan_guard.py)

@@ -18,7 +18,7 @@ import pytest
 
 class TestLeaderboardGovernanceTone:
     def test_tone_matches_mape_grade_not_inline_thresholds(self):
-        from components._callbacks_overview import _leaderboard_mape_tone
+        from components._callbacks_models import _leaderboard_mape_tone
 
         # 5.5% is "excellent" on the 7d band (excellent <= 6.0) → positive.
         # The old inline rule painted anything > 5.0 negative — the bug.
@@ -31,7 +31,7 @@ class TestLeaderboardGovernanceTone:
         assert _leaderboard_mape_tone(25.0) == "negative"
 
     def test_agrees_with_config_mape_grade(self):
-        from components._callbacks_overview import _MAPE_GRADE_TONE, _leaderboard_mape_tone
+        from components._callbacks_models import _MAPE_GRADE_TONE, _leaderboard_mape_tone
         from config import mape_grade
 
         for mape in (0.5, 6.0, 9.0, 15.0, 22.0, 30.0):
