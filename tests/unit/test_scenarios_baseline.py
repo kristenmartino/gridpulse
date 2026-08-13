@@ -28,19 +28,19 @@ def _fig_annotations(fig) -> str:
 
 class TestScenariosBaseline:
     def test_uses_redis_reader_not_get_forecasts(self):
-        import components._callbacks_overview as ov
+        import components._callbacks_forecast as fc
 
         ts = pd.date_range("2026-06-22", periods=24, freq="h", tz="UTC")
         ensemble = np.full(24, 30000.0)
         with (
             patch.object(
-                ov,
+                fc,
                 "_read_ensemble_forecast_from_redis",
                 return_value=(ts, ensemble, "2026-06-22T00:00:00Z"),
             ) as reader,
             patch("models.model_service.get_forecasts") as gf,
         ):
-            kpi, fig = ov._build_scenarios_panel(5, 0, 0, "ERCOT", _demand_json())
+            kpi, fig = fc._build_scenarios_panel(5, 0, 0, "ERCOT", _demand_json())
 
         reader.assert_called_once()
         gf.assert_not_called()  # no disk-touching / strict-gated call in the request path
@@ -49,13 +49,13 @@ class TestScenariosBaseline:
         assert "Awaiting baseline forecast" not in _fig_annotations(fig)
 
     def test_redis_miss_shows_awaiting_not_fabricated(self):
-        import components._callbacks_overview as ov
+        import components._callbacks_forecast as fc
 
         with (
-            patch.object(ov, "_read_ensemble_forecast_from_redis", return_value=None),
+            patch.object(fc, "_read_ensemble_forecast_from_redis", return_value=None),
             patch("models.model_service.get_forecasts") as gf,
         ):
-            kpi, fig = ov._build_scenarios_panel(5, 0, 0, "ERCOT", _demand_json())
+            kpi, fig = fc._build_scenarios_panel(5, 0, 0, "ERCOT", _demand_json())
 
         gf.assert_not_called()
         # Honest empty state, never a fabricated baseline.

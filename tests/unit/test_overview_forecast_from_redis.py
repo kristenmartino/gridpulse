@@ -86,30 +86,30 @@ def _redis_forecast_payload(
 class TestReadEnsembleForecastFromRedis:
     """The new helper ``_read_ensemble_forecast_from_redis``."""
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_returns_none_when_cache_miss(self, mock_redis_get):
-        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+        from components._callbacks_shared import _read_ensemble_forecast_from_redis
 
         mock_redis_get.return_value = None
         assert _read_ensemble_forecast_from_redis("FPL") is None
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_returns_none_when_forecasts_empty(self, mock_redis_get):
-        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+        from components._callbacks_shared import _read_ensemble_forecast_from_redis
 
         mock_redis_get.return_value = {"region": "FPL", "forecasts": []}
         assert _read_ensemble_forecast_from_redis("FPL") is None
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_returns_none_when_payload_is_not_dict(self, mock_redis_get):
-        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+        from components._callbacks_shared import _read_ensemble_forecast_from_redis
 
         mock_redis_get.return_value = "not a dict"  # malformed
         assert _read_ensemble_forecast_from_redis("FPL") is None
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_returns_timestamps_predictions_scored_at_when_warm(self, mock_redis_get):
-        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+        from components._callbacks_shared import _read_ensemble_forecast_from_redis
 
         mock_redis_get.return_value = _redis_forecast_payload()
         result = _read_ensemble_forecast_from_redis("FPL")
@@ -123,9 +123,9 @@ class TestReadEnsembleForecastFromRedis:
         # scored_at threaded through
         assert scored_at == "2026-05-20T09:02:00+00:00"
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_falls_back_to_predicted_demand_mw_when_ensemble_missing(self, mock_redis_get):
-        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+        from components._callbacks_shared import _read_ensemble_forecast_from_redis
 
         # Build a payload where rows don't have ensemble (e.g. only XGBoost
         # was loadable during scoring). predicted_demand_mw fallback should
@@ -142,13 +142,13 @@ class TestReadEnsembleForecastFromRedis:
         # fallback path)
         assert predictions[0] == pytest.approx(payload["forecasts"][0]["predicted_demand_mw"])
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_horizon_guard_total_collapse_withholds_hero_series(self, mock_redis_get):
         """#296: when the served series is flagged even at 24h
         (max_ok_horizon < 24 — total collapse), the hero must fall back to
         the actual-only/warming render (None), not draw the degenerate
         line. Flags at longer horizons don't affect the 24h hero bridge."""
-        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+        from components._callbacks_shared import _read_ensemble_forecast_from_redis
 
         payload = _redis_forecast_payload()
         payload["horizon_guard"] = {
@@ -185,9 +185,9 @@ class TestReadEnsembleForecastFromRedis:
         mock_redis_get.return_value = payload
         assert _read_ensemble_forecast_from_redis("FPL") is not None
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_reads_correct_redis_key(self, mock_redis_get):
-        from components._callbacks_overview import _read_ensemble_forecast_from_redis
+        from components._callbacks_shared import _read_ensemble_forecast_from_redis
 
         mock_redis_get.return_value = None
         _read_ensemble_forecast_from_redis("ERCOT")
@@ -199,7 +199,7 @@ class TestReadEnsembleForecastFromRedis:
 class TestHeroChartReadsRedis:
     """``_build_overview_hero_chart`` no longer calls get_forecasts inline."""
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_includes_forecast_trace_when_redis_warm(self, mock_redis_get):
         from components._callbacks_overview import _build_overview_hero_chart
 
@@ -217,7 +217,7 @@ class TestHeroChartReadsRedis:
         # last_actual_ts = 2026-05-20 05:00; forecast_ts[0] = 2026-05-20 06:00
         assert pd.Timestamp(str(forecast_trace.x[1])) == pd.Timestamp("2026-05-20T06:00:00+00:00")
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_omits_forecast_trace_when_redis_cold(self, mock_redis_get):
         """Cold cache → actual-only chart. Does NOT fall back to simulated."""
         from components._callbacks_overview import _build_overview_hero_chart
@@ -230,7 +230,7 @@ class TestHeroChartReadsRedis:
         # Actuals still render
         assert any("Actual" in str(t.name) or t.name is None for t in fig.data)
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_does_not_call_get_forecasts(self, mock_redis_get):
         """Sanity: the new path doesn't accidentally also trigger the
         old inline compute via model_service.get_forecasts. This pins
@@ -242,7 +242,7 @@ class TestHeroChartReadsRedis:
             _build_overview_hero_chart("FPL", _demand_df())
             mock_get_forecasts.assert_not_called()
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_confidence_band_renders_around_real_ensemble(self, mock_redis_get):
         from components._callbacks_overview import _build_overview_hero_chart
 
@@ -282,7 +282,7 @@ class TestHeroChartEmpiricalConfidenceInterval:
     """
 
     @patch("components._callbacks_overview._empirical_interval_from_backtests")
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_empirical_band_used_when_residuals_available(self, mock_redis_get, mock_empirical):
         """When backtest residuals exist (sample_size >= threshold), the
         band is built from additive residual quantiles, NOT ±3 % of
@@ -329,7 +329,7 @@ class TestHeroChartEmpiricalConfidenceInterval:
         )
 
     @patch("components._callbacks_overview._empirical_interval_from_backtests")
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_heuristic_fallback_when_residuals_insufficient(self, mock_redis_get, mock_empirical):
         """When the calibration window is too small (first week
         post-deploy / newly-added region), the helper returns
@@ -360,7 +360,7 @@ class TestHeroChartEmpiricalConfidenceInterval:
         )
 
     @patch("components._callbacks_overview._empirical_interval_from_backtests")
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_empirical_helper_called_with_correct_args(self, mock_redis_get, mock_empirical):
         """The hero chart shows a 24-hour ensemble forecast, so the
         empirical helper must be called with model_name='ensemble' and
@@ -384,7 +384,7 @@ class TestHeroChartEmpiricalConfidenceInterval:
 class TestInsightSummaryReadsRedis:
     """``_build_overview_insight``'s forecast clause uses real Redis timestamps."""
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     @patch("models.model_service.get_model_metrics")
     def test_forecast_clause_uses_real_peak_timestamp(self, mock_metrics, mock_redis_get):
         from components._callbacks_overview import _build_overview_insight
@@ -406,7 +406,7 @@ class TestInsightSummaryReadsRedis:
             "22,500" in rendered_text or "22,499" in rendered_text or "22,500 MW" in rendered_text
         )
 
-    @patch("components._callbacks_overview.redis_get")
+    @patch("components._callbacks_shared.redis_get")
     def test_forecast_clause_drops_when_redis_cold(self, mock_redis_get):
         """Cold cache → no fabricated forecast clause from simulated."""
         from components._callbacks_overview import _build_overview_insight

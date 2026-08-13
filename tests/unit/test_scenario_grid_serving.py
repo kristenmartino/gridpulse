@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 import config
-from components._callbacks_overview import _scenario_demand_factor, _scenario_factors
+from components._callbacks_forecast import _scenario_demand_factor, _scenario_factors
 from simulation.scenario_grid import grid_axes
 
 HOURS = 24

@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from components._callbacks_overview import (
+from components._callbacks_forecast import (
     _build_scenarios_panel,
     _scenario_demand_factor,
 )

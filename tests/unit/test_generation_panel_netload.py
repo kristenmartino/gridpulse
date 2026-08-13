@@ -34,12 +34,12 @@ def _demand_json(n_hours: int = 24, base_ts: str = "2026-07-01 00:00:00") -> str
 
 
 class TestNetLoadKpiHonesty:
-    @patch("components._callbacks_overview._fetch_generation_cached")
+    @patch("components._callbacks_forecast._fetch_generation_cached")
     def test_missing_demand_renders_degraded_cell_not_total_generation(self, mock_fetch):
         """No demand store (every cold/warming page load): the hero cell must
         show an em-dash + disclosure — NOT avg total generation (37,000 MW
         here) under the net-load label."""
-        from components._callbacks_overview import _build_generation_panel
+        from components._callbacks_forecast import _build_generation_panel
 
         mock_fetch.return_value = _gen_df()
         panel = str(_build_generation_panel("FPL", demand_json=None))
@@ -51,11 +51,11 @@ class TestNetLoadKpiHonesty:
         # under the net-load label.
         assert "37,000" not in panel
 
-    @patch("components._callbacks_overview._fetch_generation_cached")
+    @patch("components._callbacks_forecast._fetch_generation_cached")
     def test_misaligned_demand_renders_degraded_cell(self, mock_fetch):
         """Demand present but sharing <2 timestamps with generation — the
         alignment failure must also degrade honestly."""
-        from components._callbacks_overview import _build_generation_panel
+        from components._callbacks_forecast import _build_generation_panel
 
         mock_fetch.return_value = _gen_df(base_ts="2026-07-01 00:00:00")
         misaligned = _demand_json(base_ts="2026-06-01 00:00:00")
@@ -64,12 +64,12 @@ class TestNetLoadKpiHonesty:
         assert "demand data unavailable" in panel
         assert "37,000" not in panel
 
-    @patch("components._callbacks_overview._fetch_generation_cached")
+    @patch("components._callbacks_forecast._fetch_generation_cached")
     def test_all_nan_demand_renders_degraded_cell_not_nan_mw(self, mock_fetch):
         """Aligned timestamps but all-NaN demand values: mean() is NaN, and
         the cell must degrade honestly — never render \"nan MW\" (verification
         finding on the first cut of this fix)."""
-        from components._callbacks_overview import _build_generation_panel
+        from components._callbacks_forecast import _build_generation_panel
 
         mock_fetch.return_value = _gen_df()
         ts = pd.date_range("2026-07-01 00:00:00", periods=24, freq="h")
@@ -81,10 +81,10 @@ class TestNetLoadKpiHonesty:
         assert "demand data unavailable" in panel
         assert "nan" not in panel.lower().replace("unavailable", "")
 
-    @patch("components._callbacks_overview._fetch_generation_cached")
+    @patch("components._callbacks_forecast._fetch_generation_cached")
     def test_aligned_demand_renders_real_net_load(self, mock_fetch):
         """Happy path: net load = demand − wind − solar = 34k − 5k − 2k = 27k."""
-        from components._callbacks_overview import _build_generation_panel
+        from components._callbacks_forecast import _build_generation_panel
 
         mock_fetch.return_value = _gen_df()
         panel = str(_build_generation_panel("FPL", demand_json=_demand_json()))

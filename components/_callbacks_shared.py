@@ -31,10 +31,14 @@ import textwrap
 import threading
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
+import structlog
 
 from components.accessibility import CB_PALETTE
 from data.redis_client import redis_get, redis_key
+
+log = structlog.get_logger()
 
 # ── Cache state ──────────────────────────────────────────────────────
 #
@@ -791,7 +795,86 @@ def _read_vintage_summary(region: str) -> dict | None:
         return None
 
 
+# ── Ensemble-forecast reader (cross-tab) ─────────────────────────────
+#
+# The Overview hero chart and insight card read the scored ensemble to
+# narrate it; the Forecast tab's scenarios panel reads the same payload
+# for its baseline. Living here lets both import it without either tab
+# module depending on the other (§1c of the GP-P1-04 proposal).
+
+
+def _read_ensemble_forecast_from_redis(
+    region: str,
+) -> tuple[list[pd.Timestamp], np.ndarray, str | None] | None:
+    """Read the live ensemble forecast from ``gridpulse:forecast:{region}:1h``.
+
+    The Forecast tab already reads from this key (via
+    ``_outlook_tab_from_redis`` in ``_callbacks_forecast.py``). This helper
+    extracts the same shape for the Overview hero chart + insight card so
+    those surfaces stop falling back to ``models.model_service._simulate_forecasts``,
+    which was producing noisy historical actuals displayed as forward
+    forecasts (CLAUDE.md "Redis-only reads in the web tier" invariant
+    violation discovered 2026-05-20).
+
+    Returns:
+        ``(timestamps, ensemble_predictions, scored_at)`` when the Redis
+        payload exists and contains an ``ensemble`` key per row.
+        ``None`` when Redis is cold, the payload is malformed, or the
+        ensemble column isn't populated — the caller should render the
+        actual-only / warming state in that case (never the simulated
+        baseline).
+    """
+    cached = redis_get(redis_key(f"forecast:{region}:1h"))
+    if not isinstance(cached, dict):
+        return None
+    forecasts = cached.get("forecasts") or []
+    if not forecasts:
+        return None
+
+    # Prefer the explicit ensemble column. Fall back to predicted_demand_mw
+    # (which mirrors the primary model — XGBoost by default) only when the
+    # ensemble entry is missing entirely. We deliberately do not fall back
+    # to a single base model masquerading as ensemble.
+    first_row = forecasts[0]
+    if "ensemble" in first_row:
+        pred_key = "ensemble"
+    elif "predicted_demand_mw" in first_row:
+        pred_key = "predicted_demand_mw"
+    else:
+        return None
+
+    # #296: honor the scoring job's horizon guard. The hero draws a 24h
+    # forecast bridge, so only a series flagged even at 24h (total
+    # collapse, max_ok_horizon < 24) is withheld — falling back to the
+    # existing actual-only / warming render rather than drawing a
+    # degenerate line. Malformed guard shapes fail open (see
+    # ``_guard_max_ok``).
+    guard_map = cached.get("horizon_guard")
+    if isinstance(guard_map, dict):
+        guarded_series = (
+            pred_key if pred_key == "ensemble" else str(cached.get("primary_model", ""))
+        )
+        max_ok = _guard_max_ok(guard_map.get(guarded_series))
+        if max_ok is not None and max_ok < 24:
+            log.info(
+                "overview_hero_horizon_guard_withheld",
+                region=region,
+                model=guarded_series,
+            )
+            return None
+
+    try:
+        timestamps = [pd.to_datetime(row["timestamp"]) for row in forecasts]
+        predictions = np.array([float(row.get(pred_key, 0)) for row in forecasts], dtype=float)
+    except (KeyError, TypeError, ValueError) as exc:
+        log.warning("overview_forecast_redis_parse_failed", region=region, error=str(exc))
+        return None
+
+    return timestamps, predictions, cached.get("scored_at")
+
+
 __all__ = [
+    "_read_ensemble_forecast_from_redis",
     "_read_vintage_summary",
     # Caches + lock
     "_cache_lock",

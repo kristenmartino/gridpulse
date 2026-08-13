@@ -56,6 +56,7 @@ from components._callbacks_forecast import (
     _add_trailing_actuals,  # noqa: F401 — re-export (callback now lives in _callbacks_forecast)
     _confidence_half_width,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
     _create_future_features,  # noqa: F401 — re-export (tests/unit/test_callbacks_helpers.py)
+    _fetch_generation_cached,  # noqa: F401 — re-export (tests/unit/test_callbacks_*)
     _outlook_tab_from_redis,  # noqa: F401 — re-export (callback now lives in _callbacks_forecast)
     _run_forecast_outlook,  # noqa: F401 — re-export (callback now lives in _callbacks_forecast)
     register_forecast_callbacks,
@@ -77,7 +78,6 @@ from components._callbacks_overview import (
     _build_overview_metrics_items,  # noqa: F401 — re-export (tests/unit/test_overview_metrics_nan_guard.py)
     _build_overview_model_card,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
     _build_overview_title,  # noqa: F401 — re-export (callback now lives in _callbacks_overview)
-    _fetch_generation_cached,  # noqa: F401 — re-export (tests/unit/test_callbacks_*)
     register_overview_callbacks,
 )
 from components._callbacks_shared import (
