@@ -188,7 +188,7 @@ class TestTheGridRecoversTheModelsSensitivity:
         value below 1.0 for warming. Both are asserted here, and neither can be
         satisfied by a lucky constant.
         """
-        from components._callbacks_overview import _scenario_demand_factor
+        from components._callbacks_forecast import _scenario_demand_factor
 
         heuristic = _scenario_demand_factor(20.0, 0.0, 0.0)
         cooling = _mean_factor(cooling_ba, 20.0)

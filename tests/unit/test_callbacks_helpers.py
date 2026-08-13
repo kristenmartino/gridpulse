@@ -2032,7 +2032,7 @@ class TestChartHelpersDoNotCollideOnAxisKwargs:
         Not re-exported via the callbacks shim (internal Overview
         helper) — import from the per-tab module directly.
         """
-        from components._callbacks_overview import _driver_sparkline
+        from components._callbacks_forecast import _driver_sparkline
 
         wdf = self._weather_df(periods=24)
         fig = _driver_sparkline(wdf, "temperature_2m", "#3b82f6", "rgba(0,0,0,0.1)")

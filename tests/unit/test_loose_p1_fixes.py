@@ -70,10 +70,10 @@ class TestGenerationRedisFirst:
         }
 
     def test_reads_and_unpivots_redis_payload(self):
-        import components._callbacks_overview as ov
+        import components._callbacks_forecast as fc
 
-        with patch.object(ov, "redis_get", return_value=self._redis_payload()):
-            df = ov._fetch_generation_cached("ERCOT")
+        with patch.object(fc, "redis_get", return_value=self._redis_payload()):
+            df = fc._fetch_generation_cached("ERCOT")
 
         assert df is not None
         assert set(df.columns) >= {"timestamp", "fuel_type", "generation_mw", "region"}
@@ -81,14 +81,14 @@ class TestGenerationRedisFirst:
         assert len(df) == 6  # 2 fuels x 3 hours
 
     def test_require_redis_miss_returns_none_without_eia_fetch(self):
-        import components._callbacks_overview as ov
+        import components._callbacks_forecast as fc
 
         with (
-            patch.object(ov, "REQUIRE_REDIS", True),
-            patch.object(ov, "redis_get", return_value=None),
+            patch.object(fc, "REQUIRE_REDIS", True),
+            patch.object(fc, "redis_get", return_value=None),
             patch("data.eia_client.fetch_generation_by_fuel") as eia,
         ):
-            out = ov._fetch_generation_cached("ERCOT")
+            out = fc._fetch_generation_cached("ERCOT")
 
         assert out is None
         eia.assert_not_called()  # the guardrail: no EIA in the web request path

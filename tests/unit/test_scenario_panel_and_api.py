@@ -70,7 +70,7 @@ class TestTheLabelTracksTheEngine:
         ids=["grid", "heuristic"],
     )
     def test_the_source_is_reported_for_whichever_engine_ran(self, monkeypatch, flag, expected):
-        from components._callbacks_overview import _scenario_factors
+        from components._callbacks_forecast import _scenario_factors
 
         monkeypatch.setitem(config.FEATURE_FLAGS, "scenario_grid", flag)
         if flag:

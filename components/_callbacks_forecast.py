@@ -70,24 +70,34 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import structlog
-from dash import ALL, Input, Output, State, ctx, html, no_update
+from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
 from components._callbacks_shared import (
     _CACHE_VERSION,
+    _EIA_FUEL_MAP,
+    _GENERATION_CACHE,
     _MODEL_BAND_COLORS,
     _MODEL_CACHE,
     _PREDICTION_CACHE,
     COLORS,
     _compute_data_hash,
     _empirical_interval_from_backtests,
+    _empty_figure,
     _guard_max_ok,
     _layout,
     _pipeline_alive,
+    _read_ensemble_forecast_from_redis,
     _scoring_pass_completed_since_actuals,
     _widening_interval_from_backtests,
 )
 from components.accessibility import LINE_STYLES, model_display_name
-from config import CACHE_TTL_SECONDS, OPEN_METEO_FORECAST_HOURS, REQUIRE_REDIS
+from components.cards import build_metrics_bar
+from config import (
+    CACHE_TTL_SECONDS,
+    OPEN_METEO_FORECAST_HOURS,
+    REGION_CAPACITY_MW,
+    REQUIRE_REDIS,
+)
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -1297,19 +1307,13 @@ def register_forecast_callbacks(app):
       (``_run_forecast_outlook``).
     * Two Forecast-Replay callbacks (NEXD-14 selector + overlay).
 
-    The callbacks reach into ``_callbacks_overview`` for three panel
-    builders that originally lived in callbacks.py (drivers /
-    generation / scenarios) — those have always belonged to the
-    Forecast tab in spirit but the Overview module retained the
-    helpers during Step 7b/7c. Importing them lazily here keeps the
-    dependency graph one-way (Forecast → Overview) and avoids a
-    circular import at module load.
+    The three panel builders (drivers / generation / scenarios) now live
+    in THIS module. They were retained by the Overview module through
+    Step 7b/7c and imported lazily from here to keep the dependency
+    one-way; §1c of the GP-P1-04 proposal moved them to the tab that has
+    always rendered them, so there is no cross-module import left to
+    keep one-way.
     """
-    from components._callbacks_overview import (
-        _build_drivers_panel,
-        _build_generation_panel,
-        _build_scenarios_panel,
-    )
     from components.cards import build_model_metrics_card, build_page_title
     from config import REGION_NAMES
 
@@ -1937,6 +1941,773 @@ def register_forecast_callbacks(app):
 
         return fig, ""
 
+
+# ── Relocated from ``_callbacks_overview`` (§1c of the GP-P1-04 proposal) ──
+#
+# Drivers, generation and scenarios render THIS tab's collapsible panels.
+# They were prototyped in the Overview module and every caller has always
+# been here; the import across the boundary was the anomaly.
+
+
+def _generation_df_from_redis(region: str) -> pd.DataFrame | None:
+    """Read the scoring job's ``gridpulse:generation:{region}`` payload and
+    unpivot it to the long ``[timestamp, fuel_type, generation_mw, region]``
+    frame the Generation panel expects.
+
+    The scoring job writes a wide payload (``{timestamps, <fuel>: [...],
+    renewable_pct: [...]}``, fuel names already normalized); this reverses that
+    pivot so the web tier can render generation without touching EIA (#199).
+    """
+    payload = redis_get(redis_key(f"generation:{region}"))
+    if not isinstance(payload, dict):
+        return None
+    timestamps = payload.get("timestamps")
+    if not timestamps:
+        return None
+    skip = {"region", "timestamps", "renewable_pct", "scored_at"}
+    rows: list[dict] = []
+    for fuel, vals in payload.items():
+        if fuel in skip or not isinstance(vals, list):
+            continue
+        for ts, mw in zip(timestamps, vals, strict=False):
+            rows.append({"timestamp": ts, "fuel_type": fuel, "generation_mw": mw, "region": region})
+    if not rows:
+        return None
+    df = pd.DataFrame(rows)
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    return df
+
+
+def _fetch_generation_cached(region: str) -> pd.DataFrame | None:
+    """Return generation-by-fuel for a region, Redis-first.
+
+    The stateless web tier must not fetch EIA in the request path — the scoring
+    job writes ``gridpulse:generation:{region}`` hourly, and this reads it
+    (#199 / the CLAUDE.md post-#130 web-tier I/O guardrail). Under
+    ``REQUIRE_REDIS`` (staging/prod) a Redis miss returns None (warming state),
+    never a live EIA call. The in-memory + EIA fetch tiers run only in
+    development, where the scoring job may not be populating Redis.
+
+    Returns a DataFrame ``[timestamp, fuel_type, generation_mw, region]`` or None.
+    """
+    import time as _time
+
+    # Redis fast path (the only prod path).
+    redis_df = _generation_df_from_redis(region)
+    if redis_df is not None and not redis_df.empty:
+        return redis_df
+
+    if REQUIRE_REDIS:
+        log.info("generation_warming", region=region)
+        return None
+
+    # ── development-only fallback (no scoring job populating Redis) ──
+    # Tier 1: In-memory cache (5-minute TTL)
+    if region in _GENERATION_CACHE:
+        cached_df, cached_ts = _GENERATION_CACHE[region]
+        if (_time.time() - cached_ts) < 300:
+            log.info("generation_memory_cache_hit", region=region)
+            return cached_df
+
+    # Tier 2+3: fetch_generation_by_fuel handles SQLite cache + API call
+    try:
+        from config import EIA_API_KEY
+
+        if EIA_API_KEY and EIA_API_KEY != "your_eia_api_key_here":
+            from data.eia_client import fetch_generation_by_fuel
+
+            gen_df = fetch_generation_by_fuel(region)
+            if gen_df is not None and not gen_df.empty:
+                # Normalize fuel type codes
+                gen_df["fuel_type"] = (
+                    gen_df["fuel_type"].map(_EIA_FUEL_MAP).fillna(gen_df["fuel_type"].str.lower())
+                )
+                _GENERATION_CACHE[region] = (gen_df, _time.time())
+                log.info("generation_eia_fetched", region=region, rows=len(gen_df))
+                return gen_df
+    except Exception as e:
+        log.warning("generation_eia_failed", region=region, error=str(e))
+
+    # No demo fallback — return None so callers show "No data" or use
+    # whatever is already in Redis rather than overwriting with fake values.
+    log.warning("generation_no_data", region=region)
+    return None
+
+
+def _build_drivers_panel(weather_json: str | None) -> list:
+    """3-up KPI cells (Temperature / Wind / Solar) with current value + 24h sparkline.
+
+    The Forecast tab's Drivers inline panel calls this when its collapse
+    opens. Each cell is a .gp-driver-cell with eyebrow / value / unit /
+    sparkline. Sparkline reuses the same v2 minimal-axis style as
+    _build_overview_sparkline.
+    """
+    if not weather_json:
+        return _drivers_empty()
+
+    try:
+        wdf = pd.read_json(io.StringIO(weather_json))
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("forecast_drivers_parse_failed", error=str(exc))
+        return _drivers_empty()
+
+    if wdf.empty or "timestamp" not in wdf.columns:
+        return _drivers_empty()
+
+    wdf = wdf.copy()
+    wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
+    wdf = wdf.sort_values("timestamp")
+    # Window: latest 24 rows (assume hourly cadence)
+    horizon = wdf.tail(24)
+
+    drivers = [
+        {
+            "label": "Temperature",
+            "column": "temperature_2m",
+            "unit": "°F",
+            "color": "#3b82f6",
+            "fillcolor": "rgba(59, 130, 246, 0.10)",
+            "fmt": lambda v: f"{v:.0f}",
+        },
+        {
+            "label": "Wind",
+            "column": "wind_speed_80m",
+            "unit": "mph",
+            "color": "#34d399",
+            "fillcolor": "rgba(52, 211, 153, 0.10)",
+            "fmt": lambda v: f"{v:.1f}",
+        },
+        {
+            "label": "Solar",
+            "column": "shortwave_radiation",
+            "unit": "W/m²",
+            "color": "#f97316",
+            "fillcolor": "rgba(249, 115, 22, 0.10)",
+            "fmt": lambda v: f"{v:.0f}",
+        },
+    ]
+
+    cells: list = []
+    for d in drivers:
+        col = d["column"]
+        if col not in horizon.columns or horizon[col].isna().all():
+            cells.append(_driver_cell_empty(d["label"]))
+            continue
+        latest = float(horizon[col].iloc[-1])
+        avg = float(horizon[col].mean())
+        delta = latest - avg
+        delta_class = (
+            "gp-metric-value--negative"
+            if delta > 0.5
+            else ("gp-metric-value--positive" if delta < -0.5 else "")
+        )
+        cells.append(
+            html.Div(
+                [
+                    html.Div(d["label"], className="gp-metric-label"),
+                    html.Div(
+                        [
+                            html.Span(
+                                d["fmt"](latest),
+                                className="gp-metric-value gp-metric-value--hero tabular",
+                            ),
+                            html.Span(d["unit"], className="gp-metric-unit"),
+                        ],
+                        className="gp-metric-value-row",
+                    ),
+                    html.Div(
+                        [
+                            html.Span(
+                                f"{delta:+.1f} vs 24h avg",
+                                className=f"gp-metric-sub {delta_class}",
+                            ),
+                        ],
+                    ),
+                    dcc.Graph(
+                        figure=_driver_sparkline(horizon, col, d["color"], d["fillcolor"]),
+                        config={"displayModeBar": False, "responsive": True},
+                        style={"height": "60px"},
+                    ),
+                ],
+                className="gp-driver-cell",
+            )
+        )
+    return cells
+
+
+def _drivers_empty() -> list:
+    cells = []
+    for label in ("Temperature", "Wind", "Solar"):
+        cells.append(_driver_cell_empty(label))
+    return cells
+
+
+def _driver_cell_empty(label: str) -> html.Div:
+    return html.Div(
+        [
+            html.Div(label, className="gp-metric-label"),
+            html.Span("—", className="gp-metric-value tabular"),
+            html.Div("No weather data", className="gp-metric-sub"),
+        ],
+        className="gp-driver-cell",
+    )
+
+
+# Fuel ordering: heaviest emissions at the bottom of the stack, zero-carbon
+# on top. Within each bucket: dispatchable before intermittent.
+_FUEL_STACK_ORDER: tuple[str, ...] = (
+    "coal",
+    "oil",
+    "gas",
+    "biomass",
+    "other",
+    "nuclear",
+    "hydro",
+    "wind",
+    "solar",
+)
+
+_FUEL_DISPLAY: dict[str, dict[str, str]] = {
+    "coal": {"label": "Coal", "color": "#71717a", "fill": "rgba(113, 113, 122, 0.85)"},
+    "oil": {"label": "Oil", "color": "#52525b", "fill": "rgba(82, 82, 91, 0.85)"},
+    "gas": {"label": "Gas", "color": "#f97316", "fill": "rgba(249, 115, 22, 0.85)"},
+    "biomass": {"label": "Biomass", "color": "#a16207", "fill": "rgba(161, 98, 7, 0.85)"},
+    "other": {"label": "Other", "color": "#a1a1aa", "fill": "rgba(161, 161, 170, 0.85)"},
+    "nuclear": {"label": "Nuclear", "color": "#a855f7", "fill": "rgba(168, 85, 247, 0.85)"},
+    "hydro": {"label": "Hydro", "color": "#3b82f6", "fill": "rgba(59, 130, 246, 0.85)"},
+    "wind": {"label": "Wind", "color": "#34d399", "fill": "rgba(52, 211, 153, 0.85)"},
+    "solar": {"label": "Solar", "color": "#fbbf24", "fill": "rgba(251, 191, 36, 0.85)"},
+}
+
+
+def _build_generation_panel(region: str | None, demand_json: str | None) -> html.Div:
+    """Stacked-area fuel mix + 3-up sub-MetricsBar (Net Load / Renewable / Largest)."""
+    region = region or "FPL"
+
+    try:
+        gen_df = _fetch_generation_cached(region)
+    except Exception as exc:  # pragma: no cover — defensive
+        log.warning("forecast_generation_fetch_failed", region=region, error=str(exc))
+        return _generation_empty()
+
+    if gen_df is None or gen_df.empty:
+        return _generation_empty()
+
+    df = gen_df.copy()
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp")
+
+    # Window: latest 24 hours
+    cutoff = df["timestamp"].max() - pd.Timedelta(hours=24)
+    df = df[df["timestamp"] >= cutoff]
+    if df.empty:
+        return _generation_empty()
+
+    pivot = (
+        df.pivot_table(
+            index="timestamp",
+            columns="fuel_type",
+            values="generation_mw",
+            aggfunc="sum",
+        )
+        .fillna(0)
+        .clip(lower=0)
+    )
+
+    # Sort columns by emissions order (any unknown fuels go to the end)
+    ordered_fuels = [f for f in _FUEL_STACK_ORDER if f in pivot.columns]
+    extras = [f for f in pivot.columns if f not in _FUEL_STACK_ORDER]
+    pivot = pivot[ordered_fuels + extras]
+
+    # ── KPIs ───────────────────────────────────────────────────
+    total_per_ts = pivot.sum(axis=1)
+    avg_total = float(total_per_ts.mean()) if not total_per_ts.empty else 0.0
+
+    fuel_avg = pivot.mean(axis=0).sort_values(ascending=False)
+    largest_fuel = fuel_avg.index[0] if len(fuel_avg) else None
+    largest_label = _FUEL_DISPLAY.get(str(largest_fuel), {}).get(
+        "label", str(largest_fuel).title() if largest_fuel else "—"
+    )
+    largest_share_pct = (
+        float(fuel_avg.iloc[0] / fuel_avg.sum() * 100.0)
+        if len(fuel_avg) and fuel_avg.sum() > 0
+        else 0.0
+    )
+
+    renewable_cols = [c for c in ("wind", "solar", "hydro") if c in pivot.columns]
+    if renewable_cols and avg_total > 0:
+        renewable_pct = float((pivot[renewable_cols].sum(axis=1) / total_per_ts * 100.0).mean())
+    else:
+        renewable_pct = 0.0
+
+    # Net load (Demand - Wind - Solar) if demand available
+    # P2-23 (#273): net load is Demand − Wind − Solar. The old code silently
+    # fell back to average TOTAL generation — a differently-defined quantity —
+    # under the "Net Load (avg)" label whenever demand was missing, unparsable,
+    # or misaligned (which is EVERY cold/warming page load). Render an honest
+    # degraded cell instead; never substitute a different metric under this
+    # label.
+    net_load_avg: float | None = None
+    if demand_json:
+        try:
+            ddf = pd.read_json(io.StringIO(demand_json))
+            ddf["timestamp"] = pd.to_datetime(ddf["timestamp"])
+            ddf = ddf.sort_values("timestamp")
+            common = pivot.index.intersection(ddf.set_index("timestamp").index)
+            if len(common) >= 2:
+                d_aligned = ddf.set_index("timestamp").loc[common, "demand_mw"]
+                wind_aligned = pivot.loc[common].get("wind", pd.Series(0.0, index=common))
+                solar_aligned = pivot.loc[common].get("solar", pd.Series(0.0, index=common))
+                net_load_series = d_aligned - wind_aligned - solar_aligned
+                candidate = float(net_load_series.mean())
+                # All-NaN demand over the aligned window yields NaN — that
+                # must degrade honestly, not render "nan MW".
+                if np.isfinite(candidate):
+                    net_load_avg = candidate
+        except Exception as exc:  # pragma: no cover
+            log.warning("forecast_generation_netload_failed", region=region, error=str(exc))
+    if net_load_avg is None:
+        log.info("forecast_generation_netload_unavailable", region=region)
+        net_load_item = {
+            "label": "Net Load (avg)",
+            "value": "—",
+            "unit": "MW",
+            "hero": True,
+            "tone": "secondary",
+            "subtext": "demand data unavailable",
+        }
+    else:
+        net_load_item = {
+            "label": "Net Load (avg)",
+            "value": f"{net_load_avg:,.0f}",
+            "unit": "MW",
+            "hero": True,
+        }
+
+    sub_metrics = build_metrics_bar(
+        [
+            net_load_item,
+            {
+                "label": "Renewable Share",
+                "value": f"{renewable_pct:.1f}%",
+                "tone": "positive" if renewable_pct >= 25 else "secondary",
+            },
+            {
+                "label": "Largest Source",
+                "value": largest_label,
+                "unit": f"{largest_share_pct:.0f}%",
+                "tone": "secondary",
+            },
+        ]
+    )
+    # Override the default 5-up class for a 3-up grid.
+    sub_metrics.className = "gp-metrics-bar gp-metrics-bar--3up"
+
+    # ── Stacked-area chart ─────────────────────────────────────
+    fig = go.Figure()
+    for fuel in pivot.columns:
+        cfg = _FUEL_DISPLAY.get(
+            str(fuel),
+            {
+                "label": str(fuel).title(),
+                "color": "#a1a1aa",
+                "fill": "rgba(161,161,170,0.7)",
+            },
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=pivot.index,
+                y=pivot[fuel],
+                mode="lines",
+                stackgroup="gen",
+                name=cfg["label"],
+                line=dict(width=0, color=cfg["color"]),
+                fillcolor=cfg["fill"],
+                hovertemplate=(
+                    f"<b>{cfg['label']}</b><br>%{{x|%H:%M}}<br>%{{y:,.0f}} MW<extra></extra>"
+                ),
+            )
+        )
+    fig.update_layout(
+        **_layout(
+            uirevision=f"gen-{region}",
+            showlegend=True,
+            xaxis=dict(
+                showgrid=False,
+                linecolor="rgba(255,255,255,0.04)",
+                tickfont=dict(color="#71717a", size=10),
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="rgba(255,255,255,0.04)",
+                zeroline=False,
+                tickformat=",.0f",
+                tickfont=dict(color="#71717a", size=10),
+                title=None,
+            ),
+            margin=dict(l=48, r=16, t=16, b=64),
+        ),
+    )
+
+    return html.Div(
+        [
+            sub_metrics,
+            dcc.Graph(
+                figure=fig,
+                config={"displayModeBar": False, "responsive": True},
+                style={"height": "320px"},
+            ),
+        ],
+        className="gp-generation-stack",
+    )
+
+
+def _generation_empty() -> html.Div:
+    return html.Div(
+        "No generation data available for this region.",
+        className="gp-panel__placeholder",
+    )
+
+
+def _scenario_demand_factor(temp_delta: float, wind_delta: float, solar_delta: float) -> float:
+    """Linear demand-sensitivity factor for the scenario simulator heuristic.
+
+    Returns a multiplicative factor to apply to a baseline 24h forecast.
+    Coefficients are order-of-magnitude-defensible against load-research
+    norms (not physically rigorous — full-fidelity physics lives in
+    ``simulation/scenario_engine.py``):
+
+      * temp_delta: ±2.5 % per 5 °F (existing — dominant driver)
+      * solar_delta: +1.5 % per 100 W/m² (sun load → AC demand;
+        meaningful for summer-peaking BAs like FPL/ERCOT/PJM)
+      * wind_delta: +0.5 % per 10 mph (wind chill → heating demand;
+        meaningful for winter-peaking BAs)
+
+    All three combine linearly. Pulled out as a pure function so the
+    heuristic is unit-testable without spinning up the Plotly render.
+    """
+    return 1.0 + (temp_delta / 5.0) * 0.025 + solar_delta * 0.00015 + wind_delta * 0.0005
+
+
+def _scenario_factors(
+    region: str | None,
+    temp_delta: float,
+    wind_delta: float,
+    solar_delta: float,
+    n_hours: int,
+) -> tuple[np.ndarray, str]:
+    """Hourly demand factors for the simulator, physics first (#127).
+
+    Reads the precomputed grid the scoring job wrote and interpolates it to
+    the slider position. Falls back to ``_scenario_demand_factor`` — the
+    analytical heuristic that shipped in #119 — whenever the grid is absent,
+    stale-shaped, or unreadable, which covers a cold Redis, a region the
+    scoring job shed at its soft deadline, and the flag being off.
+
+    Reading Redis rather than re-running the models is what keeps this
+    inside the web-tier I/O guardrail: no model touches the request path,
+    and the slider stays as responsive as it was with the heuristic.
+
+    Returns:
+        ``(factors, source)`` where ``factors`` is length ``n_hours`` and
+        ``source`` is ``"grid"`` or ``"heuristic"`` for the UI to label.
+    """
+    from config import feature_enabled
+
+    flat = _scenario_demand_factor(temp_delta, wind_delta, solar_delta)
+    fallback = np.full(n_hours, flat, dtype=float)
+
+    if not region or not feature_enabled("scenario_grid"):
+        return fallback, "heuristic"
+
+    try:
+        from data.redis_client import redis_get, redis_key
+        from simulation.scenario_grid import interpolate_scenario_factors
+
+        payload = redis_get(redis_key(f"scenario_grid:{region}"))
+        if not payload:
+            return fallback, "heuristic"
+
+        curve = interpolate_scenario_factors(payload, temp_delta, wind_delta, solar_delta)
+        if curve is None or curve.size == 0:
+            return fallback, "heuristic"
+
+        # The grid is 24h and the chart may be shorter or longer; hold the
+        # last factor rather than letting the curve run out mid-chart.
+        if curve.size < n_hours:
+            curve = np.concatenate([curve, np.full(n_hours - curve.size, curve[-1])])
+
+        # Outside the booster's observed range the response saturates and then
+        # wanders (measured 2026-08-11). Label it rather than presenting an
+        # extrapolation as a re-forecast.
+        env = payload.get("envelope") or {}
+        axes = payload.get("axes") or {}
+
+        def _in(axis: str, value: float) -> bool:
+            flags, positions = env.get(axis), axes.get(axis)
+            if not flags or not positions or len(flags) != len(positions):
+                return True
+            i = min(range(len(positions)), key=lambda j: abs(positions[j] - value))
+            return bool(flags[i])
+
+        if not all(
+            (
+                _in("temp_f", temp_delta),
+                _in("wind_mph", wind_delta),
+                _in("solar_wm2", solar_delta),
+            )
+        ):
+            return curve[:n_hours], "grid_extrapolated"
+        return curve[:n_hours], "grid"
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("scenario_grid_read_failed", region=region, error=str(exc))
+        return fallback, "heuristic"
+
+
+def _build_scenarios_panel(
+    temp_delta: int | float | None,
+    wind_delta: int | float | None,
+    solar_delta: int | float | None,
+    region: str | None,
+    demand_json: str | None,
+) -> tuple[html.Div, go.Figure]:
+    """Heuristic scenario impact + baseline-vs-scenario comparison chart.
+
+    Returns ``(kpi_bar, figure)``. The math is a deliberate simplification:
+    no model re-run, just a linear demand-sensitivity factor against the
+    current 24h forecast. Real ensemble simulation lives in the (now hidden)
+    Scenarios tab and the simulation/scenario_engine module — exposing
+    full-fidelity here would need model loading on every slider drag.
+
+    Demand sensitivities — see ``_scenario_demand_factor`` for coefficients.
+
+    Renewable-share sensitivities (independent of demand):
+      * wind_delta: ±0.6 pp per mph (caps at 30 pp)
+      * solar_delta: ±0.05 pp per W/m² (caps at 30 pp)
+
+    Confidence sensitivity: −1 pp per 5 °F of |temp_delta|, capped at −10 pp
+    (forecast residuals grow with abs(temp_delta) outside ±10 °F).
+    """
+    region = region or "FPL"
+    temp_delta = float(temp_delta or 0)
+    wind_delta = float(wind_delta or 0)
+    solar_delta = float(solar_delta or 0)
+
+    # Base forecast (next 24h ensemble)
+    horizon = 24
+    base_y: np.ndarray | None = None
+    last_actual_ts: pd.Timestamp | None = None
+
+    if demand_json:
+        try:
+            demand_df = pd.read_json(io.StringIO(demand_json))
+            demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
+            demand_df = demand_df.sort_values("timestamp")
+
+            # Baseline = the real scored ensemble from Redis (the scoring job's
+            # own output), not model_service.get_forecasts — which on the
+            # stateless web tier is strict-gated to "unavailable" in prod
+            # (#149) and echoed actuals as a fake forecast in dev when only
+            # "ensemble" is requested (2026-07 review P2-31). This is the same
+            # reader the Overview hero uses.
+            forecast_payload = _read_ensemble_forecast_from_redis(region)
+            if forecast_payload is not None:
+                _fc_ts, ensemble_arr, _scored_at = forecast_payload
+                if ensemble_arr is not None and len(ensemble_arr) >= horizon:
+                    base_y = np.asarray(ensemble_arr[:horizon], dtype=float)
+                    last_actual_ts = demand_df["timestamp"].iloc[-1]
+        except Exception as exc:  # pragma: no cover
+            log.warning("forecast_scenario_baseline_failed", region=region, error=str(exc))
+
+    if base_y is None or last_actual_ts is None:
+        kpi_empty = build_metrics_bar(
+            [
+                {"label": "Δ Peak", "value": "—", "tone": "secondary", "hero": True},
+                {"label": "Δ Headroom", "value": "—", "tone": "secondary"},
+                {"label": "Δ Renewable", "value": "—", "tone": "secondary"},
+                {"label": "Δ Confidence", "value": "—", "tone": "secondary"},
+            ]
+        )
+        kpi_empty.className = "gp-metrics-bar gp-metrics-bar--4up"
+        return (kpi_empty, _empty_figure("Awaiting baseline forecast"))
+
+    # ── Scenario forecast ──────────────────────────────────────
+    # #127: real per-hour physics from the precomputed grid when the scoring
+    # job has written one, the #119 linear heuristic when it has not. The
+    # grid's factor varies BY HOUR — the heuristic's single scalar could not
+    # express that a +15 °F afternoon and a +15 °F 4am differ, which is most
+    # of what makes a demand response a curve rather than a scaling.
+    scenario_factors, scenario_source = _scenario_factors(
+        region, temp_delta, wind_delta, solar_delta, len(base_y)
+    )
+    scenario_y = base_y * scenario_factors
+
+    base_peak = float(np.max(base_y))
+    scenario_peak = float(np.max(scenario_y))
+    delta_peak_mw = scenario_peak - base_peak
+    delta_peak_pct = (delta_peak_mw / base_peak * 100.0) if base_peak > 0 else 0.0
+
+    from models.pricing import capacity_headroom_pct
+
+    capacity = REGION_CAPACITY_MW.get(region, 100_000)
+    base_headroom = capacity_headroom_pct(base_peak, capacity)
+    scenario_headroom = capacity_headroom_pct(scenario_peak, capacity)
+    delta_headroom_pp = scenario_headroom - base_headroom
+
+    # Renewable share heuristic — wind: 0.6 %/mph; solar: 0.05 %/(W/m²)
+    delta_renewable_pp = wind_delta * 0.6 + solar_delta * 0.05
+    delta_renewable_pp = max(min(delta_renewable_pp, 30.0), -30.0)
+
+    # Confidence delta: bigger temp swings widen the band roughly linearly
+    # (forecast residuals grow with abs(temp_delta) outside ±10°F band).
+    delta_confidence_pp = -min(abs(temp_delta) / 5.0, 10.0)  # negative pp
+
+    # ── KPI bar ────────────────────────────────────────────────
+    peak_tone = (
+        "negative"
+        if delta_peak_pct > 0.5
+        else ("positive" if delta_peak_pct < -0.5 else "secondary")
+    )
+    headroom_tone = (
+        "positive"
+        if delta_headroom_pp > 0.1
+        else ("negative" if delta_headroom_pp < -0.1 else "secondary")
+    )
+    renewable_tone = (
+        "positive"
+        if delta_renewable_pp > 0.5
+        else ("negative" if delta_renewable_pp < -0.5 else "secondary")
+    )
+    kpis = build_metrics_bar(
+        [
+            {
+                "label": "Δ Peak",
+                "value": f"{delta_peak_mw:+,.0f}",
+                "unit": f"MW ({delta_peak_pct:+.1f}%)",
+                "tone": peak_tone,
+                "hero": True,
+            },
+            {
+                "label": "Δ Headroom",
+                "value": f"{delta_headroom_pp:+.1f}",
+                "unit": "pp",
+                "tone": headroom_tone,
+                "help": "Change in capacity headroom (nameplate) at peak under this scenario — not a NERC reserve margin (#243).",
+            },
+            {
+                "label": "Δ Renewable",
+                "value": f"{delta_renewable_pp:+.1f}",
+                "unit": "pp",
+                "tone": renewable_tone,
+            },
+            {
+                "label": "Δ Confidence",
+                "value": f"{delta_confidence_pp:+.1f}",
+                "unit": "pp",
+                "tone": "secondary",
+            },
+        ]
+    )
+    kpis.className = "gp-metrics-bar gp-metrics-bar--4up"
+
+    # Say which engine produced these numbers. The static panel copy asserted
+    # "not a model re-forecast" for a fortnight while production served
+    # exactly that (#127) — static text cannot track a feature flag, so the
+    # claim belongs with the results it describes.
+    source_note = html.P(
+        (
+            "Real ensemble re-forecast — 81 precomputed weather scenarios, "
+            "interpolated to these slider positions."
+            if scenario_source == "grid"
+            else "Beyond this region's observed weather — the model is "
+            "extrapolating and its response flattens here. Directional only."
+            if scenario_source == "grid_extrapolated"
+            else "Illustrative linear weather-sensitivity — not a model "
+            "re-forecast. Directional stress-testing only, not calibrated "
+            "predictions."
+        ),
+        className="gp-panel__disclosure",
+        **{"data-scenario-source": scenario_source},
+    )
+    kpis = html.Div([kpis, source_note])
+
+    # ── Baseline vs scenario chart ─────────────────────────────
+    forecast_ts = pd.date_range(
+        start=last_actual_ts + pd.Timedelta(hours=1),
+        periods=horizon,
+        freq="h",
+    )
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=forecast_ts,
+            y=base_y,
+            mode="lines",
+            name="Baseline",
+            line=dict(color="#3b82f6", width=1.75),
+            hovertemplate="<b>Baseline</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=forecast_ts,
+            y=scenario_y,
+            mode="lines",
+            name="Scenario",
+            line=dict(color="#f97316", width=1.75, dash="dash"),
+            hovertemplate="<b>Scenario</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        **_layout(
+            uirevision=f"scn-{region}",
+            xaxis=dict(
+                showgrid=False,
+                linecolor="rgba(255,255,255,0.04)",
+                tickfont=dict(color="#71717a", size=10),
+            ),
+            yaxis=dict(
+                showgrid=True,
+                gridcolor="rgba(255,255,255,0.04)",
+                zeroline=False,
+                tickformat=",.0f",
+                tickfont=dict(color="#71717a", size=10),
+                title=None,
+            ),
+            margin=dict(l=48, r=16, t=16, b=36),
+            showlegend=True,
+        ),
+    )
+    return kpis, fig
+
+
+def _driver_sparkline(df: pd.DataFrame, column: str, color: str, fillcolor: str) -> go.Figure:
+    """60px sparkline matching the v2 minimal-axes treatment."""
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=df["timestamp"],
+            y=df[column],
+            mode="lines",
+            line=dict(color=color, width=1.5),
+            fill="tozeroy",
+            fillcolor=fillcolor,
+            hovertemplate="%{x|%H:%M}<br>%{y:,.1f}<extra></extra>",
+            showlegend=False,
+        )
+    )
+    fig.update_layout(
+        **_layout(
+            uirevision=column,
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            margin=dict(l=0, r=0, t=4, b=4),
+        )
+    )
+    return fig
+
+
+# ── Overview briefing block (Step 7c — sparklines / briefing / digest / spotlights / persona) ──
 
 __all__ = [
     "_confidence_half_width",
