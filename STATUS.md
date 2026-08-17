@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-08-12
+# Status — updated 2026-08-17
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,47 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**Open question 2026-08-17 — the public benchmark scorecard lost 19 BAs and
+nothing noticed.** Published scoreability is **25 of 51**, against the **44 of
+51** still asserted in `docs/BENCHMARK_SCOREABILITY.md`,
+`docs/BENCHMARK_METHODOLOGY.md`, `STATUS.md` and `config.py`. Twenty BAs now
+fail the `df-coverage` gate, including **five of the seven large ISOs** (ERCOT,
+MISO, NYISO, ISONE, SPP). Only CAISO (82.9%) and PJM (81.0%) survive, both
+within 1–3 pts of the 0.80 threshold. `/benchmark` renders live from the API, so
+this is already public.
+[#535](https://github.com/kristenmartino/gridpulse/issues/535).
+
+**43 of 44 BAs lost day-ahead coverage, median −11.1 pts** — and at least part
+of it is ours, not EIA's. EIA publishes DF for **100%** of recent NYISO hours,
+**13h ahead** of the hour, while we record 58% and exclude the BA. Six unrelated
+BAs report *identical* coverage of exactly 78.72%, which means they are losing
+the same set of hours: a shared systemic cause, not per-BA EIA behaviour. The
+population is not uniform, though — SPP is genuinely absent upstream (EIA
+publishes no DF for SWPP at all), and ERCOT/MISO/ISONE have a real ~13% upstream
+gap on top of whatever we lose. A fix restoring all 20 would be over-claiming.
+
+**The leading hypothesis is unconfirmed and was reached by reading code, not by
+observing the instrument.** `fetch_demand` caches under a date-granularity key
+with a 24h TTL (`data/eia_client.py:333`, `:295`), so every tick after a UTC
+day's first one may be reading a frozen frame — which would produce *both* the
+`no_df` population and the `stale_capture` one. Since `no_df` is evaluated first
+(`models/benchmark.py:311`) the two buckets trade, so `stale_capture` collapsing
+240 → 20 and coverage falling 11 pts may be **one event, not two** — and a naive
+fix to one could regress the other. **Decisive test, not yet run** (needs
+in-VPC Redis): count distinct `captured_at` values in `vintage:NYISO` — ~30
+confirms, ~720 refutes.
+
+**What this says about the gate itself:** `df_coverage` is currently measuring
+our capture timing as much as the BA's publishing behaviour. Whether the fix is
+the capture or the metric is a public claim — the exclusion reason ships
+verbatim on `/benchmark` — so it needs an ADR-style rationale, not a patch.
+
+**Found by an unrelated scheduled recheck**, which is the uncomfortable part:
+the 2026-08-05 stale-capture follow-up (whose own question resolved cleanly —
+CAISO `stale_capture` 239 → 24, `n` 211 → 363, recovered as predicted). Nothing
+in CI or the job flagged a 19-BA drop on a public page. A check that fails
+*before* a coverage regression publishes is part of #535's acceptance.
 
 **2026-08-07 — the 2026-08-04 incident is CLOSED, and the cost work it turned
 into is measured rather than projected.**
@@ -994,6 +1035,9 @@ GridPulse arm from `drift_horizon` 24h/48h records, settled `last_d` as
 the single truth for both. Measured: **44 of 51 BAs scoreable**, and the
 operators' own accuracy spans **41×** (ERCOT 1.15% → PSEI 47.21%) —
 content no incumbent publishes (`docs/BENCHMARK_SCOREABILITY.md`).
+*(The 44-of-51 was true as measured 2026-07-27; the live API now reports
+25 of 51 — see the 2026-08-17 open question and
+[#535](https://github.com/kristenmartino/gridpulse/issues/535).)*
 
 **Two limits block the public claim, both documented in
 `models/benchmark.py`:** (1) `first_seen_df` is *not* the day-ahead value
