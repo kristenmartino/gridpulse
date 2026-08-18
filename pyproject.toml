@@ -36,6 +36,7 @@ addopts = "-v --tb=short"
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",
     "integration: marks integration tests",
+    "allow_network: let a test open real sockets (see _no_network in tests/conftest.py)",
 ]
 
 [tool.mutmut]

@@ -6,6 +6,19 @@ on:
   pull_request:
     branches: [main, dev]
 
+# Supersede in-flight runs for the SAME pull request only. Two runs 10s apart
+# on one branch used to run the full ~9 minutes each.
+#
+# The group deliberately includes the SHA on push, which makes every push its
+# own group and so never cancels. `deploy-prod.yml` consumes this workflow's
+# conclusion via `workflow_run`, and `deploy-prod.yml` documents a real
+# 2026-08-05 incident where cancel-in-progress shipped an older commit because
+# cancellation follows workflow start order, not commit order. Cancelling a
+# push-triggered CI run on main would resurface exactly that.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.head_ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   security:
     runs-on: ubuntu-latest
@@ -31,9 +44,15 @@ jobs:
         run: |
           grep -q "your_" .env.example || (echo "FAIL: .env.example missing placeholders" && exit 1)
 
+  # No `needs:` anywhere in this file. The four jobs are independent checks,
+  # and chaining them made the critical path their SUM (~8m45s) rather than
+  # their MAX. docker in particular waited ~7 minutes to discover the image
+  # does not build. Runner minutes are free on this public repo, so there is
+  # no cost argument for the chain. The deploy gate is unaffected:
+  # deploy-prod.yml keys on the whole-workflow conclusion, which still
+  # requires every job to pass.
   lint:
     runs-on: ubuntu-latest
-    needs: security
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -54,7 +73,6 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-    needs: [lint, security]
     # The coverage comment action writes a badge to an orphan data branch and
     # posts/updates a single PR comment.
     permissions:
@@ -85,7 +103,7 @@ jobs:
       # gate step at the end instead, once the artifacts and PR comment exist.
       - name: Tests + coverage
         run: |
-          pytest tests/ --tb=short \
+          pytest tests/ --tb=short -n auto \
             --cov=data --cov=models --cov=simulation --cov=personas --cov=components \
             --cov-report=term-missing --cov-report=xml --cov-report=html \
             --cov-fail-under=0 \
@@ -112,7 +130,6 @@ jobs:
       - name: Changed-lines coverage
         if: github.event_name == 'pull_request'
         run: |
-          pip install diff-cover
           diff-cover coverage.xml \
             --compare-branch=origin/${{ github.base_ref }} \
             --html-report diff-cover.html \
@@ -147,18 +164,34 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    needs: test
     steps:
       - uses: actions/checkout@v4
+      # Plain `docker build`, deliberately. buildx with `cache-to:
+      # type=gha,mode=max` was tried and measured on 2026-08-18: it took the
+      # build from 83s to **371s**. mode=max exports every intermediate layer,
+      # and for an image carrying prophet/xgboost/shap/scipy that export costs
+      # far more than the install it was meant to skip. The job is also no
+      # longer on the critical path now that it runs in parallel with `test`
+      # (~1m50s against test's ~4m30s), so there is nothing here worth buying.
       - name: Build Docker image
         run: docker build -t gridpulse:ci .
       - name: Start container
-        run: |
-          docker run -d -p 8080:8080 --name gp-test -e PRECOMPUTE_ENABLED=false gridpulse:ci
-          sleep 15
+        run: docker run -d -p 8080:8080 --name gp-test -e PRECOMPUTE_ENABLED=false gridpulse:ci
+      # Poll rather than `sleep 15`. A fixed sleep is both slower than it
+      # needs to be and flaky when the container is slow to bind.
       - name: Health check
         run: |
-          curl -sf http://localhost:8080/health | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='healthy'"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8080/health > /tmp/health.json; then
+              python3 -c "import sys,json; d=json.load(open('/tmp/health.json')); assert d['status']=='healthy', d"
+              echo "healthy after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "FAIL: container did not become healthy within 30s"
+          docker logs gp-test
+          exit 1
       - name: Cleanup
         if: always()
         run: docker rm -f gp-test || true

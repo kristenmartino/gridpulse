@@ -11,11 +11,101 @@ import os
 # Disable precomputation during tests — must be set before any app imports
 os.environ["PRECOMPUTE_ENABLED"] = "false"
 
+import socket
 from datetime import UTC, datetime
 
 import numpy as np
 import pandas as pd
 import pytest
+
+
+class NetworkAccessError(RuntimeError):
+    """A test tried to open a network connection."""
+
+
+_ALLOWED_FAMILIES = {getattr(socket, "AF_UNIX", object())}
+
+
+@pytest.fixture(autouse=True)
+def _no_network(monkeypatch, request):
+    """Fail loudly on any outbound socket connection.
+
+    ``CLAUDE.md`` already says unit tests are "pure functions, no I/O", but
+    nothing enforced it and the suite drifted: a full run made **79** live
+    calls to ``api.eia.gov`` and ``archive-api.open-meteo.com``. That cost
+    two ways. Open-Meteo answers CI's shared runner IPs with ``429``, so the
+    suite sat in retry/backoff and its runtime tracked third-party latency
+    rather than our own code. And a cache-first client that misses falls
+    through to the live API, so tests that believed they were asserting on
+    ``mock_eia_response`` were really asserting on today's grid.
+
+    Sockets are blocked rather than ``requests`` patched so the guard cannot
+    be routed around by a client that reaches for urllib or a raw socket.
+    AF_UNIX is allowed — it is local IPC, not the network.
+
+    Opt out for a test that genuinely must reach the network with
+    ``@pytest.mark.allow_network``. Nothing in the suite should need it; if
+    you are reaching for it, mock the HTTP boundary instead.
+    """
+    if request.node.get_closest_marker("allow_network"):
+        return
+
+    real_socket = socket.socket
+
+    class _GuardedSocket(real_socket):  # type: ignore[misc,valid-type]
+        def connect(self, address):
+            raise NetworkAccessError(
+                f"test attempted a network connection to {address!r}. "
+                "Mock the HTTP boundary (see the mock_*_response fixtures in "
+                "tests/conftest.py) instead of calling the live API."
+            )
+
+        def connect_ex(self, address):
+            raise NetworkAccessError(
+                f"test attempted a network connection to {address!r}. "
+                "Mock the HTTP boundary (see the mock_*_response fixtures in "
+                "tests/conftest.py) instead of calling the live API."
+            )
+
+    def _guarded(family=socket.AF_INET, *args, **kwargs):
+        if family in _ALLOWED_FAMILIES:
+            return real_socket(family, *args, **kwargs)
+        return _GuardedSocket(family, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "socket", _guarded)
+    # requests/urllib3 resolve first; failing here gives a clearer message
+    # than a downstream connect error and skips a real DNS round trip.
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *a, **k: (_ for _ in ()).throw(
+            NetworkAccessError(f"test attempted to resolve {a[0]!r}")
+        ),
+    )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_cache(tmp_path, monkeypatch):
+    """Point the cache singleton at a per-test throwaway db.
+
+    This used to live in ``tests/integration/conftest.py`` and so covered only
+    the integration tier, leaving unit tests reading and writing the real
+    repo-root ``cache.db``. A warm key means a cache-first client returns
+    early and never consults the test's mock, so the cache — not the fixture —
+    decides what the test sees. That bit us on 2026-07-15, when a populated
+    ``noaa_state_TX`` made ``test_noaa_parse_alerts`` assert against 35 live
+    TX alerts instead of the fixture's 2.
+
+    Patching the ``data.cache._cache`` singleton rather than any one module's
+    ``get_cache`` covers every client: eia, weather and noaa all resolve
+    ``get_cache()`` per call, and nothing in the app constructs a ``Cache``
+    any other way.
+    """
+    from data import cache as cache_module
+
+    monkeypatch.setattr(
+        cache_module, "_cache", cache_module.Cache(db_path=str(tmp_path / "cache.db"))
+    )
 
 
 @pytest.fixture

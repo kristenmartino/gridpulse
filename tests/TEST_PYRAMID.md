@@ -187,7 +187,7 @@ Examples:
 ## Running Tests
 
 ```bash
-# All tests
+# All tests (add -n auto to parallelize, as CI does)
 pytest tests/ -v
 
 # Unit only (fast feedback)
@@ -219,6 +219,58 @@ Common fixtures are defined in `tests/conftest.py`:
 | `mock_weather_response` | Mocked Open-Meteo response |
 | `mock_noaa_alerts_response` | Mocked NOAA alerts |
 | `feature_df` | Merged + engineered features |
+
+Two of them are **autouse**, and apply to every test in every tier:
+
+| Fixture | Guarantees |
+|---------|------------|
+| `_no_network` | No test may open a network connection |
+| `_isolate_cache` | Every test gets its own throwaway `cache.db` |
+
+## The suite is hermetic (2026-08-18)
+
+**No test may touch the network.** `_no_network` in `tests/conftest.py` is
+autouse across all three tiers and raises `NetworkAccessError` on any
+outbound `connect`, `connect_ex`, or `getaddrinfo`. Sockets are blocked rather
+than `requests` patched, so the guard cannot be routed around by a client that
+reaches for urllib or a raw socket. AF_UNIX is allowed — local IPC, not the
+network.
+
+This was not always true, and the drift was invisible. A full run made **79**
+live calls to `api.eia.gov` and `archive-api.open-meteo.com`. It cost two ways:
+
+- **Wrong.** Every client fetch path is cache-first (`check cache → fetch →
+  cache → return`). On a miss it falls through to the live API, so tests that
+  believed they were asserting on `mock_eia_response` were really asserting on
+  today's grid. `tests/integration/test_scoring_job.py` said "All external I/O
+  is faked" while its interchange fetch went to the live endpoint on all 13 of
+  its tests.
+- **Slow.** Open-Meteo answers CI's shared runner IPs with `429`, so the suite
+  sat in retry/backoff and its runtime tracked third-party latency rather than
+  our own code. CPU utilization was 40%; wall time was 135s. With the network
+  out, it is 85s single-process at 78% CPU, and the two worst tests went from
+  30.8s and 29.3s to under 2s each.
+
+If a test needs to reach a network service, mock the HTTP boundary using the
+`mock_*_response` fixtures above. The `@pytest.mark.allow_network` escape hatch
+exists but nothing in the suite uses it; reaching for it is a smell.
+
+`_isolate_cache` is the other half. It used to live in
+`tests/integration/conftest.py` and so covered only that tier, leaving unit
+tests reading and writing the real repo-root `cache.db` — a warm key means a
+cache-first client returns early and never consults the test's mock at all.
+
+## Tests run in parallel
+
+CI runs `pytest -n auto` (pytest-xdist). The suite is ~3,900 mostly-CPU-bound
+tests and parallelizes cleanly: ~85s single-process → ~31s on 4 workers,
+stable across repeated runs. `pytest-cov` combines per-worker coverage data
+automatically, so the `--fail-under=70` gate is unaffected.
+
+**What this asks of a new test:** it must not depend on execution order or on
+another test's leftover state. Per-test `tmp_path` is safe (xdist gives each
+worker its own). Mutating a module global without `monkeypatch` is not — the
+teardown is what makes it safe to redistribute tests across processes.
 
 ## Is the suite any good? (mutation testing)
 

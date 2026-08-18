@@ -42,8 +42,13 @@ _BUSY_TIMEOUT_MS = 30_000
 class Cache:
     """SQLite cache with TTL-based expiration and stale fallback."""
 
-    def __init__(self, db_path: str = CACHE_DB_PATH, default_ttl: int = CACHE_TTL_SECONDS):
-        self.db_path = db_path
+    def __init__(self, db_path: str | None = None, default_ttl: int = CACHE_TTL_SECONDS):
+        # Resolved here, not in the signature. A default of ``CACHE_DB_PATH``
+        # binds at function-definition time, so patching the module attribute
+        # afterwards has no effect — which silently defeated the isolation in
+        # ``tests/unit/test_cache.py::test_get_cache_singleton_is_thread_safe``
+        # and pointed 16 threads at the real repo-root ``cache.db``.
+        self.db_path = db_path if db_path is not None else CACHE_DB_PATH
         self.default_ttl = default_ttl
         # Process-local lock serializing writes from this Cache instance.
         # Reads are not guarded — WAL lets them run concurrently with a writer.

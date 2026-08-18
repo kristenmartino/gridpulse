@@ -14,6 +14,24 @@ import pandas as pd
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _stub_weather_normals(monkeypatch):
+    """Keep the post-training normals refresh off the network.
+
+    The file docstring says external I/O is faked, but only one test
+    (``test_...refresh...``) ever patched this. The rest called the real
+    ``refresh_weather_normals``, which requests a 10-year ERA5 archive window
+    (~17 variables) per region from ``archive-api.open-meteo.com``. They
+    survived only because Open-Meteo rate-limited us quickly; a runner that
+    got a 200 would have downloaded the lot.
+
+    Autouse so new tests are covered by default. A test that wants a
+    different behaviour (e.g. asserting the failure path) still overrides it
+    with its own ``monkeypatch.setattr`` — last patch wins.
+    """
+    monkeypatch.setattr("data.weather_normals.refresh_weather_normals", lambda regions: None)
+
+
 @pytest.fixture
 def fake_redis(monkeypatch):
     store: dict[str, dict] = {}
