@@ -208,9 +208,9 @@ published. Features, model inputs, and every historical record are untouched.
   recoverable per hour (the record keeps `n_updates`, not a history). This does
   not touch the measurement: the origin is set by `dropna`, which sees NaN-ness
   and not magnitude. The 487/487 control result is the test of that claim.
-* **PSCO's 7 intact-frame regressions are characterised, not explained.** The
-  daily 10:00 UTC / 3-hour signature is strong enough to name and too regular to
-  be noise, but no mechanism is claimed for it here.
+* ~~**PSCO's 7 intact-frame regressions are characterised, not explained.**~~
+  **Resolved post-deploy — see §10.** They are mechanism 1, and the replay
+  misattributed them.
 * **SPA has 4 ticks where the payload carried a *newer* origin than the replay
   computed** (of 124). Unexplained; too few to sit on the conclusion, and in the
   opposite direction from the defect.
@@ -228,3 +228,48 @@ python scripts/forecast_origin_replay.py LGEE,SPA,PSCO,TAL,CPLW,FMPP \
 and each object is overwritten hourly**, so a replay run today reconstructs from
 today's mirror — re-running it against a later mirror will not reproduce these
 exact frames once the 30-day vintage window has rolled past this episode.
+
+---
+
+## 10. Post-deploy: the instrumentation resolved a residual on its first tick
+
+Deployed 2026-08-18 at merge `86d87c8`, verified by image SHA on all three
+surfaces. The first post-deploy scoring tick — **10:00Z**, the exact hour of
+PSCO's daily signature — carried `forecast_start_resolved` for all 51 BAs:
+
+| binding term | BAs |
+|---|---:|
+| `real_demand` | 49 |
+| `featured` | 2 |
+
+```
+PSCO  forecast_start 07:00  last_real_demand 09:00  last_featured_ts 06:00
+TIDC  forecast_start 08:00  last_real_demand 08:00  last_featured_ts 07:00
+```
+
+**PSCO's origin resolved to 07:00 when its demand reached 09:00 — three hours
+short, with `featured` binding.** That is mechanism 1, at exactly the hour and
+exactly the magnitude §4 recorded as PSCO's daily signature.
+
+So §4's classification of PSCO's seven regressions as "intact-frame" was an
+artefact of the replay, and the honest reading is narrower than what was written
+there: `binding_term` in the replay is the **replay's** binding, and on precisely
+those ticks the replay disagreed with production. The reconstructed frame did not
+carry the hole, because the missing hours arrived later and the vintage window —
+which records first sight and never absence — reports them as present. Production
+saw the hole; the replay could not. **PSCO is not a third mechanism.** The
+`matchable ≥ lead` test that classed those ticks "intact" remains correct on its
+own terms: PSCO's frame was not short. It is the feature frame that was.
+
+TIDC is not a stall: its `featured` tail sits one hour back, but `min()` returns
+`07:00 + 1h = 08:00`, which is `last_real_demand + 1h` anyway.
+
+No `forecast_origin_regressed` refusal fired on this tick, which is expected —
+the regressions are episodic, and the guard exists for the episode.
+
+**What this changes about §8's limits.** One residual is closed. The other
+stands: SPA still has 4 of 124 ticks carrying a *newer* origin than the replay
+computes, and the new log line does not speak to it. And the general caution is
+now demonstrated rather than hypothetical — **the replay's `binding_term` is
+evidence only on ticks where it agrees with production.** On disagreeing ticks
+it describes a frame production did not have.
