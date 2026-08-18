@@ -390,3 +390,40 @@ not supply.
 
 The GCS artifact was returned to `apply: false` after the run, so an accidental
 re-execution is a dry run.
+
+### Durability — the fix survived a live re-grade (2026-08-18T09:20Z)
+
+Everything above proves the *backfill* landed. It does not prove the values
+**stay** landed, and that is the property that actually matters: the defect was
+never a bad write, it was a correct write being erased by the next re-grade.
+The check is therefore whether a real scoring tick can run `regrade_records`
+across these windows and leave the leads alone.
+
+The 09:00 tick (51 BAs, 1,114s) did exactly that:
+
+| BA | `n_7d` | `unk7d` | `excl7d` | `smape7d` | re-graded this tick | pre-backfill `unk7d` |
+|---|---:|---:|---:|---:|---|---:|
+| PSCO | 120 | **0** | 33 | 10.7655 | 09:05 yes | 148 |
+| LGEE | 80 | **1** | 59 | 2.4801 | 09:10 yes | 129 |
+| SPA | 82 | **0** | 38 | 25.9148 | 09:11 yes | 109 |
+| IID | 135 | **0** | 13 | 14.8143 | 09:16 yes | 128 |
+| AZPS | 30 | **0** | 10 | 11.7928 | no — 08:28 backfill | 40 |
+| LDWP | 15 | **0** | 12 | 8.2311 | no — 08:28 backfill | 22 |
+
+**Four BAs carry the proof.** Under the old code every revised record in those
+windows would have been rebuilt without its lead, and `n_lead_unknown_7d` would
+have climbed back toward the right-hand column. PSCO is the cleanest case: it
+re-graded and reported `10.7655`, identical to the byte, from `unk7d 148 -> 0`.
+
+**AZPS and LDWP are correct but not independently durability-tested.** They are
+sparse feeds — LDWP grades roughly twice a day — and did not grade this tick,
+so their payloads still carry the 08:28 backfill timestamp. Their durability
+follows from the same code path proven on the other four, not from their own
+re-grade. Stated rather than glossed, because "six BAs verified" would be a
+stronger claim than the evidence supports.
+
+LGEE keeps **1** unknown: the single record whose lead the Cloud Logging sweep
+could not supply. It correctly stays unknown rather than being invented.
+
+Non-backfilled BAs were unperturbed in the same tick — PJM `unk7d 3 / excl7d
+14`, ERCOT `5 / 13`, CAISO `24 / 13`, all unchanged.
