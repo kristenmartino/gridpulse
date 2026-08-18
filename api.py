@@ -725,6 +725,13 @@ _BENCHMARK_NOTES = [
     "excluded — scoring them would credit the official forecast with a "
     "perfect prediction on hours it never made. Per-reason drop counts ship "
     "as excluded_hours.",
+    "That exclusion protects the truth side only. Our forecast anchors on the "
+    "last hour carrying a positive D, so where that hour is one of the same "
+    "placeholders, the anchor seeding our forecast is the BA's own day-ahead "
+    "value — the hour we score is dropped, the hour that seeded it is not. "
+    "placeholder_pct reports how often the BA's readings arrive that way. The "
+    "effect correlates our error with the operator's rather than shrinking "
+    "it; see the methodology's limits.",
     "The official arm is scored twice: as-issued (the earliest day-ahead "
     "forecast we observed, the fair comparison) and as-revised (EIA's current "
     "value, which for a revising BA carries hindsight). Both verdicts are "
