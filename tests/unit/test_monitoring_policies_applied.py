@@ -246,3 +246,49 @@ class TestLogBasedPoliciesAreWellFormed:
                 f"{path.name} log filter does not key on jsonPayload.event — "
                 f"see the inertness note in docs/monitoring/README.md: {filt}"
             )
+
+
+#: Cloud Monitoring's hard cap on ``documentation.content``. Enforced by the
+#: API, not chosen here — ``policies create`` rejects 4001 with
+#: "`description` must not be more than 4000 characters".
+_DOC_CHAR_CAP = 4000
+
+
+class TestDocumentationFitsTheApiCap:
+    """A runbook over the cap cannot be applied, and says so misleadingly.
+
+    This is the third way this directory has managed to be declared-correct and
+    applied-wrong, after "never applied" (#267) and "watching an event nothing
+    emits" (above). Here the JSON is committed, reviewed and merged, and the
+    console keeps serving the *previous* runbook because the new one cannot be
+    delivered at all.
+
+    What makes it worth a test rather than a note: on a ``conditionMatchedLog``
+    policy the cap is not enforced with a clean rejection. ``PATCH
+    ?updateMask=documentation`` with an over-length body returns **HTTP 200**,
+    reports ``validity {code: 13, "Recompilation of log match condition failed
+    during update"}``, leaves the documentation unchanged, and flips
+    ``enabled`` to **false** — so an edit intended to improve a runbook silently
+    disarms the alert and blames the log filter, which is fine. That error cost
+    a day of diagnosis on 2026-08-18 and produced a wrong conclusion
+    (documented, then corrected, in docs/monitoring/README.md).
+
+    ``benchmark_coverage_at_risk_alert.json`` shipped at 4035 characters and was
+    un-appliable from the moment it merged. Catching it here costs nothing;
+    catching it at apply time costs an on-call reader the wrong runbook.
+    """
+
+    @pytest.mark.parametrize("path", _policy_files(), ids=lambda p: p.name)
+    def test_documentation_is_under_the_api_cap(self, path: Path):
+        content = (json.loads(path.read_text()).get("documentation") or {}).get("content", "")
+        assert len(content) <= _DOC_CHAR_CAP, (
+            f"{path.name} documentation.content is {len(content)} characters, over "
+            f"the Cloud Monitoring cap of {_DOC_CHAR_CAP}. GCP will refuse to apply "
+            f"it — and on a log-match policy it refuses with HTTP 200, a bogus "
+            f"'Recompilation of log match condition failed' validity error, and "
+            f"enabled=false.\n\n"
+            f"Do not shave words to land just under the cap; the next edit puts it "
+            f"back over. Move design rationale — why the alert is shaped this way, "
+            f"what was rejected — into docs/monitoring/README.md and keep the "
+            f"console copy operational: what fired, how to confirm it, what to do."
+        )

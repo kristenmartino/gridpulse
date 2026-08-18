@@ -214,16 +214,46 @@ exclusion.
 `PATCH ?updateMask=documentation` on a `conditionMatchedLog` policy returns
 **HTTP 200**, fails with `validity code 13` ("Recompilation of log match
 condition failed during update"), and **flips `enabled` to false** — it
-disarms the alert as a side effect of documenting it. Not content-specific:
-re-applying the policy's own byte-identical text fails identically, reproduced
-on a throwaway policy. The at-risk alert was disabled twice during this and
-re-enabled within ~1 min each time; all 11 policies verified `enabled: true`,
-`validity: ok` afterwards. So `benchmark_coverage_at_risk_alert.json` is now
-**declared-correct and applied-stale**, the one gap
-`test_monitoring_policies_applied.py` cannot see: it compares files to a table
-of ids, never documentation to documentation. Closing it means
-delete-and-recreate and a new policy id. Written up in
-[`docs/monitoring/README.md`](docs/monitoring/README.md).
+disarms the alert as a side effect of documenting it. The at-risk alert was
+disabled twice during this and re-enabled within ~1 min each time; all 11
+policies verified `enabled: true`, `validity: ok` afterwards. So
+`benchmark_coverage_at_risk_alert.json` was **declared-correct and
+applied-stale**, the one gap `test_monitoring_policies_applied.py` could not
+see: it compares files to a table of ids, never documentation to documentation.
+
+**2026-08-18 — RESOLVED, and the diagnosis above was wrong.** The cause is a
+**4000-character cap on `documentation.content`**, not log-match immutability.
+The corrected runbook shipped at **4035** characters, so it was un-appliable by
+any route from the moment it merged — `policies create` rejects it cleanly
+(`INVALID_ARGUMENT: 'description' must not be more than 4000 characters`),
+while `PATCH` on a log-match policy reports the same over-length body as a
+bogus recompilation failure and disables the alert. **No delete-and-recreate
+was needed and no new policy id was minted**; the at-risk alert keeps
+`alertPolicies/15888827698887105322`. Fixed by moving the 587-char design
+rationale ("why it counts the failing direction") into
+[`docs/monitoring/README.md`](docs/monitoring/README.md), bringing the runbook
+to **3575** (425 to spare), then patching it in place.
+
+**Why the first diagnosis held up:** every failing attempt carried that same
+4035-char body, so "fails even byte-identical" and "fails because too long"
+predicted identical outcomes. Settled on a throwaway policy by varying only
+length — two short patches applied cleanly **in sequence** (refuting "only the
+first succeeds"), the 4035-char one failed, and a short one **after** it
+restored `enabled: true` and cleared `validity` (refuting "stays invalid").
+**A reproduction is not a diagnosis** — re-running the failure proved it
+repeatable, not that the stated cause was the operative one, and the control
+that separated them was the one never run. `test_monitoring_policies_applied.py`
+now fails the build on any runbook over the cap.
+
+**Split out:**
+[#554](https://github.com/kristenmartino/gridpulse/issues/554) — the length
+check closes *one* reason committed and applied can diverge; the likelier one
+is untouched, since applying a documentation edit is still a manual step
+outside CI and nothing compares the applied runbook to the committed file. The
+same issue covers noticing a policy left `enabled: false` — which happened
+twice during this session and both times was caught only because someone was
+looking. Modelled on `deploy-divergence.yml`, which already answers the
+"needs a live API call" objection.
 
 **Open question, split out:**
 [#549](https://github.com/kristenmartino/gridpulse/issues/549) — the gate
@@ -1651,8 +1681,8 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
 
 ## Blocked / waiting on
 
-- ✅ **Alert policies: nothing blocked.** All eight are applied and
-  `_KNOWN_UNAPPLIED` is empty as of 2026-08-07. `redis_write_failures`
+- ✅ **Alert policies: nothing blocked.** All eleven are applied and
+  `_KNOWN_UNAPPLIED` is empty as of 2026-08-18. `redis_write_failures`
   (`alertPolicies/16314898527819427981`) went live once its event was confirmed
   in the DEPLOYED image, not merely on main; `scoring_partial_failure`
   (`alertPolicies/1942403527399204858`) and `scoring_deadline_shed`

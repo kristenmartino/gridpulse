@@ -28,6 +28,22 @@ Both web-tier policies apply the same way as the job policies (see "Apply /
 re-apply" below). The **uptime check** and the **billing budget** are separate
 GCP resource types — their `gcloud` recipes are in the two sections just below.
 
+### Why the #535 alerts count the failing direction
+
+Both benchmark policies are log-based and count *upward* as things get worse.
+The obvious alternative is a metric threshold on `benchmark_fleet_written`,
+which has carried the scoreable count since E0 — and it is the same trap
+`backtest_recompute_alert.json` documents. It would have to be a
+threshold-BELOW condition, so a benchmark phase that stops emitting leaves the
+counter with no data, the condition never evaluates, and the alert goes quiet
+exactly when it should fire. A phase that stops running is a different failure
+and is covered by `cloud_run_job_failure_alert` and `scoring_partial_failure`.
+
+(This lived in the `benchmark_coverage_at_risk` runbook until 2026-08-18. It is
+design rationale rather than something an on-call reader acts on, and moving it
+here is what brought that runbook back under the 4000-character documentation
+cap — see the section on that cap below.)
+
 ### Not a Cloud Monitoring policy: the deploy-divergence check
 
 `.github/workflows/deploy-divergence.yml` runs
@@ -242,13 +258,20 @@ job run and read as "still broken."
 A new log-based policy also **requires** `alertStrategy.notificationRateLimit`
 (both existing ones use `3600s`); without it the policy is rejected.
 
-## A log-match policy's documentation cannot be edited in place (2026-08-18)
+## A policy's documentation is capped at 4000 characters (2026-08-18)
 
-**The runbook you read in the GCP console is not the runbook in this
-directory, and there is currently no way to make it be.**
+**`documentation.content` must be ≤ 4000 characters, and on a log-match policy
+the cap is enforced by an error that names the wrong cause and disarms the
+alert.**
+
+`policies create` rejects an over-length body properly, saying what is wrong:
+
+```
+ERROR: INVALID_ARGUMENT: `description` must not be more than 4000 characters
+```
 
 `PATCH …/alertPolicies/<id>?updateMask=documentation` on a policy whose
-condition is a `conditionMatchedLog` **fails and disables the policy**:
+condition is a `conditionMatchedLog` does not. The same over-length body gets:
 
 ```
 HTTP 200
@@ -256,30 +279,32 @@ HTTP 200
 "enabled": false
 ```
 
-Three things make this worse than a plain rejection:
+Three things make the PATCH form worse than a plain rejection:
 
 1. **It returns HTTP 200.** A caller that checks the status code sees success.
    The failure is only visible in the `validity` field of the response body,
    and the damage is only visible in `enabled`.
 2. **It disarms a working alert.** `enabled` flips to false as a side effect of
-   a documentation edit. Nothing else about the policy changes.
-3. **It is not about the content.** Re-applying the policy's own
-   byte-identical existing documentation fails the same way. Reproduced on a
-   throwaway policy with the same condition shape: a trivial short string
-   applied cleanly to a freshly created policy, and every subsequent
-   documentation update — including the control — failed. Once a policy has
-   taken one failed update it stays in the invalid state; re-enabling clears
-   `enabled` but not the behaviour.
+   a documentation edit. Nothing else about the policy changes — the
+   documentation is not updated either, so the edit silently accomplishes the
+   opposite of its intent.
+3. **It blames the log match condition**, which is untouched and fine. Nothing
+   in the response mentions length. That misdirection is what made this cost a
+   day: the obvious reading is that log-match policies are documentation-
+   immutable, and that reading is wrong.
 
-**If you edit documentation in this directory, the applied copy does not
-move.** `benchmark_coverage_at_risk_alert.json` is in that state as of
-2026-08-18: the committed runbook names TEC, the applied one still names the
-pre-fix CAISO/PJM numbers. The only known way to close the gap is
-delete-and-recreate, which mints a **new policy id** and therefore also
-requires editing the applied table above.
+**A documentation edit under the cap applies cleanly**, repeatedly, on a
+log-match policy. Keep runbooks well clear of 4000 —
+`tests/unit/test_monitoring_policies_applied.py` fails the build at the cap so
+this is caught at commit time rather than at apply time. When a runbook needs
+to grow past it, move the *design rationale* into this README (that is why the
+"why the #535 alerts count the failing direction" section above exists) and
+leave the console copy operational.
 
-**If you tripped this, re-enable immediately** — an alert disabled this way
-looks completely normal in the policy list except for one boolean:
+**If you tripped this, recovery is a second, valid PATCH.** Sending
+documentation under the cap clears `validity` and restores `enabled: true` in
+one call — no separate re-enable is needed, though the explicit form still
+works:
 
 ```bash
 curl -s -X PATCH -H "Authorization: Bearer $(gcloud auth print-access-token)" \
@@ -294,12 +319,34 @@ curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
   "https://monitoring.googleapis.com/v3/projects/nextera-portfolio/alertPolicies?fields=alertPolicies(displayName,enabled,validity)"
 ```
 
-This is the same lesson as everything else in this file — **assert the
-enforcement, not the declaration** — with a new edge: here the act of
-correcting the declaration is what breaks the enforcement. The guard test
-below compares committed files against a table of ids; it does **not** compare
-committed documentation against applied documentation, and after this it
-cannot be made to without a live API call.
+### The first diagnosis was wrong, and how it was settled (2026-08-18)
+
+This section previously stated that log-match documentation **could not be
+edited in place at all**, and that the only way to correct a runbook was
+delete-and-recreate with a new policy id. That was wrong. The evidence for it
+was real but confounded: every failing attempt happened to carry the same
+4035-character body, so "it fails even with byte-identical text" and "it fails
+because the text is too long" predicted the same outcome.
+
+Isolated on a throwaway policy with a never-emitted filter, patching
+documentation only:
+
+| Test | doc chars | Result |
+|---|---|---|
+| A — first PATCH | 39 | 200, `validity` absent, `enabled: true` |
+| B — second PATCH (the "subsequent update" control) | 40 | 200, `validity` absent, `enabled: true` |
+| C — over-length PATCH | **4035** | 200, `validity code 13`, `enabled: false`, doc unchanged |
+| D — PATCH after the failure | 44 | 200, `validity` absent, `enabled: true` |
+
+**B refutes** "only the first update on a fresh policy succeeds." **D refutes**
+"once a policy has taken one failed update it stays in the invalid state."
+Only C fails, and length is the only variable it changes.
+
+The lesson this file already teaches is **assert the enforcement, not the
+declaration**. The correction adds a second: *a reproduction is not a
+diagnosis.* Re-running the failure proved it was reproducible, not that the
+stated cause was the operative one — the control that would have separated
+them (vary the length, hold everything else) was the one never run.
 
 ## What the guard test does and does not cover
 
