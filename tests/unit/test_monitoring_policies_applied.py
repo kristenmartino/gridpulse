@@ -124,6 +124,59 @@ class TestKnownUnappliedIsHonest:
             )
 
 
+#: Source trees a job/web event can legitimately be emitted from. Tests and
+#: scripts are excluded deliberately — an event only a test emits is exactly
+#: the inert case this guards.
+_EMITTER_DIRS = ("jobs", "models", "data", "components", "simulation", "personas")
+
+#: `jsonPayload.event="<name>"` inside a conditionMatchedLog filter.
+_FILTER_EVENT = re.compile(r'jsonPayload\.event\s*=\s*"([^"]+)"')
+
+
+def _filter_events(policy: dict) -> list[str]:
+    """Every event name a policy's log-based conditions key on."""
+    out: list[str] = []
+    for cond in policy.get("conditions", []):
+        matched = cond.get("conditionMatchedLog")
+        if not matched:
+            continue
+        out.extend(_FILTER_EVENT.findall(matched.get("filter", "")))
+    return out
+
+
+def _emitted_events() -> set[str]:
+    """Every event name the source can produce, across both emit idioms.
+
+    Deliberately a *lexical* scan, not an import: the point is to compare the
+    policy's filter against what the source says, without executing anything
+    or depending on a module's import side effects.
+
+    Two idioms, and missing the second is how this check would quietly stop
+    working:
+
+    1. ``log.warning("scoring_runtime_creep", ...)`` — the literal first arg.
+    2. ``{"event": "benchmark_scoreability_drop", ...}`` built by a helper and
+       emitted later as ``log.error(alert.pop("event"), **alert)``
+       (`jobs/scoring_job.py`). The first argument is a *variable*, so idiom 1's
+       pattern cannot see it — the first cut of this test failed on exactly
+       these two events and looked, briefly, like a real inert alert.
+
+    A dict key named ``event`` that is never logged would be a false negative
+    here. That direction is safe: it can only make the test pass when it should
+    have failed, never fail a policy that is fine.
+    """
+    root = Path(__file__).resolve().parents[2]
+    direct = re.compile(r"log\.(?:info|warning|error|debug|exception)\(\s*[\"']([a-z0-9_]+)[\"']")
+    as_field = re.compile(r"[\"']event[\"']\s*:\s*[\"']([a-z0-9_]+)[\"']")
+    found: set[str] = set()
+    for d in _EMITTER_DIRS:
+        for py in (root / d).rglob("*.py"):
+            src = py.read_text(encoding="utf-8")
+            found.update(direct.findall(src))
+            found.update(as_field.findall(src))
+    return found
+
+
 class TestLogBasedPoliciesAreWellFormed:
     """conditionMatchedLog policies have two footguns that fail silently."""
 
@@ -138,6 +191,44 @@ class TestLogBasedPoliciesAreWellFormed:
             f"{path.name} uses conditionMatchedLog but has no "
             f"alertStrategy.notificationRateLimit — GCP rejects the policy."
         )
+
+    @pytest.mark.parametrize("path", _policy_files(), ids=lambda p: p.name)
+    def test_every_log_filter_names_an_event_the_code_emits(self, path: Path):
+        """An alert watching an event nothing emits is armed, valid, and silent.
+
+        The module docstring records the inverse — #267 emitted
+        ``scoring_partial_failure`` into a void for a week because the policy
+        was never applied. This is the mirror: the policy is applied, correct,
+        enabled and routed, and no code ever produces the event it waits for.
+        Both failures look identical from outside — a green dashboard — and
+        neither announces itself, because an alert that never fires is
+        indistinguishable from an alert with nothing to report.
+
+        The realistic path in is a rename. ``benchmark_scoreability_drop`` is a
+        string in two places that nothing links: a filter in
+        ``docs/monitoring/*.json`` and a ``log.warning(...)`` call in
+        ``models/``. Renaming the emitter is an ordinary refactor that no test,
+        type, or import would object to — and it would silently disarm the
+        alarm.
+
+        **Scope, stated honestly.** This proves the event name exists in the
+        source. It does NOT prove the policy exists in GCP, is enabled, routes
+        to a live channel, still matches this file, or that the emitting branch
+        is reachable or deployed. Those need credentials; see
+        ``docs/monitoring/README.md`` for what is and is not covered.
+        """
+        events = _filter_events(json.loads(path.read_text()))
+        if not events:
+            return
+        emitted = _emitted_events()
+        for event in events:
+            assert event in emitted, (
+                f"{path.name} alerts on jsonPayload.event={event!r}, but no "
+                f"structlog call in {'/, '.join(_EMITTER_DIRS)}/ emits it. "
+                f"Either the emitter was renamed (update the filter) or the "
+                f"alert was written against an event that never shipped — "
+                f"the policy is armed and permanently silent either way."
+            )
 
     @pytest.mark.parametrize("path", _policy_files(), ids=lambda p: p.name)
     def test_log_based_filters_use_jsonpayload_event(self, path: Path):

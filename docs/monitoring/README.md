@@ -240,6 +240,52 @@ job run and read as "still broken."
 A new log-based policy also **requires** `alertStrategy.notificationRateLimit`
 (both existing ones use `3600s`); without it the policy is rejected.
 
+## What the guard test does and does not cover
+
+`tests/unit/test_monitoring_policies_applied.py` runs on every PR and is the
+only automatic check on this directory. Being precise about its edge matters,
+because a guard that looks broader than it is buys false confidence — the
+failure mode this whole directory exists to prevent.
+
+**It proves, from local files only:**
+
+- every committed policy is either in the applied table with an
+  `alertPolicies/<id>`-shaped id, or in `_KNOWN_UNAPPLIED` with a reason
+- log-based policies carry a `notificationRateLimit` (GCP rejects them without)
+- log-based filters key on `jsonPayload.event`, not `textPayload`
+- **every filtered event name is one the source can actually emit** — added
+  2026-08-18, covering both idioms: the literal `log.warning("name", ...)` and
+  the `{"event": "name"}` dict that `jobs/scoring_job.py` later emits via
+  `log.error(alert.pop("event"), **alert)`
+
+That last one closes a rename: `benchmark_scoreability_drop` is a string in two
+places nothing links — a filter in this directory and a call in `models/`.
+Renaming the emitter is an ordinary refactor that no test, type or import
+would object to, and it would silently disarm the alarm. It is the mirror of
+the #267 failure in the module docstring, where the event was emitted and the
+policy was never applied.
+
+**It proves nothing about GCP.** Not that a policy exists, is enabled, routes
+to a live channel, or still matches the committed JSON — the id check is a
+*regex*, so `alertPolicies/9999999999` passes. Nor does it prove the emitting
+branch is reachable, or that the running image contains it: on 2026-08-18 both
+`#535` policies were correctly applied and enabled while the deployed job image
+predated their emitter, so the alarm was armed and could not fire.
+
+Closing the GCP half needs credentials in CI. The cheap shape is a step in
+`deploy-divergence.yml`, which already authenticates via WIF and runs hourly —
+it would need `roles/monitoring.viewer` on `github-actions-deploy@`, weaker
+than the `run.admin` it already holds. **Deliberately not built** (2026-08-18):
+drift has not been observed here, and the manual check below covers it. Revisit
+if anyone edits policies in the console, a second person gets project access,
+or a wrong id ever reaches `main`.
+
+```bash
+# The manual version of the unbuilt check — file vs live, all policies.
+gcloud monitoring policies list --project=nextera-portfolio \
+  --format="value(name,displayName,enabled)"
+```
+
 ## Verification (one manual step)
 
 CLI confirms the policy is enabled, correctly filtered, and channel-bound.
