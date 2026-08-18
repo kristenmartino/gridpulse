@@ -55,6 +55,7 @@ the same day as an audit — and on this repo that is most of them. Entries
 carry no time of day, so counting is the only thing with the resolution to
 tell "already reviewed" from "arrived since".
 
+- 2026-08-18 [guard-blind-by-construction] The train/inference autoregressive parity test (`test_training_features_match_inference_snapshot_row_by_row`) compares both implementations on a gapless synthetic fixture, where they agree by construction, so it cannot see the positional-vs-temporal divergence it exists to catch. — ref: #559 / #186
 <!-- audited-through: 2026-08-18 | entries-seen: 6 -->
 
 - 2026-08-18 [verification-instrument] Twice reported a production deploy verified from a signal adjacent to the claim: first waited for the benchmark payload's `updated_at` to advance (a tick already in flight advances it regardless of the deploy), then for a per-BA field to appear (the scoring job writes per-BA keys first and `meta:benchmark_fleet` last, so the fleet list still carried the old exclusion reason). Neither was wrong about the deploy, both were wrong about what they proved. — ref: #549 / PR #580
