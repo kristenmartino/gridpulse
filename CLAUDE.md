@@ -184,14 +184,25 @@ and moves on.
 
 **Where a rule is fully mechanical, a guard enforces it instead of a
 reminder.** The close-keyword invariants above are decidable by pattern, so
-`.claude/hooks/guard-close-keywords.sh` checks every `git commit` /
-`gh pr create|edit` for a close keyword next to an issue number and asks for
-confirmation — loudly when the keyword sits inside backticks, since GitHub
-fires those too. It asks rather than blocks: a live `Closes #N` is
-legitimate, and what the rule actually requires is that a human verified the
-number. This is the same principle as marking an entry `resolved — enforced
-by <X>`: prefer the guard, and keep prose for the judgment calls nothing
-mechanical can decide.
+`.claude/hooks/guard-close-keywords.sh` inspects every `git commit` /
+`gh pr create|edit` for a close keyword next to an issue number, and splits
+by how certain it can be:
+
+- **A backticked keyword is blocked.** Nobody wants both the backticks and
+  the closure, so this one is decidable outright — and GitHub fires it
+  regardless of the quoting. The block message carries both escapes (drop
+  the backticks, or write the keyword and number non-adjacently), so it is
+  never a dead end.
+- **A plain live reference asks.** It is legitimate and common; the rule
+  only requires that a human verified the number against the real issue.
+
+The split is measured, not stylistic: a PreToolUse `ask` does **not** gate
+anything in permissive or auto-approving sessions — verified 2026-08-18,
+the guard returned `ask` on a live reference and the command ran with no
+prompt. So the case that can be decided with certainty denies, and the case
+that genuinely needs a human keeps asking and accepts that it may not stop
+anything. Prefer the guard over prose wherever a rule is mechanical, and
+keep prose for the judgment calls nothing mechanical can decide.
 
 **The enforcement layer reports on itself.** Every mistake hook appends a
 line to `.claude/hook-activity.log` (gitignored, local, safe to delete) on
