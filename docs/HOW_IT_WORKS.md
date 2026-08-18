@@ -246,6 +246,22 @@ unmodified anchor because the same study showed substitution would not help
 (churn) or would actively hurt (bulk). Tiles, drift, and alerts always read
 the real, unconditioned data.
 
+**What each run anchored on is now recorded (#547).** There are two ways an
+anchor can end up being the operator's own forecast rather than a meter
+reading: ADR-009 substitution above, which is deliberate and `broken`-class
+only, and an undesigned second path — for an hour EIA has not metered yet it
+publishes the BA's day-ahead value in the `D` field, and the anchor selects on
+*positive* `D`, not *metered* `D`. Every forecast payload therefore carries an
+`anchor` block (hour, value, was-it-a-placeholder, was-it-conditioned) which
+rides onto the drift records, so scored hours can be split by anchor
+provenance once records accrue. The dependence itself is disclosed as limit 11
+of `docs/BENCHMARK_METHODOLOGY.md`; its materiality remains unmeasured until
+the window fills. A *bounded* retrospective reconstruction is also possible —
+row 0 is `anchor + 1h` by construction, so the anchor is exact arithmetic from
+a stored record — but it is capped at the vintage mirror's rolling window and
+cannot recover whether ADR-009 substituted the anchor, which is why the fields
+are recorded forward as well.
+
 **The serve-path acceptance gate (ADR-010).** Retraining daily means
 drawing a new model daily, and the draws are not all good: replaying every
 persisted LDWP XGBoost vintage showed **~27% produce recursive forecasts

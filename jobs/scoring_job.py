@@ -241,7 +241,11 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     # #309: vintage capture MUST run on the RAW frame — it records what EIA
     # actually said, and the quality guard below would erase exactly the
     # artifact values the study exists to measure. Order is load-bearing.
-    vintage_res = timed("vintage", phases.write_vintage_records, region, region_data.demand_df)
+    # ``region_data`` is passed so the placeholder verdicts land on it for the
+    # forecast phase to read (#547) — see RegionData.placeholder_by_hour.
+    vintage_res = timed(
+        "vintage", phases.write_vintage_records, region, region_data.demand_df, region_data
+    )
     summary["phases"]["vintage"] = {
         "ok": vintage_res.ok,
         **(vintage_res.details if vintage_res.ok else {"error": vintage_res.error}),

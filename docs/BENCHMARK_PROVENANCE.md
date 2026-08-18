@@ -27,7 +27,7 @@ The two questions the benchmark engine could not answer about itself, measured. 
 
 ## Gate 2 — what lead do our forecasts actually carry?
 
-The forecast anchors on the last *real* demand hour, so EIA's publishing lag makes a nominal 24h record shorter than 24h. Measured from live payloads (`scored_at` vs row timestamp).
+The forecast anchors on the last hour EIA reports a positive `D` for — which is not always a metered value, and that distinction is limit 11 of [`BENCHMARK_METHODOLOGY.md`](BENCHMARK_METHODOLOGY.md) (#539/#547), not a detail — so EIA's publishing lag makes a nominal 24h record shorter than 24h. Measured from live payloads (`scored_at` vs row timestamp).
 
 | ba | nominal_24h_realized_h | nominal_48h_realized_h |
 |---|---|---|

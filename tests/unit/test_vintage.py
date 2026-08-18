@@ -728,3 +728,113 @@ class TestParquetNullRoundTrip:
         back = deserialize_records(frame.to_dict("records"))
         assert [r.df_at for r in back] == [r.df_at for r in recs]
         assert all(df_capture_lag_hours(r) == 1.0 for r in back)
+
+
+class TestPlaceholderHandoffToTheForecastPhase:
+    """#547: the vintage phase hands its placeholder verdicts to the forecast
+    phase in memory, so the anchor can record what it was seeded with.
+
+    In memory rather than via a Redis re-read: this phase already holds the
+    deserialised records, the scoring job is under an active runtime budget
+    (#389), and a re-read could observe a different tick's window.
+    """
+
+    @staticmethod
+    def _redis(monkeypatch) -> dict:
+        import data.redis_client as rc
+
+        store: dict = {}
+        monkeypatch.setattr(rc, "redis_configured", lambda: True)
+        monkeypatch.setattr(rc, "redis_get_strict", lambda key: store.get(key))
+        monkeypatch.setattr(
+            rc, "persist", lambda key, value, ttl=86400: store.__setitem__(key, value)
+        )
+        return store
+
+    @staticmethod
+    def _data(frame):
+        from jobs.phases import RegionData
+
+        return RegionData(region="SCEG", demand_df=frame, weather_df=pd.DataFrame())
+
+    @staticmethod
+    def _frame(d: float, df: float) -> pd.DataFrame:
+        hour = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+        return pd.DataFrame({"timestamp": [hour], "demand_mw": [d], "forecast_mw": [df]})
+
+    def test_the_map_agrees_with_was_placeholder_record_for_record(self, monkeypatch):
+        from data.vintage import canonical_hour, deserialize_records
+        from jobs import phases
+
+        store = self._redis(monkeypatch)
+        data = self._data(self._frame(1157.0, 1157.0))
+
+        assert phases.write_vintage_records("SCEG", data.demand_df, data).ok
+
+        records = deserialize_records(store["gridpulse:vintage:SCEG"]["records"])
+        assert data.placeholder_by_hour == {
+            canonical_hour(r.timestamp): r.was_placeholder for r in records
+        }
+        assert set(data.placeholder_by_hour.values()) == {True}, "D == DF is the fingerprint"
+
+    def test_a_metered_hour_is_a_confirmed_negative(self, monkeypatch):
+        from jobs import phases
+
+        self._redis(monkeypatch)
+        data = self._data(self._frame(1157.0, 7911.0))
+
+        assert phases.write_vintage_records("SCEG", data.demand_df, data).ok
+        assert set(data.placeholder_by_hour.values()) == {False}
+
+    def test_the_map_inherits_the_535_df_at_guard_not_raw_equality(self, monkeypatch):
+        """The trap: ``was_placeholder`` is NOT ``d == df``.
+
+        It is ``False`` whenever the DF arrived on a later tick than the D.
+        Measuring raw equality overstates — SCEG reads 31.7% against 12.24%
+        guarded, a 2.6x overstatement — and MISO, CAISO and ERCOT are
+        *unchanged* by the guard, so spot-checking the headline BAs would show
+        perfect agreement and hide it.
+
+        Asserted through the hand-off rather than on ``VintageRecord`` directly,
+        because a map built by re-deriving ``d == df`` would pass every other
+        test in this class.
+        """
+        from jobs import phases
+
+        self._redis(monkeypatch)
+
+        # Tick 1: D lands, EIA has not published DF for the hour yet.
+        first = self._data(self._frame(1000.0, float("nan")))
+        assert phases.write_vintage_records("SCEG", first.demand_df, first).ok
+
+        # Tick 2: the DF fills in, numerically identical to the D — a
+        # coincidence across two ticks, not evidence of a placeholder.
+        second = self._data(self._frame(1000.0, 1000.0))
+        assert phases.write_vintage_records("SCEG", second.demand_df, second).ok
+
+        assert set(second.placeholder_by_hour.values()) == {False}, (
+            "raw d == df equality would flag this; the df_at guard must not"
+        )
+
+    def test_the_map_stays_none_when_capture_never_ran(self, monkeypatch):
+        """Absent provenance and a metered anchor are different facts.
+
+        Every early return leaves the map ``None``, which the forecast phase
+        reads as unknown rather than as metered.
+        """
+        from jobs import phases
+
+        self._redis(monkeypatch)
+        data = self._data(pd.DataFrame())
+
+        result = phases.write_vintage_records("SCEG", data.demand_df, data)
+
+        assert result.ok and result.details == {"skipped": "no_demand"}
+        assert data.placeholder_by_hour is None
+
+    def test_the_phase_still_works_without_a_region_data(self, monkeypatch):
+        """The parameter is optional so existing callers stay untouched."""
+        from jobs import phases
+
+        self._redis(monkeypatch)
+        assert phases.write_vintage_records("SCEG", self._frame(1157.0, 7911.0)).ok

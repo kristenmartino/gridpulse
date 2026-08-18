@@ -74,3 +74,53 @@ def test_broken_feed_exclusion_does_not_read_as_disposing_of_it(doc: str) -> Non
     assert "#539" in doc
     lowered = doc.lower()
     assert "must not be read as disposing" in lowered
+
+
+def _prose(doc: str) -> str:
+    """Doc text with markdown emphasis and line wrapping normalised away.
+
+    A claim must not become unassertable because a sentence rewrapped or gained
+    a pair of asterisks — that would make these guards fail for cosmetic edits
+    and, worse, tempt the next editor to delete the assertion rather than the
+    cause.
+    """
+    flat = doc.replace("*", "").replace("`", "").replace("\u2212", "-").replace("\u2014", "-")
+    return " ".join(flat.split()).lower()
+
+
+def test_instrumented_is_not_allowed_to_read_as_measured(doc: str) -> None:
+    """#547 records anchor provenance; it does not measure the materiality.
+
+    The failure mode here is the mirror of #539's. That issue's silence
+    invited a reader to assume the dependence was absent; a doc that announces
+    an instrument without saying it has produced no result yet invites the
+    reader to assume the materiality is settled — and small. The instrument
+    could not be backfilled, so on the day it ships it has measured exactly
+    nothing, and the doc has to say so.
+    """
+    prose = _prose(doc)
+    assert "#547" in doc, "the instrument is not named"
+    assert "still stated as unmeasured rather than as small" in prose, (
+        "the doc announces the instrument without restating that the "
+        "materiality is not yet measured"
+    )
+
+
+def test_the_retrospective_route_is_stated_rather_than_denied(doc: str) -> None:
+    """#547 claimed the anchor could not be recovered retrospectively. It can.
+
+    Row 0 of a forecast *is* ``anchor + 1h`` by construction, and ``_lead_hours``
+    counts from row 0 — so ``anchor = target - lead_hours`` is exact on the 1h
+    path, and ``anchor = target - H - 1h`` on the horizon path, which needs no
+    lead at all. A doc that repeats the impossibility claim would justify this
+    instrument with a false premise and would stop the next reader from running
+    a measurement that is available today over the vintage mirror's window.
+    """
+    prose = _prose(doc)
+    assert "anchor = target - lead_hours" in prose, (
+        "the doc must state the reconstruction identity, not deny it"
+    )
+    assert "anchor_conditioned" in doc, (
+        "the honest justification for forward recording is the fields no "
+        "reconstruction can reach — say which they are"
+    )
