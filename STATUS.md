@@ -167,18 +167,32 @@ that is the trap: `make_day_ahead_safe` strips `demand_lag_1h` and the 6-7 day
 archive lag removes placeholders, so the harness measures cleanly precisely
 because it lacks the production path in question — the ADR-010 failure mode.
 
-**Open question / blocked on:** the materiality of limit 11 is **unmeasured**,
-not small. Splitting scored hours by anchor provenance needs the anchor hour
-recorded per forecast, which is not instrumented; `DriftRecord` and
-`PairedHour` carry none, and
-[#542](https://github.com/kristenmartino/gridpulse/issues/542) left
-`lead_hours` null on ~79% of records. **Partly unblocked the same day** — #542
-is fixed, so records carry a lead again, and the erased history was
-reconstructed for the 7-day window at 100% from 31 days of `drift_updated` log
-lines (`docs/DRIFT_LEAD_REGRADE.md`). The "cannot be reconstructed" half of
-this blocker no longer holds; the anchor *hour* itself is still uninstrumented,
-which is the part that remains. Filed as a follow-up; the doc states the limit
-as unmeasured rather than as small.
+**Open question:** the materiality of limit 11 is **unmeasured**, not small —
+and that is now a gap in *evidence*, no longer a gap in *capability*. **Both
+halves of the original blocker are gone, same day.**
+[#542](https://github.com/kristenmartino/gridpulse/issues/542) is fixed, so
+records carry a lead again, and the erased history was reconstructed for the
+7-day window at 100% from 31 days of `drift_updated` log lines
+(`docs/DRIFT_LEAD_REGRADE.md`). And
+[#547](https://github.com/kristenmartino/gridpulse/issues/547) shipped the
+instrument (#555): every forecast payload now carries an `anchor` block —
+hour, value, was-it-a-placeholder, was-it-conditioned — riding onto both drift
+paths. It has measured **nothing** yet, and limit 11 is guarded by a test that
+fails if "instrumented" is ever allowed to read as "measured".
+
+**Two claims of mine that #555 refuted, kept rather than quietly dropped.**
+This entry said the anchor hour "is not instrumented … `DriftRecord` and
+`PairedHour` carry none", and #547's body went further and said it could not be
+recovered retrospectively at all because `lead_hours` is the realized lead
+rather than the anchor. **That impossibility claim is false, and it is the
+intuitive version.** Row 0 of a forecast *is* `anchor + 1h` by construction
+(`_build_future_feature_frame` starts the frame at `forecast_start`) and
+`_lead_hours` counts from row 0 — so `anchor = target − lead_hours` is exact on
+the 1h path, and `anchor = target − H − 1h` on the horizon path needs no lead
+at all. A bounded retrospective measurement was available over the vintage
+mirror's rolling ~30-day window the whole time. I asserted unmeasurability from
+the record schemas without reading the frame builder; forward recording is
+justified by *reach*, not by impossibility.
 
 **2026-08-18 — [#535](https://github.com/kristenmartino/gridpulse/issues/535)
 ANSWERED and fixed: the `df-coverage` exclusion was measuring our own
