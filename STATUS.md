@@ -97,6 +97,21 @@ lead's pairing verdict demoting a BA the coverage gate passed, which is
 [#539](https://github.com/kristenmartino/gridpulse/issues/539) surfacing as an
 exclusion.
 
+**The corrected runbook could not be delivered to the console.**
+`PATCH ?updateMask=documentation` on a `conditionMatchedLog` policy returns
+**HTTP 200**, fails with `validity code 13` ("Recompilation of log match
+condition failed during update"), and **flips `enabled` to false** — it
+disarms the alert as a side effect of documenting it. Not content-specific:
+re-applying the policy's own byte-identical text fails identically, reproduced
+on a throwaway policy. The at-risk alert was disabled twice during this and
+re-enabled within ~1 min each time; all 11 policies verified `enabled: true`,
+`validity: ok` afterwards. So `benchmark_coverage_at_risk_alert.json` is now
+**declared-correct and applied-stale**, the one gap
+`test_monitoring_policies_applied.py` cannot see: it compares files to a table
+of ids, never documentation to documentation. Closing it means
+delete-and-recreate and a new policy id. Written up in
+[`docs/monitoring/README.md`](docs/monitoring/README.md).
+
 **Open question, split out:**
 [#549](https://github.com/kristenmartino/gridpulse/issues/549) — the gate
 cannot tell chronic sparsity from episodic blackout and publishes the first

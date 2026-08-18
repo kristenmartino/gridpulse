@@ -242,6 +242,65 @@ job run and read as "still broken."
 A new log-based policy also **requires** `alertStrategy.notificationRateLimit`
 (both existing ones use `3600s`); without it the policy is rejected.
 
+## A log-match policy's documentation cannot be edited in place (2026-08-18)
+
+**The runbook you read in the GCP console is not the runbook in this
+directory, and there is currently no way to make it be.**
+
+`PATCH …/alertPolicies/<id>?updateMask=documentation` on a policy whose
+condition is a `conditionMatchedLog` **fails and disables the policy**:
+
+```
+HTTP 200
+"validity": {"code": 13, "message": "Recompilation of log match condition failed during update."}
+"enabled": false
+```
+
+Three things make this worse than a plain rejection:
+
+1. **It returns HTTP 200.** A caller that checks the status code sees success.
+   The failure is only visible in the `validity` field of the response body,
+   and the damage is only visible in `enabled`.
+2. **It disarms a working alert.** `enabled` flips to false as a side effect of
+   a documentation edit. Nothing else about the policy changes.
+3. **It is not about the content.** Re-applying the policy's own
+   byte-identical existing documentation fails the same way. Reproduced on a
+   throwaway policy with the same condition shape: a trivial short string
+   applied cleanly to a freshly created policy, and every subsequent
+   documentation update — including the control — failed. Once a policy has
+   taken one failed update it stays in the invalid state; re-enabling clears
+   `enabled` but not the behaviour.
+
+**If you edit documentation in this directory, the applied copy does not
+move.** `benchmark_coverage_at_risk_alert.json` is in that state as of
+2026-08-18: the committed runbook names TEC, the applied one still names the
+pre-fix CAISO/PJM numbers. The only known way to close the gap is
+delete-and-recreate, which mints a **new policy id** and therefore also
+requires editing the applied table above.
+
+**If you tripped this, re-enable immediately** — an alert disabled this way
+looks completely normal in the policy list except for one boolean:
+
+```bash
+curl -s -X PATCH -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" -d '{"enabled": true}' \
+  "https://monitoring.googleapis.com/v3/projects/nextera-portfolio/alertPolicies/<id>?updateMask=enabled"
+```
+
+Then verify with a read, not with the PATCH response:
+
+```bash
+curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://monitoring.googleapis.com/v3/projects/nextera-portfolio/alertPolicies?fields=alertPolicies(displayName,enabled,validity)"
+```
+
+This is the same lesson as everything else in this file — **assert the
+enforcement, not the declaration** — with a new edge: here the act of
+correcting the declaration is what breaks the enforcement. The guard test
+below compares committed files against a table of ids; it does **not** compare
+committed documentation against applied documentation, and after this it
+cannot be made to without a live API call.
+
 ## What the guard test does and does not cover
 
 `tests/unit/test_monitoring_policies_applied.py` runs on every PR and is the
