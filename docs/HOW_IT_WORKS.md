@@ -211,7 +211,9 @@ The known limitation surfaced 2026-05-19: holdout MAPE is computed at training t
 
 **The anchor, and where it comes from (ADR-009).** Every forecast seeds its
 autoregressive features (`demand_lag_1h` + 20 siblings) and SARIMAX's Kalman
-origin from the newest demand reading in the fetched frame. Because EIA's
+origin from the newest demand reading in the fetched frame — capped, in fact,
+at the last row that survives feature engineering, which is not always the
+same hour (see the origin note below). Because EIA's
 newest hour is never a finished measurement (it cycles stub → partial →
 settled per Form EIA-930's mandated deadlines), the scoring job applies two
 data-quality layers before the anchor forms: the **#315 artifact guard**
@@ -223,6 +225,21 @@ same artifact guard also runs in the **training job** (#326 arc hygiene),
 where the excluded hours are additionally dropped from the training frame —
 so partials never become training targets, holdout ground truth, or the
 ADR-010 gate's reference/truth rows.
+**The origin is capped, and it may not go backwards (#537).** The published
+origin is `min(last_real_demand, last_featured_ts) + 1h`, and the second term
+matters: autoregressive lags are computed by **positional** shift, so a NaN hole
+in demand deletes the rows 1, 2, 3, 24 and 168 positions after it — including
+rows at the *tail* of the feature frame. A 16-hour hole therefore stalls the
+origin 24 hours later for as many ticks as it takes fresh demand to clear the
+deleted block. Separately, when EIA **withdraws hours it has already published**
+the anchor collapses backwards, and the payload would otherwise publish an origin
+older than one already served — LGEE regressed 23 hours for 24 consecutive ticks
+on 2026-08-14, relabelling 40-to-63-hour-ahead rows as one-hour-ahead. The
+forecast phase now refuses that write and keeps the newer payload, and
+`forecast_start_resolved` logs the resolved origin plus **both** terms of the
+`min()`, since which one binds distinguishes the two causes. Evidence:
+[`docs/FORECAST_ORIGIN_REGRESSION.md`](FORECAST_ORIGIN_REGRESSION.md).
+
 Measured basis: broken-class anchors averaged 58.2% wrong vs the day-ahead's
 14.5% (`docs/ANCHOR_CONDITIONING_STUDY.md`); every other class keeps its
 unmodified anchor because the same study showed substitution would not help

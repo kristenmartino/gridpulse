@@ -938,6 +938,119 @@ class TestResolveForecastStart:
         assert forecast_start == pd.Timestamp("2026-05-20 13:00", tz="UTC")
 
 
+class TestForecastOriginNeverRegresses:
+    """#537 — a forecast origin must never go backwards.
+
+    ``_resolve_forecast_start`` is recomputed from scratch each tick with no
+    memory of the last one, so when EIA retracts hours it had already published
+    the anchor collapses to just before the retracted block. Measured in
+    production on 2026-08-14: LGEE's origin went from 2026-08-13T14:00 to
+    2026-08-12T15:00 — 23 hours OLDER than a vintage already served — and stayed
+    there for 24 ticks, relabelling 40-to-63-hour-ahead rows as one-hour-ahead.
+    Every one of the six frozen-origin BAs' regressed ticks carried an origin the
+    BA had computed at an earlier tick; the never-frozen BAs had none in 484.
+    """
+
+    @staticmethod
+    def _origin(ts: str) -> pd.Timestamp:
+        return pd.Timestamp(ts, tz="UTC")
+
+    def test_older_origin_does_not_overwrite_the_served_payload(
+        self, region_data, fake_redis, monkeypatch
+    ):
+        """The reported defect: an older-origin payload must not be published."""
+        from jobs.phases import predict_and_write_forecast
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41_000.0)})
+        # featured/demand end at 2024-01-09 07:00, so the resolved start is
+        # 08:00 — far older than what Redis is already serving.
+        region_data.previous_forecast_origin = self._origin("2024-02-01 00:00")
+
+        result = predict_and_write_forecast(region_data, {"xgboost": object()})
+
+        assert result.ok is True, "a live, newer payload is not a failed region"
+        assert result.details["skipped"] == "origin_regressed"
+        assert result.details["served_origin"] == "2024-02-01T00:00:00+00:00"
+        assert fake_redis == {}, "the newer payload must be left in place"
+
+    def test_equal_origin_still_writes(self, region_data, fake_redis, monkeypatch):
+        """A stalled origin is a different defect and must not be suppressed.
+
+        The guard is strictly ``<``. An origin that repeats — the freeze half of
+        #537, caused by a NaN hole deleting rows from the tail of the feature
+        frame — still republishes, because the models and the weather behind it
+        have moved even when the anchor has not.
+        """
+        from jobs.phases import predict_and_write_forecast
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41_000.0)})
+        region_data.previous_forecast_origin = self._origin("2024-01-09 08:00")
+
+        result = predict_and_write_forecast(region_data, {"xgboost": object()})
+
+        assert result.ok is True
+        assert "skipped" not in result.details
+        assert any(k.endswith("forecast:ERCOT:1h") for k in fake_redis)
+
+    def test_first_ever_tick_has_no_prior_origin_and_writes(
+        self, region_data, fake_redis, monkeypatch
+    ):
+        """No payload in Redis yet — the guard must not block the first write."""
+        from jobs.phases import predict_and_write_forecast
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41_000.0)})
+        assert region_data.previous_forecast_origin is None
+
+        result = predict_and_write_forecast(region_data, {"xgboost": object()})
+
+        assert result.ok is True
+        assert any(k.endswith("forecast:ERCOT:1h") for k in fake_redis)
+
+
+class TestForecastPayloadOrigin:
+    """``forecast_payload_origin`` reads the same row the drift module measures
+    lead against, so an origin recovered from the drift log and this value are
+    the same quantity (#537)."""
+
+    def test_reads_first_row_timestamp(self):
+        from jobs.phases import forecast_payload_origin
+
+        payload = {
+            "forecasts": [
+                {"timestamp": "2026-08-14T06:00:00+00:00"},
+                {"timestamp": "2026-08-14T07:00:00+00:00"},
+            ]
+        }
+        assert forecast_payload_origin(payload) == pd.Timestamp("2026-08-14 06:00", tz="UTC")
+
+    def test_agrees_with_the_drift_module_lead_definition(self):
+        """``lead = target - origin + 1`` must invert to this origin exactly.
+
+        The whole #537 reconstruction rests on that identity: every historical
+        origin was recovered from ``drift_updated`` as ``new_record_ts -
+        lead_hours + 1``. If the two ends drift apart the reconstruction is
+        measuring itself, so pin them against each other rather than by eye.
+        """
+        from jobs.phases import forecast_payload_origin
+        from models.drift import _lead_hours
+
+        rows = [{"timestamp": f"2026-08-14T{h:02d}:00:00+00:00"} for h in range(6, 12)]
+        target = "2026-08-14T09:00:00+00:00"
+
+        lead = _lead_hours(rows, target)
+        origin = forecast_payload_origin({"forecasts": rows})
+
+        assert pd.Timestamp(target) - pd.Timedelta(hours=lead - 1) == origin
+
+    @pytest.mark.parametrize("payload", [None, {}, {"forecasts": []}, "not-a-dict"])
+    def test_absent_or_malformed_yields_none(self, payload):
+        """None disables the guard — an unreadable payload must never be treated
+        as an origin of 0 and block every future write."""
+        from jobs.phases import forecast_payload_origin
+
+        assert forecast_payload_origin(payload) is None
+
+
 class TestBuildFutureFeatureFrameStartTs:
     """``_build_future_feature_frame`` accepts an explicit ``start_ts``
     kwarg (#129). Default behavior unchanged when ``start_ts=None``."""

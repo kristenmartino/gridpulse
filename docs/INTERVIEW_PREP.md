@@ -1116,3 +1116,56 @@ After PR-C2 lands each story as a full 90-second narrative:
 - Record with Loom or QuickTime; review for verbal stumbles + filler words
 - Rotate which 3 you rehearse weekly so all 5 stay fresh
 - Before any interview cycle: re-read all 5 stories and time them as a final check
+
+### 27. "Tell me about a time your harness agreed with production for the wrong reason."
+
+**Two bugs in my measurement code cancelled each other and scored ~100%. What caught it wasn't inspection — it was picking control cases before looking at any numbers.**
+
+Situation: A forecast payload for one balancing authority froze at a stale
+origin for 15 hourly ticks, then published an origin **23 hours older than one
+it had already served**, and held that for 24 more — quietly relabelling
+40-to-63-hour-ahead predictions as one-hour-ahead. A monotonic value had gone
+backwards. The origin was logged nowhere; it could only be reconstructed a tick
+late, from an unrelated log line's lead field.
+
+Task: Explain the freeze and the regression. The house method is not to reason
+about candidate mechanisms — every pre-listed candidate in this project's
+history has been wrong — but to diff two things that should agree and look for
+structure in the disagreement. So: what the code computes, replayed against the
+data each tick actually held, versus what the payload carried.
+
+Action: I reconstructed each tick's frame from the vintage window's
+first-sight timestamps and reran the real primitives. First pass: near-total
+agreement, including across the freeze. I nearly believed it.
+
+It was wrong twice. The capture timestamp is stamped a few minutes *into* the
+tick that records it, so an instant comparison silently dropped the newest hour —
+my frame was an hour short throughout. And a drift record grades the *previous*
+tick's payload, so I was diffing values one tick apart. **Each error shifted the
+answer by exactly one hour, in opposite directions.** They cancelled.
+
+What exposed it was a decision made before any numbers existed: three balancing
+authorities that had *never* frozen were designated controls, and the harness had
+to reproduce them exactly or nothing downstream counted. Fixed, it scored 487 of
+487 on the controls — and then, honestly, disagreed on the interesting cases.
+
+Result: The disagreements were the finding. The freeze reproduced exactly:
+autoregressive lags are computed by positional shift, so a 16-hour hole in demand
+deletes the sixteen rows 24 positions later, and the origin is capped at the
+feature frame's tail. The regression could **not** be reproduced — and that was
+informative rather than a failure, because the vintage window is monotone by
+construction and cannot record an hour being *withdrawn*. That half needed a
+different instrument: a counter already in the log showed the frame holding **1**
+hour where an intact frame gives 16, on 25 of 26 regressed ticks and 0 of 484
+control ticks.
+
+I shipped the narrow fix — refuse to publish an origin older than the one being
+served — and deliberately did **not** fix the positional lags, because that file
+is shared with the training job, so the models were trained under the same
+convention and correcting it at serve time alone would be train/serve skew.
+
+What I'd tell someone: a harness that agrees is not a harness that works.
+Choose the cases it must reproduce *before* you look at any output, and prefer
+controls where you're confident nothing went wrong — agreement on the
+interesting cases is the thing you're trying to earn, so it can't also be the
+evidence that you're entitled to it.
