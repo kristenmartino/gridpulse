@@ -31,8 +31,10 @@ and go check `CLAUDE.md` instead.
 
 ## Worklog (undecided candidates)
 
-One line per entry, newest first — **new entries go at the top of this
-list**, right below this paragraph, not appended at the bottom. Format:
+One line per entry, newest first — **new entries go at the top of the list
+below, immediately under the `audited-through` marker**, not above the marker
+and not appended at the bottom. An entry above the marker reads as already
+audited when it is not. Format:
 `- YYYY-MM-DD [category] one-line description — <ref: PR/issue/session>`
 
 No root cause, no prevention, no status field — that analysis happens in
@@ -40,8 +42,6 @@ Audit, not here. `[category]` can be a best guess; the audit pass is what
 actually decides whether two entries share a root cause. Anyone may append;
 nothing here is authoritative until it's promoted to Analyzed.
 
-- 2026-08-18 [guard-coverage-gap] Shipped a guard test against stale published counts whose surface list omitted `docs/CANONICAL_FACTS.md` — the file CLAUDE.md's end-of-PR check routes a moved cited fact to, and so the likeliest place for one to be added. — ref: PR #538, fixed in #551
-- 2026-08-18 [explanation-before-measurement] Wrote the causal claim into a shipped docstring ("this closes the defect", naming `filter_low_actuals` as the mechanism) before running the production measurement that would test it; the measurement showed that filter dropped 2 records fleet-wide and a different one did the work. Caught and corrected pre-merge. — ref: PR #543 / #541
 The marker below is what stops the SessionStart nudge from nagging forever.
 `audit-mistakes-log` advances it to the run date **every** time it finishes,
 including when it decides nothing graduates yet — "I looked, these can wait"
@@ -49,16 +49,14 @@ is a real outcome and needs somewhere to be recorded. The nudge counts only
 entries dated after it, so a deliberate no-promotion decision buys quiet
 until genuinely new candidates arrive. `never` means no audit has run.
 
-<!-- audited-through: never -->
+<!-- audited-through: 2026-08-18 -->
 
+- 2026-08-18 [guard-coverage-gap] Shipped a guard test against stale published counts whose surface list omitted `docs/CANONICAL_FACTS.md` — the file CLAUDE.md's end-of-PR check routes a moved cited fact to, and so the likeliest place for one to be added. — ref: PR #538, fixed in #551
+- 2026-08-18 [explanation-before-measurement] Wrote the causal claim into a shipped docstring ("this closes the defect", naming `filter_low_actuals` as the mechanism) before running the production measurement that would test it; the measurement showed that filter dropped 2 records fleet-wide and a different one did the work. Caught and corrected pre-merge. — ref: PR #543 / #541
 - 2026-08-18 [destructive-step-chained-to-unchecked-outcome] Ran `gh pr merge 567` and the head-branch delete in one command without gating the delete on the merge result; the merge failed on a fresh conflict and the delete then closed the PR. Recovered from the intact local branch. — ref: PR #567
 - 2026-08-18 [worklog-concurrent-deposit] Two sessions depositing at the same time collided: PRs #566, #570 and #567 all inserted at the top of this list, producing a merge conflict in this file on four separate rebase steps. The resolution is trivial (keep both) but every concurrent deposit hits it. — ref: PR #567
-- 2026-08-18 [reference-from-memory] Wrote `ref: PR #566` into a Worklog line for a PR that did not exist yet; #566 turned out to be a different session's unrelated PR. Corrected to #567 before merge. Same shape as the graduated `Closes #N`-from-memory rule, in the file meant to catch it. — ref: PR #567
-- 2026-08-18 [stale-branch-diff] Second occurrence: a branch stacked on PR #565 stopped being an ancestor of `main` the moment #565 squash-merged, so a PR from it would have re-shown #565's already-merged changes. Caught by `git merge-base --is-ancestor` + a diff against `origin/main` before pushing; fixed with `git rebase --onto`. — ref: PR #567
-- 2026-08-18 [stale-plan-premise] Nearly executed a saved plan that would have deleted a healthy, enabled, actively-firing alert policy and minted a new id — its stated premise (a runbook stuck applied-stale, un-editable in place) had been resolved by 553 landing on `main` after the plan was written. Caught by checking the premise against the live policy before acting. — ref: this session, no PR (nothing executed)
 - 2026-08-18 [local-verification-narrower-than-ci] Reported lint clean after running `ruff check` only; CI's lint job also runs `ruff format --check`, which failed on a newly added script and cost a CI cycle. — ref: PR #560
 - 2026-08-18 [configured-but-inert] The SessionStart nudge hook resolved `MISTAKES.md` by bare relative path behind an `[ -f ]` guard, so from any subdirectory it exited 0 with no output — identical to "checked, nothing to report." Caught by testing it from `docs/` before merge. — ref: PR #561
-- 2026-08-18 [stale-branch-diff] Nearly opened a PR from `exp/478-bias-measurability` after its earlier commits had been squash-merged into `main` — `git log branch..main` still showed them as unmerged and the branch's `STATUS.md` predated 11 later commits, so the diff would have looked like a revert. Caught by diffing against `origin/main` before pushing. — ref: this session, no PR (caught pre-push)
 
 ---
 
@@ -72,12 +70,85 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 
 | category | occurrences | status | rule / fix |
 |---|---:|---|---|
-| github-close-keywords | 2 | graduated | CLAUDE.md → "Verify every `Closes #N`" + "The backtick/quote trap" |
+| reference-verification (was github-close-keywords) | 3 | graduated | CLAUDE.md → "Verify every `#N` reference" + "The backtick/quote trap" |
 | reliability-timeout-budget | 2 (distinct root causes, same family) | graduated | CLAUDE.md → "Upstream-outage resilience" + "Partial degradation is a DIFFERENT failure class" |
 | single-source-of-truth-drift | 2 | 1 graduated, 1 resolved-by-test | CLAUDE.md → End-of-PR check item 2 (grep rule); `MODEL_DISPLAY_NAMES` + AST sweep test |
-| stale-branch-diff | 1 (in Worklog, not yet promoted) | open | none yet — watching for a repeat before drafting a rule |
+| stale-repo-snapshot | 3 | graduated | CLAUDE.md → "Before recommending what's next" (re-derive the premise) |
+| worklog-concurrent-deposit | 1 (in Worklog) | open | recurred during the 2026-08-18 audit itself — near the bar |
+| explanation-before-measurement | 1 (in Worklog) | open | none yet — watching for a repeat |
+| guard-coverage-gap | 1 (in Worklog) | open | none yet — watching for a repeat |
+| destructive-step-chained-to-unchecked-outcome | 1 (in Worklog) | open | none yet — watching for a repeat |
+| local-verification-narrower-than-ci | 1 (in Worklog) | open | none yet — watching for a repeat |
+| configured-but-inert | 1 (in Worklog) | open | none yet — watching for a repeat |
 
 ### Entries
+
+**2026-08-18 — A ref written for a PR that did not exist yet, in a file the close-keyword rule did not cover [reference-verification]**
+- **What happened:** A `MISTAKES.md` Worklog line cited `ref: PR #566` for a PR
+  that had not been opened when the line was written. By the time #566 existed
+  it belonged to a different session's unrelated work, so the entry's evidence
+  trail pointed at the wrong thing. Nothing was closed and no state was
+  corrupted — the damage is that a future reader following the ref lands
+  somewhere unrelated.
+- **Root cause:** Same discipline failure as the 2026-05-29 close-keyword
+  incidents — a reference written without confirming it resolves to the
+  intended thing — but outside every boundary the rule drew. The rule named
+  *issues* (`gh issue view`), this was a *PR*; it named *PR bodies, commit
+  messages and STATUS.md*, this was `MISTAKES.md`; and it framed the harm as
+  closing the wrong issue, where here nothing closes at all. There is also a
+  mechanic the rule could not express: the number **did not exist yet**, so it
+  was unverifiable rather than merely unverified, and PR/issue numbers are
+  allocated globally and race between concurrent sessions.
+- **Prevention:** Broadened the existing rule rather than adding a sibling —
+  any `#N`, in any committed file, verified with `gh issue view` or
+  `gh pr view` as appropriate; and a forward reference is written after the
+  thing exists, or named by branch instead.
+- **Status:** graduated → CLAUDE.md § Verify every `#N` reference — issue or PR
+  (2026-08-18), which broadens the rule the 2026-05-29 entry below created.
+- **Related:** the 2026-05-29 entry below (occurrences 1–2). Category renamed
+  from `github-close-keywords`, which described the symptom of those two rather
+  than the root cause; the old name is kept in the tally so the rename is
+  traceable. **This grouping is the pass's least certain call** — those two
+  corrupted issue *state* via GitHub's scanner, this one mis-attributed
+  *evidence* in a file GitHub never reads. Recorded here so a later pass can
+  overturn it rather than inherit it silently.
+
+**2026-08-18 — Three artifacts captured `main` at authoring time, aged silently, and were nearly acted on [stale-repo-snapshot]**
+- **What happened:** Three times in one day, work nearly proceeded from a stale
+  view of `main`. (1) A branch (`exp/478-bias-measurability`) whose earlier
+  commits had already been squash-merged would have opened a PR whose diff read
+  as a revert, its `STATUS.md` predating 11 later commits. (2) A branch stacked
+  on PR #565 stopped being an ancestor of `main` the moment #565 squash-merged.
+  (3) A saved plan directed deleting `alertPolicies/15888827698887105322` and
+  recreating it under a new id, on the premise that its runbook was
+  applied-stale and un-editable in place — a premise resolved by 553 landing on
+  `main` *after* the plan was written; executing it would have deleted a
+  healthy, enabled, actively-firing production alert policy. All three were
+  caught before acting; none ran.
+- **Root cause:** A branch and a plan file both freeze repo state when they are
+  authored and carry no signal that it has since moved. In each case the check
+  a reader would naturally reach for reinforced the stale view rather than
+  exposing it: `git log branch..main` lists squash-merged commits as unmerged,
+  a squash merge silently severs ancestry for anything stacked on it, and the
+  plan stated its premise as settled fact — it even instructed re-checking
+  `git log` because `main` had moved once already, and `main` had moved again
+  since. Squash-merging is the common accelerant: it rewrites the commit that
+  branches and plans were reasoning about, so their view of `main` expires
+  without any local signal.
+- **Prevention:** Before acting on any artifact authored earlier, re-derive its
+  premise from the authoritative source — `origin/main`, the live API, the
+  running service — and stop and report when it no longer holds rather than
+  executing as written. No mechanical guard is proposed: a plan document's
+  premise is prose and cannot be validated by a test, which is what makes this
+  a judgment call worth stating as a rule.
+- **Status:** graduated → CLAUDE.md § Before recommending what's next (2026-08-18)
+- **Related:** PRs #553, #560, #565; three Worklog lines consumed into this
+  entry. Promoted on the **repeat** bar; the severity bar was also available
+  (occurrence 3 would have deleted a live firing alert policy) and deliberately
+  not invoked, since three occurrences is the cleaner justification. The audit
+  that promoted this was itself interrupted by a fourth instance of the same
+  pattern — `main` gained four Worklog entries, including occurrence (2), while
+  the analysis was in flight, so the first draft of this entry counted two.
 
 **2026-08-11 — One model, three display names, in three different places, patched three times locally and generalized zero times [single-source-of-truth-drift]**
 - **What happened:** Models tab showed "SARIMAX," Forecast tab showed
