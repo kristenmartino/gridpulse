@@ -1,0 +1,1 @@
+2026-08-18 [guard-blind-by-construction] The train/inference autoregressive parity test (`test_training_features_match_inference_snapshot_row_by_row`) compares both implementations on a gapless synthetic fixture, where they agree by construction, so it cannot see the positional-vs-temporal divergence it exists to catch. — ref: #559 / #186

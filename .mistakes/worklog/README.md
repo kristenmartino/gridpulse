@@ -17,6 +17,13 @@ Filename timestamp is `date -u +%Y-%m-%dT%H%M%SZ`. It is not decoration —
 it is what tells the audit which candidates arrived since it last ran, at a
 resolution that a date alone does not have.
 
+If that filename already exists (two deposits in the same second, which
+happens when one session writes several at once), **advance the seconds
+until it is free** — keep the format exact. Do not append a suffix after
+the `Z`: the audit and the nudge both parse the leading stamp, and a
+`...Z1-` name is a filename they read differently from how it looks. The
+first draft of this README omitted that, and the very next deposit hit it.
+
 The file holds exactly one line, in the same format the Worklog list used
 before it became a directory:
 

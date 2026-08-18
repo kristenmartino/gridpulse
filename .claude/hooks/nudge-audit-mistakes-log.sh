@@ -80,6 +80,14 @@ if [ "$COUNT" -lt 3 ]; then
 fi
 
 log_hook "nudge new=$COUNT total=$TOTAL since=$LAST"
+
+# Deposit text is free-form prose written by whoever hit the mistake, and it
+# routinely contains double quotes — the migrated entries alone quote error
+# messages and doc headlines. Interpolating it raw produced invalid JSON,
+# which the harness cannot parse, so the hook failed silently exactly when it
+# had something to say. Escape backslashes then quotes, and flatten newlines.
+NEWEST_ESC=$(printf '%s' "$NEWEST" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n' ' ')
+
 cat <<EOF
-{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"$COUNT of the $TOTAL pending candidates in .mistakes/worklog/ were deposited since the last audit ($LAST). Most recent: ${NEWEST} — Consider running the audit-mistakes-log skill in a fresh session; it's meant to run decontextualized from whatever deposited these, not mid-task here. It stamps .mistakes/last-audit even when it promotes nothing, which silences this until new candidates arrive."}}
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"$COUNT of the $TOTAL pending candidates in .mistakes/worklog/ were deposited since the last audit ($LAST). Most recent: ${NEWEST_ESC} — Consider running the audit-mistakes-log skill in a fresh session; it's meant to run decontextualized from whatever deposited these, not mid-task here. It stamps .mistakes/last-audit even when it promotes nothing, which silences this until new candidates arrive."}}
 EOF

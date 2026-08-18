@@ -47,7 +47,10 @@ awk '
   f && /^- [0-9]{4}-[0-9]{2}-[0-9]{2} \[/ {print}
 ' "$SRC" > "$TMP"
 
-TOTAL=$(grep -c '^- ' "$TMP" || echo 0)
+# grep -c already prints 0 when nothing matches; a `|| echo 0` fallback
+# appends a second zero on its non-zero exit and the result stops being an
+# integer. There is no `set -e` here, so the non-zero exit is harmless.
+TOTAL=$(grep -c '^- ' "$TMP")
 echo "Found $TOTAL Worklog entries in MISTAKES.md"
 [ "$TOTAL" -gt 0 ] || { echo "Nothing to migrate."; exit 0; }
 
