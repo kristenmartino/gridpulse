@@ -168,7 +168,9 @@ rather than absent.
 **Verified by replay before deploy** — the new capture applied to the real
 production vintage window for all 51 BAs: **25 → 46 scoreable, 21 restored, 0
 newly excluded**, with post-fix coverage matching the independent upstream
-measurement on every restored BA. SPP stays out at 53.6%.
+measurement on every restored BA. SPP stays out at 53.6%. (Live serves **45** —
+see the 2026-08-18 note below; the replay measured the coverage gate, and MISO
+is demoted a step later by paired hours.)
 
 **The load-bearing half is the rail, not the fill.** `df_at` dates the DF
 observation and `pair_hours` now grades staleness on it, so a late-filled DF
@@ -178,11 +180,60 @@ worse than the bug it repairs.
 
 **Also shipped:** the count now lives only in the live payload (prose that
 asserts it fails a new guard test); the page names its population and no
-longer claims an ERCOT carve-out that is not there; and
-`benchmark_scoreability_alert.json` watches the count *and* warns on BAs
-approaching the gate — CAISO (82.9%) and PJM (81.0%) would both have fired.
-**The policy still needs applying in GCP**; it is declared in
-`_KNOWN_UNAPPLIED` until then.
+longer claims an ERCOT carve-out that is not there; and two policies watch the
+count *and* warn on BAs approaching the gate. **Both are now applied and
+enabled** — `alertPolicies/1095567904752750375` (drop) and
+`alertPolicies/15888827698887105322` (at-risk), verified against the Monitoring
+API; `_KNOWN_UNAPPLIED` is empty.
+
+**2026-08-18 — the at-risk band fired for real within hours, and its own
+justification turned out to be pre-fix.** First firing 06:18Z: **TEC at
+`df_coverage` 80.1%**, a tenth of a point above the 0.80 gate,
+`df_asissued_coverage` 49.0%. **It is a true positive and not the #535
+asymmetry** — measured against EIA over the payload's own 719-hour window, EIA
+published DF for **576** hours and we recorded **576**. TEC's DF stopped at
+`2026-08-17T04Z` while its metered `D` kept flowing; on that trajectory it
+crosses the gate around `2026-08-19T06Z`. Decision: **let it drop and watch
+it** — the gate is correct as written and the drop alert (floor 40) is nowhere
+near firing.
+
+But the band was argued from **CAISO 82.9% / PJM 81.0%**, and those were the
+*broken pre-fix* readings — the very defect the same commit repaired. Post-fix
+they measure **100.0% / 99.7%**. Six sites carried that dead evidence into the
+runbook an on-call reader would follow; all now cite TEC. **A rationale written
+in the same breath as a fix is measured on the pre-fix world.**
+
+**Live count is 45, not the 46 the replay predicted**, and the difference is
+not coverage. **MISO** clears the gate at 93.2% and is excluded for
+`insufficient-paired-hours` (175 against `MIN_PAIRED_HOURS` 200) — the 24h
+lead's pairing verdict demoting a BA the coverage gate passed, which is
+[#539](https://github.com/kristenmartino/gridpulse/issues/539) surfacing as an
+exclusion.
+
+**The corrected runbook could not be delivered to the console.**
+`PATCH ?updateMask=documentation` on a `conditionMatchedLog` policy returns
+**HTTP 200**, fails with `validity code 13` ("Recompilation of log match
+condition failed during update"), and **flips `enabled` to false** — it
+disarms the alert as a side effect of documenting it. Not content-specific:
+re-applying the policy's own byte-identical text fails identically, reproduced
+on a throwaway policy. The at-risk alert was disabled twice during this and
+re-enabled within ~1 min each time; all 11 policies verified `enabled: true`,
+`validity: ok` afterwards. So `benchmark_coverage_at_risk_alert.json` is now
+**declared-correct and applied-stale**, the one gap
+`test_monitoring_policies_applied.py` cannot see: it compares files to a table
+of ids, never documentation to documentation. Closing it means
+delete-and-recreate and a new policy id. Written up in
+[`docs/monitoring/README.md`](docs/monitoring/README.md).
+
+**Open question, split out:**
+[#549](https://github.com/kristenmartino/gridpulse/issues/549) — the gate
+cannot tell chronic sparsity from episodic blackout and publishes the first
+sentence for both. TEC is 100% covered on 24 of 30 days and absent in whole
+~24h blocks (88.7% over 90 days, 80.1% over 30); its blackout hours carry
+statistically identical load (**3118 MW** vs **3098 MW**, 0.6%), so there is no
+selection bias, and it holds **343 paired hours** against a floor of 200. It
+would be excluded as "too sparse to score fairly", which is false in every
+clause — and the 30-day window makes it *flap*.
 
 **Split out:** [#537](https://github.com/kristenmartino/gridpulse/issues/537) —
 the horizon-drift 7-day window is short fleet-wide (151-167 of 168) and LGEE

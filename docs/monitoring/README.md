@@ -19,7 +19,7 @@ billing.
 | `scoring_deadline_shed_alert.json` | **Job tier (2026-08-04).** Log-based (`jsonPayload.event="scoring_deadline_shed"`) — fires when a run hits `SCORING_SOFT_DEADLINE_FRACTION` of its task timeout and stops starting new BAs. This is the guard *working*: the run completes, writes an honest `last_scored` (`deadline_hit`, `regions_deadline_skipped`) and exits 0, instead of being SIGKILLed having recorded nothing — which is what happened to two ticks on 2026-08-04 after they had already scored ~49/51. Still means runtime is at the ceiling and BAs are going unscored. |
 | `backtest_recompute_alert.json` | **Job tier (2026-08-10).** Metric-threshold on a **logs-based counter** (`jsonPayload.event="job_backtest_recomputed"`) — fires when backtests recompute on more than one day in three, i.e. the `BACKTEST_REFRESH_DAYS` gate stopped holding. Backtests are **56.9% of the training job** (12,886s measured 2026-08-08); a silent regression here roughly triples the training bill while the job still succeeds and exits 0. Detection is in code (`check_backtest_recompute_cadence`) because Cloud Monitoring caps alignment windows at 25h — see the section below. |
 | `benchmark_scoreability_drop_alert.json` | **Job tier (2026-08-18, #535).** Log-based (`jsonPayload.event="benchmark_scoreability_drop"`) — fires when the public `/benchmark` scorecard scores fewer than `BENCHMARK_MIN_SCOREABLE` BAs. It published **25 of 51** for ~3 weeks with five of seven large ISOs missing from its fleet medians while the job succeeded and exited 0 — the headline changed the population it described and nothing said so. Counts the *failing* direction: a threshold-below on the existing `benchmark_fleet_written` count would go quiet exactly when the phase stopped emitting. |
-| `benchmark_coverage_at_risk_alert.json` | **Job tier (2026-08-18, #535).** Log-based (`jsonPayload.event="benchmark_coverage_at_risk"`) — the early warning: a still-scoreable BA's `df_coverage` entered the band **above** the 0.80 gate (`BENCHMARK_DF_COVERAGE_WARN`, 0.85). Warning at the gate would arrive too late, since a BA that has already fallen out is a page that is already wrong. CAISO (82.9%) and PJM (81.0%) sat 1-3 points above it unwatched on 2026-08-17. Lower urgency than the drop alert — a lead, not an incident. |
+| `benchmark_coverage_at_risk_alert.json` | **Job tier (2026-08-18, #535).** Log-based (`jsonPayload.event="benchmark_coverage_at_risk"`) — the early warning: a still-scoreable BA's `df_coverage` entered the band **above** the 0.80 gate (`BENCHMARK_DF_COVERAGE_WARN`, 0.85). Warning at the gate would arrive too late, since a BA that has already fallen out is a page that is already wrong. **First real firing 2026-08-18T06:18Z: TEC at 80.1%**, a tenth of a point above the gate, and verified upstream — EIA published 576 DF hours over the payload's 719-hour window and we recorded 576, so the gap was TEC's rather than ours ([#549](https://github.com/kristenmartino/gridpulse/issues/549) is what its exclusion text would then get wrong). The band was originally argued from CAISO 82.9% / PJM 81.0% — those were the **broken pre-fix** readings and now measure 100.0% / 99.7%. Lower urgency than the drop alert — a lead, not an incident. |
 | `web_service_5xx_alert.json` | **Web tier (#253).** Fires when the `gridpulse` service returns sustained 5xx (`run.googleapis.com/request_count{response_code_class="5xx"}` summed > 25 / 5 min). The request-path equivalent of the job-failure alert. |
 | `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when the service sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. |
 | `web_service_uptime_alert.json` | **Web tier (#253).** Fires when the public `/health` uptime check fails from >1 probe location over 10 min (service down or shallow-degraded). Filter is check-id-specific — see the note in the file. |
@@ -165,8 +165,10 @@ noticing (below).
 | Uptime check config — public `/health` | — | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
 | Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | — | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
 
-Five alert policies + the uptime check + the budget are live and bound to the
-email channel. The budget also emails the billing-account admins by default.
+All eleven alert policies + the uptime check + the budget are live and bound
+to the email channel — verified against the Monitoring API, not against this
+table (`tests/unit/test_monitoring_policies_applied.py` is what keeps the two
+honest). The budget also emails the billing-account admins by default.
 
 > ✅ **`scoring_partial_failure_alert.json` (#267) applied 2026-08-05** as
 > `alertPolicies/1942403527399204858`, after sitting committed-and-inert since
@@ -239,6 +241,65 @@ job run and read as "still broken."
 
 A new log-based policy also **requires** `alertStrategy.notificationRateLimit`
 (both existing ones use `3600s`); without it the policy is rejected.
+
+## A log-match policy's documentation cannot be edited in place (2026-08-18)
+
+**The runbook you read in the GCP console is not the runbook in this
+directory, and there is currently no way to make it be.**
+
+`PATCH …/alertPolicies/<id>?updateMask=documentation` on a policy whose
+condition is a `conditionMatchedLog` **fails and disables the policy**:
+
+```
+HTTP 200
+"validity": {"code": 13, "message": "Recompilation of log match condition failed during update."}
+"enabled": false
+```
+
+Three things make this worse than a plain rejection:
+
+1. **It returns HTTP 200.** A caller that checks the status code sees success.
+   The failure is only visible in the `validity` field of the response body,
+   and the damage is only visible in `enabled`.
+2. **It disarms a working alert.** `enabled` flips to false as a side effect of
+   a documentation edit. Nothing else about the policy changes.
+3. **It is not about the content.** Re-applying the policy's own
+   byte-identical existing documentation fails the same way. Reproduced on a
+   throwaway policy with the same condition shape: a trivial short string
+   applied cleanly to a freshly created policy, and every subsequent
+   documentation update — including the control — failed. Once a policy has
+   taken one failed update it stays in the invalid state; re-enabling clears
+   `enabled` but not the behaviour.
+
+**If you edit documentation in this directory, the applied copy does not
+move.** `benchmark_coverage_at_risk_alert.json` is in that state as of
+2026-08-18: the committed runbook names TEC, the applied one still names the
+pre-fix CAISO/PJM numbers. The only known way to close the gap is
+delete-and-recreate, which mints a **new policy id** and therefore also
+requires editing the applied table above.
+
+**If you tripped this, re-enable immediately** — an alert disabled this way
+looks completely normal in the policy list except for one boolean:
+
+```bash
+curl -s -X PATCH -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" -d '{"enabled": true}' \
+  "https://monitoring.googleapis.com/v3/projects/nextera-portfolio/alertPolicies/<id>?updateMask=enabled"
+```
+
+Then verify with a read, not with the PATCH response:
+
+```bash
+curl -s -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  "https://monitoring.googleapis.com/v3/projects/nextera-portfolio/alertPolicies?fields=alertPolicies(displayName,enabled,validity)"
+```
+
+This is the same lesson as everything else in this file — **assert the
+enforcement, not the declaration** — with a new edge: here the act of
+correcting the declaration is what breaks the enforcement. The guard test
+below compares committed files against a table of ids; it does **not** compare
+committed documentation against applied documentation, and after this it
+cannot be made to without a live API call.
 
 ## What the guard test does and does not cover
 

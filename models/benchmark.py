@@ -776,8 +776,12 @@ def scoreability_alerts(
     * ``benchmark_coverage_at_risk`` — a BA is still scoreable but its
       ``df_coverage`` sits in the warning band **above** the gate. By the time
       a BA falls out, the public page is already wrong; this names it first.
-      On 2026-08-17 CAISO (82.9%) and PJM (81.0%) sat 1-3 points above the
-      0.80 gate with nothing watching them.
+      First real firing 2026-08-18T06:18Z: TEC at 80.1%, a tenth of a point
+      above the 0.80 gate, with ``df_asissued_coverage`` 49.0%. Checked
+      against EIA over the same 719-hour window — 576 DF hours published, 576
+      recorded — so the gap was TEC's, not ours. (The band was first argued
+      from CAISO 82.9% / PJM 81.0%; those were the broken pre-fix numbers and
+      now read 100.0% / 99.7%.)
 
     ``df_asissued_coverage`` is deliberately NOT alerted on. It measures our
     capture, not the BA's publishing, and gating on it is the whole of #535.
