@@ -26,6 +26,13 @@ and the `## Analyzed` section (its pattern tally + entries). This is the one
 skill that's supposed to load the whole file — everywhere else in this
 system it stays on disk unread.
 
+Note the `<!-- audited-through: YYYY-MM-DD -->` marker in the Worklog. It
+tells you which entries a previous pass already considered; entries at or
+before it have been seen, whatever was decided about them. You still read
+everything (a pattern may only become visible once a new entry joins old
+ones), but the marker is what tells you which candidates are genuinely new
+since last time. **You are responsible for advancing it — see Step 7.**
+
 ## Step 2 — tally by root cause, not by tag
 
 Group the Worklog's one-liners by what actually caused them, not by the
@@ -109,10 +116,52 @@ in what PR if you can find it) that makes it stale. Don't silently remove
 it — that's still a CLAUDE.md edit, subject to the same approval as adding
 one.
 
+## Step 7 — advance the audited-through marker, always
+
+Set `<!-- audited-through: YYYY-MM-DD -->` in the Worklog to today's date
+before you finish. Do this on **every** run, including — especially — the
+run where nothing crossed the bar and you promoted nothing.
+
+This is not bookkeeping, it is the only way "I looked at these and they can
+wait" gets recorded. The SessionStart hook counts entries newer than this
+marker, so a pass that decides nothing graduates still buys quiet until
+genuinely new candidates arrive. Leave it stale and the nudge repeats your
+own already-made decision back at you every session until you stop reading
+it — which is how a reminder system dies. It is safe to advance even when
+you promoted nothing: the entries stay in the Worklog and a later pass will
+reconsider them the moment a new one joins the pattern.
+
+## Step 8 — is enforcement actually running?
+
+Read `.claude/hook-activity.log` (gitignored, local, may be absent). Every
+invocation of the mistake hooks appends a line, including the silent ones,
+specifically so that "the guard never had cause to fire" and "the guard
+never ran at all" do not read identically — a distinction this repo has
+lost before.
+
+Report roughly: how many times the close-keyword guard ran, how many of
+those asked, and whether any line says `skipped`. What you are looking for:
+
+- **No file, or no lines at all** — the hooks are not firing. Either they
+  were never activated in a fresh session, or `settings.json` is not being
+  read. That is worth flagging loudly; the whole enforcement layer is
+  decorative until it is fixed.
+- **Only `silent` lines, over a long period** — running correctly, simply no
+  close-references authored. Healthy.
+- **`skipped no-jq`** — the guard is installed but inert on that machine.
+- **Frequent `ask` lines** — worth asking whether the guard is well-targeted
+  or has become something people reflexively approve, which is the failure
+  mode a too-chatty guard eventually reaches.
+
+This step reports; it does not edit. The log is telemetry, not evidence of
+record — deleting it is always safe.
+
 ## What "done" looks like
 
 A short report: tally counts and any category-count changes, zero or more
 drafted promotions (each with its Analyzed entry text and CLAUDE.md diff),
-zero or more flagged-as-possibly-stale existing rules, and a clear statement
-of what still needs the human's yes/no. `MISTAKES.md` may have updated tally
-numbers even if nothing graduated this pass — that's still useful output.
+zero or more flagged-as-possibly-stale existing rules, the enforcement-health
+line from Step 8, and a clear statement of what still needs the human's
+yes/no. `MISTAKES.md` should always come out of this with an advanced
+audited-through marker, and may have updated tally numbers, even if nothing
+graduated this pass — that's still useful output.

@@ -40,6 +40,19 @@ Audit, not here. `[category]` can be a best guess; the audit pass is what
 actually decides whether two entries share a root cause. Anyone may append;
 nothing here is authoritative until it's promoted to Analyzed.
 
+The marker below is what stops the SessionStart nudge from nagging forever.
+`audit-mistakes-log` advances it to the run date **every** time it finishes,
+including when it decides nothing graduates yet — "I looked, these can wait"
+is a real outcome and needs somewhere to be recorded. The nudge counts only
+entries dated after it, so a deliberate no-promotion decision buys quiet
+until genuinely new candidates arrive. `never` means no audit has run.
+
+<!-- audited-through: never -->
+
+- 2026-08-18 [destructive-step-chained-to-unchecked-outcome] Ran `gh pr merge 567` and the head-branch delete in one command without gating the delete on the merge result; the merge failed on a fresh conflict and the delete then closed the PR. Recovered from the intact local branch. — ref: PR #567
+- 2026-08-18 [worklog-concurrent-deposit] Two sessions depositing at the same time collided: PRs #566, #570 and #567 all inserted at the top of this list, producing a merge conflict in this file on four separate rebase steps. The resolution is trivial (keep both) but every concurrent deposit hits it. — ref: PR #567
+- 2026-08-18 [reference-from-memory] Wrote `ref: PR #566` into a Worklog line for a PR that did not exist yet; #566 turned out to be a different session's unrelated PR. Corrected to #567 before merge. Same shape as the graduated `Closes #N`-from-memory rule, in the file meant to catch it. — ref: PR #567
+- 2026-08-18 [stale-branch-diff] Second occurrence: a branch stacked on PR #565 stopped being an ancestor of `main` the moment #565 squash-merged, so a PR from it would have re-shown #565's already-merged changes. Caught by `git merge-base --is-ancestor` + a diff against `origin/main` before pushing; fixed with `git rebase --onto`. — ref: PR #567
 - 2026-08-18 [stale-plan-premise] Nearly executed a saved plan that would have deleted a healthy, enabled, actively-firing alert policy and minted a new id — its stated premise (a runbook stuck applied-stale, un-editable in place) had been resolved by 553 landing on `main` after the plan was written. Caught by checking the premise against the live policy before acting. — ref: this session, no PR (nothing executed)
 - 2026-08-18 [local-verification-narrower-than-ci] Reported lint clean after running `ruff check` only; CI's lint job also runs `ruff format --check`, which failed on a newly added script and cost a CI cycle. — ref: PR #560
 - 2026-08-18 [configured-but-inert] The SessionStart nudge hook resolved `MISTAKES.md` by bare relative path behind an `[ -f ]` guard, so from any subdirectory it exited 0 with no output — identical to "checked, nothing to report." Caught by testing it from `docs/` before merge. — ref: PR #561
