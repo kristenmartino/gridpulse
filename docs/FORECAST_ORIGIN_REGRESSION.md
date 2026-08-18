@@ -233,8 +233,27 @@ exact frames once the 30-day vintage window has rolled past this episode.
 
 ## 10. Post-deploy: the instrumentation resolved a residual on its first tick
 
-Deployed 2026-08-18 at merge `86d87c8`, verified by image SHA on all three
-surfaces. The first post-deploy scoring tick — **10:00Z**, the exact hour of
+Deployed 2026-08-18 at merge **`86d87c8`** — the commit that carries the code;
+everything after it in this doc's history is prose. Verified by image SHA on all
+three surfaces.
+
+**Verify it by ancestry, not equality.** Several sessions merge to this repo
+concurrently — `main` moved five times in the twenty minutes after this merge —
+so the deployed tag will not equal `86d87c8` and an equality check reads as a
+failed deploy when nothing is wrong:
+
+```bash
+git merge-base --is-ancestor 86d87c8 "$(gcloud run jobs describe gridpulse-scoring-job \
+  --region us-east1 --format='value(spec.template.spec.template.spec.containers[0].image)' \
+  | sed 's/.*://')" && echo LIVE
+```
+
+Two things that fall out of the same churn and cost time here. A commit can get a
+CI run and **no deploy run at all** — the docs-only follow-up `eeb371b` was
+superseded before its guard job fired, so waiting for "the deploy of my SHA" waits
+forever. And the three surfaces are **not always on the same tag mid-flight**:
+scoring and training read one tag while the web service read a later one, minutes
+apart. Check all three, and judge each by ancestry. The first post-deploy scoring tick — **10:00Z**, the exact hour of
 PSCO's daily signature — carried `forecast_start_resolved` for all 51 BAs:
 
 | binding term | BAs |
