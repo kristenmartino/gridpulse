@@ -211,9 +211,10 @@ published. Features, model inputs, and every historical record are untouched.
 * ~~**PSCO's 7 intact-frame regressions are characterised, not explained.**~~
   **Resolved post-deploy — see §10.** They are mechanism 1, and the replay
   misattributed them.
-* **SPA has 4 ticks where the payload carried a *newer* origin than the replay
-  computed** (of 124). Unexplained; too few to sit on the conclusion, and in the
-  opposite direction from the defect.
+* ~~**SPA has 4 ticks where the payload carried a *newer* origin than the replay
+  computed.**~~ **Resolved — see §11.** A harness artifact, and it exposed a
+  reconstruction ambiguity that brackets some of §4's replay counts (though not
+  §2's controls and not §3's result).
 
 ## 9. Reproducing
 
@@ -292,3 +293,86 @@ computes, and the new log line does not speak to it. And the general caution is
 now demonstrated rather than hypothetical — **the replay's `binding_term` is
 evidence only on ticks where it agrees with production.** On disagreeing ticks
 it describes a frame production did not have.
+
+---
+
+## 11. SPA's four "newer origin" ticks were the harness, and what they exposed
+
+The four ticks where the payload carried a **newer** origin than the replay
+computed — the opposite direction from the defect — are an artefact of the
+reconstruction, not a production behaviour. Chasing them was worth it, because
+the cause generalises.
+
+### What the frame actually looked like
+
+SPA's hours `2026-08-13T00:00 → 03:00` arrived **days** late: captured at
+12:05Z the same day, then 08-15T12:12Z, then 08-16T12:11Z twice — lags of 12,
+59, 82 and 81 hours, against SPA's median capture lag of 1.16 h. Hours 04:00 and
+05:00 arrived on time, at +1.08 h. So at the 06:00 tick the four hours were
+genuinely not ours yet, and the replay was right about *when*.
+
+It was wrong about *how*. `frame_as_of` NaN-filled them, keeping the rows — and
+a NaN row deletes the rows 1, 2, 3, 24 and 168 positions after it (§3). That
+manufactured a hole, killed rows `08-13T04:00` and `05:00`, and dragged the
+replay's origin back to `08-13T01:00` while production published `06:00`.
+
+**EIA omitted them instead.** `job_data_fetched.demand_rows` for SPA settles it
+without inference — the count froze for four consecutive ticks and then stepped:
+
+```
+00:05  2151      04:05  2151        08:05  2155  +1
+01:04  2151  +0  05:04  2152  +1    ...
+02:04  2151  +0  06:05  2153  +1    12:05  2160  +2   <-- new hour AND the
+03:05  2151  +0  07:04  2154  +1                          backfilled 00:00
+```
+
+A frozen count is a response with nothing new in it, and the `+2` is one new
+hour arriving alongside one three-day-late backfill — as a **new row**. Absent
+rows delete nothing, so production had no hole and its origin was correct.
+
+### The ambiguity this exposes, and its size
+
+An hour that has not arrived can be either **a null row** (EIA reports the hour
+with no value) or **absent** (EIA does not report the hour). The two are not
+interchangeable here: one deletes five rows downstream, the other deletes none.
+Nothing we retain records which it was at tick time — the vintage window stores
+first sight, not the shape of the response.
+
+Re-running the whole sweep under both models bounds it:
+
+| BA | NaN-fill model | absent-row model |
+|---|---:|---:|
+| TAL | 162/162 | 162/162 |
+| CPLW | 163/163 | 163/163 |
+| FMPP | 162/162 | 162/162 |
+| PSCO | 144/151 | 130/151 |
+| LGEE | 112/138 | 103/138 |
+| SPA | 79/124 | **82/124** |
+
+**Neither model dominates**, which is the honest result: LGEE and PSCO get worse
+under the absent-row model and SPA gets better, so EIA genuinely does both,
+per hour, and no single rule reconstructs it. The truth is bracketed, not
+pinned.
+
+### What this does and does not touch
+
+* **§2's independence check is unaffected** — the three controls read 487/487
+  under *both* models. They have no irregular publication, so the choice cannot
+  reach them. That is why they were the right controls.
+* **§3's result is unaffected — verified, not assumed.** Re-run across the
+  freeze-1 window, both models reproduce production on **17 of 17** ticks. They
+  must: LGEE's hole is hours that were *never* published, so they are NaN rows
+  in the mirror today and stay NaN rows under either rule. The mechanism-1
+  finding does not depend on the ambiguity.
+* **§4's replay-derived counts are bracketed**, and the disagreement columns move
+  by up to 14 ticks. The `matchable_hours` columns do **not** move — that is
+  production's own counter, computed from the frame the job actually held, and it
+  is why mechanism 2 was argued from it rather than from the replay.
+* **§4's "SPA is the retraction class only" should be read narrowly.** It rests on
+  SPA having no `featured`-bound *agreeing* ticks; SPA's low agreement rate is
+  substantially this artefact, not evidence about SPA.
+
+The transferable point: the replay reconstructs *values and timing* faithfully
+and **the shape of the upstream response not at all**. When a mechanism turns on
+shape — and this one does, because `dropna` reads row presence — a reconstruction
+can be right about every fact it stores and still be wrong.
