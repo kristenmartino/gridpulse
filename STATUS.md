@@ -62,8 +62,16 @@ trained under the same convention — reindexing at serve alone is train/serve s
 and doing it properly is a 51-BA × 3-model retrain behind the ADR-010 gate. Filed
 separately; see [#186](https://github.com/kristenmartino/gridpulse/issues/186).
 
-**Open:** PSCO's 7 intact-frame regressions are characterised, not explained; SPA
-has 4 of 124 ticks carrying a *newer* origin than the replay computes.
+**Deployed** at merge `86d87c8`, image SHA verified on job/training/service. The
+first post-deploy tick (10:00Z — PSCO's own signature hour) closed a residual:
+49 of 51 BAs bound on `real_demand`, and **PSCO resolved to 07:00 with demand at
+09:00, `featured` binding**. Its daily 3-hour anomaly is mechanism 1, not a third
+thing; the replay had misattributed it, because the vintage window records first
+sight and never absence, so the reconstructed frame lacked a hole production had.
+
+**Open:** SPA has 4 of 124 ticks carrying a *newer* origin than the replay
+computes. And the general lesson: the replay's `binding_term` is evidence only on
+ticks where it agrees with production.
 
 ---
 
