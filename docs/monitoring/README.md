@@ -380,19 +380,71 @@ branch is reachable, or that the running image contains it: on 2026-08-18 both
 `#535` policies were correctly applied and enabled while the deployed job image
 predated their emitter, so the alarm was armed and could not fire.
 
-Closing the GCP half needs credentials in CI. The cheap shape is a step in
-`deploy-divergence.yml`, which already authenticates via WIF and runs hourly —
-it would need `roles/monitoring.viewer` on `github-actions-deploy@`, weaker
-than the `run.admin` it already holds. **Deliberately not built** (2026-08-18):
-drift has not been observed here, and the manual check below covers it. Revisit
-if anyone edits policies in the console, a second person gets project access,
-or a wrong id ever reaches `main`.
+Everything in that paragraph except the last sentence is now covered hourly by
+`scripts/check_monitoring_divergence.py` — see below. The unit test's edge is
+unchanged; it just is not the only thing looking any more.
+
+### The GCP half — built 2026-08-18 (was "deliberately not built")
+
+This section previously said closing the GCP half was **deliberately not
+built**, because *"drift has not been observed here, and the manual check below
+covers it"*, with revisit triggers: someone edits policies in the console, a
+second person gets project access, or a wrong id reaches `main`.
+
+**The load-bearing clause was false when it was written.** Drift had been
+observed — twice, and neither instance tripped a listed trigger:
+
+| | committed | applied | how long | trigger fired |
+|---|---|---|---|---|
+| `benchmark_coverage_at_risk` (#553) | corrected runbook | pre-fix runbook | 4 days | none |
+| `scoring_runtime_creep` (#389 rewrite) | 3555-char triage | 1153-char pre-#389 copy | **14 days** | none |
+
+Both kept the correct id throughout, which is why the guard test stayed green
+and why every revisit trigger missed: they were all about *identity* or *who
+has access*, and the failure was about *content* and *state*. The second one
+was found by the check built to replace this paragraph, on its first run — it
+had been serving a runbook without the partial-degradation triage since
+2026-07-08, for the incident class that killed two scoring ticks.
+
+So it is built, in the shape this file already identified:
+`scripts/check_monitoring_divergence.py`, as a step in
+`.github/workflows/deploy-divergence.yml` (hourly, WIF already wired). It
+needed `roles/monitoring.viewer` on `github-actions-deploy@` — granted
+2026-08-18, weaker than the `run.admin` it already held.
+
+**It fails when**, per policy in the applied table: the applied
+`documentation.content` differs from the committed file (printing a diff, so
+the direction is visible), `enabled` is not true, a `validity` field is
+present, `notificationChannels` is empty, the id is absent from GCP, or a
+policy exists in GCP with no row in the table. **It warns** when a committed
+runbook is within 200 characters of the 4000 cap — a warning, not a failure,
+because 3800 is invented and only 4000 is enforced; the standing rule here is
+to assert the enforcement, not the declaration.
+
+It never mutates, and it reports by reading. That is not fastidiousness: a
+Monitoring PATCH returns HTTP 200 on failure, so a write's own response is
+not evidence the write landed. Run it by hand the same way CI does:
 
 ```bash
-# The manual version of the unbuilt check — file vs live, all policies.
+python3 scripts/check_monitoring_divergence.py     # exit 0 ok, 1 diverged, 2 could not tell
+```
+
+Use the GA `gcloud monitoring policies` group, not `gcloud alpha monitoring`.
+One `list --format=json` returns `documentation`, `enabled`, `validity` and
+`notificationChannels` for every policy, and the alpha component is absent from
+a fresh Cloud SDK — it prompts interactively to install, which is fatal in CI
+and is what blocked checking this by hand on 2026-08-18.
+
+```bash
+# The one-liner this replaced, still handy for a quick eyeball.
 gcloud monitoring policies list --project=nextera-portfolio \
   --format="value(name,displayName,enabled)"
 ```
+
+**Still not covered:** applying is still manual. This makes a divergence
+impossible to miss; it does not close one. Applying from CI is a larger change
+with its own failure modes — the same reasoning `deploy-divergence.yml` records
+for detecting a skipped deploy rather than making the deploy guard smarter.
 
 ## Verification (one manual step)
 

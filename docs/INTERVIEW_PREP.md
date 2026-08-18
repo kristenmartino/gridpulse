@@ -1155,7 +1155,6 @@ then loudly refuse to let its existence be mistaken for a result: on the day it
 lands it has measured exactly nothing, and the doc has to say so. When you find
 the same class of bug you're about to reintroduce, fix the class, not your
 instance of it.*
-
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
@@ -1217,3 +1216,22 @@ Choose the cases it must reproduce *before* you look at any output, and prefer
 controls where you're confident nothing went wrong — agreement on the
 interesting cases is the thing you're trying to earn, so it can't also be the
 evidence that you're entitled to it.
+
+### 28. "Tell me about a time you found the reasoning wrong, not just the code."
+**A written decision not to build a check rested on "drift has not been observed here." Drift had been observed twice, and no revisit trigger could have fired for either (2026-08-18, [#554](https://github.com/kristenmartino/gridpulse/issues/554)).**
+
+Situation: Alert policies live as JSON in the repo and are applied to Cloud Monitoring by hand. A unit test guards that directory, but it compares committed files to a table of policy **ids** — it cannot see what GCP is actually serving. The README had already reasoned about closing that gap and decided against it, in writing: the shape was identified (a step in the hourly workflow that already had cloud credentials), the cost was known (one read-only IAM role), and it was marked **deliberately not built** because *"drift has not been observed here."* It listed three revisit triggers: someone edits a policy in the console, a second person gets project access, or a wrong id reaches `main`.
+
+That is a good paragraph. It names the alternative, prices it, and says what would change its mind — better than most decisions get documented. It was also wrong, and the interesting part is *where*.
+
+Investigation: The load-bearing clause was the empirical one, and it was false when it was written. Drift had happened days earlier: a runbook shipped at 4035 characters against a 4000-character API cap, so it was un-appliable from the moment it merged and the console served the previous copy for four days. Nobody classified that as drift at the time because it had been diagnosed as a different problem entirely.
+
+More telling was the trigger list. All three triggers are about **identity** — the id — or about **who has access**. The failure that actually happened was about **content**: the id was correct and unchanged throughout, which is precisely why the guard test stayed green while the console served the wrong runbook. A "revisit if" list is a prediction about how the next failure will look, and this one predicted the wrong axis.
+
+Action: I built the check the paragraph had already designed — hourly, in the existing workflow, one `gcloud monitoring policies list` call — comparing applied `documentation.content`, `enabled`, `validity` and `notificationChannels` against the committed files. Two deliberate choices. It **never mutates**: this API returns HTTP 200 on a failed update, so a write's own response is not evidence the write landed, and every assertion here is a read. And the headroom check — warn when a runbook is within 200 characters of the cap — **warns rather than fails**, because 3800 is a number I invented and 4000 is the one the API enforces; this directory has a standing rule to assert the enforcement, not the declaration.
+
+Result: It failed on its first run, on a policy nobody was looking at. `scoring_runtime_creep` had been serving a 1153-character runbook since 2026-07-08 while the repo carried a 3555-character rewrite merged 2026-08-04 — **14 days**. What the console omitted was not cosmetic: the whole partial-degradation triage, including the branch that says if EIA exceptions are high but retry-exhaustion is at zero, the circuit breaker *cannot* trip because it counts consecutive failures, so runtime will keep climbing. That is the exact incident class that killed two scoring ticks on 2026-08-04. The runbook an on-call reader would have opened, during the incident it was written for, was the version from before anyone understood it.
+
+I patched it to the committed text and verified by reading it back, not by the PATCH's status code. All 11 policies now converge.
+
+**Lesson to convey**: *When a decision says "we haven't seen this happen," that clause is a factual claim with a date on it, and it is the one to re-check — not the design, which was fine. And be suspicious of a revisit-trigger list that is entirely about one dimension: these were all about identity, so a content failure could run for two weeks underneath them while every guard stayed green. The check that finds something on its first run is evidence the gap was real, not that you got lucky.*
