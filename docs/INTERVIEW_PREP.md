@@ -1312,3 +1312,20 @@ suite that should be compute-bound, and per-test cost that grew with position in
 the run. Neither is visible in a total. And a mock that doesn't apply is worse
 than no mock, because it buys the confidence of isolation while quietly testing
 production — both of ours passed for years while measuring the wrong thing.*
+
+### 31. "Tell me about a time the ticket was right about the bug and wrong about the cause."
+**An issue asked me to tell "diffusely sparse" from "episodic blackout". I measured first, and neither of the two balancing authorities it named was diffusely sparse (2026-08-18, [#549](https://github.com/kristenmartino/gridpulse/issues/549)).**
+
+Situation: Our public benchmark scores GridPulse's forecast against each balancing authority's own day-ahead forecast. A BA publishing that forecast for under 80% of hours was excluded, and the page printed: *"The BA publishes a day-ahead forecast for under 80% of hours — too sparse to score fairly."* An alert fired naming TEC at 80.1%, a tenth of a point above the gate and falling. The issue laid out the problem precisely — every clause of that sentence would be false for TEC — and offered three fixes. The cheapest, and the one it flagged as cheapest, was to classify the *shape* of the absence: `sparse` for a BA that half-publishes, `intermittent` for one that goes dark in blocks, with an honest sentence for each.
+
+Task: Implement the classifier. Before I could pick its threshold I needed to know what the shapes actually looked like, so I put a measurement step ahead of the code, with an explicit stop condition: SPP was the one BA the gate excluded correctly, so if my fitted classifier would *admit* SPP, the design was wrong and I would stop rather than tune.
+
+Investigation: I swept all 51 BAs for the run-length structure of their absent hours. **No BA in the fleet is diffusely sparse.** Every BA with any absence had 92–100% of those hours inside runs of three or more. And SPP — described as a BA that "genuinely does not publish" in the issue, in `config.py`, in a docstring, and in the name of a pinned test — was absent in **one contiguous 341-hour block**. Its feed had stopped on 2026-08-04 and never resumed. I checked it against EIA directly, because the previous incident in this exact code path had been our collector misreporting their publishing; it was not, on either BA.
+
+So the classifier could not be built honestly. SPP and TEC land on the same side of it. The only way to get SPP out was to choose a threshold in order to reach a conclusion I already had — which is the failure the issue was itself written about, one level up.
+
+Result: I stopped, posted the measurements to the issue to correct its premise in public, and asked before changing direction. What actually separates the two is not shape but **liveness** — hours since the newest published forecast were SPP 341, TEC 30, every other BA at most 6 — so the gate became "has this feed stopped?" at a 168-hour threshold that sits 11× above the live fleet and 2× below the dead one. SPP stays excluded under a sentence that names the hour it stopped, which anyone can check against EIA in one query. TEC gets scored. Replayed across all 51 BAs on the real production window: 46 scoreable before, 46 after, zero newly excluded.
+
+The detail I'd want them to ask about: keeping TEC costs us. Its own forecast beats ours there by 1.45 MAPE points. The old rule would have quietly dropped a row we lose on, using a reason our own numbers contradicted — and a benchmark that excludes its losses on an unmeasured pretext is not a benchmark.
+
+What I'd tell someone: a well-written ticket is a hypothesis, not a specification. This one diagnosed the defect exactly and got the mechanism wrong, and the tell was that its central distinction had never been measured — only inferred from a percentage. The cheapest option is the most dangerous one to take on trust, because cheap usually means "changes labels, not decisions", and a more accurate label on an unjustified decision still ships the decision.

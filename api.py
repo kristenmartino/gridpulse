@@ -816,6 +816,16 @@ def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
         # Exporting one without the other rebuilds that blind spot.
         "df_coverage": payload.get("df_coverage"),
         "df_asissued_coverage": payload.get("df_asissued_coverage"),
+        # #549: coverage no longer gates — these do the work it was doing, and
+        # both are exported so the exclusion stays checkable from outside.
+        # `df_stale_hours` IS the gate's figure, published for scored rows too
+        # so a reader can see the margin rather than trust the verdict;
+        # `absent_hours_bias_pct` is the hazard the rate only ever proxied for,
+        # measured directly, and gates nothing.
+        "df_stale_hours": payload.get("df_stale_hours"),
+        "df_last_published_at": payload.get("df_last_published_at"),
+        "n_absent_hours": payload.get("n_absent_hours"),
+        "absent_hours_bias_pct": payload.get("absent_hours_bias_pct"),
         "placeholder_pct": payload.get("placeholder_pct"),
         # #348: which series this row scores, and which one the product
         # actually serves for this BA. They differ wherever a BA was

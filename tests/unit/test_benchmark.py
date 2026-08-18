@@ -13,6 +13,8 @@ would embarrass it, plus the exclusion contract:
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -20,8 +22,9 @@ import pytest
 from models.benchmark import (
     CONSERVATIVE_LEAD,
     EXCLUDE_BROKEN_FEED,
-    EXCLUDE_DF_COVERAGE,
+    EXCLUDE_DF_FEED_STOPPED,
     HEADLINE_LEAD,
+    MIN_DF_COVERAGE,
     MIN_PAIRED_HOURS,
     OFFICIAL_DOCUMENTED_LEAD_H,
     _normalize_ts,
@@ -209,15 +212,47 @@ class TestExclusions:
         assert s["reason"] == EXCLUDE_BROKEN_FEED
         assert "self-referential" in s["reason_detail"]
 
-    def test_sparse_day_ahead_coverage_excluded(self):
+    def test_a_feed_that_stopped_publishing_is_excluded(self):
+        """SPP's shape: complete, then nothing. 200 absent hours at the end of
+        the window is well past MAX_DF_STALENESS_HOURS, so the feed is dead and
+        every hour we could score predates the stop."""
         recs = _records(200) + [
             _Rec(f"2026-09-{1 + i // 24:02d}T{i % 24:02d}:00:00Z", float("nan"), 1000.0)
             for i in range(200)
         ]
         s = scoreability(recs, revision_class="clean")
         assert s["scoreable"] is False
-        assert s["reason"] == EXCLUDE_DF_COVERAGE
+        assert s["reason"] == EXCLUDE_DF_FEED_STOPPED
         assert s["df_coverage"] == pytest.approx(0.5)
+
+    def test_a_low_coverage_ba_with_a_live_feed_is_scoreable(self):
+        """TEC's shape, and the whole of #549: 50% coverage in whole-day blocks
+        with the feed still publishing. The old rate gate excluded this as "too
+        sparse to score fairly" — a claim about shape it had never measured and
+        which is false for every BA it was ever applied to."""
+        recs = []
+        for day in range(20):
+            absent = day % 2 == 0  # alternating 24h blackout blocks
+            for hour in range(24):
+                ts = f"2026-07-{1 + day:02d}T{hour:02d}:00:00Z"
+                recs.append(_Rec(ts, float("nan") if absent else 900.0, 1000.0))
+        s = scoreability(recs, revision_class="clean")
+        assert s["df_coverage"] == pytest.approx(0.5), "half the hours, same as SPP"
+        assert s["scoreable"] is True, "but the feed is alive, so it is scoreable"
+        assert s["reason"] is None
+        assert s["reason_detail"] is None
+
+    def test_the_gate_is_liveness_not_the_coverage_threshold(self):
+        """Pinned so a later reader cannot mistake #549 for the threshold
+        raise the issue explicitly ruled out. MIN_DF_COVERAGE still exists —
+        it is quoted in the sentences and anchors the warning band — but no
+        code path compares against it to decide who is published."""
+        assert MIN_DF_COVERAGE == 0.80
+        gate = inspect.getsource(scoreability)
+        assert "MIN_DF_COVERAGE" not in gate, (
+            "coverage decides nothing since #549; if it gates again the "
+            "exclusion sentence starts asserting a shape it has not measured"
+        )
 
     def test_scoreable_ba_reports_coverage_stats(self):
         s = scoreability(_records(300), revision_class="bulk")
@@ -892,6 +927,94 @@ class TestDeferredDayAheadCapture:
         assert len(pairs) == 1, "the as-issued claim is about the DF observation"
 
 
+class TestFeedLivenessGate:
+    """#549: the gate measures whether the feed is alive, not how often it fires.
+
+    Every constant here was fitted to the fleet on 2026-08-18 rather than
+    chosen: hours since the newest published DF were SPP 341, TEC 30, and every
+    other BA at most 6.
+    """
+
+    @staticmethod
+    def _rec(hour, *, df, d=1000.0):
+        ts = f"2026-07-{1 + hour // 24:02d}T{hour % 24:02d}:00:00Z"
+        return _Rec(ts, df, d, captured_at=ts, df_at=ts)
+
+    def test_staleness_is_measured_from_the_newest_record_not_wall_clock(self):
+        """Pure function: replaying an old window must report what that window
+        saw, not how long ago the window itself was."""
+        recs = [self._rec(h, df=900.0) for h in range(100)]
+        out = scoreability(recs, "clean")
+        assert out["df_stale_hours"] == 0.0
+        assert out["scoreable"] is True
+
+    def test_an_unsorted_caller_cannot_change_the_verdict(self):
+        """The gate takes a max, not the last element. Callers sort today; a
+        gate that silently depends on that is one refactor from reading a
+        different number."""
+        recs = [self._rec(h, df=900.0) for h in range(100)]
+        assert scoreability(list(reversed(recs)), "clean") == scoreability(recs, "clean")
+
+    def test_a_ba_with_no_day_ahead_forecast_at_all_is_excluded(self):
+        """`stale_hours is None` is the strongest form of the condition, not an
+        absence of evidence about it — it must not fall through as fresh."""
+        out = scoreability([self._rec(h, df=float("nan")) for h in range(300)], "clean")
+        assert out["scoreable"] is False
+        assert out["reason"] == EXCLUDE_DF_FEED_STOPPED
+        assert out["df_stale_hours"] is None
+        assert "no day-ahead forecast for this BA at all" in out["reason_detail"]
+
+    def test_an_unparseable_timestamp_is_skipped_not_defaulted(self):
+        """One bad row must not decide whether a BA is published."""
+        recs = [self._rec(h, df=900.0) for h in range(100)]
+        recs.append(_Rec("not-a-timestamp", 900.0, 1000.0))
+        out = scoreability(recs, "clean")
+        assert out["scoreable"] is True
+        assert out["df_stale_hours"] == 0.0
+
+
+class TestAbsentHourBias:
+    """The hazard the coverage rate was only ever a proxy for, measured (#549).
+
+    Published; gates nothing. Promoting it needs a disqualifying magnitude and
+    the fleet has not produced one to calibrate against.
+    """
+
+    @staticmethod
+    def _rec(hour, *, df, d):
+        ts = f"2026-07-{1 + hour // 24:02d}T{hour % 24:02d}:00:00Z"
+        return _Rec(ts, df, d, captured_at=ts, df_at=ts)
+
+    def test_no_absent_hours_means_no_bias_is_possible(self):
+        """Distinct from unmeasurable, and must not read as a failure: full
+        coverage is the case where the question cannot arise."""
+        out = scoreability([self._rec(h, df=900.0, d=1000.0) for h in range(100)], "clean")
+        assert out["absent_hours_bias_pct"] is None
+        assert out["n_absent_hours"] == 0
+        assert out["scoreable"] is True
+
+    def test_too_few_absent_hours_is_reported_as_unknown_not_as_a_number(self):
+        """PACE, NWMT and IPCO each showed a ~-20% apparent skew off 3-4 absent
+        hours. That is which hours were missing, not a property of the BA."""
+        recs = [self._rec(h, df=900.0, d=1000.0) for h in range(100)]
+        recs += [self._rec(h, df=float("nan"), d=500.0) for h in range(100, 104)]
+        assert scoreability(recs, "clean")["absent_hours_bias_pct"] is None
+
+    def test_a_real_skew_is_measured_and_signed(self):
+        recs = [self._rec(h, df=900.0, d=1000.0) for h in range(100)]
+        recs += [self._rec(h, df=float("nan"), d=1200.0) for h in range(100, 140)]
+        assert scoreability(recs, "clean")["absent_hours_bias_pct"] == pytest.approx(20.0)
+
+    def test_one_bad_row_cannot_move_the_statistic(self):
+        """Non-finite and non-positive D are dropped from BOTH sides."""
+        recs = [self._rec(h, df=900.0, d=1000.0) for h in range(100)]
+        recs += [self._rec(h, df=float("nan"), d=1000.0) for h in range(100, 140)]
+        clean = scoreability(recs, "clean")["absent_hours_bias_pct"]
+        recs.append(self._rec(200, df=float("nan"), d=float("nan")))
+        recs.append(self._rec(201, df=float("nan"), d=-5.0))
+        assert scoreability(recs, "clean")["absent_hours_bias_pct"] == clean
+
+
 class TestTwoCoverages:
     """`df_coverage` describes the BA; `df_asissued_coverage` describes us (#535).
 
@@ -921,28 +1044,45 @@ class TestTwoCoverages:
         assert out["scoreable"] is True
         assert out["reason"] is None
 
-    def test_a_ba_that_genuinely_does_not_publish_is_still_excluded(self):
-        """SPP measures 53.8% upstream. Restoring it would be the regression,
-        not the win — a bigger number is not the goal."""
-        recs = [self._rec(h, df=900.0, df_at=None) for h in range(50)] + [
-            self._rec(h, df=float("nan"), df_at=None) for h in range(50, 100)
+    def test_spp_is_still_excluded_but_for_the_reason_that_is_true(self):
+        """SPP stays out. Restoring it would be the regression, not the win —
+        a bigger number is not the goal.
+
+        The premise this test used to carry was wrong, and it is worth stating
+        why (#549). It described SPP as a BA that "genuinely does not publish",
+        which is what its 52.6% coverage looked like from the rate alone.
+        Measured, SPP's absence is ONE contiguous 341-hour block — it published
+        completely until 2026-08-04T06Z and then stopped, confirmed against EIA.
+        The exclusion survives; the reason it survives on is the one that is
+        actually true of it.
+        """
+        recs = [self._rec(h, df=900.0, df_at=None) for h in range(200)] + [
+            self._rec(h, df=float("nan"), df_at=None) for h in range(200, 400)
         ]
         out = scoreability(recs, "bulk")
         assert out["df_coverage"] == 0.5
         assert out["scoreable"] is False
-        assert out["reason"] == "df-coverage"
+        assert out["reason"] == "df-feed-stopped"
+        assert out["df_stale_hours"] > 168.0
+        detail = out["reason_detail"]
+        assert "stopped publishing" in detail
+        assert "sparse" not in detail, "the false clause must not come back"
 
     def test_the_exclusion_reason_carries_this_bas_measured_numbers(self):
-        """A reader who sees only "under 80% of hours" cannot tell 79% from
-        39%, and cannot tell a non-publishing BA from a capture gap at all —
-        which is exactly how #535 stayed invisible for three weeks."""
-        recs = [self._rec(h, df=900.0, df_at=None) for h in range(39)] + [
-            self._rec(h, df=float("nan"), df_at=None) for h in range(39, 100)
+        """A reader who sees only a rule cannot tell 79% from 39%, and cannot
+        tell a non-publishing BA from a capture gap at all — which is exactly
+        how #535 stayed invisible for three weeks. Since #549 the sentence also
+        carries the hour the feed stopped, which is checkable against EIA in a
+        single query in a way that "sparse" never was."""
+        recs = [self._rec(h, df=900.0, df_at=None) for h in range(156)] + [
+            self._rec(h, df=float("nan"), df_at=None) for h in range(156, 400)
         ]
-        detail = scoreability(recs, "bulk")["reason_detail"]
+        out = scoreability(recs, "bulk")
+        detail = out["reason_detail"]
         assert "39.0%" in detail, f"the BA's measured coverage is missing from: {detail}"
-        assert "100 hours" in detail
+        assert "400 hours" in detail
         assert "as-issued" in detail
+        assert out["df_last_published_at"] in detail, "the stop date must be named"
 
     def test_as_issued_coverage_never_gates(self):
         """It is our number, published for interpretation. A BA must not be

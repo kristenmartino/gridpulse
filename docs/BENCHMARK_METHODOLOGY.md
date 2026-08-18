@@ -114,7 +114,7 @@ product, not an omission from it.
 | Reason | Test | Rationale |
 |---|---|---|
 | `broken-feed` | vintage revision class is `broken` | the feed's provisional readings revise so heavily that intraday scoring is meaningless — **and** (ADR-009) GridPulse anchors its own forecast on that BA's day-ahead value, which would make the comparison partly self-referential |
-| `df-coverage` | the BA publishes `DF` for < 80% of hours | too sparse to score fairly |
+| `df-feed-stopped` | the BA's most recent `DF` is more than 168h old | it has stopped publishing, so every hour we could score predates the stop and the row would describe a different slice of the window than every other row |
 | `insufficient-paired-hours` | fewer than 200 hours survive §4 | too thin for a per-BA verdict |
 
 **The direction of this bias is against us.** The broken-feed exclusions are
@@ -140,11 +140,38 @@ Per-BA exclusions and their reasons are listed there too, and mirrored in the
 dated snapshot at
 [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md).
 
-### The gate measures the BA, not us (#535)
+### Coverage does not gate; feed liveness does (#549)
 
 `df_coverage` is the share of hours **EIA published a day-ahead forecast for**.
-It is the only coverage figure the exclusion gate acts on, because the
-exclusion text it produces makes a claim about the balancing authority.
+Until 2026-08-18 it was also the gate. It is not any more, and the reason is
+that a publication *rate* cannot tell a BA that half-publishes from one that
+published completely and then stopped — while the sentence it generated
+asserted the first shape for both.
+
+Measured across all 51 BAs, the distinction the rate was assumed to draw does
+not exist in this fleet. **No BA is diffusely sparse.** Every BA with any
+absence has 92–100% of its absent hours inside runs of ≥3h. SPP — the only BA
+the coverage gate ever correctly excluded — is absent in **one contiguous
+341-hour block**: its feed stopped at `2026-08-04T06Z` and did not resume. TEC,
+at 80.1%, is absent in six blocks and publishes 100% of hours on the days it
+publishes at all. Both confirmed against EIA directly, so neither is ours.
+
+What separates them is liveness, and it separates them cleanly — hours since
+the newest published DF were SPP **341**, TEC **30**, every other BA **≤6**. So
+that is what gates, at `MAX_DF_STALENESS_HOURS = 168`, which sits 11× above the
+live fleet's worst and 2× below the one dead feed.
+
+The hazard the rate was standing in for — that a BA which goes quiet when the
+grid gets hard would be graded only on its easy hours — is now measured
+directly as `absent_hours_bias_pct` and published. It gates nothing: promoting
+it needs a disqualifying magnitude, and the fleet has not produced one to
+calibrate against (SPP **+0.18%**, TEC **+0.83%**). It is reported as unknown
+below 20 absent hours, where it is dominated by which few hours happened to be
+missing rather than by any property of the BA.
+
+`df_coverage` remains published, and remains the figure the exclusion sentences
+quote, because the exclusion text still makes a claim about the balancing
+authority.
 
 Until #535 it was not that number. `first_seen_df` was pinned on the tick that
 first admitted the hour and never revisited, so a DF EIA published slightly
@@ -607,6 +634,29 @@ placeholders. §5's broken-feed row, by giving the ADR-009 self-reference as a
 both: **against us** — each replaces an implied claim of independence with a
 stated dependence.
 
+**2026-08-18 — the gate measures whether the feed is alive, not how often it
+fires ([#549]).**
+*Direction: it **retains** a BA whose own day-ahead forecast beats ours — TEC,
+official 5.485% MAPE against GridPulse 6.931%, a 1.446-point loss for us — and
+changes today's population by nothing at all. Replayed over the live 719-hour
+window for all 51 BAs: 46 scoreable before, 46 after, zero newly excluded. The
+change takes effect the moment TEC crosses the old threshold, which it was on
+trajectory to do around 2026-08-19T06Z.*
+
+The retired rule would have published, of TEC: "The BA publishes a day-ahead
+forecast for under 80% of hours — too sparse to score fairly." Every clause of
+that is false for TEC. It is not sparse (100% of hours on the days it
+publishes); "under 80%" holds only inside a 30-day window (88.7% over 90); it
+is not too thin to score fairly (343 paired hours against a floor of 200); and
+its skipped hours carry statistically identical load to its covered ones
+(+0.83%), so the covered slice is not the easy one.
+
+`MIN_DF_COVERAGE` is **unchanged at 0.80** — this is not the threshold raise
+[#549] rules out. Coverage simply stopped deciding who is published. No drop
+rule in §4 loosened, and one BA remains excluded on the DF side (SPP), now
+under a sentence naming the hour its feed stopped, which is checkable against
+EIA in a single query in a way that a shape adjective never was.
+
 **2026-08-18 — `df_coverage` measures the BA, not our collector ([#535]).**
 *Direction: it grows the scoreable population by 21 BAs, which is the direction
 that flatters us — so the evidence is given in full, and the rule it relaxes is
@@ -650,6 +700,7 @@ there are enough of them; MISO in particular is expected to sit near that floor
 until the window refills.
 
 [#535]: https://github.com/kristenmartino/gridpulse/issues/535
+[#549]: https://github.com/kristenmartino/gridpulse/issues/549
 
 
 **2026-08-04 — `stale_capture` exclusion ([#358]).** *Direction: measured, not

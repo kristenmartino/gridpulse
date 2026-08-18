@@ -57,6 +57,7 @@ tell "already reviewed" from "arrived since".
 
 <!-- audited-through: 2026-08-18 | entries-seen: 6 -->
 
+- 2026-08-18 [evidence-verification] #549 asserted SPP is "diffusely sparse" and the repo repeated it in config.py, a benchmark.py docstring and a pinned test; SPP's absence is in fact ONE contiguous 341h outage since 2026-08-04, measured only because the plan required fitting the classifier to real data before writing it — ref: #549
 - 2026-08-18 [harness-agrees-for-the-wrong-reason] A per-tick replay reproducing production's forecast origin scored ~100% agreement on a frame that was an hour short throughout: `captured_at` is stamped minutes INTO the tick that records it, and a drift record grades the PREVIOUS tick's payload, so the two errors cancelled. Caught only by control BAs designated before any output was inspected. — ref: PR #558
 - 2026-08-18 [premise-not-measured-before-filing] Filed #559 and shipped a doc section arguing the origin stall came from positional AR lags on gapped series, and that fixing it required a 51-BA x 3-model retrain behind the ADR-010 gate. Measured hours later: absent rows are 7 of 110,704 fleet-wide (0.0063%), all in one BA — the frames are complete grids, so the retrain's justification never existed. Corrected in public on the issue and in the doc. — ref: PR #578
 

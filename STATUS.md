@@ -395,15 +395,21 @@ sufficient, and the GA `gcloud monitoring policies` group is present on a stock
 this by hand earlier the same day). Now on the hourly `:23` schedule alongside
 the deploy check.
 
-**Open question, split out:**
-[#549](https://github.com/kristenmartino/gridpulse/issues/549) — the gate
-cannot tell chronic sparsity from episodic blackout and publishes the first
-sentence for both. TEC is 100% covered on 24 of 30 days and absent in whole
-~24h blocks (88.7% over 90 days, 80.1% over 30); its blackout hours carry
-statistically identical load (**3118 MW** vs **3098 MW**, 0.6%), so there is no
-selection bias, and it holds **343 paired hours** against a floor of 200. It
-would be excluded as "too sparse to score fairly", which is false in every
-clause — and the 30-day window makes it *flap*.
+**ANSWERED, and the premise was wrong:**
+[#549](https://github.com/kristenmartino/gridpulse/issues/549) asked how to
+tell chronic sparsity from episodic blackout. Measured across all 51 BAs on
+2026-08-18, **that distinction does not exist in this fleet** — every BA with
+any absence has 92–100% of its absent hours in runs of ≥3h, SPP included.
+SPP's absence is ONE contiguous **341-hour** block (feed stopped
+`2026-08-04T06Z`, never resumed); TEC's is six whole-day blocks with a live
+feed. Both confirmed upstream against EIA.
+
+What separates them is **liveness**, cleanly: hours since the newest published
+DF are SPP 341, TEC 30, every other BA ≤6. So coverage stopped gating and
+`MAX_DF_STALENESS_HOURS = 168` gates instead. Replayed over the live window:
+**46 scoreable before, 46 after, zero newly excluded** — the change is
+population-neutral today and prevents TEC's false exclusion when it crosses.
+`MIN_DF_COVERAGE` is unchanged at 0.80; it just decides nothing.
 
 **Split out:** [#537](https://github.com/kristenmartino/gridpulse/issues/537) —
 the horizon-drift 7-day window is short fleet-wide (151-167 of 168) and LGEE

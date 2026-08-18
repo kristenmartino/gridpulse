@@ -955,7 +955,12 @@
        BA short of paired hours is simply young. Early in a deploy the second
        group is the larger one, so one table under the 'most of these are
        broken feeds' lede would be plainly false. */
-    var FAIRNESS_REASONS = ['broken-feed', 'df-coverage'];
+    /* 'df-coverage' is retired as a gate (#549) and stays in this list on
+       purpose: payloads written before the change carry it until the next
+       scoring tick overwrites them, and dropping it would render those BAs in
+       the 'pending' table — 'young', not 'excluded' — which is the one
+       misreading this split exists to prevent. */
+    var FAIRNESS_REASONS = ['broken-feed', 'df-coverage', 'df-feed-stopped'];
 
     function reasonOf(region) {
       return region.reason || head(data, region).reason || 'insufficient-paired-hours';
