@@ -287,9 +287,9 @@ the canonical list; expansion history is `Original 8 → V1.α +8 → V3.ζ +35`
     models from GCS, writes forecasts + alerts + diagnostics +
     weather-correlation to Redis. Entry point: `python -m jobs scoring`.
   - `gridpulse-training-job` — daily at 04:00 UTC. Trains XGBoost/Prophet/
-    SARIMAX, persists to `gs://nextera-portfolio-energy-cache/models/`,
+    SARIMAX, persists to `gs://nextera-portfolio-energy-cache/cache/models/`,
     writes backtests to Redis. Entry point: `python -m jobs training`.
-- **Model store** — GCS at `gs://nextera-portfolio-energy-cache/models/` via
+- **Model store** — GCS at `gs://nextera-portfolio-energy-cache/cache/models/` via
   `models/persistence.py`. Layout: `{region}/{model_name}/{version}.pkl` +
   `.meta.json`, atomically pointed to by `latest.json`. Scoring job pulls
   via `load_model()` with local disk cache at `/app/trained_models/`.
@@ -405,7 +405,10 @@ data/
   eia_client.py           → EIA API v2: demand, generation, interchange
   weather_client.py       → Open-Meteo: 17 weather vars, historical + forecast
   noaa_client.py          → NOAA/NWS: severe weather alerts
-  preprocessing.py        → Merge, align UTC, interpolate gaps <6h, flag gaps ≥6h
+  preprocessing.py        → Merge demand+weather (left-join onto demand, no reindex).
+                            `handle_missing_values` (interpolate <6h, flag ≥6h) lives
+                            here but has NO production caller — scoring goes
+                            merge → engineer_features directly
   feature_engineering.py  → 49 features (17 raw + 32 derived): CDD/HDD, wind power, solar CF, lags, rolling
   demo_data.py            → Synthetic data generator for offline/demo mode where explicitly used
   audit.py                → Forecast audit trail (model version, data hash, feature hash)

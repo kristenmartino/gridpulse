@@ -19,6 +19,55 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-18 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+MEASURED: the positional AR seed reads the wrong hour, and fixing it buys no
+measured accuracy. Shipped behind `temporal_ar_seed`, default OFF.**
+
+#559 prescribed a reindex plus a 51-BA × 3-model retrain behind the ADR-010 gate.
+**Its premise does not hold.** `_parse_demand_records` never manufactures rows, so
+the demand frame is whatever EIA returned — and EIA reports gap hours as rows with
+null values. Across 51 BAs over 90 days: **7 absent rows** (all SPA, all May)
+against **78 null rows**. On 50 of 51 the grid is already continuous, `shift(24)`
+is temporally exact, and the training features were never wrong. Nothing to
+reindex, no retrain to justify. ([PR #578](https://github.com/kristenmartino/gridpulse/pull/578)
+reached the same census independently.)
+
+**The real defect is one layer down.** `dropna` deletes every row whose lag source
+was null, putting real holes into `featured` — LGEE 2171 → 1969 rows with 19h and
+17h discontinuities — and `jobs/phases.py` seeds the recursion with that frame,
+which `compute_autoregressive_snapshot` indexes **positionally**. At the origin
+production resolved on 2026-08-18, `demand_lag_168h` read `08-10T01:00` against a
+correct `08-11T11:00`: **34 hours off, live**, with `demand_roll_168h_*` spanning
+201 real hours instead of 167. One null hour corrupts `lag_24h` for 24 subsequent
+origins and `lag_168h` for 168 — a seven-day blast radius, on every tick, not only
+the ticks whose origin stalls. Seven BAs carry a corrupt origin; 44 carry none.
+
+**But the accuracy case is not there.** Replaying both seed conventions through the
+serve path against archived vintages — same model, same weather, same origins —
+`verdict()` declined twice: mean **+0.090** WAPE at 168h (n=24, MDE 0.466) and
+**+0.181** at 48h (n=85, MDE 0.406). The arms diverge **2.1–2.7% of demand**, so
+values genuinely move; the accuracy effect does not clear noise. Only TIDC beats
+its own MDE, which is a post-hoc per-BA look at an inconclusive pooled result and
+is hypothesis-generating only. The study cannot be rescued by running it harder:
+detecting +0.18 needs ~600 non-overlapping windows and 26 exist, because the defect
+requires a gap. Null control held exactly — MISO and PJM at `0.000000000%`
+divergence across 47 origins.
+
+**Shipped:** `temporal_ar_seed`, default **off**, fail-open at every seam
+(flag-off is byte-identical, pinned by test). Production with the flag on
+reproduces the study's independent treatment arm to **0.0000000000**.
+
+**Open:** whether to turn it on. That wants a shadow run, not this study — the
+honest framing is a correctness fix with no demonstrated accuracy benefit, and two
+BAs move the wrong way inside noise. **Evidence:**
+[`docs/POSITIONAL_LAG_SEED_STUDY.md`](docs/POSITIONAL_LAG_SEED_STUDY.md).
+
+**Also fixed:** the parity test that should have caught this compared both AR
+implementations on a **gapless** fixture, where they agree by construction.
+`tests/unit/test_temporal_ar_seed.py` carries the gapped version.
+
+---
+
 **2026-08-18 — [#537](https://github.com/kristenmartino/gridpulse/issues/537)
 ROOT-CAUSED: the forecast origin has no memory, so it stalls when feature
 engineering loses its tail and walks BACKWARDS when EIA withdraws hours.**

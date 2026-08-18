@@ -11,6 +11,7 @@ Key conventions:
 - Backward-looking windows only (no future data leakage)
 """
 
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -273,11 +274,137 @@ def compute_autoregressive_snapshot(demand_history: list[float]) -> dict[str, fl
     }
 
 
+def compute_temporal_autoregressive_snapshot(
+    history: Mapping[pd.Timestamp, float], now: pd.Timestamp
+) -> dict[str, float]:
+    """``compute_autoregressive_snapshot`` resolved by hour instead of position.
+
+    Same key set, same arithmetic. The only difference is what "24 back" means:
+    this asks ``history`` for the hour ``now - 24h`` and returns NaN when that
+    hour is absent, where the positional version counts back 24 surviving
+    entries and silently reaches further whenever the frame has a hole.
+
+    That difference is not hypothetical. ``engineer_features`` drops every row
+    whose lag source was null, so ``featured`` carries real discontinuities —
+    LGEE's ran 34 hours at a live origin, making ``demand_lag_168h`` read
+    2026-08-10T01:00 for an origin of 2026-08-18T11:00. See #559 and
+    ``docs/POSITIONAL_LAG_SEED_STUDY.md``.
+
+    Rolling windows cover the hours actually present in ``[now - window, now)``
+    — the temporal reading of the training side's ``min_periods=1``, which
+    likewise tolerates a gap rather than reaching past the window to fill it.
+
+    Args:
+        history: Demand keyed by hour. Values are real demand for seed hours and
+            the model's own predictions for hours already forecast.
+        now: The hour being predicted. Lags are resolved relative to this.
+
+    Returns:
+        The same 21 keys ``compute_autoregressive_snapshot`` returns.
+    """
+
+    def _lag(periods: int) -> float:
+        return history.get(now - pd.Timedelta(hours=periods), np.nan)
+
+    def _roll(window: int, op: str) -> float:
+        vals = [
+            history[ts]
+            for ts in (now - pd.Timedelta(hours=i) for i in range(1, window + 1))
+            if ts in history
+        ]
+        if not vals:
+            return np.nan
+        arr = np.asarray(vals, dtype=float)
+        if op == "mean":
+            return float(np.mean(arr))
+        if op == "std":
+            return float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        if op == "min":
+            return float(np.min(arr))
+        return float(np.max(arr))
+
+    lag_1 = _lag(1)
+    lag_2 = _lag(2)
+    lag_3 = _lag(3)
+    lag_24 = _lag(24)
+    lag_168 = _lag(168)
+    roll_24_mean = _roll(24, "mean")
+    roll_168_mean = _roll(168, "mean")
+
+    return {
+        "demand_lag_1h": lag_1,
+        "demand_lag_3h": lag_3,
+        "demand_lag_24h": lag_24,
+        "demand_lag_168h": lag_168,
+        "ramp_rate": lag_1 - lag_2 if not np.isnan(lag_1) and not np.isnan(lag_2) else np.nan,
+        "demand_momentum_short": lag_1 - lag_3
+        if not np.isnan(lag_1) and not np.isnan(lag_3)
+        else np.nan,
+        "demand_momentum_long": lag_1 - lag_24
+        if not np.isnan(lag_1) and not np.isnan(lag_24)
+        else np.nan,
+        "demand_ratio_24h": lag_24 / max(roll_24_mean, 1.0)
+        if not np.isnan(lag_24) and not np.isnan(roll_24_mean)
+        else np.nan,
+        "demand_ratio_168h": lag_168 / max(roll_168_mean, 1.0)
+        if not np.isnan(lag_168) and not np.isnan(roll_168_mean)
+        else np.nan,
+        "demand_roll_24h_mean": roll_24_mean,
+        "demand_roll_24h_std": _roll(24, "std"),
+        "demand_roll_24h_min": _roll(24, "min"),
+        "demand_roll_24h_max": _roll(24, "max"),
+        "demand_roll_72h_mean": _roll(72, "mean"),
+        "demand_roll_72h_std": _roll(72, "std"),
+        "demand_roll_72h_min": _roll(72, "min"),
+        "demand_roll_72h_max": _roll(72, "max"),
+        "demand_roll_168h_mean": roll_168_mean,
+        "demand_roll_168h_std": _roll(168, "std"),
+        "demand_roll_168h_min": _roll(168, "min"),
+        "demand_roll_168h_max": _roll(168, "max"),
+    }
+
+
+def _temporal_seed_history(
+    seed_demand: Any, seed_timestamps: Any
+) -> dict[pd.Timestamp, float] | None:
+    """Build the timestamp-keyed seed, or None if temporal mode is unavailable.
+
+    Fail-open by design: every caller that cannot supply timestamps, and every
+    frame whose timestamps do not line up with its demand, falls back to the
+    positional path unchanged. Flag-off behaviour is byte-identical.
+    """
+    if seed_timestamps is None:
+        return None
+    try:
+        stamps = pd.to_datetime(pd.Series(list(seed_timestamps)), utc=True)
+        values = list(seed_demand)
+    except (TypeError, ValueError):
+        return None
+    if len(stamps) != len(values):
+        return None
+    return {
+        ts: float(v)
+        for ts, v in zip(stamps, values, strict=True)
+        if v is not None and not pd.isna(v) and v > 0
+    }
+
+
+def _future_step_timestamps(future_df: pd.DataFrame) -> list[pd.Timestamp] | None:
+    """Per-step hours for the forecast frame, or None if it carries none."""
+    if "timestamp" not in future_df.columns:
+        return None
+    try:
+        return list(pd.to_datetime(future_df["timestamp"], utc=True))
+    except (TypeError, ValueError):
+        return None
+
+
 def recursive_autoregressive_forecast(
     model: Any,
     seed_demand: list[float] | np.ndarray | pd.Series,
     future_df: pd.DataFrame,
     predict_fn: Any,
+    seed_timestamps: Any = None,
 ) -> np.ndarray:
     """Multi-step forecast that chains its own predictions as autoregressive lags.
 
@@ -309,6 +436,20 @@ def recursive_autoregressive_forecast(
     ]
     preds: list[float] = []
 
+    # #559: resolve lags by hour rather than by position in `history`. Off by
+    # default and fail-open — without seed timestamps, a future frame that
+    # carries no `timestamp`, or a length mismatch, the positional path below
+    # runs unchanged and byte-identical.
+    from config import feature_enabled
+
+    temporal_history: dict[pd.Timestamp, float] | None = None
+    step_stamps: list[pd.Timestamp] | None = None
+    if feature_enabled("temporal_ar_seed"):
+        temporal_history = _temporal_seed_history(seed_demand, seed_timestamps)
+        step_stamps = _future_step_timestamps(future_df)
+        if temporal_history is None or step_stamps is None:
+            temporal_history, step_stamps = None, None
+
     # Per-step row construction, tuned 2026-08-05. `predict_xgboost` is 49.4%
     # of the scoring job's forecast phase (888.8s of 1,636.3s,
     # `scoring_phase_rollup`), and ~41% of THIS loop is pandas, not the model:
@@ -337,7 +478,11 @@ def recursive_autoregressive_forecast(
     # Resolve the autoregressive columns once. Only the snapshot's VALUES move
     # between steps; its key set is fixed, so one probe call settles it.
     cols = list(future_df.columns)
-    ar_keys = [k for k in compute_autoregressive_snapshot(history) if k in cols]
+    if temporal_history is not None and step_stamps is not None:
+        _probe = compute_temporal_autoregressive_snapshot(temporal_history, step_stamps[0])
+    else:
+        _probe = compute_autoregressive_snapshot(history)
+    ar_keys = [k for k in _probe if k in cols]
     ar_positions: list[int] = []
     if ar_keys:
         # THE DTYPE TRAP, found by the differential test and not before it:
@@ -357,13 +502,18 @@ def recursive_autoregressive_forecast(
 
     for i in range(len(future_df)):
         row = future_df.iloc[[i]].copy()
-        snapshot = compute_autoregressive_snapshot(history)
+        if temporal_history is not None and step_stamps is not None:
+            snapshot = compute_temporal_autoregressive_snapshot(temporal_history, step_stamps[i])
+        else:
+            snapshot = compute_autoregressive_snapshot(history)
         if ar_positions:
             row.iloc[0, ar_positions] = [snapshot[k] for k in ar_keys]
         row = row.fillna(0)
         pred = float(predict_fn(model, row)[0])
         preds.append(pred)
         history.append(pred)
+        if temporal_history is not None and step_stamps is not None:
+            temporal_history[step_stamps[i]] = pred
     return np.asarray(preds, dtype=float)
 
 
@@ -372,6 +522,7 @@ def batched_recursive_autoregressive_forecast(
     seed_demand: list[float] | np.ndarray | pd.Series,
     future_frames: list[pd.DataFrame],
     predict_fn: Any,
+    seed_timestamps: Any = None,
 ) -> list[np.ndarray]:
     """``recursive_autoregressive_forecast`` for N frames that share a seed.
 
@@ -415,8 +566,27 @@ def batched_recursive_autoregressive_forecast(
     histories: list[list[float]] = [list(seed) for _ in range(n)]
     preds: list[list[float]] = [[] for _ in range(n)]
 
+    # #559, mirroring the single-frame helper. Each scenario keeps its own
+    # timestamp-keyed history for the same reason it keeps its own list: no
+    # scenario may see another's predictions. Fail-open to positional.
+    from config import feature_enabled
+
+    temporal_histories: list[dict[pd.Timestamp, float]] | None = None
+    step_stamps: list[pd.Timestamp] | None = None
+    if feature_enabled("temporal_ar_seed"):
+        base = _temporal_seed_history(seed_demand, seed_timestamps)
+        step_stamps = _future_step_timestamps(future_frames[0])
+        if base is not None and step_stamps is not None:
+            temporal_histories = [dict(base) for _ in range(n)]
+        else:
+            step_stamps = None
+
     cols = list(future_frames[0].columns)
-    ar_keys = [k for k in compute_autoregressive_snapshot(seed) if k in cols]
+    if temporal_histories is not None and step_stamps is not None:
+        _probe = compute_temporal_autoregressive_snapshot(temporal_histories[0], step_stamps[0])
+    else:
+        _probe = compute_autoregressive_snapshot(seed)
+    ar_keys = [k for k in _probe if k in cols]
 
     # Stack STEP-MAJOR: all N scenarios for step 0, then step 1, and so on. A
     # step's rows are then CONTIGUOUS, so each iteration is a cheap positional
@@ -444,7 +614,12 @@ def batched_recursive_autoregressive_forecast(
         step_rows = stacked.iloc[i * n : (i + 1) * n]
         if ar_positions:
             for j in range(n):
-                snapshot = compute_autoregressive_snapshot(histories[j])
+                if temporal_histories is not None and step_stamps is not None:
+                    snapshot = compute_temporal_autoregressive_snapshot(
+                        temporal_histories[j], step_stamps[i]
+                    )
+                else:
+                    snapshot = compute_autoregressive_snapshot(histories[j])
                 block[j] = [snapshot[k] for k in ar_keys]
             np.nan_to_num(block, copy=False, nan=0.0)
             step_rows = step_rows.copy()
@@ -457,6 +632,8 @@ def batched_recursive_autoregressive_forecast(
             value = float(out[j])
             preds[j].append(value)
             histories[j].append(value)
+            if temporal_histories is not None and step_stamps is not None:
+                temporal_histories[j][step_stamps[i]] = value
 
     return [np.asarray(p, dtype=float) for p in preds]
 

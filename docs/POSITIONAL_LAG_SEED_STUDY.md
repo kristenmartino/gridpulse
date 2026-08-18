@@ -140,8 +140,37 @@ The narrower change in PR #578 — teaching `_resolve_forecast_start`'s cap to a
 whether AR context can be seeded — fixes the origin stall without touching any
 feature value, and is orthogonal to this. It should land regardless.
 
+## 6. What shipped
+
+`temporal_ar_seed`, registered in `config.FEATURE_FLAGS`, **default off**.
+
+- `compute_temporal_autoregressive_snapshot` resolves each lag to `now - k
+  hours`, returning NaN when that hour is absent rather than reaching further.
+- Both recursion helpers take an optional `seed_timestamps` and use it only when
+  the flag is on. Fail-open at every seam: no timestamps, no `timestamp` column,
+  or a length mismatch all fall through to the positional path **byte-identical**
+  — pinned by `test_flag_off_ignores_seed_timestamps_entirely`.
+- The batched scenario-grid helper moves with the single-frame one, because
+  `test_scenario_grid_batching.py` pins them equal.
+
+Verified end-to-end: with the flag on, production's
+`recursive_autoregressive_forecast` reproduces this study's independently written
+treatment arm to **max abs diff 0.0000000000** on TIDC, and flag-off vs flag-on
+diverges 1.269% — consistent with §3. So the measurement and the implementation
+are the same thing.
+
+Default off is the honest setting for an inconclusive result. Turning it on is a
+decision that wants a shadow run, not this study.
+
 **Also worth fixing regardless of the above:**
 `test_training_features_match_inference_snapshot_row_by_row`
 (`tests/unit/test_feature_engineering.py:651`) compares the two AR
 implementations on a **gapless** fixture, where they agree by construction. It is
-the guard that should have caught this and cannot. Logged to `MISTAKES.md`.
+the guard that should have caught this and cannot. Logged to `MISTAKES.md`, and
+`tests/unit/test_temporal_ar_seed.py` now carries the gapped-fixture version —
+including a characterisation test that pins the defect itself, and one that
+demonstrates *why* a gapless fixture is blind to it.
+
+A note on that: the first draft of the gapped fixture put its hole **outside** the
+168-hour lookback, where positional and temporal agree — the same trap, one level
+up, and it took a failing assertion to notice.

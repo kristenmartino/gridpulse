@@ -89,7 +89,11 @@ def _holdout_metrics_xgboost(featured_df, region: str) -> dict | None:
         y_val = np.asarray(val_df["demand_mw"].values, dtype=float)
         # Recursive multi-step (the honest, production-matching score).
         forecast = recursive_autoregressive_forecast(
-            holdout_model, train_df["demand_mw"].tolist(), val_df, predict_xgboost
+            holdout_model,
+            train_df["demand_mw"].tolist(),
+            val_df,
+            predict_xgboost,
+            seed_timestamps=train_df.get("timestamp"),
         )[: len(val_df)]
         if not np.isfinite(forecast).all():
             return None
