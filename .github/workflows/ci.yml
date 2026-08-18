@@ -86,8 +86,36 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
-      - run: pip install -r requirements.txt
+
+      # Cache the BUILT venv, not the wheel downloads. `cache: pip` (which
+      # this replaces) only saved the download; the ~46s was unpacking
+      # scipy/xgboost/shap/prophet. Keyed on requirements.txt, so the install
+      # re-runs exactly when dependencies change and not otherwise.
+      - name: Cache virtualenv
+        id: venv-cache
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-py3.11-${{ hashFiles('requirements.txt') }}
+
+      - name: Install dependencies
+        if: steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --upgrade pip
+          .venv/bin/pip install -r requirements.txt
+
+      # Every later step calls pytest / diff-cover / coverage bare, so the
+      # venv has to lead PATH. The venv is created at a fixed workspace path,
+      # which is stable across runs, so its shebangs stay valid when restored.
+      - name: Activate venv
+        run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Confirm the toolchain came from the venv
+        run: |
+          echo "python: $(which python)"
+          echo "pytest: $(which pytest)"
+          python -c "import sys; assert '.venv' in sys.prefix, sys.prefix"
 
       # ONE instrumented run over the whole pyramid. This used to be four steps
       # — unit, integration, smoke, then the entire suite AGAIN for coverage —
