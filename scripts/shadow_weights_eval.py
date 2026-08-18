@@ -53,6 +53,7 @@ from models.shadow_eval import (  # noqa: E402
     MIN_DAYS_DEFAULT,
     arm_stats,
     coverage_rows,
+    filter_records,
     fleet_stats,
 )
 
@@ -75,6 +76,7 @@ def main() -> int:
     per_region: dict[str, dict] = {}
     all_records: list[dict] = []
     spans: list[float] = []
+    dropped_total = {"n_lead_dropped": 0, "n_low_actual_dropped": 0, "n_unknown_lead": 0}
     for region in sorted(REGION_COORDINATES):
         payload = _load(region)
         if not payload:
@@ -82,12 +84,22 @@ def main() -> int:
         records = [r for r in (payload.get("records") or []) if r.get("timestamp")]
         if not records:
             continue
+        # ONE gate, before either arm is scored, on the shared ``actual`` — so
+        # both arms keep identical hours and the comparison stays paired.
+        # Without this the fleet bias is whatever LDWP's ~50 MW reporting
+        # artifacts say it is (see ``filter_records``).
+        records, filt = filter_records(records)
+        if not records:
+            continue
+        for k in dropped_total:
+            dropped_total[k] += filt[k]
         ts = sorted(datetime.fromisoformat(r["timestamp"]) for r in records)
         days = (ts[-1] - ts[0]).total_seconds() / 86400.0
         spans.append(days)
         per_region[region] = {
             "days": round(days, 2),
             "n": len(records),
+            "n_dropped": filt["n_in"] - filt["n_kept"],
             "served": arm_stats(records, "served"),
             "shadow": arm_stats(records, "shadow"),
             "shadow_arm": payload.get("shadow_arm"),
@@ -131,6 +143,21 @@ def main() -> int:
         "  arms are graded by the same code on the same hours, so the PAIRED\n"
         "  comparison holds — but a pooled average would not be one BA, one vote."
     )
+    # Never let the gate be silent: a filter nobody can see is how the
+    # unfiltered version of this statistic survived in the first place.
+    print(
+        f"\n  QUALITY GATE dropped {dropped_total['n_low_actual_dropped']} low-actual "
+        f"and {dropped_total['n_lead_dropped']} known-lead>1 records "
+        f"({dropped_total['n_unknown_lead']} unknown-lead kept). Same gate the drift\n"
+        "  path applies before it averages; the shadow path omitted it, which is\n"
+        "  what let LDWP's ~50 MW reporting artifacts set the fleet bias (#142)."
+    )
+    worst_dropped = sorted(
+        ((v.get("n_dropped", 0), r) for r, v in per_region.items()), reverse=True
+    )[:5]
+    if worst_dropped and worst_dropped[0][0] > 0:
+        shown = ", ".join(f"{r} {n}" for n, r in worst_dropped if n > 0)
+        print(f"  Most-filtered BAs: {shown}")
 
     # ── Control first. Not a formality: this is the check #451 failed. ──
     print()

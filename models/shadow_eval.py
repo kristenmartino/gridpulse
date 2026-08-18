@@ -17,11 +17,102 @@ from __future__ import annotations
 
 import numpy as np
 
+from models.drift import DriftRecord, filter_by_lead, filter_low_actuals
+
 #: #451's pre-registered thresholds, reused verbatim rather than re-chosen.
 #: Relaxing either makes this a different experiment; a test pins them.
 MAX_ABS_BIAS_PCT = 2.0
 MAX_MAPE_REGRESSION_PTS = 0.5
 MIN_DAYS_DEFAULT = 14
+
+
+def filter_records(records: list[dict]) -> tuple[list[dict], dict[str, int]]:
+    """Apply the drift path's quality gates before either arm is scored.
+
+    **This closes the defect that made the #478 evaluation unable to decide.**
+    ``compute_drift_payload`` runs every record through :func:`filter_by_lead`
+    then :func:`filter_low_actuals` before it averages anything
+    (``models/drift.py``). The shadow path reused the *grading* primitive
+    (``build_records_from_actuals``) and none of the *filtering* — so the two
+    paths graded identically and filtered differently, and only one of them was
+    protected from the artifacts the filters exist to remove.
+
+    Measured on production 2026-08-18, served arm, before → after this gate:
+    per-BA bias **+9.421% → +3.264%**, pooled **+3.656% → +2.412%** over 51 BAs.
+    Almost all of that is :func:`filter_by_lead` removing **415 records whose
+    known lead exceeded 1h** from a window whose whole name is "1-hour-ahead"
+    (production carried leads out to 63h). :func:`filter_low_actuals` dropped
+    only **2 records fleet-wide** — it is region-*relative*, so when a BA's
+    artifact hours are a large enough share of a short window they set the
+    median and no longer read as outliers against it.
+
+    **This gate does NOT clear the ±2% bound, and must not be described as
+    doing so.** Post-filter the control arm still breaches, dominated by a
+    single BA: **IID +86.49% over 126 clean lead-1 records**. That is not a
+    forecasting property — the drift path grades IID over the same window at a
+    *longer* 24h lead and reads **+1.65%**, on a feed whose actuals (339–960 MW)
+    and predictions (397–882 MW) are both sane. A shorter lead cannot be 52×
+    worse than a longer one, so the residual is a defect in how the shadow
+    record stream is written, tracked separately. Filtering is necessary here
+    and is not sufficient.
+
+    **Filtering is on the SHARED ``actual``, so both arms keep exactly the same
+    hours.** That is what makes it safe: a gate applied per-arm could keep
+    different hours for each and turn a weighting comparison into a coverage
+    comparison — the mislabelling class this experiment already refuses
+    elsewhere by skipping partial shadow arms rather than equal-weighting them.
+
+    **Call this once per region, not inside :func:`arm_stats`.** It is
+    deliberately not idempotent: :func:`filter_low_actuals` thresholds on the
+    median of what it is given, so filtering an already-filtered window raises
+    the threshold and drops more. One explicit call at the top of the
+    per-region flow is the only correct shape.
+
+    Returns ``(kept_records, counts)``.
+    """
+    empty = {
+        "n_in": 0,
+        "n_kept": 0,
+        "n_lead_dropped": 0,
+        "n_unknown_lead": 0,
+        "n_low_actual_dropped": 0,
+    }
+    if not records:
+        return [], empty
+
+    # Reuse the real filters rather than reimplementing their rules here. A
+    # second copy of "what counts as a usable hour" is how these two paths
+    # diverged in the first place.
+    stubs: list[DriftRecord] = []
+    origin: dict[int, dict] = {}
+    for r in records:
+        try:
+            actual = float(r.get("actual"))
+        except (TypeError, ValueError):
+            actual = float("nan")
+        lead = r.get("lead_hours")
+        stub = DriftRecord(
+            timestamp=str(r.get("timestamp") or ""),
+            # Neither filter reads ``predicted``; mirroring ``actual`` keeps the
+            # auto-derived sMAPE finite instead of seeding a NaN nobody reads.
+            predicted=actual,
+            actual=actual,
+            abs_pct_error=0.0,
+            lead_hours=int(lead) if isinstance(lead, (int, float)) else None,
+        )
+        stubs.append(stub)
+        origin[id(stub)] = r
+
+    lead_kept, n_lead_dropped, n_unknown_lead = filter_by_lead(stubs)
+    kept_stubs, n_low_actual_dropped = filter_low_actuals(lead_kept)
+    kept = [origin[id(s)] for s in kept_stubs]
+    return kept, {
+        "n_in": len(records),
+        "n_kept": len(kept),
+        "n_lead_dropped": n_lead_dropped,
+        "n_unknown_lead": n_unknown_lead,
+        "n_low_actual_dropped": n_low_actual_dropped,
+    }
 
 
 def arm_stats(records: list[dict], arm: str) -> dict[str, float] | None:

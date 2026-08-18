@@ -70,3 +70,4 @@ docker-compose.override.yml
 
 # Internal strategy note — explicitly not for publication
 docs/internal/MARKET_POSITION.md
+scratch/
