@@ -2,7 +2,21 @@
 
 _Drafted 2026-07-02. Author: agent, synthesizing user product notes + a 7-agent
 feasibility investigation (`docs/internal/CRITICAL_REVIEW_2026-07.md` P2-30/38/39/41/46
-lineage). Status: **proposal, not yet approved.** Nothing here has shipped._
+lineage)._
+
+> **Status, corrected 2026-08-12.** This header read "proposal, not yet
+> approved. Nothing here has shipped" until well after parts of it had
+> shipped. What is true now:
+>
+> | Section | State |
+> |---|---|
+> | §1a — delete the dead surface | **Shipped** — #513, #518, #524, #525, #526. ~3,184 lines, plus `data/ai_briefing.py`, `data/news_client.py` and the `anthropic` dependency |
+> | §1c — relocate the cross-tab helpers | **Shipped** — #533, #534. No tab module imports from `_callbacks_overview`; it is 956 lines, down from 2,953 |
+> | §3 — the honest decision briefing | **Not started, and not approved.** See the correction in §3c below before building it |
+>
+> §1b's hazard table is a 2026-07-02 audit and is left as written, with
+> per-row status notes. Everything else in this document is still a
+> proposal.
 
 ---
 
@@ -93,6 +107,19 @@ call them. They must be **moved** before the dead-code deletion, or live tabs br
 
 (`test_layout_no_legacy_ids` already guards that the old slots are gone, so it stays green.)
 
+> **Status note, 2026-08-12 — done, and the stated precondition was wrong.**
+> All six moved (#533, #534), plus `_read_ensemble_forecast_from_redis` to
+> `_callbacks_shared`, because the Overview hero chart and the Forecast
+> scenarios panel both read that payload and leaving it in Overview would
+> have replaced one cross-module import with the same import reversed.
+>
+> The claim above — *"They must be moved before the dead-code deletion, or
+> live tabs break"* — binds only when deleting the **module**. The delete
+> (§1a) removed functions one at a time, which left every import intact, so
+> the relocation was never on its critical path. Sequencing it first would
+> have put the largest, riskiest refactor ahead of the work that actually
+> removed the fabrications.
+
 ### 1d. Record the decision first
 `CRITICAL_REVIEW_2026-07.md:506` explicitly defers this to a "GP-P1-04 resurrection vs
 deletion" call **that does not exist yet**. No dead-Overview code should move until that
@@ -165,8 +192,35 @@ _Values illustrative. The MVP renders only `real_now` fields; `needs_sourcing` f
 "Phase 2" placeholder, never a guessed number._
 
 ### 3c. One so-what per persona — the thing that makes it a *briefing*, not a metrics wall
-`personas/config.py` already gives each persona a named **Primary Decision**. Route the
-**same Redis keys** to **four different top-lines**:
+Route the **same Redis keys** to **four different top-lines**:
+
+> **Correction, 2026-08-12 — this section rested on a field that does not exist.**
+> The original sentence here read: *"`personas/config.py` already gives each
+> persona a named **Primary Decision**."* It does not. The `Persona` dataclass
+> carries `id, name, title, avatar, default_tab, priority_tabs, kpi_metrics,
+> alert_threshold, welcome_title, welcome_message, color` — there is no
+> `primary_decision`. The four decisions in the table below exist only in this
+> table.
+>
+> That matters more here than it would elsewhere, because this document's own
+> thesis (§0) is that the most decision-shaped claims are the ones with no
+> honest source. The persona routing had the same defect one level up: it
+> named a source it did not have.
+>
+> Two ways to close it, and the choice belongs to whoever approves §3:
+>
+> 1. **Add the field.** `primary_decision: str` on `Persona`, with the four
+>    strings below as its values. Honest, explicit, and makes the table the
+>    spec for a code change rather than a description of one.
+> 2. **Derive it from `kpi_metrics`, which does exist.** Grid Ops already
+>    carries `peak_demand_mw / headroom_pct / active_alerts_count /
+>    ramp_rate_max`; Renewables carries `wind_capacity_factor /
+>    solar_capacity_factor / renewable_generation_pct / curtailment_mw`. The
+>    headline so-what can be composed from a persona's first available metric
+>    without inventing a new field.
+>
+> Option 2 is cheaper and needs no migration; option 1 says what it means.
+> Either is fine — asserting the field already exists is not.
 
 | Persona | Primary Decision | Headline so-what (same keys, different framing) |
 |---|---|---|
