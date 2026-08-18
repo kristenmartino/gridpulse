@@ -323,3 +323,68 @@ class TestIndependenceContract:
             "filter_low_actuals",
         }
         assert not (self._drift_imports() & forbidden)
+
+
+class TestTheCheckerScoresThePanelsPopulation:
+    """#542: the settled arm must be lead-filtered too, or A1 reports a
+    population mismatch as a divergence from reality.
+
+    The displayed ``rolling_mape_7d`` drops known leads above 1h (P2-19 /
+    #273). This checker did not. The mismatch was masked for as long as
+    ``regrade_records`` was blanking ``lead_hours`` — with nothing to filter,
+    the two populations agreed by accident. Measured on the 2026-08-18T07:06Z
+    production window: A1 fired on **1** of 204 (region, model) blocks before
+    the lead repair, **12** after it without this mirror, and **0** with it.
+    Every one of those 12 was a difference in which hours got scored.
+    """
+
+    def _lead_rec(self, hours_ago: int, predicted: float, actual: float, lead: int | None):
+        return DriftRecord(
+            timestamp=_ts(hours_ago),
+            predicted=predicted,
+            actual=actual,
+            abs_pct_error=abs(predicted - actual) / actual * 100.0,
+            lead_hours=lead,
+        )
+
+    def _window(self):
+        """30 clean lead-1 hours plus 10 badly-wrong lead-6 hours.
+
+        Both arms see identical settled demand, so any divergence the checker
+        reports here is manufactured by the filter mismatch alone.
+        """
+        clean = [self._lead_rec(h, 8080.0, 8000.0, 1) for h in range(1, 31)]
+        dirty = [self._lead_rec(h, 12000.0, 8000.0, 6) for h in range(31, 41)]
+        settled = {_ts(h): 8000.0 for h in range(1, 41)}
+        return clean + dirty, settled
+
+    def test_known_contaminating_leads_are_excluded(self):
+        records, settled = self._window()
+        mape, _, n = recompute_settled_mape(records, settled, now=NOW)
+
+        assert n == 30, "the ten lead-6 hours must not be scored"
+        assert mape == pytest.approx(1.0, abs=0.01), "clean hours are 1% off"
+
+    def test_unfiltered_would_report_a_false_divergence(self):
+        """The behaviour being fixed, pinned as the contrast.
+
+        With the lead filter off the checker scores the contaminated hours, its
+        settled figure jumps ~13 pts, and A1 fires against a panel that is
+        perfectly correct about the hours it actually claims to cover.
+        """
+        records, settled = self._window()
+        displayed = 1.0  # what the (lead-filtered) panel shows
+
+        strict, _, _ = recompute_settled_mape(records, settled, now=NOW)
+        loose, _, _ = recompute_settled_mape(records, settled, now=NOW, max_lead=None)
+
+        assert abs(displayed - strict) <= 2.0, "no finding — the panel is right"
+        assert abs(displayed - loose) > 2.0, "...but the unfiltered arm would fire"
+
+    def test_unknown_leads_are_kept_matching_the_producer(self):
+        """Diverging on the unknown-lead policy recreates the mismatch the
+        other way round. ``filter_by_lead`` keeps them; so does this."""
+        records = [self._lead_rec(h, 8080.0, 8000.0, None) for h in range(1, 31)]
+        settled = {_ts(h): 8000.0 for h in range(1, 31)}
+        _, _, n = recompute_settled_mape(records, settled, now=NOW)
+        assert n == 30

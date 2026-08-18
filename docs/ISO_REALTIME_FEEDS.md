@@ -61,7 +61,16 @@ not a clean curve.
 **At a 24h operating horizon the forecast barely uses recent demand** — it is
 driven by weather and calendar. That is coherent: the autoregressive signal
 decays long before the target hour. It is also why production's hourly
-re-anchoring already delivers ~1.5% live 1h drift.
+re-anchoring already delivers low live 1h drift: **median 2.08% sMAPE, ensemble,
+7-day window, across 51 BAs** (2026-08-18T07:06Z).
+
+*The unqualified "~1.5%" that stood here was stale and carried no metric,
+window or statistic — the format `docs/BENCHMARK_METHODOLOGY.md` §8 rules out.
+Re-measured during the #542 lead-filter work, which moved this median by
+**+0.010 pts** (2.077 → 2.087); the gap to 1.5% predates that change and is
+not caused by it. The **mean** over the same population is 3.63%, dragged by a
+handful of small or broken-feed BAs — one fleet number needs its statistic
+named.*
 
 ## What ISO feeds do offer — verified, not asserted
 
