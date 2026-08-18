@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/nudge-check-past-mistakes-plan.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/nudge-check-past-mistakes-plan.sh",
             "timeout": 10
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/nudge-check-past-mistakes-stop.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/nudge-check-past-mistakes-stop.sh",
             "timeout": 10
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash .claude/hooks/nudge-audit-mistakes-log.sh",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/nudge-audit-mistakes-log.sh",
             "timeout": 10
           }
         ]
