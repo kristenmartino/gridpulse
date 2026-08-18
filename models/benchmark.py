@@ -289,6 +289,30 @@ def _absent_hour_bias_pct(vintage_records: list[Any]) -> float | None:
     *possible* — distinct from unmeasurable), no covered hours, or too few
     absent hours for the mean to be stable. Non-finite and non-positive ``D``
     are dropped from **both** sides, so one bad row cannot move it.
+
+    ## It is confounded wherever the absence is BLOCKED — which here is always
+
+    The statistic compares two sets of hours as though they were drawn from the
+    same period. That holds when absences are scattered through the window. It
+    does not hold for a contiguous outage, where the difference also carries
+    whatever load happened to do during those particular days.
+
+    Measured on the live payload 2026-08-18: **WALC −19.88%** over 49 absent
+    hours, which sit in two contiguous ~48h blocks, and **AVA −17.41%** over 24
+    hours in one block. A 48h block spans two full diurnal cycles, so neither is
+    an off-peak artifact — those days were milder, and the BA's choice of hours
+    had nothing to do with it.
+
+    ``MIN_ABSENT_HOURS_FOR_BIAS`` does not address this. It was fitted to drop
+    3–4-hour cases, and the confound is a property of the absence's **shape**,
+    not its size. Since no BA in this fleet is diffusely absent (#549), every
+    value this function returns today carries it to some degree.
+
+    So read it as *"were the dark hours different?"* — never as *"does this BA
+    withhold its forecast on hard hours?"* Those coincide only for scattered
+    absence. **Separating them is a precondition for promoting this to a gate,**
+    on top of finding a disqualifying magnitude: a blocked-absence BA could be
+    excluded for a cold snap it did not choose.
     """
     covered = [
         float(r.last_d)
