@@ -303,6 +303,35 @@ twice during this session and both times was caught only because someone was
 looking. Modelled on `deploy-divergence.yml`, which already answers the
 "needs a live API call" objection.
 
+**2026-08-18 — 554 is BUILT, and it found a second drift on its first run.**
+`scripts/check_monitoring_divergence.py` runs hourly as a step in
+`deploy-divergence.yml` and compares every applied policy's
+`documentation.content`, `enabled`, `validity` and `notificationChannels`
+against the committed files, resolving policy → file through the README's
+applied table. Granted `roles/monitoring.viewer` to `github-actions-deploy@`
+(read-only, weaker than the `run.admin` it held).
+
+**The drift it found was 14 days old and nobody knew.**
+`scoring_runtime_creep` was serving the pre-#389 runbook — 1153 characters,
+three generic steps — while the repo has carried the 3555-character rewrite
+since 2026-08-04 (`61b5686`). The applied copy was last mutated **2026-07-08**
+and never again. So the console's runbook for the runtime-creep alert omitted
+the entire partial-degradation triage: the "exceptions high but
+`eia_max_retries_exceeded` at zero ⇒ the breaker cannot trip, runtime will keep
+climbing" branch, which is the incident class that killed two scoring ticks on
+2026-08-04. Patched to the committed text and verified by read; the check now
+exits 0 across all 11 policies.
+
+**What this corrects in the reasoning above, not just in the config.** The
+README argued this was *deliberately not built* because "drift has not been
+observed here", with revisit triggers about console edits, a second person
+getting access, or a wrong id reaching `main`. Drift had already been observed
+twice, and **no listed trigger could have fired for either** — both kept the
+correct id the whole time, which is exactly why the guard test stayed green.
+The triggers were written about identity; the failure was about content and
+state. A "revisit if" list is only as good as its guess about how the next
+failure will look.
+
 **Open question, split out:**
 [#549](https://github.com/kristenmartino/gridpulse/issues/549) — the gate
 cannot tell chronic sparsity from episodic blackout and publishes the first

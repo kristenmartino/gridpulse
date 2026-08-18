@@ -43,7 +43,7 @@ concurrency:
 
 jobs:
   check:
-    name: Is production running main's tip?
+    name: Is production running what the repo declares?
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +69,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python3 scripts/check_deploy_divergence.py
 
-      # Exit codes are the alert: 0 converged or in flight, 1 diverged,
+      # Same question one layer down: not "is the right image running" but "is
+      # the right alerting config applied". Applying a policy, or a
+      # documentation edit to one, is a manual gcloud step outside CI, so the
+      # repo and the console drift whenever somebody merges and forgets to
+      # apply. Landing the JSON is not landing the alert (#267); landing the
+      # edit is not landing the runbook (#553).
+      #
+      # It rides here rather than in its own workflow because the expensive
+      # parts — WIF auth, the Cloud SDK, an hourly schedule — are already set
+      # up, and it adds one `gcloud monitoring policies list` call. Needs
+      # roles/monitoring.viewer on the deploy SA, weaker than the run.admin it
+      # already holds.
+      #
+      # `always()` matters: without it a diverged DEPLOY (exit 1) would skip
+      # this step, so the two failures could never be seen in the same run —
+      # and the monitoring half would go quiet exactly when things are already
+      # going wrong.
+      - name: Check applied monitoring policies against the repo
+        if: always()
+        run: python3 scripts/check_monitoring_divergence.py
+
+      # Exit codes are the alert, and both scripts use the same three: 0
+      # converged (or, for the deploy check, plausibly in flight), 1 diverged,
       # 2 the check could not reach a verdict. 2 is deliberately non-zero — a
       # check that cannot run is not protecting anything, and treating it as a
       # pass is how an alert goes quiet exactly when it should fire.
