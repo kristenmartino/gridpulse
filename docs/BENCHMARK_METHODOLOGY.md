@@ -122,6 +122,14 @@ BAs with sloppy data operations, which plausibly also forecast sloppily — so
 the excluded set is disproportionately made of BAs where GridPulse would
 likely win. The rule removes our best cases, not our worst.
 
+**The broken-feed row must not be read as disposing of the self-reference
+(#539).** It excludes the BAs where the anchor substitution is *deliberate* and
+standing — ADR-009, live-classifier-driven, `broken` class only. It does not
+establish that the scored set is free of the dependence, and it is not true
+that it is: on scored BAs the anchor can still be seeded by `DF`, through a
+second and undesigned path. That path, its measured size and why it is not
+removed are **limit 11** (§12).
+
 **Current standing is not stated here, deliberately (#535).** This paragraph
 read "44 of 51 BAs scoreable" for three weeks while the live payload served
 **25** — a prose sentence cannot track a number recomputed every hour, and
@@ -223,9 +231,11 @@ asserted to agree with it. See
 
 ## 7. Lead time
 
-**Ours is measured, not labelled.** The forecast anchors on the last *real*
-demand hour, so EIA's publishing lag makes a nominal "24h" record slightly
-shorter than 24 hours in wall-clock terms. The phase computes the realized
+**Ours is measured, not labelled.** The forecast anchors on the last hour for
+which EIA reports a positive `D` — which is not always a metered value, and
+that distinction is limit 11 (§12), not a detail — so EIA's publishing lag
+makes a nominal "24h" record slightly shorter than 24 hours in wall-clock
+terms. The phase computes the realized
 lead every tick from the forecast payload — row 0 + H versus `scored_at`,
 the same target hour the drift pipeline snapshots and the benchmark later
 grades — and the payload carries it as `observed_lead_h` with `lead_basis:
@@ -353,6 +363,13 @@ number per BA is not a supportable format.
   publishes to EIA. It need not be the forecast they dispatch on, and several
   operate more sophisticated internal models; a large error in `DF` is
   evidence about the published series, nothing more.
+- **Not an input-independent comparison on every hour.** Where EIA has not
+  metered an hour yet it republishes the BA's day-ahead value in the `D`
+  field, and our forecast anchors on the last positive `D` — so on those
+  hours the seed of our own recursion is the series we are scored against.
+  It correlates our error with the operator's rather than shrinking it, it is
+  measured and published per BA, and it is not removed because removing it
+  forecasts worse (§12, limit 11).
 - **Not horizon-complete.** Two leads (nominal 24h and 48h), not the whole
   curve.
 - **Not lead-matched.** The headline arm compares our ~23.9h forecast against
@@ -431,6 +448,56 @@ number per BA is not a supportable format.
    entry (12.0), which `mape_grade` never uses as a boundary; the applicable
    figure ships as `acceptable_max` so the page cannot overstate how bad a
    flagged row must be.
+11. **The anchor can be seeded by the operator's own forecast, on BAs this
+   page scores (#539).** For an hour EIA has not metered yet it publishes the
+   BA's day-ahead value in the `D` field — `D == DF`, exactly — and
+   `_resolve_forecast_start` selects the anchor as the last hour carrying a
+   *positive* `D`, not the last *metered* one. That value becomes
+   `demand_lag_1h` and its autoregressive siblings, and carries through every
+   recursive step of the horizon. On those hours our forecast is seeded with
+   the series it is then scored against.
+
+   **The protection that exists is one-sided.** §4 drops the placeholder hour
+   from *scoring* (`first_seen_placeholder`), which stops the operator being
+   credited with a perfect prediction on an hour it never predicted. Nothing
+   drops the hour that *seeded* a forecast. The hour we score and the hour
+   that anchored it are different hours, and only the first is protected.
+
+   **Size, measured 2026-08-18 over the live 30-day vintage window** — share
+   of hours whose first sighting was a placeholder:
+
+   | MISO | CAISO | NEVP | SCEG | ERCOT | fleet median |
+   |---:|---:|---:|---:|---:|---:|
+   | **36.6%** | **26.6%** | 18.5% | 12.2% | 11.0% | 3.3% |
+
+   A dated snapshot, not a standing figure (§5's rule). The live per-BA number
+   ships on every row as `placeholder_pct`, and as `stub_pct` in
+   [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md) — it was already
+   published in both places before this limit was written; what was missing
+   was any statement of what it means. Note MISO carries the fleet's highest
+   rate and is at present excluded for an unrelated reason
+   (`insufficient-paired-hours`), so read the payload rather than this table
+   for who is scored today.
+
+   **The direction is not in our favour, which is why this is disclosed rather
+   than corrected.** Seeding our anchor with the operator's forecast makes our
+   error *correlated* with theirs; it does not make ours smaller.
+
+   **It is not removed, because removing it is measurably worse.** On a
+   persistence proxy over 14 days, anchoring on the placeholder scores 6.55%
+   mean error against **7.72%** when the hour is skipped, winning 9 of 12 BAs
+   (`data/vintage.py`) — a decent forecast *for the hour you want* beats a
+   real measurement two hours stale, because demand ramps. Refusing to anchor
+   would trade a disclosable dependence for a worse forecast, and the
+   alternative was measured before it was rejected.
+
+   **What this number is not.** `placeholder_pct` is the share of *hours in
+   the window* whose first sighting was a placeholder. Each hour is the newest
+   hour for roughly one tick, so it estimates how often a forecast run
+   anchored on a placeholder — it does not measure it. The direct measurement
+   needs the anchor hour recorded per forecast, which is not instrumented;
+   until it is, scored hours cannot be split by anchor provenance and the
+   materiality of this limit is stated as unmeasured rather than as small.
 
 ## 13. Reproducing it
 
@@ -467,6 +534,24 @@ justification than one that gets stricter. The point of writing the rules
 down first is that we do not get to discover them after seeing the result.
 
 ### Change log
+
+**2026-08-18 — the anchor's placeholder dependence is disclosed ([#539]).**
+*Direction: moves our own number by exactly nothing.*
+
+No drop rule, exclusion, metric, window or lead definition changed, and no
+score was recomputed. This is a **labelling** of a fact the payload was
+already publishing: the per-BA rate has shipped as `placeholder_pct` (and as
+`stub_pct` in the snapshot) all along, with nothing anywhere saying what it
+meant for our own input. Because no rule changed, §14's item 2 does not apply
+and neither generated artifact was regenerated for this — their numbers are
+unchanged in value, and now have a stated meaning.
+
+Two prose defects were corrected in the same pass, both ours. §7 said the
+forecast anchors on the last *real* demand hour when the selector admits
+placeholders. §5's broken-feed row, by giving the ADR-009 self-reference as a
+*reason for exclusion*, implied the scored set was free of it. Direction on
+both: **against us** — each replaces an implied claim of independence with a
+stated dependence.
 
 **2026-08-18 — `df_coverage` measures the BA, not our collector ([#535]).**
 *Direction: it grows the scoreable population by 21 BAs, which is the direction
@@ -545,4 +630,5 @@ the served baseline, would have improved SEC's published number while
 destroying what the arm measures.
 
 [#348]: https://github.com/kristenmartino/gridpulse/issues/348
+[#539]: https://github.com/kristenmartino/gridpulse/issues/539
 [eia930]: https://www.eia.gov/survey/form/eia_930/instructions.pdf

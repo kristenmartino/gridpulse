@@ -69,6 +69,68 @@ is direct: 0 frozen ticks → 166 of 168.
 half, a scoring-path question). Backfill of the six >1 pt BAs runs post-deploy.
 
 ---
+---
+
+**2026-08-18 — [#539](https://github.com/kristenmartino/gridpulse/issues/539)
+DISCLOSED: the benchmark's independence held on the feature side and leaked on
+the anchor side.**
+
+`forecast_mw` is genuinely not a model feature, and ADR-009 substitution is
+genuinely scoped to `broken`. But `_resolve_forecast_start` anchors on the last
+hour carrying a *positive* `D`, and for hours EIA has not metered yet EIA
+publishes the BA's day-ahead value in that field — so on those hours the seed
+of our recursion is the series we score against. `pair_hours` drops the hour
+from **scoring** and nothing drops the hour that **seeded** the forecast. The
+methodology answered this exact objection for broken feeds and was silent about
+it for the scored set, which is what made the silence read as a claim.
+
+**Verified independently before acting.** Recomputed for all 51 BAs from the
+GCS vintage mirror's raw columns, not by calling `scoreability()`: MISO 36.58%,
+CAISO 26.56%, NEVP 18.50%, SCEG 12.24%, ERCOT 10.99%, fleet median 3.34% —
+matching the live payload to the decimal. Two things that pass established
+beyond agreement: the post-#535 `df_at` guard is **load-bearing** (SCEG reads
+31.7% on raw `D == DF` equality and 12.24% with it), and the flag is not an
+artefact of exact equality — flagged hours later revise on 97.9-100% of
+records against 1.3-5.7% for non-placeholder hours on CAISO/PJM/NYISO.
+
+**It is a disclosure, not a bias with a sign**, and it must not be "fixed" by
+refusing to anchor: measured at 6.55% against 7.72% mean error, 9 of 12 BAs.
+
+**Cheaper than it looked.** The per-BA rate was *already published twice* —
+`placeholder_pct` on every payload row, `stub_pct` in the scoreability snapshot
+— under two opaque names with nothing saying what either meant. No new field,
+so the #535 export-parity guard is not in play. Shipped: methodology §5/§7/§11
++ limit 11 + change log, one `_BENCHMARK_NOTES` entry making the existing
+one-sided note symmetric, and two guard tests. Two live prose defects fixed in
+the same pass: §7 said the forecast anchors on the last *real* demand hour when
+the selector admits placeholders, and §5's broken-feed row implied the
+exclusion had disposed of the self-reference on the scored set.
+
+**DF-as-feature — NOT pre-registered, and the reason is not caution.** Earlier
+handoffs ranked it P3 "blocked on #535". It is unblocked and the reframing makes
+it **less** defensible: the official arm *is* `forecast_mw`, so a DF-fed model
+scored against DF is circular and the benchmark cannot arbitrate it; the
+direction argument that makes the anchor disclosable inverts for a feature
+chosen *because* it imports their skill; and it would overturn a defect already
+recorded under fire (`scripts/error_analysis.py:190-196` — DF leaked in via
+merge suffixes, became the top feature, was logged as leaking the arm we
+measure against into the arm being measured). It **is** runnable offline, and
+that is the trap: `make_day_ahead_safe` strips `demand_lag_1h` and the 6-7 day
+archive lag removes placeholders, so the harness measures cleanly precisely
+because it lacks the production path in question — the ADR-010 failure mode.
+
+**Open question / blocked on:** the materiality of limit 11 is **unmeasured**,
+not small. Splitting scored hours by anchor provenance needs the anchor hour
+recorded per forecast, which is not instrumented; `DriftRecord` and
+`PairedHour` carry none, and
+[#542](https://github.com/kristenmartino/gridpulse/issues/542) left
+`lead_hours` null on ~79% of records. **Partly unblocked the same day** — #542
+is fixed, so records carry a lead again, and the erased history was
+reconstructed for the 7-day window at 100% from 31 days of `drift_updated` log
+lines (`docs/DRIFT_LEAD_REGRADE.md`). The "cannot be reconstructed" half of
+this blocker no longer holds; the anchor *hour* itself is still uninstrumented,
+which is the part that remains. Filed as a follow-up; the doc states the limit
+as unmeasured rather than as small.
 
 **2026-08-18 — [#535](https://github.com/kristenmartino/gridpulse/issues/535)
 ANSWERED and fixed: the `df-coverage` exclusion was measuring our own
