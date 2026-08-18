@@ -1011,6 +1011,57 @@ removed, `/wp-admin` returns 200 again.
 
 **Lesson to convey**: *A bug with no error signal is usually a default doing exactly what it promised, in a context nobody re-read it in. And when you find yourself about to hand-maintain a copy of something the system already knows — a route table, a schema, a list of valid states — that is the signal to go ask the system instead. The allowlist I didn't write would have been correct on the day I wrote it and wrong within a quarter.*
 
+### 26. "Tell me about a time the experiment couldn't be trusted — and neither could the fix you were sure of."
+
+**One question, three harnesses built to answer it, and each one defeated by a different failure in its own instrument. The BA that looked broken was the yardstick, not the forecast.**
+
+Situation: An A/B on ensemble weighting was decided on its headline metric —
+the treatment won, robustly — but blocked on a constraint: the **control** arm
+over-forecast by ~6% against a ±2% bound. A harness whose control fails a
+constraint cannot certify the treatment against it, so it shipped nothing.
+The successor measured both arms on live production forecasts instead of a
+replay. It also could not decide: control read **+9.4% per-BA**, with a handful
+of balancing authorities reporting biases of +84% and +328%.
+
+Task: Find out whether the fleet really over-forecasts, or whether we were
+measuring wrong again — without touching the ±2% bound, and without excluding
+the BAs whose numbers looked bad. Dropping a BA after seeing its number is
+inventing your acceptance criterion from the answer, which is the exact sin
+the earlier experiment had been called out for.
+
+Action: I found that the evaluation path reused the drift pipeline's *grading*
+function but none of its *filters*, and shipped that fix — measured, tested,
+documented. It moved control from +9.42% to +3.26%. **I had also written into
+the docstring that this closed the defect, and the production numbers came back
+and said it didn't.** The filter I'd built the whole story around dropped **two
+records fleet-wide**: it thresholds relative to a region's own median, so when a
+BA's bad hours are a large share of a short window they *become* the median and
+stop looking like outliers. The real improvement came from a different filter
+than the one I'd argued for. I corrected the docstring before it merged.
+
+That left one BA, IID, at +86% — and my justification for calling it corrupt
+was that a 1-hour-ahead forecast can't be 52× worse than a 24-hour-ahead one.
+True, but I'd compared against the wrong control: two different lead times.
+The right comparison was the 1-hour drift path, same lead, same hours. It read
+**+2.8%**. So I stopped reasoning about mechanisms and diffed the raw records
+row by row. The predictions were **byte-identical** on every BA. The actuals
+were not: they differed on **123 of 139 hours for IID** and **3 of 142 for
+PJM**. IID's stored actual was frozen at **339 MW on every single row** while
+EIA had settled those same hours at 545–867.
+
+Result: EIA revises. The drift path re-grades its window every tick and
+converges on settled values; the shadow path recorded the *preliminary* value
+once and never looked again — 15–70% wrong for high-revision BAs, by the
+codebase's own measurement. Three primitives in that pipeline, and the new path
+had reused one. Control went to **+0.74% per-BA / +0.59% pooled**, inside the
+bound for the first time, with no BA excluded and no threshold moved. The check
+I trust more than either number: one BA now reads +8.92% against the
+independent path's +8.96%. The diff also surfaced a separate latent bug — the
+re-grade silently erases each record's lead metadata, leaving **79% of drift
+records** bypassing a filter built specifically to exclude them.
+
+**Lesson to convey**: *Three experiments, three instrument failures — imputed weather in the replay, stale actuals in the shadow, blanked leads in the drift. The bound everyone kept arguing about was never the problem. When a result is impossible, the instrument is the first suspect and your own last fix is the second: I shipped a correct fix with an incorrect explanation, and only the measurement caught it. And once you have two systems that should agree, stop theorising and diff them — `pred_differs=0` ended a debate that three hypotheses and a day of reasoning had not.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
