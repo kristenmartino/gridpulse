@@ -253,10 +253,15 @@ cost.
 **Alternatives considered.** (1) Keep `k=1` — rejected, dominated on 49/51 BAs.
 (2) Winner-take-all (best-model-per-BA) — rejected: forgoes the decorrelation
 wins and generalizes worse across weeks (a model that wins one week can lose the
-next). (3) Serve XGBoost-only — simplest and competitive on the tail, but gives
-up the per-BA decorrelation gains; retained as a documented fallback if the
-ensemble ever regresses. `k=3` is the middle path that dominates plain
-inverse-MAPE at one-line, reversible cost.
+next). Corroborated by a later per-horizon champion-chasing measurement
+(2026-08-18): near-tie champion-vs-runner-up margins (0.2-0.3 WAPE pts) mean
+last window's winner does not predict this window's — evidence for this
+rejection's rationale, not a retest of winner-take-all itself, which remains
+untested as a fixed per-BA policy. Full write-up:
+`docs/PER_HORIZON_SELECTION_STUDY.md`. (3) Serve XGBoost-only — simplest and
+competitive on the tail, but gives up the per-BA decorrelation gains; retained
+as a documented fallback if the ensemble ever regresses. `k=3` is the middle
+path that dominates plain inverse-MAPE at one-line, reversible cost.
 
 ### ADR-008 detail — Forecast horizon beyond Open-Meteo coverage (2026-05-20)
 
