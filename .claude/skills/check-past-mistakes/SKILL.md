@@ -1,15 +1,20 @@
 ---
 name: check-past-mistakes
-description: Cross-check a just-approved plan or just-finished implementation against this repo's known mistake patterns before it ships. Fires automatically via hook after plan approval (ExitPlanMode) and after implementation work ends, but also invoke it manually mid-task any time something feels like it might repeat a past mistake. Reads only CLAUDE.md (already loaded, no extra cost) — never MISTAKES.md's full archive. If it catches something new, it deposits exactly one line to MISTAKES.md's Worklog and stops; it does not diagnose or propose fixes.
+description: Cross-check a just-approved plan or just-finished implementation against this repo's known mistake patterns before it ships. Fires automatically via hook after plan approval (ExitPlanMode); otherwise invoke it manually — before committing or opening a PR, and any time something feels like it might repeat a past mistake. Reads only CLAUDE.md (already loaded, no extra cost) — never MISTAKES.md's full archive. If it catches something new, it deposits exactly one line to MISTAKES.md's Worklog and stops; it does not diagnose or propose fixes.
 ---
 
 # Check past mistakes
 
-A cheap, repeatable pass that runs right after a plan is approved and right
-after implementation work is done, asking one question: **does this repeat
+A cheap, repeatable pass that runs right after a plan is approved, and again
+before work is committed or PR'd, asking one question: **does this repeat
 something CLAUDE.md already tells us not to?** It exists because knowing a
 rule and remembering to apply it under task pressure are different things —
 this skill is the forcing function for the second one.
+
+The one invariant that is fully mechanical — CLAUDE.md's close-keyword rules
+— is enforced by `.claude/hooks/guard-close-keywords.sh` at the moment a
+commit or PR command runs, so you do not need to re-check it by hand. This
+skill covers the judgment-shaped rules a regex cannot decide.
 
 ## What to check against
 
@@ -41,7 +46,7 @@ code is written:
 - Any other CLAUDE.md rule whose trigger condition ("when doing X...") the
   plan's own description matches.
 
-## When you're checking finished work (after implementation)
+## When you're checking finished work (before committing or opening a PR)
 
 Same list, but against the actual diff/commits instead of the plan text —
 a plan can say the right thing and the implementation can still miss it.
