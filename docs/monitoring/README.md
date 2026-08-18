@@ -21,7 +21,7 @@ billing.
 | `benchmark_scoreability_drop_alert.json` | **Job tier (2026-08-18, #535).** Log-based (`jsonPayload.event="benchmark_scoreability_drop"`) — fires when the public `/benchmark` scorecard scores fewer than `BENCHMARK_MIN_SCOREABLE` BAs. It published **25 of 51** for ~3 weeks with five of seven large ISOs missing from its fleet medians while the job succeeded and exited 0 — the headline changed the population it described and nothing said so. Counts the *failing* direction: a threshold-below on the existing `benchmark_fleet_written` count would go quiet exactly when the phase stopped emitting. |
 | `benchmark_coverage_at_risk_alert.json` | **Job tier (2026-08-18, #535).** Log-based (`jsonPayload.event="benchmark_coverage_at_risk"`) — the early warning: a still-scoreable BA's `df_coverage` entered the band **above** the 0.80 gate (`BENCHMARK_DF_COVERAGE_WARN`, 0.85). Warning at the gate would arrive too late, since a BA that has already fallen out is a page that is already wrong. **First real firing 2026-08-18T06:18Z: TEC at 80.1%**, a tenth of a point above the gate, and verified upstream — EIA published 576 DF hours over the payload's 719-hour window and we recorded 576, so the gap was TEC's rather than ours ([#549](https://github.com/kristenmartino/gridpulse/issues/549) is what its exclusion text would then get wrong). The band was originally argued from CAISO 82.9% / PJM 81.0% — those were the **broken pre-fix** readings and now measure 100.0% / 99.7%. Lower urgency than the drop alert — a lead, not an incident. |
 | `web_service_5xx_alert.json` | **Web tier (#253).** Fires when the `gridpulse` service returns sustained 5xx (`run.googleapis.com/request_count{response_code_class="5xx"}` summed > 25 / 5 min). The request-path equivalent of the job-failure alert. |
-| `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when the service sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. |
+| `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when a **single revision** sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. Per-revision and mean-aligned since 2026-08-18; the original aggregation counted rollout overlap (below). |
 | `web_service_uptime_alert.json` | **Web tier (#253).** Fires when the public `/health` uptime check fails from >1 probe location over 10 min (service down or shallow-degraded). Filter is check-id-specific — see the note in the file. |
 
 Both web-tier policies apply the same way as the job policies (see "Apply /
@@ -43,6 +43,43 @@ and is covered by `cloud_run_job_failure_alert` and `scoring_partial_failure`.
 design rationale rather than something an on-call reader acts on, and moving it
 here is what brought that runbook back under the 4000-character documentation
 cap — see the section on that cap below.)
+
+### The max-instances aggregation counted rollovers, not instances (2026-08-18)
+
+`web_service_max_instances_alert.json` fired at 11:54Z claiming the service was
+pinned at its 4-instance ceiling. It was not. Traffic was flat at **0.07 req/s**
+all day and no revision exceeded **2** instances. What had changed was deploy
+cadence: 20 merges to `main` in three hours produced **19 revisions**, one every
+~5 minutes ([#581](https://github.com/kristenmartino/gridpulse/issues/581)).
+
+The condition summed `ALIGN_MAX` across two dimensions its `groupByFields` did
+not preserve — the `state` metric label **and** `revision_name`. Per-series
+alignment runs *before* the cross-series reduction, so a single instance that
+was active early in a 5-minute window and idle later contributed 1 to each
+series' max, and every draining revision added its own on top.
+
+**The tell was in the number itself.** The policy documented its statistic as
+"the 4-instance ceiling", and the statistic reached **7**. A value that exceeds
+the ceiling it claims to measure is not a severe reading of the right thing; it
+is the wrong thing. Nothing else about the firing distinguished it from a real
+flood, which is why the old runbook's second step — grep the logs for one IP —
+sent the reader somewhere there was nothing to find.
+
+Two changes, both load-bearing:
+
+* **`ALIGN_MEAN`**, because `instance_count` is a GAUGE. Sum-of-means equals
+  mean-of-sums, so the active/idle double count disappears. The cost is that a
+  one-minute burst to 4 no longer fires — correct for a policy whose stated
+  subject is *sustained* spend.
+* **`revision_name` in `groupByFields`**, because `--max-instances` is a
+  per-revision bound in Knative. This half is not optional: mean-aligned but
+  still summed across revisions peaks at **3.2** on the same window, which is
+  three consecutive points over the threshold and would have fired anyway.
+
+Re-measured over 09:00–12:00Z with the new aggregation, the per-revision peak is
+**2.0** — the alert would not have fired. The state label stays out of the
+grouping, which preserves the original design note's correct half: a ceiling can
+span active and idle, so both must be summed.
 
 ### Not a Cloud Monitoring policy: the deploy-divergence check
 

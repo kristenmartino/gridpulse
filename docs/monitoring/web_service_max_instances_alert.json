@@ -2,12 +2,12 @@
   "displayName": "GridPulse — web service pinned at max instances",
   "documentation": {
     "mimeType": "text/markdown",
-    "content": "The `gridpulse` Cloud Run **service** is sustained at its `max-instances` ceiling (4). On personal billing this is both the cost ceiling (~$456/mo pinned-at-max vs ~$114 idle) and the signal of a traffic flood against a `--allow-unauthenticated` surface (#253).\n\nFires on `run.googleapis.com/container/instance_count` for `service_name=\"gridpulse\"` **summed across the active/idle state split** (REDUCE_SUM — the metric is broken down by a `state` label, so a plain max would undercount a ceiling that spans states) at **> 3** (= the 4-instance ceiling; the Monitoring threshold API supports only GT/LT, and instance counts are integers so `> 3` is exactly `>= 4`) for 15 minutes.\n\n**Runbook:**\n1. Check the GCP **billing budget** alert (docs/monitoring/README → Web-tier cost guardrail) — is spend tracking a flood?\n2. `gcloud run services logs read gridpulse --region=us-east1 --limit=200` — look for one IP hammering `/_dash-update-component` or `/api/v1/*`. The per-IP rate limiter (#253) caps a single source; a distributed flood may still pin instances.\n3. Legitimate spike (e.g. shared link) → no action; it auto-scales down. Abuse → tighten `API_RATE_LIMIT_PER_MIN` / `DASH_RATE_LIMIT_PER_MIN` (env, no redeploy) or lower `max-instances`, or front with Cloud Armor. A legit shared-NAT customer (many operators, one office IP) collecting 429s → add their egress IP to `RATE_LIMIT_EXEMPT_IPS`.\n4. Nuclear cost stop: `gcloud run services update gridpulse --region=us-east1 --max-instances=1`."
+    "content": "A **single revision** of the `gridpulse` Cloud Run service is sustained at its `max-instances` ceiling (4). On personal billing this is both the cost ceiling (~$456/mo pinned-at-max vs ~$114 idle) and the signal of a traffic flood against a `--allow-unauthenticated` surface (#253).\n\nFires on `run.googleapis.com/container/instance_count` for `service_name=\"gridpulse\"`, aligned **ALIGN_MEAN** over 5 min and summed **per revision** — `groupByFields` keeps `revision_name`, while the active/idle `state` label is deliberately left out of the grouping so both states are summed (a ceiling can span them). Threshold `> 3` sustained 15 min: `--max-instances` is a **per-revision** bound in Knative, the Monitoring threshold API supports only GT/LT, and instance counts are integers, so `> 3` is exactly `>= 4`.\n\n**Read the aggregation before trusting a spike.** Until 2026-08-18 this policy used `ALIGN_MAX` summed across `state` *and* `revision_name`, and fired on ordinary deploy overlap. Per-series alignment runs before the cross-series sum, so one instance that went active-then-idle inside a window counted twice, and every draining revision added its own. On 2026-08-18 it reported **7** against a ceiling of 4, while no revision exceeded **2** and traffic was flat at 0.07 req/s. A reading above 4 was never a flood; it was a broken statistic. `ALIGN_MEAN` is also deliberate: a one-minute burst to 4 will not fire, because the condition being detected is *sustained* cost.\n\n**Runbook:**\n1. **Confirm it is traffic before anything else.** Read `run.googleapis.com/request_count` over the same window. A flat request rate alongside a high instance count means deploy churn, not load (#581). Cross-check `gcloud run revisions list --service=gridpulse --region=us-east1` — several revisions minutes apart is a rollout, and it resolves itself.\n2. Check the GCP **billing budget** alert (docs/monitoring/README → Web-tier cost guardrail) — is spend tracking a flood?\n3. `gcloud run services logs read gridpulse --region=us-east1 --limit=200` — look for one IP hammering `/_dash-update-component` or `/api/v1/*`. The per-IP rate limiter (#253) caps a single source; a distributed flood may still pin instances.\n4. Legitimate spike (e.g. shared link) → no action; it auto-scales down. Abuse → tighten `API_RATE_LIMIT_PER_MIN` / `DASH_RATE_LIMIT_PER_MIN` (env, no redeploy) or lower `max-instances`, or front with Cloud Armor. A legit shared-NAT customer (many operators, one office IP) collecting 429s → add their egress IP to `RATE_LIMIT_EXEMPT_IPS`.\n5. Nuclear cost stop: `gcloud run services update gridpulse --region=us-east1 --max-instances=1`."
   },
   "combiner": "OR",
   "conditions": [
     {
-      "displayName": "web service instance_count > 3 (= 4-instance ceiling), sustained 15 min",
+      "displayName": "web service instance_count > 3 per revision (= 4-instance ceiling), sustained 15 min",
       "conditionThreshold": {
         "filter": "resource.type = \"cloud_run_revision\" AND resource.labels.service_name = \"gridpulse\" AND metric.type = \"run.googleapis.com/container/instance_count\"",
         "comparison": "COMPARISON_GT",
@@ -17,9 +17,9 @@
         "aggregations": [
           {
             "alignmentPeriod": "300s",
-            "perSeriesAligner": "ALIGN_MAX",
+            "perSeriesAligner": "ALIGN_MEAN",
             "crossSeriesReducer": "REDUCE_SUM",
-            "groupByFields": ["resource.labels.service_name"]
+            "groupByFields": ["resource.labels.service_name", "resource.labels.revision_name"]
           }
         ]
       }
