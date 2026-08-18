@@ -28,7 +28,7 @@
 | components/tab\_us\_grid.py           |        9 |        0 |    100% |           |
 | data/\_\_init\_\_.py                  |        7 |        0 |    100% |           |
 | data/audit.py                         |       54 |        0 |    100% |           |
-| data/cache.py                         |      102 |        2 |     98% |  193, 205 |
+| data/cache.py                         |      102 |        2 |     98% |  198, 210 |
 | data/demo\_data.py                    |       89 |        0 |    100% |           |
 | data/eia\_client.py                   |      248 |        2 |     99% |  380, 382 |
 | data/explainability.py                |       44 |        3 |     93% |   204-206 |
