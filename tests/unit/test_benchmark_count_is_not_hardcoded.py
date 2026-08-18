@@ -29,13 +29,29 @@ import pytest
 _ROOT = Path(__file__).resolve().parents[2]
 
 #: Surfaces a reader can reach that discuss benchmark scoreability.
+#:
+#: `CANONICAL_FACTS.md` is on this list even though it has never carried the
+#: count, and it is the most important entry: CLAUDE.md's end-of-PR check sends
+#: a moved cited fact *there*, so it is the one file a well-intentioned reader
+#: is instructed to put this number in. The two rules pointed at each other
+#: with a hole in between until 2026-08-18. The count has no canonical file by
+#: design — its source is an API — so the correct entry there is no entry.
 _SURFACES = [
     Path("docs/BENCHMARK_METHODOLOGY.md"),
     Path("docs/BENCHMARK_SCOREABILITY.md"),
     Path("web/benchmark.html"),
     Path("README.md"),
     Path("PRD.md"),
+    Path("docs/CANONICAL_FACTS.md"),
+    Path("docs/HOW_IT_WORKS.md"),
+    Path("docs/INTERVIEW_PREP.md"),
 ]
+
+#: **`STATUS.md` is deliberately NOT here**, and adding it will fail. It
+#: carries "**25 of 51 scoreable**" as the #535 incident record — a ledger
+#: entry about what happened on a date, not a claim about what is true now.
+#: The distinction this file draws is between *asserting* a live count and
+#: *recording* a past one; a project log does the second by definition.
 
 #: A **bolded** "N of 51 ... scoreable/excluded" claim — the assertive form.
 #: Matched within a single line so a `**` ending one emphasis cannot pair with
