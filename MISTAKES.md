@@ -40,6 +40,7 @@ Audit, not here. `[category]` can be a best guess; the audit pass is what
 actually decides whether two entries share a root cause. Anyone may append;
 nothing here is authoritative until it's promoted to Analyzed.
 
+- 2026-08-18 [guard-coverage-gap] Shipped a guard test against stale published counts whose surface list omitted `docs/CANONICAL_FACTS.md` — the file CLAUDE.md's end-of-PR check routes a moved cited fact to, and so the likeliest place for one to be added. — ref: PR #538, fixed in #551
 - 2026-08-18 [explanation-before-measurement] Wrote the causal claim into a shipped docstring ("this closes the defect", naming `filter_low_actuals` as the mechanism) before running the production measurement that would test it; the measurement showed that filter dropped 2 records fleet-wide and a different one did the work. Caught and corrected pre-merge. — ref: PR #543 / #541
 The marker below is what stops the SessionStart nudge from nagging forever.
 `audit-mistakes-log` advances it to the run date **every** time it finishes,
