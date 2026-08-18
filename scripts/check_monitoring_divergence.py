@@ -360,17 +360,17 @@ def _remediation() -> str:
         "files do not carry:\n\n"
         "  POLICY=<id>\n"
         "  FILE=docs/monitoring/<policy>_alert.json\n"
-        "  curl -s -X PATCH -H \"Authorization: Bearer $(gcloud auth print-access-token)\" \\\n"
-        "    -H \"Content-Type: application/json\" \\\n"
+        '  curl -s -X PATCH -H "Authorization: Bearer $(gcloud auth print-access-token)" \\\n'
+        '    -H "Content-Type: application/json" \\\n'
         "    -d \"$(python3 -c 'import json,sys; "
-        "print(json.dumps({\"documentation\": json.load(open(sys.argv[1]))[\"documentation\"]}))' \"$FILE\")\" \\\n"
-        f"    \"https://monitoring.googleapis.com/v3/projects/{PROJECT}/alertPolicies/"
-        "$POLICY?updateMask=documentation\"\n\n"
+        'print(json.dumps({"documentation": json.load(open(sys.argv[1]))["documentation"]}))\' "$FILE")" \\\n'
+        f'    "https://monitoring.googleapis.com/v3/projects/{PROJECT}/alertPolicies/'
+        '$POLICY?updateMask=documentation"\n\n'
         "Then verify by re-running THIS check. Do not read the PATCH response as\n"
         "confirmation — it returns HTTP 200 on failure, which is the whole reason this\n"
         "script exists:\n\n"
         "  python3 scripts/check_monitoring_divergence.py\n\n"
-        "If the PATCH reports `validity code 13` (\"Recompilation of log match condition\n"
+        'If the PATCH reports `validity code 13` ("Recompilation of log match condition\n'
         "failed\"), check the runbook's length before believing it: over 4000 characters\n"
         "it is un-appliable, the error names the wrong cause, and the failed PATCH also\n"
         "sets enabled=false. A second PATCH under the cap clears both (#553).\n"
