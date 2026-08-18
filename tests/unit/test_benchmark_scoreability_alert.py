@@ -86,9 +86,7 @@ class TestTheEarlyWarning:
     def test_it_warns_above_the_gate_not_at_it(self):
         """The whole point. A BA that has already fallen out is a page that is
         already wrong — a warning at the gate would arrive too late to be one."""
-        at_risk = scoreability_alerts(
-            _rollup(46), [_payload("X", cov=0.83)], coverage_warn=0.85
-        )
+        at_risk = scoreability_alerts(_rollup(46), [_payload("X", cov=0.83)], coverage_warn=0.85)
         assert len(at_risk) == 1, "0.83 is above the 0.80 gate and must still warn"
 
     def test_already_excluded_bas_do_not_double_report(self):
