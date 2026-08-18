@@ -105,8 +105,16 @@ def patch_data_sources(monkeypatch, synthetic_region_frames):
     def _fetch_generation_by_fuel(region, **kwargs):
         return gen_df.copy()
 
+    def _fetch_interchange(region, **kwargs):
+        # jobs/phases.py:571 imports this inside the function, so patching the
+        # module attribute is what takes effect. It was the one EIA endpoint
+        # this fixture missed, and the net-flow phase called it for real on
+        # every test in the file.
+        return pd.DataFrame(columns=["timestamp", "from_ba", "to_ba", "interchange_mw"])
+
     monkeypatch.setattr(eia, "fetch_demand", _fetch_demand)
     monkeypatch.setattr(eia, "fetch_generation_by_fuel", _fetch_generation_by_fuel)
+    monkeypatch.setattr(eia, "fetch_interchange", _fetch_interchange)
     monkeypatch.setattr(weather, "fetch_weather", _fetch_weather)
 
     # Keep the alerts phase hermetic: the scoring job now fetches live

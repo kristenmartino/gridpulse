@@ -28,19 +28,27 @@ class TestRedisClientGracefulFallback:
         rc._redis_client = None
         rc._redis_last_attempt = 0.0
 
+        # Patch ``redis.Redis`` on the real module, NOT
+        # ``data.redis_client.redis``. ``_get_client`` does a function-local
+        # ``import redis``, which binds from ``sys.modules`` and ignores any
+        # attribute set on ``data.redis_client`` — so the old patch target
+        # never applied and this test made a real DNS lookup for the host
+        # literally named "nonexistent" (~4.5s, and asserting nothing).
         with (
             patch.dict(
                 "os.environ", {"REDIS_HOST": "nonexistent", "REDIS_PORT": "6379"}, clear=False
             ),
-            patch("data.redis_client.redis", create=True) as mock_redis_mod,
+            patch("redis.Redis") as mock_redis_cls,
         ):
             mock_client = MagicMock()
             mock_client.ping.side_effect = ConnectionError("Connection refused")
-            mock_redis_mod.Redis.return_value = mock_client
-            # Need to reimport to pick up the mock
+            mock_redis_cls.return_value = mock_client
             rc._redis_last_attempt = 0.0
             result = rc.redis_get("gridpulse:actuals:FPL")
             assert result is None
+            # The patch must actually be the thing that ran; without this the
+            # test passes just as well against a real failed connection.
+            mock_redis_cls.assert_called_once()
 
     def test_redis_available_returns_true(self):
         """redis_available() returns True when connected."""

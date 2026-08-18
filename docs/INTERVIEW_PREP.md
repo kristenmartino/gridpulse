@@ -1254,3 +1254,61 @@ Result: Re-measured over the same three hours with the corrected aggregation, th
 I also had a number wrong mid-investigation: I told my reviewer the churn was all docs-only merges. It was 13 of 20; seven carried code, including that day's production fix. Correcting it weakened the case for the change we were considering, which is exactly when a correction is worth making out loud.
 
 **Lesson to convey**: *An alert has two failure modes and only one of them is loud. It can miss, or it can fire on something other than what it names — and the second one costs more, because it spends the on-call reader's attention and trains them to distrust the next page. The cheapest check is whether the number is even in the range the alert's own description allows; ours was not, and had been that way since the day it was written. And when someone proposes the obvious efficiency, price what it costs to keep the detector honest, not just what it saves.*
+
+### 30. "Tell me about a time a performance problem turned out to be a correctness problem."
+
+**Situation**: CI took 8m45s on every PR, and because production deploys trigger
+on CI's completion, it sat in front of every ship as well as every review.
+
+**Task**: Make it faster. I started by measuring rather than guessing, which is
+what turned a performance ticket into a correctness one.
+
+**Action**: The job graph was serial — `lint` needed `security`, `test` needed
+both, `docker` needed `test` — so the critical path was the *sum* of four jobs
+instead of the max. That was worth ~2 minutes and it was the boring half.
+
+The interesting half came from one number. The full local suite ran 135s wall
+but only 52s of user CPU — **40% utilization**. A CPU-bound test suite does not
+do that; it was waiting on something. I also noticed the cost was not uniform:
+one test took 4.8s run alone, 13.6s after 220 tests, and 29.3s in the full
+3,875-test run. Cost that scales with *position in the run* means something is
+accumulating.
+
+Running a single test with output unsuppressed showed it: a live fetch of 4,308
+real records from `api.eia.gov`, and `429 Too Many Requests` from
+`archive-api.open-meteo.com`. The suite was making **79 live API calls per run**.
+The accumulation was the rate limiter warming up against us.
+
+That reframed the whole thing. Every client fetch path is cache-first — check
+cache, fetch, cache, return — so on a miss it falls through to the live API.
+Tests that believed they were asserting on a fixture were asserting on today's
+grid. One file's docstring literally said "All external I/O is faked" while its
+interchange endpoint went out to the internet on all 13 of its tests.
+
+Two mocks were also silently inert, and this is the part I found most
+instructive. One did `patch("data.redis_client.redis")`, but the code under test
+does a *function-local* `import redis`, which binds from `sys.modules` and
+ignores the module attribute — so the test made a real DNS lookup for a host
+named "nonexistent" and passed for the wrong reason. The other patched a module
+attribute used as a *default argument value*, which Python binds at
+function-definition time, so the patch could not take effect and 16 threads ran
+against the real repo-root `cache.db`.
+
+I blocked sockets outright in an autouse fixture rather than patching
+`requests`, so no client can route around it via urllib or a raw socket, then
+fixed each call site the guard exposed.
+
+**Result**: Suite went 135s → 85s single-process, and CPU utilization 40% → 78%
+— the remaining time is now our own code. With the network gone the suite was
+genuinely CPU-bound and parallelized cleanly: **31s** on 4 workers, stable
+across repeated runs, coverage gate unaffected at 91%. CI's critical path went
+from ~8m45s to roughly 3 minutes. The suite also stopped depending on
+third-party availability, which was the more valuable outcome — the old one
+could have gone red because Open-Meteo was having a bad afternoon.
+
+**Lesson to convey**: *"It's slow" and "it's wrong" are often the same finding
+seen from different angles. The tell was a ratio, not a stopwatch: 40% CPU on a
+suite that should be compute-bound, and per-test cost that grew with position in
+the run. Neither is visible in a total. And a mock that doesn't apply is worse
+than no mock, because it buys the confidence of isolation while quietly testing
+production — both of ours passed for years while measuring the wrong thing.*
