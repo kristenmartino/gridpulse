@@ -337,3 +337,27 @@ hourly tick re-blanks every lead it writes. The script is dry-run unless the
 GCS data artifact says otherwise, so the reviewed code is byte-identical
 between rehearsal and real run. The AFTER column above is the prediction the
 live payload is checked against once it lands.
+
+### Running the backfill
+
+The body is passed inline to `python -c`, because `scripts/` is in
+`.dockerignore` and is not in the job image. `--args` splits on commas, which
+the source contains, so use gcloud's custom-delimiter prefix:
+
+```bash
+cd <repo> && SRC=$(cat scripts/backfill_drift_leads.py) && gcloud run jobs execute gridpulse-scoring-job --region us-east1 --args="^%^-c%$SRC"
+```
+
+**The delimiter must be a character the source does not contain**, which is why
+the command lives here and not in the script's own docstring — documenting a
+delimiter inside the file being split puts that character into the file. Two job
+executions were burned learning this: first with a pipe (the docstring showed a
+pipe), then with a tilde (the docstring then showed a tilde). Both surfaced as
+`SyntaxError: unterminated triple-quoted string literal`, which reads like a
+broken script rather than a shredded argument. Check the split locally first:
+
+```bash
+python3 -c "import sys;src=open(sys.argv[1]).read();d=chr(37)*2;print(chr(10).join(['SPLIT OK'] if d not in src else ['DELIMITER PRESENT IN SOURCE']))" scripts/backfill_drift_leads.py
+```
+
+Dry-run is the default; the apply switch lives in the GCS artifact.

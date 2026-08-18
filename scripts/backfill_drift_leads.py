@@ -47,16 +47,19 @@ The other 45 BAs move by less than 0.1 pt and are left to heal on their own.
 ## Running it
 
 `scripts/` is in `.dockerignore` and is NOT in the job image, so `-m
-scripts.backfill_drift_leads` fails with ModuleNotFoundError. Pass the body
-inline instead, using gcloud's custom-delimiter form so the source may contain
-commas:
+scripts.backfill_drift_leads` fails with ModuleNotFoundError. The body is
+passed inline to `python -c` instead, reading this file into the argument so
+that what runs is what was reviewed.
 
-    SRC=$(cat scripts/backfill_drift_leads.py)
-    gcloud run jobs execute gridpulse-scoring-job --region us-east1 \
-      --args="^|^-c|$SRC"
+`gcloud run jobs execute --args` splits on commas, which the source contains,
+so the invocation uses gcloud's custom-delimiter prefix form. **The delimiter
+must be a character this file does not contain, and the exact command
+therefore lives in `docs/DRIFT_LEAD_REGRADE.md` section 7 rather than here:**
+writing it in this docstring puts the delimiter character into the very file
+being split, which shredded the source mid-docstring on the first two attempts
+and surfaced as an unterminated-string-literal SyntaxError. Verify the split
+locally before spending a job execution on it.
 
-Reading the file into the argument keeps what runs identical to what is
-reviewed here.
 """
 
 import json
