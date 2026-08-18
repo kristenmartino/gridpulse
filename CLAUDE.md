@@ -154,13 +154,24 @@ pass).
 
 **The real-time layer is separate from the audit layer.** The
 [`check-past-mistakes`](.claude/skills/check-past-mistakes/SKILL.md) skill
-runs *in*-session — hooked after plan approval and after implementation —
-and checks the current plan or diff against the invariants already in this
-file (already loaded, no extra read), so a known pattern gets caught before
-it ships rather than logged after. If it catches something new, it appends
-one Worklog line (never a full entry, never a re-read of the archive to
+runs *in*-session — hooked after plan approval, and run by hand before a
+commit or PR — and checks the plan or diff against the invariants already in
+this file (already loaded, no extra read), so a known pattern gets caught
+before it ships rather than logged after. If it catches something new, it
+adds one Worklog line (never a full entry, never a re-read of the archive to
 "check for similar entries" — that judgment call belongs to the audit pass)
 and moves on.
+
+**Where a rule is fully mechanical, a guard enforces it instead of a
+reminder.** The close-keyword invariants above are decidable by pattern, so
+`.claude/hooks/guard-close-keywords.sh` checks every `git commit` /
+`gh pr create|edit` for a close keyword next to an issue number and asks for
+confirmation — loudly when the keyword sits inside backticks, since GitHub
+fires those too. It asks rather than blocks: a live `Closes #N` is
+legitimate, and what the rule actually requires is that a human verified the
+number. This is the same principle as marking an entry `resolved — enforced
+by <X>`: prefer the guard, and keep prose for the judgment calls nothing
+mechanical can decide.
 
 ## Start here
 
