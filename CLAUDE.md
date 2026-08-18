@@ -16,6 +16,16 @@ STATUS.md in the same session. `docs/internal/NEXT_UP.md` is the
 historical roadmap with acceptance criteria, **not** the operational
 queue.
 
+**Re-derive the premise of any saved plan, existing branch, or earlier
+written decision before acting on it.** Each froze repo state when it was
+authored and carries no signal that it has moved, and the obvious check can
+reinforce the staleness — `git log branch..main` lists squash-merged commits
+as unmerged, and a branch stacked on a squash-merged PR stops being an
+ancestor of `main` the moment that PR lands. Check the claim against
+`origin/main` or the live service; if it no longer holds, stop and report
+rather than executing as written. Evidence: `MISTAKES.md` → "Three artifacts
+captured `main` at authoring time".
+
 ## End-of-PR explanatory-doc check
 
 For any non-trivial PR, before reporting "done":
@@ -368,15 +378,11 @@ components/
   error_handling.py       → Confidence badges, loading spinners, empty/error states
   accessibility.py        → Colorblind palette, ARIA helpers
   insights.py             → Persona-aware insight engine
-  tab_overview.py         → Overview / mission-control screen
-  tab_forecast.py         → Historical Demand tab (past actuals + EIA overlay)
-  tab_demand_outlook.py   → Demand Forecast tab (forward predictions + confidence bands)
-  tab_backtest.py         → Backtest tab (model evaluation on holdout)
-  tab_generation.py       → Generation & Net Load tab (fuel mix, renewable share)
-  tab_weather.py          → Weather-Energy Correlation tab
-  tab_models.py           → Model comparison & diagnostics
-  tab_alerts.py           → Extreme Events / alerts / stress indicators
-  tab_simulator.py        → Scenario Simulator tab
+  tab_overview.py         → Overview tab (mission-control linear stack)
+  tab_us_grid.py          → US Grid tab (small-multiples across the BA fleet)
+  tab_demand_outlook.py   → Forecast tab (forward predictions + confidence bands)
+  tab_alerts.py           → Risk tab (alerts, extreme events, stress indicators)
+  tab_models.py           → Models tab (comparison, validation, diagnostics)
 data/
   cache.py                → SQLite cache with TTL + stale fallback behavior where applicable
   eia_client.py           → EIA API v2: demand, generation, interchange
