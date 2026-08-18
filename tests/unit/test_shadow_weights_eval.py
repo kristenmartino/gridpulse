@@ -187,3 +187,85 @@ class TestQualityGate:
         kept, counts = sw.filter_records([])
         assert kept == []
         assert counts["n_in"] == 0
+
+
+class TestRegrade:
+    """#541's root cause: the shadow window froze PRELIMINARY actuals forever.
+
+    Measured 2026-08-18T05:07Z, both paths at lead 1 over the same window: the
+    predictions were byte-identical on every BA (`pred_differs=0`) and the actuals
+    diverged on 123 of 139 hours for IID (frozen at 339 MW while EIA settled to
+    545-867) against 3 of 142 for PJM. That is the whole of IID's +86.49% against
+    drift's +2.8% — the drift path re-grades its window every tick and the shadow
+    path never did.
+    """
+
+    def test_a_revised_actual_is_picked_up(self) -> None:
+        records = [_rec("2026-08-11T14:00:00+00:00", 339.0, 543.0, 540.0)]
+        regraded, stats = sw.regrade_records(records, {"2026-08-11T14:00:00+00:00": 545.0})
+        assert regraded[0]["actual"] == 545.0
+        assert stats["n_regraded"] == 1
+
+    def test_the_ldwp_iid_shape_collapses_the_bias(self) -> None:
+        """Not cosmetic: this is the difference between failing and passing ±2%."""
+        records = [
+            _rec(f"2026-08-11T{h:02d}:00:00+00:00", 339.0, 545.0, 545.0) for h in range(10, 20)
+        ]
+        settled = {f"2026-08-11T{h:02d}:00:00+00:00": 545.0 for h in range(10, 20)}
+
+        before = sw.arm_stats(records, "served")
+        assert before["bias_pct"] > 50.0  # frozen preliminary -> nonsense
+
+        regraded, _ = sw.regrade_records(records, settled)
+        after = sw.arm_stats(regraded, "served")
+        assert abs(after["bias_pct"]) < sw.MAX_ABS_BIAS_PCT
+
+    def test_hours_absent_from_actuals_are_skipped_not_zeroed(self) -> None:
+        """A #309 guard exclusion or fetch gap must keep the prior value.
+
+        Treating absence as agreement would silently bless the preliminary
+        number; treating it as zero would be worse still.
+        """
+        records = [_rec("2026-08-11T14:00:00+00:00", 339.0, 543.0, 540.0)]
+        regraded, stats = sw.regrade_records(records, {})
+        assert regraded[0]["actual"] == 339.0
+        assert stats["n_regraded"] == 0
+
+    def test_float_noise_does_not_churn_the_payload(self) -> None:
+        """Material difference is judged at 2dp, matching the serializer."""
+        records = [_rec("2026-08-11T14:00:00+00:00", 545.0, 545.0, 545.0)]
+        _, stats = sw.regrade_records(records, {"2026-08-11T14:00:00+00:00": 545.0001})
+        assert stats["n_regraded"] == 0
+
+    def test_it_is_idempotent_which_is_why_history_self_heals(self) -> None:
+        """Unlike ``filter_records``, re-running must be a no-op.
+
+        That property is what lets the corrupt stored window heal on the next
+        tick instead of needing a backfill.
+        """
+        records = [_rec("2026-08-11T14:00:00+00:00", 339.0, 543.0, 540.0)]
+        settled = {"2026-08-11T14:00:00+00:00": 545.0}
+        once, _ = sw.regrade_records(records, settled)
+        twice, stats = sw.regrade_records(once, settled)
+        assert twice == once
+        assert stats["n_regraded"] == 0
+
+    def test_lead_hours_and_both_arms_survive_regrading(self) -> None:
+        """Only the shared actual may move.
+
+        ``models.drift.regrade_records`` rebuilds a DriftRecord without
+        ``lead_hours``, so a re-graded drift record silently becomes
+        unknown-lead and bypasses ``filter_by_lead``. This path must not
+        inherit that, or the gate would leak leads back in as history heals.
+        """
+        records = [_rec("2026-08-11T14:00:00+00:00", 339.0, 543.0, 540.0, lead=1)]
+        regraded, _ = sw.regrade_records(records, {"2026-08-11T14:00:00+00:00": 545.0})
+        assert regraded[0]["lead_hours"] == 1
+        assert regraded[0]["served_predicted"] == 543.0
+        assert regraded[0]["shadow_predicted"] == 540.0
+
+    def test_both_arms_keep_one_shared_actual(self) -> None:
+        """One actual serves both arms, so re-grading cannot unpair them."""
+        records = [_rec("2026-08-11T14:00:00+00:00", 339.0, 543.0, 999.0)]
+        regraded, _ = sw.regrade_records(records, {"2026-08-11T14:00:00+00:00": 545.0})
+        assert sw.arm_stats(regraded, "served")["n"] == sw.arm_stats(regraded, "shadow")["n"]

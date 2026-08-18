@@ -1607,6 +1607,7 @@ def _write_shadow_weights(
     from data.redis_client import persist, redis_get, redis_key
     from models.drift import build_records_from_actuals
     from models.ensemble import ensemble_combine, resolve_ensemble_weights
+    from models.shadow_eval import regrade_records as regrade_shadow_records
 
     if len(predictions_by_model) < 2 or not served_weights:
         return False
@@ -1654,6 +1655,18 @@ def _write_shadow_weights(
                     for _, r in df.iterrows()
                     if np.isfinite(r["demand_mw"]) and float(r["demand_mw"]) > 0
                 }
+                # Settled-grade the stored window (#541), exactly as
+                # ``write_drift_metrics`` does for drift. Each record froze
+                # ``actual`` at the tick that created it — a PRELIMINARY EIA
+                # value, 15-70% wrong for high-revision BAs. Without this the
+                # window stays prediction-vs-preliminary forever, which is what
+                # made IID read +86.49% here against +2.8% from drift on the
+                # same forecasts, same hours, byte-identical predictions.
+                # Re-running is a no-op, so the corrupt history self-heals.
+                records, regrade_stats = regrade_shadow_records(records, actuals)
+                if regrade_stats.get("n_regraded"):
+                    log.info("shadow_weights_regraded", region=region, **regrade_stats)
+
                 graded = build_records_from_actuals(previous, actuals)
                 if graded:
                     entry: dict[str, Any] = {"lead_hours": None}

@@ -15,15 +15,89 @@ needs lives here and imports cleanly.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 
-from models.drift import DriftRecord, filter_by_lead, filter_low_actuals
+from models.drift import DriftRecord, _normalize_ts, filter_by_lead, filter_low_actuals
 
 #: #451's pre-registered thresholds, reused verbatim rather than re-chosen.
 #: Relaxing either makes this a different experiment; a test pins them.
 MAX_ABS_BIAS_PCT = 2.0
 MAX_MAPE_REGRESSION_PTS = 0.5
 MIN_DAYS_DEFAULT = 14
+
+
+def regrade_records(
+    records: list[dict],
+    actuals: dict[str, float],
+) -> tuple[list[dict], dict[str, Any]]:
+    """Re-grade stored shadow records against EIA's current view (#541).
+
+    **This is the root cause of #541.** A shadow record froze ``actual`` at the
+    tick that created it — a *preliminary* EIA value that
+    :func:`models.drift.regrade_records` describes as "for high-revision BAs
+    15-70% wrong and later revised". The drift path re-grades its window every
+    tick and so converges to prediction-vs-settled; the shadow path appended
+    once and never looked again, so its window is prediction-vs-preliminary
+    **forever**. Same forecasts, same hours, two different actuals.
+
+    Measured 2026-08-18T05:07Z, served arm, both paths at lead 1 over the same
+    window, after filtering: predictions were **byte-identical on every BA**
+    (``pred_differs=0``) and the actuals diverged on **123 of 139 hours for IID**
+    and **107 of 144 for SEC**, against **3 of 142 for PJM**. IID's frozen
+    actual sat at **339 MW on every row** while EIA's settled values for those
+    hours ran 545–867 MW — which is the whole of its +86.49% "bias" against a
+    drift-measured **+2.8%**. The BAs that looked broken are exactly the
+    high-revision ones; the healthy ones agreed to ~0.05 pts because their
+    actuals barely revise.
+
+    Semantics mirror the drift version deliberately:
+
+    * **Hours absent from ``actuals`` are skipped, never treated as
+      agreement** — a guard-excluded partial (#309) or a fetch gap must keep
+      the prior value rather than assert the preliminary one was right.
+    * "Materially different" is compared at 2dp, so float noise cannot churn
+      the payload every tick.
+    * ``lead_hours`` and both arms' predictions are carried through untouched.
+      Only the shared ``actual`` moves — which is what keeps the comparison
+      paired, since one actual serves both arms.
+
+    Unlike :func:`filter_records` this **is** safe to re-run: re-grading an
+    already-graded window against the same actuals is a no-op. That is what
+    makes the existing corrupt history self-healing — the next tick rebuilds
+    every stored record against settled values, with no backfill.
+
+    Returns ``(regraded, stats)``.
+    """
+    regraded: list[dict] = []
+    shifts: list[float] = []
+    for r in records:
+        ts = _normalize_ts(str(r.get("timestamp") or ""))
+        new_actual = actuals.get(ts)
+        try:
+            old_actual = float(r.get("actual"))
+        except (TypeError, ValueError):
+            old_actual = float("nan")
+        if (
+            new_actual is None
+            or not np.isfinite(new_actual)
+            or new_actual <= 0
+            or not np.isfinite(old_actual)
+            or round(float(new_actual), 2) == round(old_actual, 2)
+        ):
+            regraded.append(r)
+            continue
+        shifts.append(abs(float(new_actual) - old_actual) / float(new_actual) * 100.0)
+        updated = dict(r)
+        updated["actual"] = float(new_actual)
+        regraded.append(updated)
+
+    stats: dict[str, Any] = {"n_regraded": len(shifts)}
+    if shifts:
+        stats["mean_abs_shift_pct"] = round(float(np.mean(shifts)), 4)
+        stats["max_abs_shift_pct"] = round(float(np.max(shifts)), 4)
+    return regraded, stats
 
 
 def filter_records(records: list[dict]) -> tuple[list[dict], dict[str, int]]:
