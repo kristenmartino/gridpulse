@@ -277,6 +277,29 @@ class TestBenchmarkEndpoint:
         assert "serves_scored_model" in notes
 
     @patch("api.redis_get")
+    def test_notes_disclose_the_anchor_side_not_only_the_scoring_side(
+        self, mock_get, client
+    ) -> None:
+        """The placeholder note protected the truth side and stopped there (#539).
+
+        Dropping placeholder hours from scoring keeps the operator from being
+        credited with a perfect prediction. It says nothing about the *other*
+        end: our own anchor is the last hour with a positive ``D``, so where
+        that hour is a placeholder, the seed of our forecast is the series we
+        are scored against. Disclosing one half and not the other is what made
+        "an independent forecast" an overclaim, so the pair is asserted
+        together — a rewrite that drops the anchor sentence fails here.
+        """
+        mock_get.side_effect = _redis([_payload()], _FLEET)
+        notes = " ".join(client.get("/api/v1/benchmark").get_json()["notes"]).lower()
+        assert "anchor" in notes
+        assert "placeholder_pct" in notes
+        # The direction is the load-bearing claim: this correlates our error
+        # with theirs, it does not shrink ours. A note that named the
+        # dependence without its direction would read as a confession of bias.
+        assert "correlates" in notes
+
+    @patch("api.redis_get")
     def test_excluded_regions_publish_with_their_reason(self, mock_get, client) -> None:
         """An excluded BA that silently vanishes reads as a hidden loss."""
         mock_get.side_effect = _redis([_payload(), _excluded()], _FLEET)
