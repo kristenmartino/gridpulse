@@ -23,6 +23,12 @@ carrying a positive ``D``. So for a tick at wall-clock ``T``::
 Hours that never carried a positive ``D`` are absent from the vintage window and
 are already NaN in the mirror, so the same rule covers them.
 
+STATED LIMITATION: the reconstruction is faithful about an hour's VALUES and its
+TIMING, and says nothing about the SHAPE of the upstream response. An hour that
+had not arrived was either a null row or an absent row, EIA does both, and only
+the first deletes rows downstream. ``unarrived`` selects the model; run both and
+report the bracket. See docs/FORECAST_ORIGIN_REGRESSION.md §11.
+
 STATED APPROXIMATION: revision *timing* is not recoverable per hour (the record
 keeps ``n_updates``, not a history), so a value revised between ``T`` and now is
 reconstructed at its settled value rather than its as-of-``T`` value. That does
@@ -75,20 +81,49 @@ def _capture_times(region: str) -> pd.Series:
     ).dt.tz_localize("UTC")
 
 
-def frame_as_of(current: pd.DataFrame, captured: pd.Series, tick: pd.Timestamp) -> pd.DataFrame:
-    """The demand frame the scoring job held at ``tick``."""
+#: How to reconstruct an hour that had not arrived yet. EIA does BOTH, per hour,
+#: and nothing we retain records which — the vintage window stores first sight,
+#: not the shape of the response. The choice is not cosmetic: a null row deletes
+#: the rows 1, 2, 3, 24 and 168 positions after it via the positional AR lags,
+#: an absent row deletes nothing. Run both and report the bracket.
+#:
+#: ``null_row``    EIA reported the hour with no value.
+#: ``absent_row``  EIA did not report the hour at all.
+UNARRIVED_MODELS = ("null_row", "absent_row")
+
+
+def frame_as_of(
+    current: pd.DataFrame,
+    captured: pd.Series,
+    tick: pd.Timestamp,
+    *,
+    unarrived: str = "null_row",
+) -> pd.DataFrame:
+    """The demand frame the scoring job held at ``tick``.
+
+    ``unarrived`` picks the reconstruction model (see ``UNARRIVED_MODELS``).
+    Neither dominates — measured over 2026-08-11→18, the three control BAs read
+    487/487 under both, while LGEE 112→103, PSCO 144→130 and SPA 79→82. The
+    mechanism-1 result is model-independent (17 of 17 freeze ticks under both);
+    the disagreement counts are not. See docs/FORECAST_ORIGIN_REGRESSION.md §11.
+    """
+    if unarrived not in UNARRIVED_MODELS:
+        raise ValueError(f"unarrived must be one of {UNARRIVED_MODELS}, got {unarrived!r}")
+
     start = (tick - timedelta(days=_FETCH_WINDOW_DAYS)).floor("D")
     end = tick.floor("D") + timedelta(hours=23)
     df = current[(current["timestamp"] >= start) & (current["timestamp"] <= end)].copy()
 
-    # Hours not yet captured at this tick were NaN in the frame then. Compare on
-    # the capture's own HOUR, not its instant: ``captured_at`` is stamped a few
-    # minutes into the tick that first saw the hour (12:04:40 for the 12:00
-    # tick), so an instant comparison against the tick hour would exclude the
-    # very hour that tick captured — an off-by-one that silently cancels the
-    # producer/consumer tick offset below and manufactures agreement.
+    # Compare on the capture's own HOUR, not its instant: ``captured_at`` is
+    # stamped a few minutes into the tick that first saw the hour (12:04:40 for
+    # the 12:00 tick), so an instant comparison against the tick hour would
+    # exclude the very hour that tick captured — an off-by-one that silently
+    # cancels the producer/consumer tick offset below and manufactures agreement.
     unseen = captured.reindex(pd.DatetimeIndex(df["timestamp"]))
     not_yet = (unseen.dt.floor("h") > tick).fillna(False).to_numpy()
+
+    if unarrived == "absent_row":
+        return df.loc[~not_yet].reset_index(drop=True)
     df.loc[not_yet, "demand_mw"] = float("nan")
     return df.reset_index(drop=True)
 
@@ -125,7 +160,14 @@ def carried_origins(path: str) -> dict[tuple[str, pd.Timestamp], pd.Timestamp]:
     return out
 
 
-def run(regions: list[str], first: str, last: str, drift_csv: str) -> list[dict]:
+def run(
+    regions: list[str],
+    first: str,
+    last: str,
+    drift_csv: str,
+    *,
+    unarrived: str = "null_row",
+) -> list[dict]:
     carried = carried_origins(drift_csv)
     ticks = pd.date_range(pd.Timestamp(first), pd.Timestamp(last), freq="h", tz="UTC")
     rows: list[dict] = []
@@ -136,7 +178,7 @@ def run(regions: list[str], first: str, last: str, drift_csv: str) -> list[dict]
         log.info("replay_region_loaded", region=region, rows=len(current), vintage=len(captured))
 
         for tick in ticks:
-            frame = frame_as_of(current, captured, tick)
+            frame = frame_as_of(current, captured, tick, unarrived=unarrived)
             if frame["demand_mw"].notna().sum() < 200:
                 continue
             res = replay_tick(frame)
@@ -148,6 +190,7 @@ def run(regions: list[str], first: str, last: str, drift_csv: str) -> list[dict]
                 {
                     "region": region,
                     "tick": tick.isoformat(),
+                    "unarrived_model": unarrived,
                     "origin_computed": _iso(res["origin_computed"]),
                     "origin_carried_next_tick": _iso(got),
                     "agree": _iso(res["origin_computed"]) == _iso(got) if got is not None else None,
@@ -168,6 +211,7 @@ def _iso(ts) -> str | None:
 
 if __name__ == "__main__":
     regions = sys.argv[1].split(",")
-    rows = run(regions, sys.argv[2], sys.argv[3], sys.argv[4])
+    model = sys.argv[6] if len(sys.argv) > 6 else "null_row"
+    rows = run(regions, sys.argv[2], sys.argv[3], sys.argv[4], unarrived=model)
     with open(sys.argv[5], "w") as fh:
         json.dump(rows, fh)

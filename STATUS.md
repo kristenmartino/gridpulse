@@ -69,9 +69,27 @@ first post-deploy tick (10:00Z — PSCO's own signature hour) closed a residual:
 thing; the replay had misattributed it, because the vintage window records first
 sight and never absence, so the reconstructed frame lacked a hole production had.
 
-**Open:** SPA has 4 of 124 ticks carrying a *newer* origin than the replay
-computes. And the general lesson: the replay's `binding_term` is evidence only on
-ticks where it agrees with production.
+**SPA's 4 newer-origin ticks: resolved, and a harness artifact.** Those hours
+arrived 12-82h late against SPA's 1.16h median, and the replay NaN-filled them —
+but `job_data_fetched.demand_rows` froze for four ticks and then stepped
+`+1,+1,…,+2` (a new hour plus a three-day-late backfill arriving as a NEW ROW),
+so EIA had **omitted** them. Absent rows delete nothing; NaN rows delete five
+positions downstream. Production was right; the replay manufactured a hole.
+
+**The ambiguity that exposes is now bracketed rather than hidden.** An unarrived
+hour is either a null row or an absent row, EIA does **both** per hour, and
+nothing we retain records which. Re-run under both models: controls 487/487
+either way, SPA 79→82, but LGEE 112→103 and PSCO 144→130 — **neither model
+dominates**. The mechanism-1 result is model-independent (**17 of 17** freeze
+ticks under both, since LGEE's hole is hours never published), and the
+`matchable_hours` evidence behind mechanism 2 is production's own counter and
+does not move. The replay now takes an `unarrived` model so the bracket is
+reproducible.
+
+**Open:** nothing specific. The general lesson worth carrying: the replay
+reconstructs values and timing faithfully and the **shape** of the upstream
+response not at all — and `binding_term` from it is evidence only on ticks where
+it agrees with production.
 
 ---
 
