@@ -41,7 +41,7 @@
 | data/redis\_client.py                 |      101 |        0 |    100% |           |
 | data/session\_diff.py                 |      152 |        5 |     97% |98, 120, 125, 179-180 |
 | data/user\_prefs.py                   |      127 |       28 |     78% |94-100, 183, 188-192, 210, 237, 249-261, 263 |
-| data/vintage.py                       |      160 |        4 |     98% |123, 199, 302, 484 |
+| data/vintage.py                       |      166 |        6 |     96% |123, 199, 302, 364-365, 501 |
 | data/weather\_aggregate.py            |       44 |        3 |     93% |63, 78, 109 |
 | data/weather\_client.py               |      307 |       19 |     94% |120-121, 175-189, 301, 676-678 |
 | data/weather\_normals.py              |      120 |        7 |     94% |94, 130-132, 257, 259-260 |
@@ -67,7 +67,7 @@
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
-| **TOTAL**                             | **8461** |  **733** | **91%** |           |
+| **TOTAL**                             | **8467** |  **735** | **91%** |           |
 
 
 ## Setup coverage badge
