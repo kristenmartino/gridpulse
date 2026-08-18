@@ -272,6 +272,10 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     # forecast's 1-hour-ahead prediction against the now-known actuals.
     # Read failure → drift phase becomes a no-op for this tick.
     previous_forecast = timed("read_existing_forecast", phases.read_existing_forecast, region)
+    # #537: the forecast phase needs the origin currently being served so it can
+    # refuse to replace it with an older one. Read here rather than a second
+    # Redis round-trip — this payload is already the one about to be overwritten.
+    region_data.previous_forecast_origin = phases.forecast_payload_origin(previous_forecast)
 
     actuals_res = timed("actuals_weather", phases.write_actuals_and_weather, region_data)
     summary["phases"]["actuals_weather"] = {

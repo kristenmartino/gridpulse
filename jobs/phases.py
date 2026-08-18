@@ -179,6 +179,10 @@ class RegionData:
     #: diagnostics keep reading the real ``demand_df``; only the
     #: feature/forecast path prefers this frame. Never mutate ``demand_df``.
     conditioned_demand_df: pd.DataFrame | None = None
+    #: Origin (``forecasts[0]["timestamp"]``) of the payload currently in Redis,
+    #: set from ``read_existing_forecast`` before this tick overwrites it. The
+    #: forecast phase refuses to replace it with an OLDER one (#537).
+    previous_forecast_origin: pd.Timestamp | None = None
 
     @property
     def anchor_frame(self) -> pd.DataFrame:
@@ -884,6 +888,8 @@ def _overlay_weather_normal_tail(
 def _resolve_forecast_start(
     featured: pd.DataFrame,
     demand_df: pd.DataFrame,
+    *,
+    region: str | None = None,
 ) -> pd.Timestamp:
     """Pick the timestamp for hour 0 of the forecast.
 
@@ -917,8 +923,20 @@ def _resolve_forecast_start(
     """
     last_featured_ts = featured["timestamp"].max()
 
+    def _fallback(reason: str) -> pd.Timestamp:
+        start = last_featured_ts + pd.Timedelta(hours=1)
+        log.info(
+            "forecast_start_resolved",
+            region=region,
+            forecast_start=start.isoformat(),
+            last_real_demand=None,
+            last_featured_ts=last_featured_ts.isoformat(),
+            binding_term=reason,
+        )
+        return start
+
     if demand_df is None or demand_df.empty:
-        return last_featured_ts + pd.Timedelta(hours=1)
+        return _fallback("no_demand_frame")
 
     # Filter to real demand readings — must be non-NaN AND strictly
     # positive. A balancing authority cannot have zero load; any zero
@@ -926,7 +944,7 @@ def _resolve_forecast_start(
     mask = demand_df["demand_mw"].notna() & (demand_df["demand_mw"] > 0)
     real_demand = demand_df.loc[mask, "timestamp"]
     if real_demand.empty:
-        return last_featured_ts + pd.Timedelta(hours=1)
+        return _fallback("no_real_demand")
 
     last_real_demand = real_demand.max()
 
@@ -936,7 +954,25 @@ def _resolve_forecast_start(
     # feature-engineering drops rows for reasons unrelated to demand
     # NaN-ness) falls back to last_featured + 1h.
     anchor = min(last_real_demand, last_featured_ts)
-    return anchor + pd.Timedelta(hours=1)
+    start = anchor + pd.Timedelta(hours=1)
+
+    # #537: the resolved origin was previously observable ONLY by reconstructing
+    # it from the drift log a tick later (``new_record_ts - lead_hours + 1``),
+    # which is how two multi-day origin freezes went unnoticed. Emit the value
+    # AND both terms of the ``min()`` above, because which one binds is the
+    # difference between the two failure modes: ``featured`` binding means a
+    # NaN hole deleted rows from the tail of the feature frame (the lags are
+    # positional and ``dropna`` drops the rows that read them), while
+    # ``real_demand`` binding means the demand series itself ends there.
+    log.info(
+        "forecast_start_resolved",
+        region=region,
+        forecast_start=start.isoformat(),
+        last_real_demand=last_real_demand.isoformat(),
+        last_featured_ts=last_featured_ts.isoformat(),
+        binding_term="featured" if last_featured_ts < last_real_demand else "real_demand",
+    )
+    return start
 
 
 def _build_future_feature_frame(
@@ -1794,7 +1830,42 @@ def predict_and_write_forecast(
         # from the SAME frame the features anchored on, or substituted hours
         # land outside the Kalman gap window and get re-forecast.
         with substep("resolve_start"):
-            forecast_start = _resolve_forecast_start(featured, data.anchor_frame)
+            forecast_start = _resolve_forecast_start(featured, data.anchor_frame, region=region)
+
+        # #537: a forecast origin must never go BACKWARDS. It is recomputed from
+        # scratch every tick with no memory of the last one, so when EIA retracts
+        # hours it had already published — measured: 25 of LGEE's 26 regressed
+        # ticks carried fewer frame hours than the payload spanned — the anchor
+        # collapses to just before the retracted block and this tick would
+        # publish an origin OLDER than one already served. Downstream reads
+        # ``forecasts[0]`` as the current nowcast, so LGEE's 2026-08-14 regression
+        # relabelled 40-to-63-hour-ahead rows as one-hour-ahead for 24 ticks.
+        #
+        # Keep the payload already in Redis rather than overwriting it. It is
+        # strictly the more current of the two and still covers the horizon; the
+        # alternative — clamping the origin forward — would forecast from an hour
+        # whose antecedent demand the frame no longer holds. ``ok=True`` because
+        # a live, newer payload is not a failed region (the deadline-shed branch
+        # in ``scoring_job`` reasons the same way); the refusal is carried in
+        # ``details`` and on a WARNING line instead.
+        prior_origin = data.previous_forecast_origin
+        if prior_origin is not None and forecast_start < prior_origin:
+            log.warning(
+                "forecast_origin_regressed",
+                region=region,
+                resolved_start=forecast_start.isoformat(),
+                served_origin=prior_origin.isoformat(),
+                regression_hours=int((prior_origin - forecast_start).total_seconds() // 3600),
+            )
+            return PhaseResult(
+                region=region,
+                ok=True,
+                details={
+                    "skipped": "origin_regressed",
+                    "resolved_start": forecast_start.isoformat(),
+                    "served_origin": prior_origin.isoformat(),
+                },
+            )
 
         # Pass the raw weather DataFrame so the future-feature builder can
         # overlay actual Open-Meteo forecast values (next ~16 days) onto
@@ -2206,6 +2277,23 @@ def read_existing_forecast(region: str) -> dict[str, Any] | None:
         return None
     except Exception as exc:  # pragma: no cover — defensive
         log.warning("drift_previous_forecast_read_failed", region=region, error=str(exc))
+        return None
+
+
+def forecast_payload_origin(payload: dict[str, Any] | None) -> pd.Timestamp | None:
+    """Origin of a forecast payload — ``forecasts[0]["timestamp"]``, or None.
+
+    The same row ``models.drift._lead_hours`` measures lead against, so a lead
+    recovered from the drift log and this value are the same quantity (#537).
+    """
+    if not isinstance(payload, dict):
+        return None
+    rows = payload.get("forecasts") or []
+    if not rows:
+        return None
+    try:
+        return pd.Timestamp(rows[0].get("timestamp"))
+    except (AttributeError, TypeError, ValueError):
         return None
 
 

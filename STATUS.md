@@ -19,6 +19,54 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-18 — [#537](https://github.com/kristenmartino/gridpulse/issues/537)
+ROOT-CAUSED: the forecast origin has no memory, so it stalls when feature
+engineering loses its tail and walks BACKWARDS when EIA withdraws hours.**
+
+Two mechanisms, one line. `_resolve_forecast_start` returns
+`min(last_real_demand, last_featured_ts) + 1h`, recomputed from scratch every
+tick. **The stall:** AR lags are computed by *positional* shift, so LGEE's
+contiguous 16-hour demand hole (`08-12T14:00 → 08-13T05:00`) deletes exactly the
+16 rows 24 positions later via `demand_lag_24h`, freezing the origin at
+`08-13T14:00`. **The regression:** EIA published `08-13T10:00 → 08-14T04:00` as
+placeholders (`D == DF`, 19 hours) and then withdrew them, collapsing the anchor
+to `08-12T15:00` — **23 hours older than a vintage already served** — for 24
+ticks, at leads to 63h.
+
+**The replay proves one and cannot prove the other, so both were measured with
+different instruments.** `scripts/forecast_origin_replay.py` reruns the real
+primitives against the frame each tick actually held, reconstructed from
+`captured_at`: **487 of 487 exact on the three never-frozen control BAs**, and it
+reproduces every stalled tick (LGEE 28, PSCO 14) with `binding_term=featured`. It
+*cannot* reproduce a retraction — the vintage window is monotone by construction —
+so that half rests on production's own `matchable_hours`, which read **1 where an
+intact frame gives 16**. Fleet-wide: **25 of LGEE's 26 regressed ticks show a
+short frame, against 0 of 484 on the controls.** PSCO's variant is clock-aligned —
+six regressions at exactly 10:00 UTC on consecutive days, each exactly 3 hours.
+
+**Two errors in the harness cancelled each other and scored ~100% agreement on a
+frame that was an hour short throughout** — `captured_at` is stamped minutes into
+its own tick, and a drift record grades the *previous* tick's payload. Caught by
+the control-BA check, not by inspection.
+
+**Shipped:** the forecast phase refuses to overwrite a served payload with an
+older-origin one (`ok=True` — a live newer payload is not a failed region), and
+`forecast_start_resolved` now logs the origin plus both `min()` terms. Guard is
+strictly `<`, so a *stalled* origin still republishes. Forward-only: no published
+number moves at merge. **Evidence:**
+[`docs/FORECAST_ORIGIN_REGRESSION.md`](docs/FORECAST_ORIGIN_REGRESSION.md).
+
+**Deliberately NOT fixed:** the positional-lag defect that causes the stall.
+`data/feature_engineering.py` is shared with the training job, so the models were
+trained under the same convention — reindexing at serve alone is train/serve skew,
+and doing it properly is a 51-BA × 3-model retrain behind the ADR-010 gate. Filed
+separately; see [#186](https://github.com/kristenmartino/gridpulse/issues/186).
+
+**Open:** PSCO's 7 intact-frame regressions are characterised, not explained; SPA
+has 4 of 124 ticks carrying a *newer* origin than the replay computes.
+
+---
+
 **2026-08-18 — [#542](https://github.com/kristenmartino/gridpulse/issues/542)
 FIXED: re-grading erased each drift record's lead, and the counter that would
 have shown it had been published, unread, for weeks.**
