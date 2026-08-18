@@ -78,13 +78,34 @@ EIA's publishing lag ever grows.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import numpy as np
 
-#: Fraction of hours a BA must publish a day-ahead forecast for to be
-#: scoreable at all.
+#: Fraction of hours a BA publishes a day-ahead forecast for. **Published,
+#: never a gate** — see the "Coverage does not gate" section on
+#: :func:`scoreability`. Retained as the warning band's reference point
+#: (``BENCHMARK_DF_COVERAGE_WARN`` in ``config.py``) and as the figure the
+#: exclusion sentences quote.
 MIN_DF_COVERAGE = 0.80
+
+#: How stale a BA's most recent day-ahead forecast may be before we stop
+#: scoring it. This is the gate that replaced the coverage threshold (#549).
+#:
+#: Fitted to the fleet, not chosen: measured 2026-08-18 over the live 719-hour
+#: window, hours since each BA's newest published DF were **SPP 341**, TEC 30,
+#: and **every other BA <= 6**. 168h sits 11x above the live fleet's worst and
+#: 2x below the one dead feed, so neither side is near it. It is also the
+#: repo's existing week unit (``rolling_eval`` windows, the drift 7-day span).
+MAX_DF_STALENESS_HOURS = 168.0
+
+#: Below this many absent hours, ``absent_hours_bias_pct`` is noise and is
+#: reported as ``None`` rather than as a number a reader would trust. The same
+#: 2026-08-18 sweep: BAs missing 3-4 hours produced apparent load skews of
+#: -20% (PACE, NWMT, IPCO) purely from which few hours were missing, against
+#: +0.18% for SPP's 341 and +0.83% for TEC's 143.
+MIN_ABSENT_HOURS_FOR_BIAS = 20
 #: Minimum paired hours before a per-BA verdict is published. Sizing came
 #: from *officially scoreable* hours — the count after the vintage-side drops
 #: but BEFORE the ``no_gridpulse`` join, which is what
@@ -99,7 +120,11 @@ MIN_PAIRED_HOURS = 200
 UNSCOREABLE_CLASSES = frozenset({"broken"})
 
 EXCLUDE_BROKEN_FEED = "broken-feed"
+#: Retired as a gate by #549 and deliberately still defined: payloads written
+#: before that change carry it, and the page groups it as a fairness exclusion.
+#: Nothing emits it any more.
 EXCLUDE_DF_COVERAGE = "df-coverage"
+EXCLUDE_DF_FEED_STOPPED = "df-feed-stopped"
 EXCLUDE_INSUFFICIENT = "insufficient-paired-hours"
 
 #: Human-readable exclusion rationale, published verbatim on the benchmark
@@ -114,6 +139,11 @@ EXCLUSION_REASONS: dict[str, str] = {
     EXCLUDE_DF_COVERAGE: (
         f"The BA publishes a day-ahead forecast for under "
         f"{MIN_DF_COVERAGE:.0%} of hours — too sparse to score fairly."
+    ),
+    EXCLUDE_DF_FEED_STOPPED: (
+        "The BA has stopped publishing a day-ahead forecast, so the hours we "
+        "could score are confined to the part of the window before it stopped "
+        "and no longer describe the same period as every other row."
     ),
     EXCLUDE_INSUFFICIENT: (
         f"Fewer than {MIN_PAIRED_HOURS} comparable hours in the window "
@@ -208,6 +238,76 @@ def score_arm(pairs: list[PairedHour], arm: str) -> dict[str, float]:
 # ── scoreability + pairing ───────────────────────────────────
 
 
+def _hour(ts: Any) -> datetime | None:
+    """Parse a vintage timestamp, or None if it does not parse.
+
+    Never raises: a single unparseable row must not take down the gate. An
+    unparseable timestamp is simply not evidence of anything, so it is skipped
+    rather than defaulted — defaulting it would let one bad row decide whether
+    a BA is published.
+    """
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _df_staleness(vintage_records: list[Any]) -> tuple[float | None, str | None]:
+    """``(hours since the newest published DF, when that DF's hour was)``.
+
+    Measured against the newest record in the window rather than wall-clock, so
+    the function stays pure and a replay of an old window reports what that
+    window saw. ``(None, None)`` when the BA published nothing at all, which the
+    caller treats as maximally stale — a BA with no DF in the window has not
+    stopped publishing *recently*, it has published nothing.
+
+    Takes the max rather than the last element: the callers all pass sorted
+    records today, but a gate that silently depends on caller-side ordering is
+    one refactor away from reading a different number.
+    """
+    newest = max((t for r in vintage_records if (t := _hour(r.timestamp))), default=None)
+    newest_df = max(
+        (t for r in vintage_records if np.isfinite(r.first_seen_df) and (t := _hour(r.timestamp))),
+        default=None,
+    )
+    if newest is None or newest_df is None:
+        return None, None
+    return (newest - newest_df).total_seconds() / 3600.0, _normalize_ts(newest_df.isoformat())
+
+
+def _absent_hour_bias_pct(vintage_records: list[Any]) -> float | None:
+    """Do the hours a BA skipped carry different load than the hours it published?
+
+    ``(mean D on absent hours - mean D on covered hours) / mean D on covered``,
+    as a percentage. This is the hazard the old coverage gate was a proxy for —
+    a BA that goes quiet when the grid gets hard would be graded only on its
+    easy hours. Published, and it gates nothing: promoting it to a gate needs a
+    disqualifying magnitude, and the fleet has not yet produced one to calibrate
+    against (#549).
+
+    ``None`` when it cannot mean anything: no absent hours (no bias is
+    *possible* — distinct from unmeasurable), no covered hours, or too few
+    absent hours for the mean to be stable. Non-finite and non-positive ``D``
+    are dropped from **both** sides, so one bad row cannot move it.
+    """
+    covered = [
+        float(r.last_d)
+        for r in vintage_records
+        if np.isfinite(r.first_seen_df) and np.isfinite(r.last_d) and r.last_d > 0
+    ]
+    absent = [
+        float(r.last_d)
+        for r in vintage_records
+        if not np.isfinite(r.first_seen_df) and np.isfinite(r.last_d) and r.last_d > 0
+    ]
+    if not covered or len(absent) < MIN_ABSENT_HOURS_FOR_BIAS:
+        return None
+    mean_covered = float(np.mean(covered))
+    if mean_covered <= 0:
+        return None
+    return round((float(np.mean(absent)) - mean_covered) / mean_covered * 100.0, 2)
+
+
 def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict[str, Any]:
     """Can this BA be scored, and if not, exactly why?
 
@@ -235,6 +335,39 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
     ``data.vintage`` now gives the DF a second look, so ``df_coverage`` means
     what it says. The capture-quality half did not disappear — it moved to its
     own field, where a reader can see it and it decides nothing.
+
+    ## Coverage does not gate; feed liveness does (#549)
+
+    #535 fixed *what* the coverage number measured. It did not establish that a
+    publication **rate** is the right thing to exclude on, and it is not: a rate
+    cannot tell a BA that half-publishes from a BA that published completely and
+    then stopped, and the exclusion sentence it produced asserted the first
+    shape for both.
+
+    Measured across all 51 BAs on 2026-08-18, the distinction the rate was
+    assumed to be drawing does not exist in this fleet. **No BA is diffusely
+    sparse.** Every BA with any absence has 92-100% of its absent hours inside
+    runs of >=3h. SPP — the one BA the coverage gate ever correctly excluded,
+    and which this module previously described as genuinely not publishing — is
+    absent in **one contiguous 341-hour block**: its feed stopped at
+    ``2026-08-04T06Z`` and did not resume. TEC, at 80.1%, is absent in six
+    blocks and publishes 100% of hours on the days it publishes at all. Both
+    were confirmed against EIA directly, so neither is a capture artifact.
+
+    What actually separates them is **liveness**, and it separates them
+    cleanly: hours since the newest published DF were SPP 341, TEC 30, every
+    other BA <=6. So that is what gates.
+
+    The defect in scoring a stopped feed is not thinness — ``MIN_PAIRED_HOURS``
+    already owns sample size, and SPP's covered hours are unbiased (+0.18%).
+    It is that every hour we could score predates the stop, so the row
+    describes a different slice of the window than every other row, under a
+    header that says 30 days. That is #535's defect class — a headline
+    describing a population the reader does not expect — one level up.
+
+    ``df_coverage`` follows ``df_asissued_coverage`` into the published-but-
+    deciding-nothing set, joined by ``absent_hours_bias_pct``: the hazard the
+    rate was standing in for, now measured directly instead of assumed.
     """
     n = len(vintage_records)
     if n == 0:
@@ -246,6 +379,10 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
             "df_asissued_coverage": 0.0,
             "placeholder_pct": 0.0,
             "n_hours": 0,
+            "n_absent_hours": 0,
+            "df_stale_hours": None,
+            "df_last_published_at": None,
+            "absent_hours_bias_pct": None,
         }
 
     from data.vintage import FRESH_CAPTURE_LAG_HOURS, df_capture_lag_hours
@@ -261,11 +398,17 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
     placeholders = sum(1 for r in vintage_records if r.was_placeholder)
     coverage = has_df / n
 
+    stale_h, last_df_at = _df_staleness(vintage_records)
+
     reason: str | None = None
     if revision_class in UNSCOREABLE_CLASSES:
         reason = EXCLUDE_BROKEN_FEED
-    elif coverage < MIN_DF_COVERAGE:
-        reason = EXCLUDE_DF_COVERAGE
+    # A BA that published nothing at all in the window has `stale_h is None`,
+    # and is excluded here rather than falling through as though its feed were
+    # fresh — "no DF anywhere" is the strongest possible form of the condition
+    # this gate tests, not an absence of evidence about it.
+    elif stale_h is None or stale_h > MAX_DF_STALENESS_HOURS:
+        reason = EXCLUDE_DF_FEED_STOPPED
 
     return {
         "scoreable": reason is None,
@@ -273,32 +416,55 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
         # The measured figures, not just the rule. A reader who sees only
         # "under 80% of hours" cannot tell 79% from 39%, and those are
         # different facts about a BA.
-        "reason_detail": _reason_detail(reason, coverage, as_issued / n, n),
+        "reason_detail": _reason_detail(reason, coverage, as_issued / n, n, last_df_at),
         "df_coverage": round(coverage, 4),
         "df_asissued_coverage": round(as_issued / n, 4),
         "placeholder_pct": round(placeholders / n * 100, 2),
         "n_hours": n,
+        "n_absent_hours": n - has_df,
+        # The gate's own figure, published whether or not it fired, so a reader
+        # can see how far from it a scored BA sits instead of taking the
+        # verdict on trust.
+        "df_stale_hours": None if stale_h is None else round(stale_h, 1),
+        "df_last_published_at": last_df_at,
+        "absent_hours_bias_pct": _absent_hour_bias_pct(vintage_records),
     }
 
 
 def _reason_detail(
-    reason: str | None, coverage: float, as_issued_coverage: float, n_hours: int
+    reason: str | None,
+    coverage: float,
+    as_issued_coverage: float,
+    n_hours: int,
+    last_df_at: str | None = None,
 ) -> str | None:
     """The published exclusion rationale, carrying THIS BA's measured numbers.
 
-    ``EXCLUSION_REASONS`` states the rule; this states the case. The df-coverage
-    text also names the as-issued share, because #535 was precisely a reader —
-    us — unable to tell "the BA barely publishes" from "we barely captured it"
-    from the sentence that shipped.
+    ``EXCLUSION_REASONS`` states the rule; this states the case. Both DF-side
+    texts name the as-issued share, because #535 was precisely a reader — us —
+    unable to tell "the BA barely publishes" from "we barely captured it" from
+    the sentence that shipped.
+
+    The stopped-feed text names **the hour the feed stopped**, which is the
+    whole point of #549: the sentence that preceded it asserted a *shape*
+    ("too sparse") that had never been measured and was wrong for both BAs it
+    was ever applied to. A date is checkable against EIA in one query; a shape
+    adjective is not.
     """
     if reason is None:
         return None
     base = EXCLUSION_REASONS[reason]
-    if reason != EXCLUDE_DF_COVERAGE:
+    if reason != EXCLUDE_DF_FEED_STOPPED:
         return base
+    if last_df_at is None:
+        return (
+            f"{base} Over the {n_hours}-hour window EIA carried no day-ahead "
+            "forecast for this BA at all."
+        )
     return (
-        f"{base} Measured over {n_hours} hours: EIA published a day-ahead "
-        f"forecast for {coverage:.1%} of them, of which we captured "
+        f"{base} Its most recent day-ahead forecast covers {last_df_at}. "
+        f"Measured over {n_hours} hours: EIA published a day-ahead forecast "
+        f"for {coverage:.1%} of them, of which we captured "
         f"{as_issued_coverage:.1%} in time to score as-issued."
     )
 
@@ -786,6 +952,22 @@ def scoreability_alerts(
     ``df_asissued_coverage`` is deliberately NOT alerted on. It measures our
     capture, not the BA's publishing, and gating on it is the whole of #535.
     It rides along on the payload so an on-call reader can tell the two apart.
+
+    ## Since #549 this event watches a number that no longer gates
+
+    Coverage stopped deciding the population; ``MAX_DF_STALENESS_HOURS`` does.
+    ``benchmark_coverage_at_risk`` is kept because a BA's publishing rate
+    degrading is still worth a look, but it is now purely informational — its
+    original "by the time a BA falls out the page is already wrong" argument
+    belongs to a gate it no longer guards. ``df_stale_hours`` rides on the
+    entry so an on-call reader sees the distance to the **real** gate rather
+    than inferring it from a rate.
+
+    **Stated rather than left implicit: there is no early warning on the
+    staleness gate itself yet.** Adding one means a new log event and a new
+    GCP policy, which is a deploy-coupled change this PR does not carry. Until
+    then a feed that dies is caught by ``benchmark_scoreability_drop`` at the
+    fleet floor, which is later than it should be.
     """
     from config import BENCHMARK_DF_COVERAGE_WARN, BENCHMARK_MIN_SCOREABLE
 
@@ -822,7 +1004,10 @@ def scoreability_alerts(
                 "df_coverage": round(float(cov), 4),
                 "df_asissued_coverage": p.get("df_asissued_coverage"),
                 "warn_below": warn,
-                "gate": MIN_DF_COVERAGE,
+                # The real gate since #549, and the distance to it. `gate` used
+                # to be MIN_DF_COVERAGE, which no longer decides anything.
+                "df_stale_hours": p.get("df_stale_hours"),
+                "gate_stale_hours": MAX_DF_STALENESS_HOURS,
             }
         )
     return out

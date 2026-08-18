@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from models.benchmark import MIN_DF_COVERAGE, scoreability_alerts
+from models.benchmark import MAX_DF_STALENESS_HOURS, scoreability_alerts
 
 _ROOT = Path(__file__).resolve().parents[2]
 #: One policy per event. The Cloud Monitoring API rejects a policy carrying
@@ -91,7 +91,12 @@ class TestTheEarlyWarning:
             if a["event"] == "benchmark_coverage_at_risk"
         ]
         assert [a["region"] for a in at_risk] == ["TEC"]
-        assert all(a["gate"] == MIN_DF_COVERAGE for a in at_risk)
+        # `gate` was MIN_DF_COVERAGE until #549 retired coverage as the gate.
+        # The entry now carries the distance to the gate that actually decides
+        # the population, so an on-call reader is not sent to a threshold that
+        # excludes nobody.
+        assert all(a["gate_stale_hours"] == MAX_DF_STALENESS_HOURS for a in at_risk)
+        assert "gate" not in at_risk[0], "a retired threshold must not be republished"
         # Both coverages ride along: the on-call reader tells "the BA stopped
         # publishing" from "our capture regressed" by comparing them, and for
         # TEC the answer was the first — verified against EIA, 576 of 719.

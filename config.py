@@ -1138,21 +1138,29 @@ SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
 # leaving the population — at different distances from the cliff.
 #
 # `BENCHMARK_MIN_SCOREABLE` is the floor on the fleet count. The structural
-# exclusions are 4 broken feeds plus SPP (genuinely 53.8% upstream, measured
-# 2026-08-17), so 46 of 51 is the real ceiling; 40 means six MORE BAs have
-# gone, which is a regression rather than churn. The #535 event (25) clears
-# this bar by a mile.
+# exclusions are 4 broken feeds plus SPP, so 46 of 51 is the real ceiling; 40
+# means six MORE BAs have gone, which is a regression rather than churn. The
+# #535 event (25) clears this bar by a mile.
 #
-# `BENCHMARK_DF_COVERAGE_WARN` is the early warning, above MIN_DF_COVERAGE
-# rather than at it: a BA that has already fallen out is a page that is
-# already wrong.
+# `BENCHMARK_DF_COVERAGE_WARN` was the early warning ahead of the coverage
+# gate. Since #549 coverage does not gate — `MAX_DF_STALENESS_HOURS` (168h
+# since the BA's newest published DF) does — so this band no longer sits ahead
+# of anything. It is kept as an informational signal that a BA's publishing is
+# degrading, and there is deliberately NO early warning on the staleness gate
+# yet: that needs a new log event and a new GCP policy.
 #
-# It earned that on its first real firing, 2026-08-18T06:18Z — hours after the
-# #535 deploy — naming TEC at 80.1%, one tenth of a point above the gate, with
-# `df_asissued_coverage` at 49.0%. Verified against EIA over the payload's own
-# 719-hour window: EIA published DF for 576 hours and we recorded 576, so the
-# asymmetry was upstream and the exclusion would have been correct. TEC's DF
-# had stopped dead at 2026-08-17T04Z while its metered D kept flowing.
+# Its one real firing, 2026-08-18T06:18Z — hours after the #535 deploy — named
+# TEC at 80.1%, a tenth of a point above the then-gate, `df_asissued_coverage`
+# 49.0%, its DF stopped dead at 2026-08-17T04Z while metered D kept flowing.
+# Verified against EIA over the payload's own 719-hour window: 576 DF hours
+# published, 576 recorded. So the gap was TEC's rather than ours — but that
+# only establishes the number, not that excluding on it was right.
+#
+# It was not, and #549 is why. Measured 2026-08-18, SPP's absence is one
+# contiguous 341-hour block (feed stopped 2026-08-04T06Z, never resumed) while
+# TEC's is six whole-day blocks with the feed still live — the same coverage
+# rate reached from opposite shapes, and no BA in this fleet is diffusely
+# sparse. Coverage stopped gating; staleness gates.
 #
 # The band was originally justified by CAISO at 82.9% and PJM at 81.0% on
 # 2026-08-17. Those were the BROKEN pre-fix readings — the same first_seen_df
