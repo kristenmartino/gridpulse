@@ -62,12 +62,12 @@
 | models/xgboost\_model.py              |       84 |        7 |     92% |83, 107, 127-131 |
 | personas/\_\_init\_\_.py              |        0 |        0 |    100% |           |
 | personas/config.py                    |       13 |        0 |    100% |           |
-| personas/welcome.py                   |       90 |        4 |     96% | 48-51, 97 |
+| personas/welcome.py                   |       90 |        3 |     97% |47, 51, 97 |
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
-| **TOTAL**                             | **8496** |  **735** | **91%** |           |
+| **TOTAL**                             | **8496** |  **734** | **91%** |           |
 
 
 ## Setup coverage badge
