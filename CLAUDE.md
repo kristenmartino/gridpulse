@@ -38,6 +38,11 @@ For any non-trivial PR, before reporting "done":
    in same PR
 4. **`STATUS.md` active focus, next-3, blocked-on, or open question
    changed**? → update [`STATUS.md`](STATUS.md) in the same PR
+5. **Something went wrong** (measurement error, wrong assumption, wasted
+   time, a trap you had to work around, a near-miss caught before it
+   shipped)? → log it in [`MISTAKES.md`](MISTAKES.md). See "Mistake logging
+   & rule graduation" below for format and for when it also needs a rule
+   here.
 
 Otherwise report: "no explanatory-doc impact."
 
@@ -67,6 +72,95 @@ Two rules follow:
    non-adjacently (e.g. "the close-keyword for 150") or use a placeholder
    like `#NNN`. Never put a live close-keyword next to an issue you don't
    mean to close.
+
+## Mistake logging & rule graduation
+
+Deposit one line to [`MISTAKES.md`](MISTAKES.md)'s Worklog whenever
+something costs real time, nearly ships wrong, or would change how you'd
+approach the next similar task: date, a best-guess `[category]` tag, one
+sentence, a ref. **Stop there.** Don't diagnose root cause, don't propose a
+fix, don't decide whether it's a repeat of anything — do that mid-task and
+you're reasoning about your own mistake with the same tunnel vision that
+produced it, which is exactly what makes early-generation `MISTAKES.md`
+setups fail: high-effort entries that people stop writing, or biased
+root-causing that ships a bad rule. Keep the deposit cheap enough that it
+always happens.
+
+**A separate pass decides everything else.** Something else — the
+[`audit-mistakes-log`](.claude/skills/audit-mistakes-log/SKILL.md) skill,
+run periodically with none of the depositing session's context — reads the
+Worklog, tallies entries by category (grouping by *root cause*, not surface
+symptom: #541's stale actuals and #542's blanked leads are one pattern, "an
+instrument measured something other than what it was checking," not two),
+and only once a category crosses the graduation bar drafts the full
+Analyzed entry (what happened, root cause, prevention) and a candidate
+CLAUDE.md diff. It surfaces the proposal; it does not merge it. **Graduate
+on either bar**, both already this repo's practice before this section
+existed:
+- **Repeat** — the same root cause recurs (≥2 occurrences): how the
+  backtick/quote trap, the `Closes #N` mistake, and the ARIMA/SARIMAX naming
+  split all graduated.
+- **Severity** — one incident costly or high-blast-radius enough
+  (production-visible, silently wrong for days, corrupted state) that
+  waiting for a repeat isn't worth the risk: how #174 and #389 graduated.
+
+**A human approves every promotion.** A CLAUDE.md line is a durable,
+overriding instruction for every future agent — it earns the same scrutiny
+as any other standing-rule change, reviewed like any other doc PR. Self-edit
+this file mid-task only for corrections to what's already here, never to
+add a new invariant on your own authority.
+
+**Keep the enforced set small — point at evidence instead of restating
+it.** `MISTAKES.md` can grow; this file should not grow at the same rate.
+Phrase a graduated rule as the invariant to hold (what to do, stated once,
+plainly) and let the linked `MISTAKES.md` entry carry the narrative — don't
+duplicate the story here. Prefer strengthening an existing rule's wording
+over adding a near-duplicate new one. State rules as **positive invariants**
+("verify X before Y," "bound what one call can cost") rather than "don't do
+X" — a model reasoning from a list of prohibitions is more likely to invert
+one under pressure than a model reasoning from what to do; this file's
+existing rules already lean this way and new ones should too.
+
+**When a promotion is approved:** add the concise invariant here, and mark
+the source `MISTAKES.md` entry `graduated → CLAUDE.md § <heading> (<date>)`
+— don't delete it; it's the evidence trail for why the rule exists. If a
+fix instead makes the mistake structurally impossible (a test, an assertion,
+a lint rule), the entry is marked `resolved — enforced by <X>` and does
+**not** need a line here at all: a prose rule is for judgment calls nothing
+mechanical can catch, and a guard a test already owns doesn't need a second,
+weaker copy for an agent to remember by hand.
+
+**Reassessment runs in both directions, not just forward:**
+- *Worklog → Analyzed*: `audit-mistakes-log` re-scans for a pattern that no
+  single entry crosses the bar on alone but the tally does in aggregate.
+- *Existing rules → still true?*: a rule outlives the bug that produced it.
+  When touching code a guardrail here cites, check it still describes
+  reality — the same discipline "Verify every `Closes #N`" and the
+  `CANONICAL_FACTS.md` grep rule already ask for. A guardrail that no
+  longer matches the code is worse than none: it spends a future agent's
+  attention on a solved problem while still sounding authoritative. If a
+  rule's premise is gone, cut it in the same PR that removes what it was
+  guarding against.
+
+**`MISTAKES.md` is an evidence store, not a runtime lookup — it sits on disk
+mostly unread.** Rules are derived from it and later audited against it; a
+working session doesn't load the whole archive to check its own work,
+because the archive is the thing this section exists to keep *out* of every
+session's context by promoting its signal into the one file that's always
+loaded. The only exceptions are the two processes that exist specifically to
+touch the archive: a Worklog deposit (append one line, don't read the rest),
+and `audit-mistakes-log` (reads all of it, deliberately, on its own separate
+pass).
+
+**The real-time layer is separate from the audit layer.** The
+[`check-past-mistakes`](.claude/skills/check-past-mistakes/SKILL.md) skill
+runs *in*-session — hooked after plan approval and after implementation —
+and checks the current plan or diff against the invariants already in this
+file (already loaded, no extra read), so a known pattern gets caught before
+it ships rather than logged after. If it catches something new, it appends
+one Worklog line (never a full entry, never a re-read of the archive to
+"check for similar entries" — that judgment call belongs to the audit pass)
+and moves on.
 
 ## Start here
 
