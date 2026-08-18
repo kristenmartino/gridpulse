@@ -37,7 +37,6 @@ def doc() -> str:
 def test_the_anchor_dependence_is_stated(doc: str) -> None:
     """Naming the mechanism, not just the word — a reader has to be able to
     tell *how* their forecast reaches our input."""
-    lowered = doc.lower()
     assert "_resolve_forecast_start" in doc
     assert "demand_lag_1h" in doc
     assert "placeholder_pct" in doc
