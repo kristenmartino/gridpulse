@@ -56,11 +56,18 @@ strictly `<`, so a *stalled* origin still republishes. Forward-only: no publishe
 number moves at merge. **Evidence:**
 [`docs/FORECAST_ORIGIN_REGRESSION.md`](docs/FORECAST_ORIGIN_REGRESSION.md).
 
-**Deliberately NOT fixed:** the positional-lag defect that causes the stall.
-`data/feature_engineering.py` is shared with the training job, so the models were
-trained under the same convention — reindexing at serve alone is train/serve skew,
-and doing it properly is a 51-BA × 3-model retrain behind the ADR-010 gate. Filed
-separately; see [#186](https://github.com/kristenmartino/gridpulse/issues/186).
+**Deliberately NOT fixed:** the row-deletion defect that causes the stall
+([#559](https://github.com/kristenmartino/gridpulse/issues/559)). **Both this
+file's and #559's first framing were overstated and are corrected**: the defect
+was argued as temporally-wrong lag values needing a reindex plus a 51-BA × 3-model
+retrain, but absent rows are **7 of 110,704 fleet-wide (0.0063%), all in SPA, all
+from May** — the frames are complete grids and `shift(24)` is exact on 99.9937%
+of rows. What is real is `dropna` deleting rows whose lag source is **null** (IID
+37, LGEE 16, PSCO 11, TIDC 10), which is fixable serve-side without touching a
+feature value. Live: 4 of 102 BA-ticks bind on `featured`, max stall 3h — PSCO 3h,
+LDWP 2h, AZPS 2h, TIDC 1h, and **LDWP/AZPS were not in the replay set**, so the
+exposure is broader than that sample showed. Full correction:
+[`docs/FORECAST_ORIGIN_REGRESSION.md`](docs/FORECAST_ORIGIN_REGRESSION.md) §7.
 
 **Deployed** at merge `86d87c8`, image SHA verified on job/training/service. The
 first post-deploy tick (10:00Z — PSCO's own signature hour) closed a residual:

@@ -84,6 +84,10 @@ Autoregressive features are built by **positional** shift —
 are NaN-tolerant (`min_periods=1`) and are **not** involved. So a NaN at row *i*
 deletes rows *i+1*, *i+2*, *i+3*, *i+24* and *i+168*.
 
+The operative word is **NaN**, not *positional*: these frames are complete hourly
+grids (§7), so the shifts land where they claim to. What breaks the tail is a
+null *value* propagating through `dropna`, not a lag pointing at the wrong hour.
+
 LGEE's demand series carries a contiguous 16-hour hole,
 **2026-08-12T14:00 → 2026-08-13T05:00** — hours EIA never metered. Twenty-four
 rows later that hole deletes exactly the 16 rows
@@ -186,14 +190,38 @@ suppressing that would hide mechanism 1 rather than fix it.
 
 ## 7. What did NOT ship, and why
 
-**The positional-lag defect is left open and filed separately.** On a series with
-holes, `shift(24)` means "24 rows back", which is not 24 hours back — and it is
-the direct cause of mechanism 1. It is not fixed here because
-`data/feature_engineering.py` is shared by the training job and the scoring path,
-so the models were *trained* under the same convention. Reindexing to a
-continuous hourly grid at serve time alone creates train/serve skew; doing it
-properly means retraining 51 BAs × 3 models behind the ADR-010 serve-path gate.
-Related: [#186](https://github.com/kristenmartino/gridpulse/issues/186).
+**The row-deletion defect is left open and filed separately** as
+[#559](https://github.com/kristenmartino/gridpulse/issues/559).
+
+*Corrected after filing — the first version of this paragraph, and of #559, was
+overstated.* It argued that `shift(24)` means "24 rows back", which on a gapped
+series is not 24 hours back, and that this was the direct cause of mechanism 1;
+and that fixing it meant reindexing to a continuous hourly grid, which would
+require retraining 51 BAs × 3 models behind the ADR-010 gate. Measured across all
+51 current demand mirrors — 110,704 rows, ~90 days each:
+
+| | count | share |
+|---|---:|---:|
+| **absent rows** (EIA omitted the hour → positional ≠ temporal) | **7** | **0.0063%** |
+| **null rows** (EIA reported the hour with no value) | 78 | 0.0705% |
+
+All seven absent rows are in **one** BA (SPA) and all date from May 2026. On the
+other fifty the frame is a **complete hourly grid**, so `shift(24)` is temporally
+exact on **99.9937%** of rows. There is essentially nothing to reindex, and the
+retrain that reindexing justified is not warranted by this evidence.
+
+What is real is the other half: `dropna(subset=autoregressive)` deleting rows
+whose lag source is **null**, concentrated exactly where the origin problems are
+(IID 37, LGEE 16, PSCO 11, TIDC 10). The lag *arithmetic* on those BAs is already
+correct — the holes are null values, not missing rows. So the narrow fix is
+serve-side and changes no feature values: teach `_resolve_forecast_start`'s cap to
+ask whether AR context can be seeded for the anchor hour rather than whether that
+row survived `dropna`. Imputing the AR features instead would change the training
+row set and does need a retrain.
+
+Related: [#186](https://github.com/kristenmartino/gridpulse/issues/186), which is
+a different concern — parity between the two AR implementations, explicitly with
+no change to feature values.
 
 **No published number moves at merge.** The guard is forward-only — it changes
 which payload is served on a future regressed tick and rewrites nothing already
