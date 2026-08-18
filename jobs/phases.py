@@ -183,6 +183,16 @@ class RegionData:
     #: set from ``read_existing_forecast`` before this tick overwrites it. The
     #: forecast phase refuses to replace it with an OLDER one (#537).
     previous_forecast_origin: pd.Timestamp | None = None
+    #: ``{canonical_hour: was_placeholder}`` for the vintage window, handed
+    #: across in memory by :func:`write_vintage_records` so the forecast phase
+    #: can record what its anchor was seeded with (#547) WITHOUT re-reading the
+    #: ~65KB ``vintage:{region}`` key on every region every tick — the scoring
+    #: job is under an active runtime budget (#389).
+    #:
+    #: ``None`` means the question was never asked (vintage phase skipped,
+    #: failed, or Redis unconfigured), which is NOT the same fact as "the
+    #: anchor was metered". Readers must preserve that distinction.
+    placeholder_by_hour: dict[str, bool] | None = None
 
     @property
     def anchor_frame(self) -> pd.DataFrame:
@@ -973,6 +983,106 @@ def _resolve_forecast_start(
         binding_term="featured" if last_featured_ts < last_real_demand else "real_demand",
     )
     return start
+
+
+def _demand_at(frame: pd.DataFrame | None, ts: pd.Timestamp) -> float | None:
+    """``demand_mw`` at exactly ``ts``, or ``None`` when absent or unusable.
+
+    ``None`` for a missing row, a NaN, or a non-positive value — the same
+    "real demand" predicate ``_resolve_forecast_start`` selects on, so a value
+    this returns is one the anchor could actually have been seeded with.
+    """
+    if frame is None or frame.empty or "demand_mw" not in frame.columns:
+        return None
+    hit = frame.loc[frame["timestamp"] == ts, "demand_mw"]
+    if hit.empty:
+        return None
+    value = hit.iloc[-1]
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if np.isfinite(out) and out > 0 else None
+
+
+def _anchor_provenance(
+    data: RegionData,
+    featured: pd.DataFrame,
+    forecast_start: pd.Timestamp,
+) -> dict[str, Any]:
+    """What the forecast was seeded with, recorded at forecast time (#547).
+
+    ``docs/BENCHMARK_METHODOLOGY.md`` limit 11: where EIA has not metered an
+    hour yet it publishes the BA's own day-ahead value in the ``D`` field, and
+    ``_resolve_forecast_start`` selects on positive ``D`` rather than on
+    *metered* ``D`` — so our recursion is sometimes seeded with the very series
+    the benchmark scores us against. The rate is published per BA as
+    ``placeholder_pct``; which *forecasts* it touched was never recorded, so
+    the materiality was stated as unmeasured rather than as small. This is the
+    instrument that makes it measurable, and it CANNOT be backfilled: the
+    payload that would prove a past run's anchor is overwritten every tick.
+
+    Derived from ``forecast_start`` rather than by re-running the selection, so
+    the recorded anchor and the anchor actually used cannot drift apart. That
+    holds across every branch of the resolver's fallback chain, since all of
+    them return ``anchor + 1h``.
+
+    Every field is tri-state. ``None`` means the question could not be
+    answered, which is a different fact from a confirmed negative — a record
+    written before the vintage window covered its anchor hour must not claim
+    the anchor was metered.
+
+    Returns:
+        ``{anchor_ts, anchor_mw, anchor_was_placeholder, anchor_conditioned}``.
+    """
+    from data.vintage import canonical_hour
+
+    anchor_ts = forecast_start - pd.Timedelta(hours=1)
+
+    # The seed of ``demand_lag_1h`` comes from the FEATURED frame
+    # (data/feature_engineering.py filters it to positive non-NaN and takes
+    # history[-1]), so that is the authoritative source for the value. The
+    # anchor frame is the fallback for the degenerate branches where the hour
+    # survived selection but not feature engineering.
+    anchor_mw = _demand_at(featured, anchor_ts)
+    if anchor_mw is None:
+        anchor_mw = _demand_at(data.anchor_frame, anchor_ts)
+
+    was_placeholder: bool | None = None
+    if data.placeholder_by_hour is not None:
+        key = canonical_hour(anchor_ts)
+        if key is not None:
+            # ``.get`` returns None for an hour outside the window — unknown,
+            # not metered. Vintage captures the RAW frame while the anchor
+            # resolves on the guard-cleaned one, so the two can disagree about
+            # which hours exist and that disagreement must read as unknown.
+            was_placeholder = data.placeholder_by_hour.get(key)
+
+    # ADR-009 is the OTHER way an anchor becomes the operator's own forecast,
+    # and it is deliberate: for broken-class feeds we substitute ``forecast_mw``
+    # into the trailing hours on a forked frame, because it was measured better
+    # (58.2% wrong vs 14.5%). Vintage records the raw ``D``, so such an anchor
+    # reads ``was_placeholder=False`` while the value that seeded the model was
+    # their day-ahead figure — a true field whose framing asserts something
+    # false. Recorded separately rather than folded in.
+    #
+    # Decided by comparing the two frames at the anchor hour, so it is a fact
+    # about the value used and not an inference from the conditioning window.
+    if data.conditioned_demand_df is None:
+        # ``anchor_frame`` IS ``demand_df`` here, so this is a confirmed
+        # negative rather than an absence of evidence.
+        conditioned: bool | None = False
+    else:
+        raw_mw = _demand_at(data.demand_df, anchor_ts)
+        cond_mw = _demand_at(data.conditioned_demand_df, anchor_ts)
+        conditioned = None if cond_mw is None else cond_mw != raw_mw
+
+    return {
+        "anchor_ts": anchor_ts.isoformat(),
+        "anchor_mw": round(anchor_mw, 2) if anchor_mw is not None else None,
+        "anchor_was_placeholder": was_placeholder,
+        "anchor_conditioned": conditioned,
+    }
 
 
 def _build_future_feature_frame(
@@ -1867,6 +1977,17 @@ def predict_and_write_forecast(
                 },
             )
 
+        # #547: record what this run anchored on, while the frames that prove it
+        # are still in scope. Deliberately AFTER the #537 guard: on a regressed
+        # origin no payload is written, so there is nothing to stamp and an
+        # anchor computed here would describe a forecast that was never served.
+        #
+        # The two are closely related. #537's regression was EIA publishing 19
+        # hours as placeholders (``D == DF``) and then withdrawing them — so on
+        # exactly those ticks this block records ``anchor_was_placeholder=True``,
+        # which is the signal that diagnosis had to be reconstructed without.
+        anchor = _anchor_provenance(data, featured, forecast_start)
+
         # Pass the raw weather DataFrame so the future-feature builder can
         # overlay actual Open-Meteo forecast values (next ~16 days) onto
         # the climatology baseline. See ``_overlay_weather_forecast``.
@@ -2014,6 +2135,13 @@ def predict_and_write_forecast(
             "granularity": "1h",
             "primary_model": primary_name,
             "forecasts": fl,
+            # #547. TOP LEVEL, never inside a ``forecasts`` row: the drift
+            # extractor treats every extra numeric key on a row as a model
+            # (see the note on the horizon-guard block below), so a per-row
+            # ``anchor_mw`` would acquire its own drift records, a Models-tab
+            # entry, and a place in the rolling MAPE the visibility gate reads.
+            # One anchor per run, so per-row would be redundant regardless.
+            "anchor": anchor,
         }
 
         # Where the model measurably loses to "yesterday, same hour", serve the
@@ -2175,6 +2303,11 @@ def predict_and_write_forecast(
                 "points": FORECAST_HORIZON_HOURS,
                 "models": models_in_row,
                 "scenario_grid": scenario_written,
+                # #547: flat scalars so they land as queryable jsonPayload.*
+                # on the per-region completion log (#306). This is the signal
+                # that says the instrument is running, per BA, per tick.
+                "anchor_was_placeholder": anchor["anchor_was_placeholder"],
+                "anchor_conditioned": anchor["anchor_conditioned"],
             },
         )
     except Exception as e:
@@ -2431,6 +2564,13 @@ def write_drift_metrics(
             # the post-deploy check actually looks.
             n_lead_excluded_7d=headline.get("n_lead_excluded_7d"),
             n_lead_unknown_7d=headline.get("n_lead_unknown_7d"),
+            # #547: the anchor-provenance instrument's own accrual.
+            # ``n_anchor_unknown_7d`` falling tick over tick is the field
+            # actually being recorded; it plateauing above zero once the 7d
+            # window has turned over means something is not carrying it.
+            # Logged, not merely published — see #542.
+            n_anchor_placeholder_7d=headline.get("n_anchor_placeholder_7d"),
+            n_anchor_unknown_7d=headline.get("n_anchor_unknown_7d"),
             # #512: the window's DEPTH, logged every write. A key expiry drops
             # this from 720 to 1 and nothing else in the system notices — the
             # job is stateless, so it cannot tell "history lost" from "new BA".
@@ -2555,7 +2695,11 @@ def _read_window_strict(key: str) -> Any:
         return redis_get_strict(key)
 
 
-def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
+def write_vintage_records(
+    region: str,
+    demand_df: pd.DataFrame,
+    data: RegionData | None = None,
+) -> PhaseResult:
     """Record what EIA first said about each hour, at ``gridpulse:vintage:{region}``.
 
     #309. The forecast anchors on the newest EIA reading, EIA revises it, and
@@ -2587,6 +2731,19 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
        first-sights.
     3. Writes go through ``persist`` (#268), so a dropped write fails the
        phase instead of silently diverging from what we logged.
+
+    ## The #547 hand-off
+
+    When ``data`` is supplied, the placeholder verdict for each captured hour
+    is stashed on it as :attr:`RegionData.placeholder_by_hour` so the forecast
+    phase — which runs later in the same ``_score_region`` — can record whether
+    its anchor was seeded by EIA's own day-ahead value. Handed across in memory
+    rather than re-read from Redis: this phase already holds the deserialised
+    records, and a re-read would cost ~65KB per region per tick and could
+    observe a different tick's window.
+
+    Populated ONLY on the success path. Every early return leaves it ``None``,
+    which reads downstream as "unknown", never as "metered".
     """
     from data.redis_client import (
         RedisReadError,
@@ -2595,6 +2752,7 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
         redis_key,
     )
     from data.vintage import (
+        canonical_hour,
         classify_region,
         deserialize_records,
         serialize_records,
@@ -2654,6 +2812,16 @@ def write_vintage_records(region: str, demand_df: pd.DataFrame) -> PhaseResult:
         records = update_vintage_records(existing, demand_df)
         if not records:
             return PhaseResult(region=region, ok=True, details={"skipped": "no_usable_readings"})
+
+        if data is not None:
+            # #547. Keyed by ``canonical_hour`` — the same normalisation the
+            # drift records join on — so the forecast phase can look up its
+            # anchor hour without re-deriving a timestamp format.
+            data.placeholder_by_hour = {
+                key: r.was_placeholder
+                for r in records
+                if (key := canonical_hour(r.timestamp)) is not None
+            }
 
         stats = summarize(records, region=region)
         persist(

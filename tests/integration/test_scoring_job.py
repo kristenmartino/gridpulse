@@ -422,9 +422,9 @@ class TestVintageCaptureIsWired:
         seen: dict[str, pd.DataFrame] = {}
         real = phases.write_vintage_records
 
-        def _spy(region: str, demand_df):
+        def _spy(region: str, demand_df, data=None):
             seen[region] = demand_df
-            return real(region, demand_df)
+            return real(region, demand_df, data)
 
         monkeypatch.setattr(phases, "write_vintage_records", _spy)
         scoring_job.run()
@@ -446,7 +446,9 @@ class TestVintageCaptureIsWired:
         monkeypatch.setattr(
             phases,
             "write_vintage_records",
-            lambda region, demand_df: (_ for _ in ()).throw(RuntimeError("redis exploded")),
+            lambda region, demand_df, data=None: (_ for _ in ()).throw(
+                RuntimeError("redis exploded")
+            ),
         )
         with pytest.raises(RuntimeError):
             # Guard the guard: prove the injected failure is reachable at all,
@@ -457,7 +459,7 @@ class TestVintageCaptureIsWired:
         monkeypatch.setattr(
             phases,
             "write_vintage_records",
-            lambda region, demand_df: phases.PhaseResult(
+            lambda region, demand_df, data=None: phases.PhaseResult(
                 region=region, ok=False, error="redis exploded"
             ),
         )
@@ -646,10 +648,10 @@ class TestQualityGuardOrdering:
 
         real_vintage = phases.write_vintage_records
 
-        def _vintage_spy(region, demand_df):
+        def _vintage_spy(region, demand_df, data=None):
             seen["vintage_demand"] = demand_df["demand_mw"].tolist()
             seen["order"].append("vintage")
-            return real_vintage(region, demand_df)
+            return real_vintage(region, demand_df, data)
 
         real_guard = phases.apply_demand_quality_guard
 
@@ -1391,3 +1393,134 @@ class TestScoringSoftDeadline:
         # magnitude larger (a Unix epoch) and would be obvious here.
         assert deadline is not None
         assert before <= deadline <= time.monotonic() + 1800 * 0.85
+
+
+class TestAnchorProvenanceReachesRedis:
+    """#547 end-to-end: the anchor a forecast was seeded with survives the real
+    scoring run, from the vintage phase's verdicts to the forecast payload the
+    drift phases read on the next tick.
+
+    Unit tests pin each hop; this pins that the hops are connected — the
+    vintage phase runs before the forecast phase, its map reaches
+    ``RegionData``, and the block lands top-level rather than on a row.
+    """
+
+    @staticmethod
+    def _patch_models(monkeypatch) -> None:
+        """The same fake-model wiring the core write test uses, so the forecast
+        phase actually runs instead of short-circuiting on ``model_missing``."""
+        import models.model_service as model_service
+        import models.xgboost_model as xgb_mod
+        from models import persistence as mp
+
+        fake_meta = mp.ModelMetadata(
+            region="ERCOT",
+            model_name="xgboost",
+            version="v-test",
+            data_hash="h",
+            trained_at="",
+            train_rows=1,
+            mape=5.0,
+            lib_versions={},
+            extra={},
+        )
+        monkeypatch.setattr(
+            "jobs.scoring_job.load_model",
+            lambda region, model_name: (_fake_xgb_model(), fake_meta),
+        )
+        monkeypatch.setattr(xgb_mod, "predict_xgboost", lambda model, x: np.full(len(x), 41_000.0))
+        monkeypatch.setattr(
+            model_service,
+            "get_forecasts",
+            lambda region, df: {"ensemble": df["demand_mw"].values, "metrics": {}},
+        )
+
+    def test_the_forecast_payload_carries_a_complete_anchor_block(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ) -> None:
+        from jobs import scoring_job
+
+        self._patch_models(monkeypatch)
+        assert scoring_job.run() == 0
+
+        payload = fake_redis["gridpulse:forecast:ERCOT:1h"]
+        anchor = payload.get("anchor")
+        assert anchor is not None, "the forecast phase wrote no anchor block"
+        assert set(anchor) == {
+            "anchor_ts",
+            "anchor_mw",
+            "anchor_was_placeholder",
+            "anchor_conditioned",
+        }
+
+        # The anchor is the hour BEFORE row 0 — the hour resolved from, not the
+        # forecast start. Asserted against the payload's own first row so it
+        # cannot drift from what was actually served.
+        first_row = pd.Timestamp(payload["forecasts"][0]["timestamp"])
+        assert pd.Timestamp(anchor["anchor_ts"]) == first_row - pd.Timedelta(hours=1)
+
+        assert anchor["anchor_mw"] is not None and anchor["anchor_mw"] > 0
+        assert anchor["anchor_conditioned"] is False, "ERCOT is not a broken-class feed"
+
+        # This harness leaves Redis "unconfigured", so the vintage phase skips
+        # and never hands a map over. The anchor must then read UNKNOWN — the
+        # tri-state degrading correctly through a whole real run, which is the
+        # case a construct-and-read unit test cannot reach.
+        assert anchor["anchor_was_placeholder"] is None
+
+    def test_the_anchor_is_not_on_any_forecast_row(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ) -> None:
+        """A per-row anchor would be read as a model by the drift extractor —
+        acquiring its own drift records, a Models-tab entry and a place in the
+        rolling MAPE the visibility gate reads."""
+        from jobs import scoring_job
+
+        self._patch_models(monkeypatch)
+        assert scoring_job.run() == 0
+
+        rows = fake_redis["gridpulse:forecast:ERCOT:1h"]["forecasts"]
+        offenders = {k for row in rows for k in row if "anchor" in k}
+        assert not offenders, f"anchor keys leaked onto forecast rows: {offenders}"
+
+    def test_the_vintage_phase_and_the_forecast_phase_share_one_region_data(
+        self, fake_redis, patch_data_sources, patch_single_region, monkeypatch
+    ) -> None:
+        """The wiring the whole instrument rests on.
+
+        The hand-off is in-memory, so it only works if the object the vintage
+        phase stashes its verdicts on is the same object the forecast phase
+        later reads. If the scoring job stopped passing ``region_data``, every
+        anchor would silently record ``anchor_was_placeholder=None`` forever —
+        the field would look present while measuring nothing, which is exactly
+        the shape of #542.
+
+        Asserted on object identity rather than on a populated map: whether any
+        hour lands inside the vintage window depends on the fixture's dates,
+        and this claim should not.
+        """
+        from jobs import phases, scoring_job
+
+        self._patch_models(monkeypatch)
+        seen: dict = {}
+        real_vintage = phases.write_vintage_records
+        real_forecast = phases.predict_and_write_forecast
+
+        def _vintage_spy(region, demand_df, data=None):
+            seen["vintage_data"] = data
+            return real_vintage(region, demand_df, data)
+
+        def _forecast_spy(data, *args, **kwargs):
+            seen["forecast_data"] = data
+            return real_forecast(data, *args, **kwargs)
+
+        monkeypatch.setattr(phases, "write_vintage_records", _vintage_spy)
+        monkeypatch.setattr(phases, "predict_and_write_forecast", _forecast_spy)
+        assert scoring_job.run() == 0
+
+        assert seen.get("vintage_data") is not None, (
+            "the scoring job no longer hands RegionData to the vintage phase"
+        )
+        assert seen["vintage_data"] is seen["forecast_data"], (
+            "the two phases hold different RegionData objects — the in-memory hand-off cannot work"
+        )

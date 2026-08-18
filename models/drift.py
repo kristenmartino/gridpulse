@@ -35,16 +35,25 @@ warning when holdout-vs-live diverges past a threshold.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import numpy as np
 
 # Default rolling-window depth. 30 days × 24 hours = 720 hourly records
-# per model. Each record is ~80 bytes of JSON → ~57 KB per model × 4
-# models = ~230 KB per region × 51 regions ≈ 12 MB total in Redis.
-# Well within Memorystore capacity.
+# per model. Measured 2026-08-18: a fully-populated record serialises to
+# **142 bytes** of JSON → ~102 KB per model × 4 models = ~409 KB per region
+# × 51 regions ≈ **21 MB** total in Redis, at the cap.
+#
+# That is up from ~12 MB: the #547 anchor trio adds ~54 B/record, and ~33 B of
+# it is the ISO ``anchor_ts``. Keeping the timestamp verbatim rather than as an
+# offset from ``ts`` was a deliberate trade — it can be read straight off a
+# record and cross-checked against the vintage mirror without arithmetic, which
+# is what makes the provenance self-evidencing. The cost is affordable and was
+# checked, not assumed: Memorystore is Basic tier **1 GB** (the floor, not a
+# choice) running at 137.6 MB / 13% with `evicted_keys: 0`, so +8 MB is 0.8% of
+# the ceiling (docs/CANONICAL_FACTS.md, measured 2026-08-05).
 #: Grading cadence is NOT one record per hour for every BA, and the spread is an
 #: order of magnitude: measured 2026-08-11, LDWP graded 2 records in 24h against a
 #: fleet median of 24, because `build_records_from_actuals` keeps only the most
@@ -114,6 +123,41 @@ class DriftRecord:
     #: (:func:`filter_by_lead`), which keeps unknown-lead records rather than
     #: discarding most of the history to remove 3% contamination.
     lead_hours: int | None = None
+    #: The hour this forecast ANCHORED on — ``_resolve_forecast_start``'s pick,
+    #: not the ``+1h`` forecast start, and not the same thing as ``lead_hours``
+    #: (which is the realized lead of THIS record, and is absent by design on
+    #: the horizon path).
+    #:
+    #: Recorded because ``docs/BENCHMARK_METHODOLOGY.md`` limit 11 could only
+    #: state its own materiality as unmeasured: where EIA has not metered an
+    #: hour it publishes the BA's day-ahead value in ``D``, so our anchor is
+    #: sometimes seeded with the series the benchmark scores us against, and
+    #: nothing recorded which forecasts that touched (#547).
+    #:
+    #: ``None`` on records written before the field existed. It CANNOT be
+    #: backfilled — the payload that would prove a past run's anchor is
+    #: overwritten every tick — so unknown stays unknown.
+    anchor_ts: str | None = None
+    #: Whether that anchor hour's FIRST-SEEN ``D`` was EIA's own day-ahead
+    #: value, per ``VintageRecord.was_placeholder`` (including its post-#535
+    #: same-tick ``df_at`` guard — raw ``d == df`` equality overstates, SCEG
+    #: reads 31.7% against 12.24% guarded).
+    #:
+    #: **Tri-state, and the distinction is the whole point.** ``None`` means
+    #: the vintage window could not answer for that hour; ``False`` means it
+    #: answered and the anchor was metered. A record that cannot evidence the
+    #: claim does not get to make it.
+    anchor_was_placeholder: bool | None = None
+    #: Whether the anchor value was substituted by ADR-009 anchor conditioning
+    #: — the OTHER, deliberate way an anchor becomes the operator's forecast,
+    #: applied to broken-class feeds because it measured better (58.2% wrong
+    #: vs 14.5%).
+    #:
+    #: Held separately rather than folded into ``anchor_was_placeholder``,
+    #: which reads the RAW ``D`` and would therefore report a deliberately
+    #: conditioned anchor as metered — a true field whose framing asserts
+    #: something false.
+    anchor_conditioned: bool | None = None
 
     def __post_init__(self) -> None:
         # Frozen dataclass: assign through object.__setattr__. Only fill when
@@ -424,6 +468,47 @@ def _normalize_ts(ts: str) -> str:
         return ts.strip()
 
 
+def count_anchor_provenance(records: list[DriftRecord]) -> tuple[int, int]:
+    """``(n_placeholder, n_unknown)`` over ``records`` (#547).
+
+    Published so the instrument's own accrual is observable: ``n_unknown``
+    falling tick over tick is provenance actually being recorded, and it is the
+    only way to tell "the anchor was metered" from "we never asked". #542's
+    lesson is that publishing such a counter is not enough on its own — this
+    pair is logged by ``write_drift_metrics``, where the post-deploy check
+    actually looks, rather than only sitting in the payload.
+    """
+    n_placeholder = sum(1 for r in records if r.anchor_was_placeholder is True)
+    n_unknown = sum(1 for r in records if r.anchor_was_placeholder is None)
+    return n_placeholder, n_unknown
+
+
+def anchor_provenance(forecast_payload: dict[str, Any] | None) -> dict[str, Any]:
+    """The anchor block a forecast payload carries, as record kwargs (#547).
+
+    Reads the TOP-LEVEL ``anchor`` key written by
+    ``jobs.phases.predict_and_write_forecast``. Absent on payloads written
+    before that landed, so every field degrades to ``None`` — unknown, never a
+    claim that the anchor was metered.
+
+    ``anchor_mw`` is deliberately dropped here: it is diagnostic colour on the
+    payload, not something each of ~720 records x 4 models x 51 regions needs
+    to carry.
+    """
+    block = (forecast_payload or {}).get("anchor")
+    if not isinstance(block, dict):
+        return {
+            "anchor_ts": None,
+            "anchor_was_placeholder": None,
+            "anchor_conditioned": None,
+        }
+    return {
+        "anchor_ts": _optional_str(block.get("anchor_ts")),
+        "anchor_was_placeholder": _optional_bool(block.get("anchor_was_placeholder")),
+        "anchor_conditioned": _optional_bool(block.get("anchor_conditioned")),
+    }
+
+
 def build_records_from_actuals(
     previous_forecast: dict[str, Any] | None,
     actuals: dict[str, float],
@@ -474,6 +559,12 @@ def build_records_from_actuals(
         if not np.isfinite(actual_mw):
             continue
         lead = _lead_hours(rows, ts_norm)
+        # #547: what the forecast that produced these predictions anchored on.
+        # Read here rather than derived from ``target - lead``: that identity
+        # holds only while ``lead_hours`` is known and only on this path, and
+        # the whole reason the field exists is that a derived anchor is not
+        # evidence.
+        anchor = anchor_provenance(previous_forecast)
         preds = extract_one_hour_ahead_predictions(previous_forecast, ts_norm)
         out: dict[str, DriftRecord] = {}
         for model_name, predicted_mw in preds.items():
@@ -486,6 +577,7 @@ def build_records_from_actuals(
                 actual=float(actual_mw),
                 abs_pct_error=err,
                 lead_hours=lead,
+                **anchor,
             )
         return out
     return {}
@@ -566,11 +658,12 @@ def regrade_records(
       (``first_seen_d``, #312) is the instrument of record for what the
       pipeline originally saw. This function is why the retired revision
       probe is no longer needed.
-    * **``lead_hours`` is carried through untouched (#542).** A revision moves
-      the actual; it cannot change how far ahead the prediction reached. This
-      function dropped the field for weeks, and because :func:`filter_by_lead`
-      keeps unknown-lead records, that quietly defeated the P2-19 headline
-      filter on exactly the BAs that revise most.
+    * **Everything except the actual is carried through untouched (#542).** A
+      revision moves the actual; it cannot change how far ahead the prediction
+      reached, or what the forecast anchored on. This function dropped
+      ``lead_hours`` for weeks, and because :func:`filter_by_lead` keeps
+      unknown-lead records, that quietly defeated the P2-19 headline filter on
+      exactly the BAs that revise most.
 
     Returns ``(regraded, stats)`` where stats carries ``n_regraded`` and the
     mean/max absolute shift (as % of the new actual) — the observability that
@@ -593,26 +686,23 @@ def regrade_records(
             regraded.append(r)
             continue
         shifts.append(abs(float(new_actual) - r.actual) / float(new_actual) * 100.0)
+        # ``replace`` rather than a hand-listed rebuild, and the distinction is
+        # the whole of #542. sMAPE is DERIVED from the pair that just moved, so
+        # it must be recomputed — the NaN sentinel makes ``__post_init__`` do
+        # that. Every other field is a property of the OBSERVATION, which a
+        # revision to the actual cannot touch: ``lead_hours`` (how far ahead
+        # the prediction reached) and the #547 anchor trio (what it was seeded
+        # with). Listing those by hand is what dropped ``lead_hours`` for
+        # weeks — 2,275 of 2,880 records (79%) unknown-lead by 2026-08-18,
+        # tracking each BA's revision rate exactly — because an omission reads
+        # as intentional next to a deliberate sentinel. ``replace`` carries
+        # them by construction, so the next field added cannot repeat it.
         regraded.append(
-            DriftRecord(
-                timestamp=r.timestamp,
-                predicted=r.predicted,
+            replace(
+                r,
                 actual=float(new_actual),
                 abs_pct_error=err,
-                # NaN sentinel -> __post_init__ recomputes sMAPE from the
-                # new pair; carrying the old sMAPE would silently desync it.
                 smape=float("nan"),
-                # #542: the two fields are opposites and the omission of this
-                # one read as intentional next to the sentinel above. sMAPE is
-                # DERIVED from the pair that just moved, so it must be
-                # recomputed. ``lead_hours`` is a property of the OBSERVATION —
-                # how far ahead the prediction reached — which a revision to
-                # the actual cannot touch. Dropping it turned every revision
-                # into a blanked lead, and ``filter_by_lead`` keeps unknown
-                # leads, so the P2-19 headline filter was progressively
-                # defeated: 2,275 of 2,880 records (79%) unknown-lead by
-                # 2026-08-18, tracking each BA's revision rate exactly.
-                lead_hours=r.lead_hours,
             )
         )
     stats: dict[str, Any] = {"n_regraded": len(shifts)}
@@ -620,6 +710,45 @@ def regrade_records(
         stats["mean_abs_shift_pct"] = round(float(np.mean(shifts)), 4)
         stats["max_abs_shift_pct"] = round(float(np.max(shifts)), 4)
     return regraded, stats
+
+
+def _optional_bool(raw: Any) -> bool | None:
+    """Parse a tri-state boolean off the wire. Unknown stays unknown.
+
+    ``bool(float("nan"))`` is ``True``, so a naive ``bool(row.get(...))`` turns
+    an absent value into a positive claim. That asymmetry is not hypothetical:
+    the two persistence paths represent "absent" differently — JSON omits the
+    key (-> ``None``) while a parquet mirror materialises the column and hands
+    back float ``NaN`` — and it is exactly how 713 of 719 BANC vintage records
+    came to be misread after #535 (``data/vintage.py``).
+
+    The drift window is Redis-only today, so only the ``None`` arm can fire in
+    production. The NaN arm is the guard for the day someone mirrors it, which
+    is the same day nobody would think to re-check this.
+    """
+    if raw is None or isinstance(raw, str):
+        # A string is not a valid boolean on this wire; read it as unknown
+        # rather than letting a truthy "false" through.
+        return None
+    if isinstance(raw, (float, np.floating)) and np.isnan(raw):
+        return None
+    return bool(raw)
+
+
+def _optional_str(raw: Any) -> str | None:
+    """Parse an optional string off the wire, treating NaN as absent.
+
+    ``str(float("nan"))`` is the literal ``"nan"`` — an unparseable timestamp
+    that reads as present. Same fork as :func:`_optional_bool`.
+    """
+    if raw is None:
+        return None
+    if isinstance(raw, (float, np.floating)) and np.isnan(raw):
+        return None
+    out = str(raw)
+    # Belt and braces for a value stringified before it reached us: "nan" is
+    # the exact literal the parquet fork produces, and it parses nowhere.
+    return None if out in ("nan", "NaN", "None", "") else out
 
 
 def serialize_records(records: list[DriftRecord]) -> list[dict[str, Any]]:
@@ -633,6 +762,13 @@ def serialize_records(records: list[DriftRecord]) -> list[dict[str, Any]]:
     known, absent otherwise. An absent ``l`` deserializes to ``None``, never
     to a default lead — a record from before the field existed has an unknown
     lead, not a lead of 1.
+
+    The anchor-provenance trio ``at``/``ap``/``ac`` (#547) follows it too, and
+    for the booleans it matters more: absent must deserialize to ``None`` and
+    not to ``False``, or a record written before this landed would claim its
+    anchor was metered. ``anchor_mw`` is deliberately NOT on the wire — it is
+    diagnostic colour rather than a join key, it rides the forecast payload,
+    and the window carries ~720 records x 4 models x 51 regions.
     """
     return [
         {
@@ -642,6 +778,13 @@ def serialize_records(records: list[DriftRecord]) -> list[dict[str, Any]]:
             "e": round(r.abs_pct_error, 4),
             **({"s": round(r.smape, 4)} if np.isfinite(r.smape) else {}),
             **({"l": int(r.lead_hours)} if r.lead_hours is not None else {}),
+            **({"at": r.anchor_ts} if r.anchor_ts is not None else {}),
+            **(
+                {"ap": bool(r.anchor_was_placeholder)}
+                if r.anchor_was_placeholder is not None
+                else {}
+            ),
+            **({"ac": bool(r.anchor_conditioned)} if r.anchor_conditioned is not None else {}),
         }
         for r in records
     ]
@@ -669,6 +812,13 @@ def deserialize_records(rows: list[dict[str, Any]] | None) -> list[DriftRecord]:
                     # this CANNOT be recomputed: the payload that produced the
                     # record is long overwritten. Unknown stays unknown.
                     lead_hours=int(l_raw) if l_raw is not None else None,
+                    # #547: same "cannot be recomputed" contract as ``l``, and
+                    # the booleans go through ``_optional_bool`` so an absent
+                    # value can never harden into a claim that the anchor was
+                    # metered.
+                    anchor_ts=_optional_str(row.get("at")),
+                    anchor_was_placeholder=_optional_bool(row.get("ap")),
+                    anchor_conditioned=_optional_bool(row.get("ac")),
                 )
             )
         except (KeyError, TypeError, ValueError):
@@ -741,6 +891,9 @@ def compute_drift_payload(
         )
         kept_7d, n_low_excl_7d = filter_low_actuals(lead_7d)
         kept_30d, _ = filter_low_actuals(lead_30d)
+        # #547: counted over the same 7d population every other _7d figure
+        # describes, so the shares are comparable to them.
+        n_anchor_placeholder_7d, n_anchor_unknown_7d = count_anchor_provenance(kept_7d)
 
         models_out[model_name] = {
             # sMAPE is the headline drift metric (bounded, near-zero-robust).
@@ -775,6 +928,8 @@ def compute_drift_payload(
             "n_low_actual_excluded_7d": n_low_excl_7d,
             "n_lead_excluded_7d": n_lead_excl_7d,
             "n_lead_unknown_7d": n_lead_unknown_7d,
+            "n_anchor_placeholder_7d": n_anchor_placeholder_7d,
+            "n_anchor_unknown_7d": n_anchor_unknown_7d,
             "records": serialize_records(merged),
         }
 
@@ -822,9 +977,17 @@ def snapshot_horizon_predictions(
     matching forecast row::
 
         {"target_ts": iso, "made_at": iso, "horizon": "24h",
-         "preds": {"xgboost": mw, "prophet": mw, "arima": mw, "ensemble": mw}}
+         "preds": {"xgboost": mw, "prophet": mw, "arima": mw, "ensemble": mw},
+         "anchor": {"anchor_ts": iso, "anchor_was_placeholder": bool | None,
+                    "anchor_conditioned": bool | None}}
 
     Empty list when the payload is missing/malformed or carries no ``scored_at``.
+
+    **The anchor MUST ride on the snapshot (#547).** These resolve up to 72h
+    after they are taken, by which point the forecast payload that produced
+    them has been overwritten ~72 times. Same "cannot be recomputed" argument
+    the ``lead_hours`` deserialize comment makes: if it is not carried here it
+    is gone.
     """
     if not forecast_payload:
         return []
@@ -841,6 +1004,7 @@ def snapshot_horizon_predictions(
         origin = datetime.fromisoformat(origin_iso)
     except (ValueError, TypeError):
         return []
+    anchor = anchor_provenance(forecast_payload)
     out: list[dict[str, Any]] = []
     for horizon in horizons:
         hours = _HORIZON_HOURS.get(horizon)
@@ -850,7 +1014,13 @@ def snapshot_horizon_predictions(
         preds = extract_one_hour_ahead_predictions(forecast_payload, target)
         if preds:
             out.append(
-                {"target_ts": target, "made_at": made_at, "horizon": horizon, "preds": preds}
+                {
+                    "target_ts": target,
+                    "made_at": made_at,
+                    "horizon": horizon,
+                    "preds": preds,
+                    "anchor": anchor,
+                }
             )
     return out
 
@@ -875,6 +1045,11 @@ def resolve_horizon_snapshots(
             still.append(snap)
             continue
         horizon = snap.get("horizon", "")
+        # #547: taken from the SNAPSHOT, not from any live payload — by now the
+        # forecast that made this prediction is up to 72h overwritten. A
+        # snapshot written before the field existed carries no anchor, and
+        # ``anchor_provenance`` degrades it to all-``None``.
+        anchor = anchor_provenance(snap)
         for model_name, predicted in (snap.get("preds") or {}).items():
             err = absolute_pct_error(predicted, actual)
             if err is None:
@@ -888,6 +1063,7 @@ def resolve_horizon_snapshots(
                         predicted=float(predicted),
                         actual=float(actual),
                         abs_pct_error=err,
+                        **anchor,
                     ),
                 )
             )

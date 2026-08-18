@@ -1030,3 +1030,243 @@ class TestRegradePreservesLead:
         assert block["rolling_mape_7d"] == pytest.approx(13.22, abs=0.05), "still re-grades"
         assert all("l" not in row for row in block["records"]), "and still carries no lead"
         assert "n_lead_excluded_7d" not in block, "horizon blocks do not lead-filter"
+
+
+class TestAnchorProvenance:
+    """#547: what each forecast was seeded with, carried onto its records.
+
+    ``docs/BENCHMARK_METHODOLOGY.md`` limit 11 could only state its own
+    materiality as unmeasured, because nothing recorded which forecasts
+    anchored on EIA's own day-ahead value. These tests pin the two properties
+    that make the instrument trustworthy: it survives every rewrite of a
+    record, and an absent value never hardens into a claim.
+    """
+
+    ANCHOR = {
+        "anchor_ts": "2026-08-18T03:00:00+00:00",
+        "anchor_was_placeholder": True,
+        "anchor_conditioned": False,
+    }
+
+    def _rec(self, **kw) -> DriftRecord:
+        base = {
+            "timestamp": "2026-08-18T06:00:00+00:00",
+            "predicted": 4200.0,
+            "actual": 4000.0,
+            "abs_pct_error": 5.0,
+        }
+        return DriftRecord(**{**base, **kw})
+
+    # ── the wire ────────────────────────────────────────────────────────────
+
+    def test_round_trip_carries_all_three(self):
+        from models.drift import deserialize_records, serialize_records
+
+        out = deserialize_records(serialize_records([self._rec(**self.ANCHOR)]))[0]
+
+        assert out.anchor_ts == self.ANCHOR["anchor_ts"]
+        assert out.anchor_was_placeholder is True
+        assert out.anchor_conditioned is False
+
+    def test_absent_keys_deserialize_to_none_not_false(self):
+        """A record written before this landed has an UNKNOWN anchor.
+
+        ``False`` would be a claim that its anchor was metered — the tri-state
+        convention ``served_series`` pins (#348) and ``lead_hours`` follows.
+        """
+        from models.drift import deserialize_records, serialize_records
+
+        wire = serialize_records([self._rec()])
+        assert not ({"at", "ap", "ac"} & set(wire[0])), "unknown must be omitted, not written"
+
+        out = deserialize_records(wire)[0]
+        assert out.anchor_ts is None
+        assert out.anchor_was_placeholder is None
+        assert out.anchor_conditioned is None
+
+    def test_a_false_flag_is_written_and_read_back_as_false(self):
+        """The other half: a CONFIRMED negative must survive as a negative.
+
+        Omit-when-unknown is only safe if ``False`` is distinguishable from
+        absent on the wire.
+        """
+        from models.drift import deserialize_records, serialize_records
+
+        wire = serialize_records([self._rec(anchor_was_placeholder=False)])
+        assert wire[0]["ap"] is False
+
+        assert deserialize_records(wire)[0].anchor_was_placeholder is False
+
+    def test_nan_shaped_values_read_as_unknown_not_as_true(self):
+        """The parquet fork, and the reason the booleans get their own parser.
+
+        Redis JSON omits an absent key; a parquet mirror materialises the
+        column and hands back float ``NaN``. ``bool(float("nan"))`` is
+        ``True`` and ``str(float("nan"))`` is the literal ``"nan"``, so a naive
+        read turns "we never asked" into a positive claim. That asymmetry
+        misread 713 of 719 BANC vintage records after #535, invisibly, because
+        production reads Redis.
+
+        The drift window is Redis-only today, so this guards the day someone
+        mirrors it — which is the same day nobody re-checks this.
+        """
+        from models.drift import deserialize_records
+
+        row = {
+            "ts": "2026-08-18T06:00:00+00:00",
+            "p": 4200.0,
+            "a": 4000.0,
+            "e": 5.0,
+            "at": float("nan"),
+            "ap": float("nan"),
+            "ac": float("nan"),
+        }
+        out = deserialize_records([row])[0]
+
+        assert out.anchor_ts is None, 'str(nan) is the literal "nan", which parses nowhere'
+        assert out.anchor_was_placeholder is None, "bool(nan) is True — the silent flip"
+        assert out.anchor_conditioned is None
+
+    # ── the #542 shape: survives a rewrite, not just a construct-and-read ───
+
+    def test_anchor_survives_regrading(self):
+        """The #542 regression, with new fields.
+
+        ``regrade_records`` rebuilt a record on every revision and omitted
+        ``lead_hours``, blanking it on 2,275 of 2,880 records (79%) — tracking
+        each BA's revision rate, and silent. The semantic rule that defect
+        established decides these fields too: values DERIVED from the pair that
+        moved are recomputed (sMAPE), properties of the OBSERVATION are carried
+        (``lead_hours``, and the anchor — a revision to the actual cannot
+        change what the forecast was seeded from).
+        """
+        from models.drift import regrade_records
+
+        rec = self._rec(lead_hours=3, **self.ANCHOR)
+        old_smape = rec.smape
+
+        regraded, _ = regrade_records([rec], {"2026-08-18T06:00:00+00:00": 4100.0})
+        out = regraded[0]
+
+        assert out.actual == 4100.0, "the revision landed"
+        assert np.isfinite(out.smape) and out.smape != old_smape, "sMAPE IS derived — recomputed"
+        assert out.lead_hours == 3, "#542: carried, not blanked"
+        assert out.anchor_ts == self.ANCHOR["anchor_ts"]
+        assert out.anchor_was_placeholder is True
+        assert out.anchor_conditioned is False
+
+    def test_anchor_survives_regrade_then_serialization(self):
+        """Both rewrite sites in one pass — the full production round trip.
+
+        Each tick re-grades the window and then re-serialises it, so a field
+        that survives one site and not the other still decays to unknown over
+        time. Construct-and-read cannot see that.
+        """
+        from models.drift import deserialize_records, regrade_records, serialize_records
+
+        records = [self._rec(lead_hours=1, **self.ANCHOR)]
+        for actual in (4100.0, 4150.0, 4180.0):
+            records, _ = regrade_records(records, {"2026-08-18T06:00:00+00:00": actual})
+            records = deserialize_records(serialize_records(records))
+
+        out = records[0]
+        assert out.anchor_ts == self.ANCHOR["anchor_ts"]
+        assert out.anchor_was_placeholder is True
+        assert out.anchor_conditioned is False
+        assert out.lead_hours == 1
+
+    # ── producers ───────────────────────────────────────────────────────────
+
+    def test_reads_the_anchor_block_off_a_forecast_payload(self):
+        from models.drift import anchor_provenance
+
+        out = anchor_provenance({"anchor": {**self.ANCHOR, "anchor_mw": 4123.45}})
+
+        assert out == self.ANCHOR, "anchor_mw is deliberately not a record field"
+
+    def test_a_payload_without_an_anchor_block_yields_unknown(self):
+        from models.drift import anchor_provenance
+
+        for payload in (None, {}, {"anchor": None}, {"anchor": "junk"}):
+            assert anchor_provenance(payload) == {
+                "anchor_ts": None,
+                "anchor_was_placeholder": None,
+                "anchor_conditioned": None,
+            }
+
+    def test_one_hour_ahead_records_carry_the_anchor(self):
+        from models.drift import build_records_from_actuals
+
+        payload = {
+            "scored_at": "2026-08-18T04:05:00+00:00",
+            "anchor": self.ANCHOR,
+            "forecasts": [
+                {"timestamp": "2026-08-18T04:00:00+00:00", "xgboost": 4200.0},
+            ],
+        }
+        out = build_records_from_actuals(payload, {"2026-08-18T04:00:00+00:00": 4000.0})
+
+        assert out["xgboost"].anchor_was_placeholder is True
+        assert out["xgboost"].anchor_ts == self.ANCHOR["anchor_ts"]
+
+    def test_the_horizon_anchor_rides_the_snapshot_across_resolution(self):
+        """It MUST ride the pending snapshot, not be looked up at resolution.
+
+        A 24h snapshot resolves a day after it is taken, by which point the
+        forecast payload that produced it has been overwritten ~24 times. Same
+        "cannot be recomputed" argument as ``lead_hours``.
+        """
+        from models.drift import resolve_horizon_snapshots, snapshot_horizon_predictions
+
+        payload = {
+            "scored_at": "2026-08-18T04:05:00+00:00",
+            "anchor": self.ANCHOR,
+            "forecasts": [
+                {"timestamp": f"2026-08-18T{h:02d}:00:00+00:00", "xgboost": 4200.0}
+                for h in range(4, 24)
+            ]
+            + [
+                {"timestamp": f"2026-08-19T{h:02d}:00:00+00:00", "xgboost": 4200.0}
+                for h in range(0, 8)
+            ],
+        }
+        pending = snapshot_horizon_predictions(payload, horizons=("24h",))
+        assert pending and pending[0]["anchor"] == self.ANCHOR, "carried onto the snapshot"
+
+        resolved, _ = resolve_horizon_snapshots(pending, {pending[0]["target_ts"]: 4000.0})
+        _, _, record = resolved[0]
+        assert record.anchor_was_placeholder is True
+        assert record.anchor_ts == self.ANCHOR["anchor_ts"]
+
+    def test_a_snapshot_taken_before_the_field_existed_resolves_to_unknown(self):
+        from models.drift import resolve_horizon_snapshots
+
+        pending = [
+            {
+                "target_ts": "2026-08-19T04:00:00+00:00",
+                "made_at": "2026-08-18T04:00:00+00:00",
+                "horizon": "24h",
+                "preds": {"xgboost": 4200.0},
+            }
+        ]
+        resolved, _ = resolve_horizon_snapshots(pending, {"2026-08-19T04:00:00+00:00": 4000.0})
+
+        assert resolved[0][2].anchor_was_placeholder is None
+
+    # ── the accrual signal ──────────────────────────────────────────────────
+
+    def test_counters_separate_unknown_from_metered(self):
+        """The distinction the counter exists to make.
+
+        Pooling ``None`` with ``False`` would report a fully-instrumented
+        fleet the moment the field shipped.
+        """
+        from models.drift import count_anchor_provenance
+
+        records = [
+            self._rec(anchor_was_placeholder=True),
+            self._rec(anchor_was_placeholder=True),
+            self._rec(anchor_was_placeholder=False),
+            self._rec(),
+        ]
+        assert count_anchor_provenance(records) == (2, 1)

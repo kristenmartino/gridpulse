@@ -494,10 +494,41 @@ number per BA is not a supportable format.
    **What this number is not.** `placeholder_pct` is the share of *hours in
    the window* whose first sighting was a placeholder. Each hour is the newest
    hour for roughly one tick, so it estimates how often a forecast run
-   anchored on a placeholder — it does not measure it. The direct measurement
-   needs the anchor hour recorded per forecast, which is not instrumented;
-   until it is, scored hours cannot be split by anchor provenance and the
-   materiality of this limit is stated as unmeasured rather than as small.
+   anchored on a placeholder — it does not measure it.
+
+   **The instrument now exists; the measurement does not yet (#547, from
+   2026-08-18).** Every forecast run records what it anchored on — the anchor
+   hour, its value, whether that hour's first-seen `D` was a placeholder, and
+   separately whether ADR-009 substituted it — and those fields ride onto the
+   drift records the benchmark scores from. **This is not a measurement and
+   must not be read as one.** Until records accrue, the materiality of this
+   limit is **still stated as unmeasured rather than as small**. When it is
+   computed it will be published here with its `n`, its window and its arm per
+   §8, and an inconclusive result is a valid outcome
+   (`docs/EVALUATION_POLICY.md`), not a reason to reach for the nearest number.
+
+   **A bounded retrospective reconstruction is possible, and #547 first
+   claimed otherwise.** The issue asserted the anchor could not be recovered
+   because `lead_hours` is "the realized lead, not the anchor". That is wrong,
+   and the correction is worth keeping because the wrong version is the
+   intuitive one. A forecast's row 0 *is* `anchor + 1h` by construction
+   (`_build_future_feature_frame` starts the frame at `forecast_start`), and
+   `_lead_hours` counts from row 0 — so on the 1h path `anchor = target −
+   lead_hours` exactly, and on the horizon path `anchor = target − H − 1h`,
+   recoverable from the stored block alone with no lead at all. Joining those
+   hours to the vintage window's `was_placeholder` therefore reconstructs the
+   placeholder half **over whatever window the vintage mirror still covers**
+   (single-slot, rolling ~30 days), and the #542 in-record erasure does not
+   block it because `drift_updated` has logged `(region, target, lead)` at
+   write time since #407.
+
+   What forward recording buys over that is not novelty but reach: it is
+   unbounded rather than capped at the mirror's window, it does not rest on
+   an assumption about row 0 that a future change to the frame builder would
+   silently break, and it covers the two fields no reconstruction can reach —
+   `anchor_conditioned` (the ADR-009 fork is never persisted) and the anchor's
+   value *as actually seeded*, which diverges from the vintage `first_seen_d`
+   exactly when the quality guard or the conditioning fork has touched it.
 
 ## 13. Reproducing it
 
@@ -534,6 +565,29 @@ justification than one that gets stricter. The point of writing the rules
 down first is that we do not get to discover them after seeing the result.
 
 ### Change log
+
+**2026-08-18 — the anchor's placeholder dependence is instrumented ([#547]).**
+*Direction: moves our own number by exactly nothing.*
+
+No drop rule, exclusion, metric, window or lead definition changed, and no
+score was recomputed — this adds a recording, not a rule. Limit 11's closing
+paragraph is updated to say that provenance is now recorded and that the
+materiality is *still* unmeasured until records accrue, because "instrumented"
+read as "measured" would be a worse error than the silence #539 corrected.
+Because no rule changed, §14's item 2 does not apply and neither generated
+artifact was regenerated.
+
+The prompting objection was #539's own: stating a materiality as *unmeasured*
+is honest but not stable, because it invites a reader to assume *small*. The
+answer is to make it measurable rather than to guess at it.
+
+One correction to the issue that raised this, recorded rather than quietly
+fixed: it claimed the anchor could not be recovered retrospectively because
+`lead_hours` is the realized lead rather than the anchor. That is false — row
+0 is `anchor + 1h` by construction, so the anchor is exact arithmetic on both
+paths — and a bounded reconstruction is available over the vintage mirror's
+window. The forward instrument is justified by reach and by the two fields no
+reconstruction can reach, not by the impossibility that was asserted.
 
 **2026-08-18 — the anchor's placeholder dependence is disclosed ([#539]).**
 *Direction: moves our own number by exactly nothing.*
@@ -631,4 +685,5 @@ destroying what the arm measures.
 
 [#348]: https://github.com/kristenmartino/gridpulse/issues/348
 [#539]: https://github.com/kristenmartino/gridpulse/issues/539
+[#547]: https://github.com/kristenmartino/gridpulse/issues/547
 [eia930]: https://www.eia.gov/survey/form/eia_930/instructions.pdf

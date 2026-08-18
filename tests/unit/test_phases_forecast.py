@@ -1569,3 +1569,264 @@ class TestEnsembleCompositionDivergence:
         assert result.ok
         comp = fake_redis["gridpulse:forecast:ERCOT:1h"]["ensemble_composition"]
         assert comp["weight_input"] == ["unknown"]
+
+
+class TestAnchorProvenanceRecording:
+    """#547: record what ``_resolve_forecast_start`` anchored on, at forecast
+    time, because nothing downstream can reconstruct it.
+
+    ``docs/BENCHMARK_METHODOLOGY.md`` limit 11: where EIA has not metered an
+    hour it publishes the BA's own day-ahead value in ``D``, and the resolver
+    selects on *positive* ``D`` rather than on *metered* ``D`` — so our
+    recursion is sometimes seeded with the series the benchmark scores us
+    against. The per-BA rate ships as ``placeholder_pct``; which forecasts it
+    touched was never recorded, so the materiality is stated as unmeasured.
+    """
+
+    @staticmethod
+    def _frame(end_ts: str, n_hours: int = 48, mw: float = 20_000.0) -> pd.DataFrame:
+        end = pd.Timestamp(end_ts, tz="UTC")
+        ts = pd.date_range(end=end, periods=n_hours, freq="h")
+        return pd.DataFrame(
+            {
+                "timestamp": ts,
+                "demand_mw": np.full(n_hours, mw),
+                "forecast_mw": np.full(n_hours, mw * 1.05),
+            }
+        )
+
+    def _data(self, end_ts: str = "2026-08-18 06:00", **kw):
+        from jobs.phases import RegionData
+
+        frame = self._frame(end_ts)
+        return RegionData(
+            region="CAISO",
+            demand_df=frame,
+            weather_df=pd.DataFrame(),
+            **kw,
+        )
+
+    def _call(self, data, featured=None, start="2026-08-18 07:00"):
+        from jobs.phases import _anchor_provenance
+
+        return _anchor_provenance(
+            data,
+            featured if featured is not None else data.demand_df,
+            pd.Timestamp(start, tz="UTC"),
+        )
+
+    # ── the anchor hour and its value ───────────────────────────────────────
+
+    def test_anchor_ts_is_the_hour_resolved_from_not_the_forecast_start(self):
+        """The issue is explicit: the anchor hour, not the ``+1h`` start.
+
+        Derived from ``forecast_start - 1h`` rather than by re-running the
+        selection, so the recorded anchor and the anchor actually used cannot
+        drift apart — and that identity holds on every branch of the
+        resolver's fallback chain, since all of them return ``anchor + 1h``.
+        """
+        out = self._call(self._data())
+
+        assert out["anchor_ts"] == pd.Timestamp("2026-08-18 06:00", tz="UTC").isoformat()
+
+    def test_anchor_mw_is_the_value_that_seeds_demand_lag_1h(self):
+        """Pinned against the real seeder, not against a hand-copied number.
+
+        ``compute_autoregressive_snapshot`` sets ``demand_lag_1h`` to
+        ``history[-1]`` after filtering the featured demand column to positive
+        non-NaN, so the two must agree by construction.
+        """
+        from data.feature_engineering import compute_autoregressive_snapshot
+
+        data = self._data()
+        out = self._call(data)
+
+        history = [float(v) for v in data.demand_df["demand_mw"] if v > 0]
+        snapshot = compute_autoregressive_snapshot(history)
+
+        assert out["anchor_mw"] == pytest.approx(snapshot["demand_lag_1h"])
+
+    def test_an_anchor_hour_absent_from_every_frame_is_unknown(self):
+        out = self._call(self._data(), start="2026-09-01 00:00")
+
+        assert out["anchor_mw"] is None
+
+    # ── tri-state ───────────────────────────────────────────────────────────
+
+    def test_placeholder_is_none_when_the_vintage_window_never_answered(self):
+        """Absent provenance and a confirmed metered anchor are DIFFERENT facts.
+
+        ``False`` here would let a record written before the vintage phase ran
+        claim its anchor was metered.
+        """
+        out = self._call(self._data())
+
+        assert out["anchor_was_placeholder"] is None, "no map handed over -> unknown"
+
+    def test_placeholder_is_none_for_an_hour_outside_the_window(self):
+        """Vintage captures the RAW frame; the anchor resolves on the
+        guard-cleaned one, so the two can disagree about which hours exist.
+        That disagreement must read as unknown, not as metered."""
+        out = self._call(self._data(placeholder_by_hour={"2026-08-01T00:00:00+00:00": True}))
+
+        assert out["anchor_was_placeholder"] is None
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_a_recorded_verdict_is_carried_through(self, flag):
+        from data.vintage import canonical_hour
+
+        key = canonical_hour(pd.Timestamp("2026-08-18 06:00", tz="UTC"))
+        out = self._call(self._data(placeholder_by_hour={key: flag}))
+
+        assert out["anchor_was_placeholder"] is flag
+
+    # ── ADR-009, the OTHER way an anchor becomes the operator's forecast ────
+
+    def test_an_unconditioned_region_records_a_confirmed_negative(self):
+        """``anchor_frame`` IS ``demand_df`` here, so this is evidence, not an
+        absence of it — and unlike the placeholder flag it can be ``False``."""
+        out = self._call(self._data())
+
+        assert out["anchor_conditioned"] is False
+
+    def test_a_conditioned_anchor_is_not_reported_as_metered(self):
+        """The defect this fourth field exists to prevent.
+
+        ADR-009 substitutes the BA's own ``forecast_mw`` into the trailing
+        hours of broken-class feeds, deliberately, because it measured better
+        (58.2% wrong vs 14.5%). Vintage records the RAW ``D``, so such an
+        anchor reads ``was_placeholder=False`` while the value that seeded the
+        model was their day-ahead figure — a true field whose framing asserts
+        something false.
+        """
+        from data.vintage import canonical_hour
+
+        data = self._data()
+        conditioned = data.demand_df.copy()
+        conditioned.loc[conditioned.index[-1], "demand_mw"] = 21_000.0
+        data.conditioned_demand_df = conditioned
+        key = canonical_hour(pd.Timestamp("2026-08-18 06:00", tz="UTC"))
+        data.placeholder_by_hour = {key: False}
+
+        out = self._call(data, featured=conditioned)
+
+        assert out["anchor_was_placeholder"] is False, "the raw D genuinely was not a placeholder"
+        assert out["anchor_conditioned"] is True, "but the seed WAS their day-ahead value"
+        assert out["anchor_mw"] == pytest.approx(21_000.0), "and the substituted value is recorded"
+
+    def test_a_conditioned_region_whose_anchor_hour_was_not_substituted(self):
+        """Conditioning touches only the trailing hours, so the flag is decided
+        by comparing the frames at the anchor hour — a fact about the value
+        used, not an inference from the region's class."""
+        data = self._data()
+        conditioned = data.demand_df.copy()
+        conditioned.loc[conditioned.index[-1], "demand_mw"] = 21_000.0
+        data.conditioned_demand_df = conditioned
+
+        out = self._call(data, featured=conditioned, start="2026-08-18 05:00")
+
+        assert out["anchor_conditioned"] is False
+
+
+class TestAnchorNeverLandsOnAForecastRow:
+    """#547 guard. The anchor block belongs at the payload TOP LEVEL.
+
+    ``extract_one_hour_ahead_predictions`` iterates every key on a forecast row
+    and treats each remaining numeric value as a model, so a per-row
+    ``anchor_mw`` would silently acquire its own drift records, a Models-tab
+    entry, and a place in the rolling MAPE the visibility gate reads.
+    """
+
+    def test_a_row_carrying_an_anchor_would_be_read_as_a_model(self):
+        """States the hazard as an executable fact rather than a comment."""
+        from models.drift import extract_one_hour_ahead_predictions
+
+        payload = {
+            "forecasts": [
+                {
+                    "timestamp": "2026-08-18T06:00:00+00:00",
+                    "predicted_demand_mw": 4200.0,
+                    "xgboost": 4200.0,
+                    "anchor_mw": 4100.0,
+                }
+            ]
+        }
+        preds = extract_one_hour_ahead_predictions(payload, "2026-08-18T06:00:00+00:00")
+
+        assert "anchor_mw" in preds, "this is WHY the anchor must stay off the rows"
+
+    def test_the_written_payload_keeps_the_anchor_off_every_row(self):
+        import inspect
+
+        from jobs import phases
+
+        src = inspect.getsource(phases.predict_and_write_forecast)
+        row_build = src.split("row: dict[str, Any] = {")[1].split("fl.append(row)")[0]
+
+        assert "anchor" not in row_build, "the anchor must not be built into a forecast row"
+        assert '"anchor": anchor,' in src, "and must be on the payload top level"
+
+
+class TestAnchorAndTheOriginGuardCompose:
+    """#547 x #537: the two changes meet at the same call site.
+
+    ``_anchor_provenance`` runs immediately after ``_resolve_forecast_start``,
+    and the origin-regression guard returns between them. The ordering is
+    load-bearing in one direction only, and it is not obvious from either
+    change read alone — which is exactly the kind of seam that survives both
+    test suites and fails in production.
+    """
+
+    @staticmethod
+    def _origin(ts: str) -> pd.Timestamp:
+        return pd.Timestamp(ts, tz="UTC")
+
+    def test_a_regressed_origin_stamps_no_anchor_because_it_serves_no_payload(
+        self, region_data, fake_redis, monkeypatch
+    ):
+        """An anchor must describe a forecast that was actually served.
+
+        On a regressed origin the phase keeps the newer payload already in
+        Redis and writes nothing. If the anchor were computed and stamped
+        before the guard, it would describe a forecast this tick declined to
+        publish — and, worse, could be paired against the *previous* payload's
+        rows by the drift phases.
+        """
+        from jobs.phases import predict_and_write_forecast
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41_000.0)})
+        region_data.previous_forecast_origin = self._origin("2024-02-01 00:00")
+
+        result = predict_and_write_forecast(region_data, {"xgboost": object()})
+
+        assert result.details["skipped"] == "origin_regressed"
+        assert "anchor_was_placeholder" not in result.details, (
+            "a declined tick must not report an anchor it never served"
+        )
+        assert fake_redis == {}
+
+    def test_a_normal_tick_still_carries_both(self, region_data, fake_redis, monkeypatch):
+        """The guard must not cost the instrument its reading on healthy ticks."""
+        from jobs.phases import predict_and_write_forecast
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41_000.0)})
+        region_data.previous_forecast_origin = self._origin("2024-01-01 00:00")
+
+        result = predict_and_write_forecast(region_data, {"xgboost": object()})
+
+        assert "skipped" not in result.details
+        assert "anchor_was_placeholder" in result.details
+
+        key = next(k for k in fake_redis if k.endswith("forecast:ERCOT:1h"))
+        anchor = fake_redis[key]["anchor"]
+        # The resolved start is 2024-01-09T08:00 (the frame ends at 07:00), so
+        # the anchor is the hour before it.
+        assert anchor["anchor_ts"] == "2024-01-09T07:00:00+00:00"
+
+        # NOT asserted here: that ``anchor_ts == forecasts[0] - 1h``. It is true
+        # in production and is pinned by the integration test, but this class's
+        # ``_patch_predict_one`` stubs ``_build_future_feature_frame`` with a
+        # lambda that IGNORES ``start_ts`` and hardcodes a 2024-02-01 range — so
+        # asserting it here would test the stub's constant, not the coupling.
+        # Left explicit because the assertion looks obviously correct and passes
+        # nowhere it would mean anything.

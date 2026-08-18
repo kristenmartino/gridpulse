@@ -1108,6 +1108,54 @@ hypothesis for the second one (`_expire_pending`) was wrong.
 
 **Lesson to convey**: *Three experiments, three instrument failures — imputed weather in the replay, stale actuals in the shadow, blanked leads in the drift. The bound everyone kept arguing about was never the problem. When a result is impossible, the instrument is the first suspect and your own last fix is the second: I shipped a correct fix with an incorrect explanation, and only the measurement caught it. And once you have two systems that should agree, stop theorising and diff them — `pred_differs=0` ended a debate that three hypotheses and a day of reasoning had not.*
 
+### Shipping an instrument that measures nothing yet — and refusing to let it read as an answer (2026-08-18)
+
+**S.** GridPulse's public benchmark scores its forecasts against each balancing
+authority's own day-ahead forecast. A day earlier I had disclosed an awkward
+dependence in it: for an hour EIA has not metered yet, EIA publishes the BA's
+day-ahead value in the *actual* field, and our forecast anchors on the last
+**positive** reading rather than the last **metered** one — so on those hours
+our recursion is seeded with the very series we are then scored against. MISO
+36.6% of hours, CAISO 26.6%, fleet median 3.3%. The disclosure had to state the
+materiality as **unmeasured**, because nothing recorded which forecasts it
+touched.
+
+**T.** Make it measurable. "Unmeasured" is honest but unstable — it quietly
+invites the reader to fill the gap with "small".
+
+**A.** The measurement could not be reconstructed: the payload that would prove
+a past run's anchor is overwritten every hour, and the obvious retrospective
+join (anchor = target hour − lead) was both broken by a separate defect *and*
+wrong in principle, because the lead is what the record *realized*, not what it
+was seeded from. So the only move was to start recording. I scoped it
+deliberately short — record the provenance, carry it onto the accruing drift
+records, and **stop before publishing a split**, because a split computed over
+zero records would recreate the exact problem the disclosure had just fixed. I
+added a fourth field nobody asked for: a separate flag for the *deliberate*
+anchor substitution we already do for broken feeds, because the placeholder
+flag reads the raw upstream value and would otherwise have reported those
+anchors as "metered" while the seed genuinely was the operator's forecast — a
+true field whose framing asserts something false. And I found that the code
+rebuilt these records field-by-field in two places, one of which had silently
+dropped a field for weeks; rather than adding mine to the list, I replaced the
+rebuild with a structural copy so the next field cannot repeat it.
+
+**R.** Provenance now accrues from that date. The doc says the instrument
+exists **and that it has measured nothing yet**, guarded by a test that fails
+if a later edit lets "instrumented" quietly become "measured". Cost was checked
+rather than assumed — +54 bytes a record, 12.9 → 20.9 MB fleet-wide, 0.8% of a
+1 GB ceiling running at 13% — which is what let me keep the timestamp
+human-readable instead of packing it.
+
+**Lesson to convey**: *The honest gap is the unstable one. Saying "we don't
+know" is correct but it decays into "it's probably fine" unless you put a clock
+on it, and some measurements can only start today — data you didn't record is
+gone, not merely inconvenient. The discipline is to ship the instrument and
+then loudly refuse to let its existence be mistaken for a result: on the day it
+lands it has measured exactly nothing, and the doc has to say so. When you find
+the same class of bug you're about to reintroduce, fix the class, not your
+instance of it.*
+
 ## Practice instructions (after PR-C2 expands these)
 
 After PR-C2 lands each story as a full 90-second narrative:
