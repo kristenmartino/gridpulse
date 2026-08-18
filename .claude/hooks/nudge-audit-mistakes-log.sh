@@ -5,9 +5,22 @@
 # speaks up when enough NEW undecided Worklog candidates have piled up
 # since the last audit to be worth a separate pass.
 #
-# Dates are compared as ISO strings, never with date(1) arithmetic —
-# YYYY-MM-DD sorts lexically, and GNU date and BSD date disagree on the
-# flags this would otherwise need.
+# "New since the last audit" is decided by ENTRY COUNT, not by date.
+# The first version compared each entry's date against the marker date and
+# counted only entries strictly after it, which meant every deposit made on
+# the same calendar day as an audit was invisible — permanently. On a repo
+# that lands a dozen PRs a day that is a whole day of candidates the nudge
+# would never mention, so the reminder went quiet exactly when there was
+# most to report. Dates have no sub-day resolution and the entries carry no
+# timestamps, so no comparison of dates can fix it.
+#
+# The marker therefore records how many entries the audit saw:
+#   <!-- audited-through: YYYY-MM-DD | entries-seen: N -->
+# and anything beyond N is new. Promotions remove entries and the audit
+# rewrites N to whatever it leaves behind, so both directions stay correct.
+# A missing entries-seen (or `never`) means nothing has been audited, so
+# every entry counts — the safe direction, since erring toward a nudge
+# costs one line and erring the other way is silence that looks like health.
 #
 # Path resolution is deliberate: an earlier version used a bare relative
 # "MISTAKES.md" behind an [ -f ] guard, so running from any subdirectory
@@ -36,25 +49,30 @@ if [ ! -f "$FILE" ]; then
   exit 0
 fi
 
-# An absent or non-date marker means no audit has ever run, so everything
-# counts. Same reading as a file that predates the marker entirely.
+# Marker date is for humans; entries-seen is what the decision uses.
 MARKER=$(grep -oE 'audited-through:[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}' "$FILE" \
          | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
-[ -n "$MARKER" ] || MARKER="0000-00-00"
+[ -n "$MARKER" ] || MARKER="never"
+
+SEEN=$(grep -oE 'entries-seen:[[:space:]]*[0-9]+' "$FILE" | grep -oE '[0-9]+' | head -1)
+[ -n "$SEEN" ] || SEEN=0
 
 ENTRIES=$(awk '/^## Worklog/{f=1; next} /^## /{f=0} f && /^- [0-9]{4}-[0-9]{2}-[0-9]{2} \[/' "$FILE")
-# Strictly after the marker: an audit that ran today has already seen
-# today's entries.
-NEW=$(printf '%s\n' "$ENTRIES" | awk -v m="$MARKER" '{d=substr($2,1,10); if (d > m) print}')
-COUNT=$(printf '%s\n' "$NEW" | grep -c '^- ')
+TOTAL=$(printf '%s\n' "$ENTRIES" | grep -c '^- ')
+
+# Entries are newest-first, so anything beyond the audited count is what
+# arrived since. Clamp at zero: promotions can leave TOTAL below SEEN until
+# the next audit rewrites it, and a negative would read as "nothing new".
+COUNT=$(( TOTAL - SEEN ))
+[ "$COUNT" -lt 0 ] && COUNT=0
 
 if [ "$COUNT" -lt 3 ]; then
-  log_hook "silent new=$COUNT since=$MARKER"
+  log_hook "silent new=$COUNT total=$TOTAL seen=$SEEN since=$MARKER"
   exit 0
 fi
 
-log_hook "nudge new=$COUNT since=$MARKER"
-OLDEST=$(printf '%s\n' "$NEW" | tail -1)
+log_hook "nudge new=$COUNT total=$TOTAL seen=$SEEN since=$MARKER"
+OLDEST=$(printf '%s\n' "$ENTRIES" | sed -n "${COUNT}p")
 cat <<EOF
-{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"MISTAKES.md has $COUNT undecided Worklog candidates newer than the last audit ($MARKER). Oldest unaudited: ${OLDEST#- } — Consider running the audit-mistakes-log skill in a fresh session; it's meant to run decontextualized from whatever deposited these, not mid-task here. It advances the audited-through marker even if it promotes nothing, which silences this until new candidates arrive."}}
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"MISTAKES.md has $COUNT Worklog candidates deposited since the last audit ($MARKER saw $SEEN of the current $TOTAL). Most recent unaudited: ${OLDEST#- } — Consider running the audit-mistakes-log skill in a fresh session; it's meant to run decontextualized from whatever deposited these, not mid-task here. It rewrites the entries-seen count even if it promotes nothing, which silences this until new candidates arrive."}}
 EOF

@@ -26,12 +26,13 @@ and the `## Analyzed` section (its pattern tally + entries). This is the one
 skill that's supposed to load the whole file — everywhere else in this
 system it stays on disk unread.
 
-Note the `<!-- audited-through: YYYY-MM-DD -->` marker in the Worklog. It
-tells you which entries a previous pass already considered; entries at or
-before it have been seen, whatever was decided about them. You still read
-everything (a pattern may only become visible once a new entry joins old
-ones), but the marker is what tells you which candidates are genuinely new
-since last time. **You are responsible for advancing it — see Step 7.**
+Note the `<!-- audited-through: YYYY-MM-DD | entries-seen: N -->` marker in
+the Worklog. Its **`entries-seen` count, not its date**, marks the boundary:
+entries are newest-first, so the oldest `N` have been seen by a previous
+pass — whatever it decided about them — and anything beyond that arrived
+since. You still read everything (a pattern often only becomes visible once
+a new entry joins old ones), but `N` is what tells you which candidates are
+genuinely new. **You are responsible for rewriting it — see Step 7.**
 
 ## Step 2 — tally by root cause, not by tag
 
@@ -116,20 +117,33 @@ in what PR if you can find it) that makes it stale. Don't silently remove
 it — that's still a CLAUDE.md edit, subject to the same approval as adding
 one.
 
-## Step 7 — advance the audited-through marker, always
+## Step 7 — rewrite the audited-through marker, always
 
-Set `<!-- audited-through: YYYY-MM-DD -->` in the Worklog to today's date
-before you finish. Do this on **every** run, including — especially — the
-run where nothing crossed the bar and you promoted nothing.
+Set both fields before you finish:
 
-This is not bookkeeping, it is the only way "I looked at these and they can
-wait" gets recorded. The SessionStart hook counts entries newer than this
-marker, so a pass that decides nothing graduates still buys quiet until
-genuinely new candidates arrive. Leave it stale and the nudge repeats your
-own already-made decision back at you every session until you stop reading
-it — which is how a reminder system dies. It is safe to advance even when
-you promoted nothing: the entries stay in the Worklog and a later pass will
-reconsider them the moment a new one joins the pattern.
+```
+<!-- audited-through: YYYY-MM-DD | entries-seen: N -->
+```
+
+`N` is **the number of Worklog entries left standing when you finish** —
+count them after any promotions have removed theirs, not before. The date is
+for humans; `entries-seen` is what the SessionStart nudge actually reads, and
+it treats anything beyond `N` as arrived-since. Getting `N` wrong in either
+direction is the whole failure mode: too high and genuinely new candidates
+stay invisible, too low and the nudge repeats a decision you already made.
+
+Do this on **every** run, including — especially — the run where nothing
+crossed the bar and you promoted nothing. It is not bookkeeping; it is the
+only way "I looked at these and they can wait" gets recorded. Leave it stale
+and the nudge repeats your own decision back at you every session until you
+stop reading it, which is how a reminder system dies. Advancing it after
+promoting nothing is safe: the entries stay in the Worklog and a later pass
+reconsiders them the moment a new one joins the pattern.
+
+Count rather than date because entries carry no time of day. The first
+version compared dates, so every deposit made on the same day as an audit
+was invisible to the nudge permanently — and on this repo most deposits land
+the same day as something else.
 
 ## Step 8 — is enforcement actually running?
 
@@ -163,5 +177,5 @@ drafted promotions (each with its Analyzed entry text and CLAUDE.md diff),
 zero or more flagged-as-possibly-stale existing rules, the enforcement-health
 line from Step 8, and a clear statement of what still needs the human's
 yes/no. `MISTAKES.md` should always come out of this with an advanced
-audited-through marker, and may have updated tally numbers, even if nothing
+audited-through marker (date AND entries-seen), and may have updated tally numbers, even if nothing
 graduated this pass — that's still useful output.
