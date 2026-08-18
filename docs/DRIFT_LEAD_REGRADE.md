@@ -361,3 +361,32 @@ python3 -c "import sys;src=open(sys.argv[1]).read();d=chr(37)*2;print(chr(10).jo
 ```
 
 Dry-run is the default; the apply switch lives in the GCS artifact.
+
+### Post-deploy confirmation (2026-08-18T08:28Z)
+
+Merged `71a60cc`, deployed, and verified **inside the running container** rather
+than by tag: a lead-6 record re-graded against a changed actual came back with
+`lead_hours=6` (`FIX_LIVE=True`). Ancestry was checked rather than assumed — a
+concurrent merge (`f826c9f`) superseded this one's deploy run, and `71a60cc` is
+an ancestor of it, so a green workflow alone would not have been evidence.
+
+Backfill applied to the six BAs, then re-read independently:
+
+| BA | predicted AFTER (07:06Z) | live after backfill (08:28Z) | `n_7d` | `unk7d` | `excl7d` |
+|---|---:|---:|---:|---:|---:|
+| LDWP | 8.231 | **8.231** | 15 | 0 | 12 |
+| PSCO | 10.766 | **10.766** | 120 | 0 | 33 |
+| IID | 13.643 | 14.702 | 135 | 0 | 13 |
+| AZPS | 11.427 | 11.793 | 30 | 0 | 10 |
+| LGEE | 2.435 | 2.454 | 80 | 1 | 59 |
+| SPA | 24.630 | 26.005 | 82 | 0 | 38 |
+
+LDWP and PSCO reproduce the counterfactual **exactly**; they graded no new
+records in the intervening 1.4 hours. The other four moved because their
+windows advanced, which is the expected behaviour of a time-bounded statistic
+and the reason every figure here carries a timestamp. `n_lead_unknown_7d`
+reached **0** on five BAs and 1 on LGEE — one record whose lead the log could
+not supply.
+
+The GCS artifact was returned to `apply: false` after the run, so an accidental
+re-execution is a dry run.
