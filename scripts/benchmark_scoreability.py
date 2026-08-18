@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -30,7 +31,12 @@ import pandas as pd  # noqa: E402
 
 import config  # noqa: E402
 from config import REGION_COORDINATES  # noqa: E402
-from data.vintage import classify_region, deserialize_records  # noqa: E402
+from data.vintage import (  # noqa: E402
+    FRESH_CAPTURE_LAG_HOURS,
+    classify_region,
+    deserialize_records,
+    df_capture_lag_hours,
+)
 from models.benchmark import STUB_EPSILON_MW, scoreability  # noqa: E402
 
 
@@ -49,7 +55,11 @@ def official_quality(records: list) -> tuple[float | None, int]:
     """Median APE of the BA's OWN day-ahead forecast vs settled truth.
 
     Applies the same per-hour exclusions the benchmark does, so the number
-    is the one a reader would reproduce from the benchmark itself.
+    is the one a reader would reproduce from the benchmark itself. That
+    includes the ``stale_capture`` rule (#358/#392, measured on ``df_at`` since
+    #535): a DF observed after the hour settled is a post-revision value, and
+    grading the operator on it here while the benchmark refuses to would make
+    this table quietly kinder to them than the scorecard is.
     """
     errs = [
         abs(r.first_seen_df - r.last_d) / r.last_d * 100.0
@@ -59,6 +69,8 @@ def official_quality(records: list) -> tuple[float | None, int]:
         and r.last_d > 0
         and not r.was_placeholder
         and abs(r.last_d - r.first_seen_df) >= STUB_EPSILON_MW
+        and (lag := df_capture_lag_hours(r)) is not None
+        and lag <= FRESH_CAPTURE_LAG_HOURS
     ]
     if len(errs) < 50:
         return None, len(errs)
@@ -89,6 +101,11 @@ def build_rows() -> list[dict]:
                 "scoreable": score["scoreable"],
                 "reason": score["reason"] or "",
                 "df_coverage_pct": round(score["df_coverage"] * 100, 1),
+                # Our capture rate, beside the BA's publication rate. Publishing
+                # only the first is how #535 stayed invisible: a reader could
+                # not tell a BA that does not publish from one we failed to
+                # record in time.
+                "df_asissued_pct": round(score["df_asissued_coverage"] * 100, 1),
                 "stub_pct": score["placeholder_pct"],
                 "official_median_ape_pct": None if median_ape is None else round(median_ape, 2),
                 "n_scoreable_hours": n,
@@ -111,11 +128,27 @@ def main() -> int:
     excluded = [r for r in rows if not r.get("scoreable")]
     quality = [r["official_median_ape_pct"] for r in scoreable if r.get("official_median_ape_pct")]
 
+    stamp = datetime.now(UTC).strftime("%Y-%m-%d")
     report = [
         "# Benchmark scoreability — which BAs can be compared, and why not\n",
-        f"\n**{len(scoreable)} of {len(rows)} balancing authorities are scoreable.** "
-        "A BA is excluded only when it cannot be compared *fairly*; the reason "
-        "is published for every one of them.\n",
+        # NOT a standing claim. This file is generated on demand and was, for
+        # three weeks, a 2026-07-27 snapshot asserting "44 of 51" in the present
+        # tense while the live payload served 25 — the #535 drift. The count is
+        # a measurement with a date on it; the API is the authority.
+        f"\n*Generated {stamp} from the GCS vintage mirror. A dated snapshot, not "
+        "a standing figure — the current count is whatever "
+        "[`/api/v1/benchmark`](https://gridpulse.kristenmartino.ai/api/v1/benchmark) "
+        "reports as `n_scoreable`, computed by the same "
+        "`models.benchmark.scoreability` this script calls. Where the two "
+        "disagree, this file is the stale one.*\n",
+        f"\n**As measured on {stamp}: {len(scoreable)} of {len(rows)} balancing "
+        "authorities are scoreable.** A BA is excluded only when it cannot be "
+        "compared *fairly*; the reason is published for every one of them.\n",
+        "\n`df_coverage_pct` is the **BA's** publication rate — the share of "
+        "hours EIA carried a day-ahead forecast for — and is the only figure "
+        "the exclusion gate acts on. `df_asissued_pct` is **ours**: the share "
+        "we observed early enough to score as-issued. Before #535 these were "
+        "one number, and the second was being published as the first.\n",
     ]
 
     if quality:
@@ -141,11 +174,13 @@ def main() -> int:
         "**`df-coverage`** — the BA publishes a day-ahead forecast too sparsely "
         "to score.\n"
     )
+    n_broken = sum(1 for r in excluded if r["reason"] == "broken-feed")
     report.append(
-        "\nNote the direction of the bias: four of the exclusions are for feed "
-        "brokenness, and BAs with sloppy data operations plausibly also forecast "
-        "sloppily — so excluding them likely removes BAs where GridPulse would "
-        "win. The exclusion set is conservative against our own claim.\n"
+        f"\nNote the direction of the bias: {n_broken} of the exclusions are for "
+        "feed brokenness, and BAs with sloppy data operations plausibly also "
+        "forecast sloppily — so excluding them likely removes BAs where "
+        "GridPulse would win. The exclusion set is conservative against our own "
+        "claim.\n"
     )
 
     report.append("\n## Scoreable\n\n")

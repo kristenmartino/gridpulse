@@ -117,14 +117,37 @@ product, not an omission from it.
 | `df-coverage` | the BA publishes `DF` for < 80% of hours | too sparse to score fairly |
 | `insufficient-paired-hours` | fewer than 200 hours survive §4 | too thin for a per-BA verdict |
 
-**The direction of this bias is against us.** Four of the seven current
-exclusions are broken feeds, and a BA with sloppy data operations plausibly
-also forecasts sloppily — so the excluded set is disproportionately made of
-BAs where GridPulse would likely win. The rule removes our best cases, not
-our worst.
+**The direction of this bias is against us.** The broken-feed exclusions are
+BAs with sloppy data operations, which plausibly also forecast sloppily — so
+the excluded set is disproportionately made of BAs where GridPulse would
+likely win. The rule removes our best cases, not our worst.
 
-Current standing: **44 of 51 BAs scoreable**, with each exclusion and its
-reason listed in [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md).
+**Current standing is not stated here, deliberately (#535).** This paragraph
+read "44 of 51 BAs scoreable" for three weeks while the live payload served
+**25** — a prose sentence cannot track a number recomputed every hour, and
+pretending otherwise is how the page and its own methodology came to disagree
+in public. The count is published, live, as `n_scoreable` on
+[`/api/v1/benchmark`](https://gridpulse.kristenmartino.ai/api/v1/benchmark).
+Per-BA exclusions and their reasons are listed there too, and mirrored in the
+dated snapshot at
+[`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md).
+
+### The gate measures the BA, not us (#535)
+
+`df_coverage` is the share of hours **EIA published a day-ahead forecast for**.
+It is the only coverage figure the exclusion gate acts on, because the
+exclusion text it produces makes a claim about the balancing authority.
+
+Until #535 it was not that number. `first_seen_df` was pinned on the tick that
+first admitted the hour and never revisited, so a DF EIA published slightly
+later was lost permanently — and the gate read our collector's timing as the
+BA's publishing behaviour. Twenty-six BAs were excluded on it, five of them
+large ISOs. Measured against EIA directly on 2026-08-17, exactly one of that
+set (SPP, 53.8%) was genuinely below the threshold.
+
+Our own capture rate did not disappear; it moved to `df_asissued_coverage`,
+which is published beside the gate figure and decides nothing. The two answer
+different questions and are no longer allowed to share a number.
 
 ## 6. Two official arms
 
@@ -271,11 +294,14 @@ number per BA is not a supportable format.
   rests on quantiles rather than a point scorecard.
 - **Spread is reported for both arms** — min, max, and ratio, as
   `official_spread` and `gridpulse_spread`, both computed on **mean** MAPE.
-  Separately, the operators' own day-ahead accuracy spans a measured **41×**
-  across the scoreable set (1.15% to 47.21%) — that figure is a *median* APE
-  spread from
+  Separately, the operators' own day-ahead accuracy spans a wide multiple
+  across the scoreable set — that figure is a *median* APE spread from
   [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md), not the payload
-  field, and the two are not interchangeable (§8).
+  field, and the two are not interchangeable (§8). The specific multiple is
+  **not quoted here**: it is computed over the scoreable *population*, so it
+  moves whenever the population does — as it did when #535 changed the
+  population by 21 BAs, taking the previously-quoted "41× (1.15% to 47.21%)"
+  with it. Read it off the snapshot, which carries its own date.
 
   Consistency across a fleet is a different claim from winning a head-to-head,
   and it is the more interesting one. It is also **not yet established**: no
@@ -294,7 +320,9 @@ number per BA is not a supportable format.
   curve.
 - **Not lead-matched.** The headline arm compares our ~23.9h forecast against
   a submission made 17–41h out (§7, §12.4).
-- **Not fleet-complete.** 7 of 51 BAs are excluded, by published rule.
+- **Not fleet-complete.** Some BAs are excluded, by published rule; the
+  count and the per-BA reasons ship in the payload rather than being
+  asserted here (§5).
 - **Not peer-reviewed, and not a study.** It is a continuously recomputed
   measurement with published rules and reproducible scripts.
 

@@ -595,6 +595,11 @@
     /* models.benchmark.MIN_PAIRED_HOURS — shown so a reader can see how far
        off a still-accumulating BA is, rather than just that it is missing. */
     var MIN_PAIRED_HOURS = 200;
+    /* The seven ISO/RTO territories. Named so the fleet lede can say WHICH
+       large operators are missing when they are, rather than leaving a reader
+       to diff the exclusion table against their own mental list — #535 sat
+       unnoticed for three weeks with five of these absent from the medians. */
+    var LARGE_ISOS = ['ERCOT', 'MISO', 'PJM', 'CAISO', 'ISONE', 'NYISO', 'SPP'];
     var data = null;
     var sortKey = 'region';
     var sortAsc = true;
@@ -733,7 +738,10 @@
       var items = [
         {
           label: 'Scoreable',
-          value: (data.n_scoreable === null || data.n_scoreable === undefined) ? '—' : data.n_scoreable,
+          /* Rendered as N of 51, not a bare N. A lone number gives a reader no
+             way to see the denominator move, which is exactly how #535 hid. */
+          value: (data.n_scoreable === null || data.n_scoreable === undefined)
+            ? '—' : data.n_scoreable + ' / 51',
           sub: (data.n_excluded === null || data.n_excluded === undefined)
             ? 'exclusion count unavailable this tick — see the tables below'
             : data.n_excluded + ' excluded, each with a published reason'
@@ -758,7 +766,8 @@
              in the scoreability report is a MEDIAN APE spread, and this is a
              mean-MAPE one over a different population. */
           sub: 'theirs / ours — worst ÷ best BA mean MAPE, 30-day window, ' +
-               'fleet excl. ERCOT' +
+               'over the ' + (fleet.n === undefined ? '—' : fleet.n) + ' scoreable BAs' +
+               ((data.isolated && data.isolated.ERCOT) ? ' excl. ERCOT' : '') +
                (spreadTheirs.min ? ' (theirs ' + num(spreadTheirs.min) + '–' + num(spreadTheirs.max) +
                  '%, ours ' + num(spreadOurs.min) + '–' + num(spreadOurs.max) + '%)' : '')
         }
@@ -773,14 +782,37 @@
         tiles.appendChild(d);
       });
 
+      /* The population is part of the number (#535). "Across N BAs" read the
+         same at N=44 and N=25, so when a capture bug silently dropped 19 —
+         five of them large ISOs — the headline changed the group it described
+         and said nothing. A median over a different fleet is a different
+         statistic, and a reader comparing two visits deserves to see that. */
       var wins = fleet.wins, losses = fleet.losses;
+      var TOTAL_BAS = 51;
+      var missing = (data.excluded || [])
+        .filter(function (e) { return LARGE_ISOS.indexOf(e.region) !== -1; })
+        .map(function (e) { return e.region; });
+      /* Only claim ERCOT is broken out if it actually is. `isolated` is empty
+         whenever ERCOT is itself excluded, and the sentence used to assert the
+         carve-out unconditionally — telling readers to look for a row that was
+         not on the page. */
+      var ercotIsolated = !!(data.isolated && data.isolated.ERCOT);
+      var lede = 'Across ' + fleet.n + ' of ' + TOTAL_BAS +
+        ' balancing authorities — those scoreable under the published rules — ' +
+        'GridPulse is closer on ' + wins + ' and the operator is closer on ' + losses + '. ';
+      if (missing.length) {
+        lede += 'Note the population: ' + missing.join(', ') +
+          (missing.length === 1 ? ' is ' : ' are ') +
+          'excluded from these medians, so this is not a whole-fleet figure — ' +
+          'see the exclusion table for each reason. ';
+      }
+      if (ercotIsolated) {
+        lede += 'ERCOT is reported separately rather than folded in. ';
+      }
+      lede += 'Medians, not means: one catastrophic BA should move its own row, ' +
+        'not the fleet’s.';
       document.getElementById('fleet-lede').textContent =
-        (wins === undefined || wins === null)
-          ? 'Fleet aggregation is still accumulating.'
-          : 'Across ' + fleet.n + ' scoreable balancing authorities, GridPulse is closer on ' +
-            wins + ' and the operator is closer on ' + losses +
-            '. ERCOT is reported separately rather than folded in. Medians, not means: one ' +
-            'catastrophic BA should move its own row, not the fleet’s.';
+        (wins === undefined || wins === null) ? 'Fleet aggregation is still accumulating.' : lede;
     }
 
     /* Written from the payload every load, with both directions handled — a

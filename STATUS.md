@@ -741,7 +741,8 @@ days after they begin.
 
 **2026-07-28 — baseline substitution flipped ON; SEC now serves the
 seasonal-naive baseline.** Flag `baseline_substitution` → True after
-shadow-running the live decision across all 44 scoreable regions.
+shadow-running the live decision across all 44 regions scoreable on that
+date. (That count is a measurement, not a constant — see the #535 entry.)
 
 **Shadow result: SEC alone**, at **−4.03** error points against the −2.0
 bar (model 12.59% vs naive 8.56% on the trailing 7 days). 43 regions keep
@@ -991,9 +992,12 @@ against a *free* incumbent (EIA-930 publishes each BA's day-ahead
 forecast), so relative accuracy is the value proposition. Engine rides
 existing instrumentation — official arm from vintage `first_seen_df`,
 GridPulse arm from `drift_horizon` 24h/48h records, settled `last_d` as
-the single truth for both. Measured: **44 of 51 BAs scoreable**, and the
-operators' own accuracy spans **41×** (ERCOT 1.15% → PSEI 47.21%) —
-content no incumbent publishes (`docs/BENCHMARK_SCOREABILITY.md`).
+the single truth for both. Measured **as of 2026-07-27**: 44 of 51 BAs
+scoreable, operators' own accuracy spanning 41× (ERCOT 1.15% → PSEI
+47.21%) — content no incumbent publishes. **Both figures moved, and the
+first one moved because of a bug** ([#535](https://github.com/kristenmartino/gridpulse/issues/535));
+the live count ships as `n_scoreable` on `/api/v1/benchmark`, and the
+spread is a property of whatever population is scoreable that day.
 
 **Two limits block the public claim, both documented in
 `models/benchmark.py`:** (1) `first_seen_df` is *not* the day-ahead value

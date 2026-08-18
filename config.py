@@ -1273,7 +1273,9 @@ FEATURE_FLAGS: dict[str, bool] = {
     "smart_defaults": True,  # NEXD-9: remember last filter state in localStorage
     # Serve a seasonal-naive baseline for regions whose model measurably
     # loses to it (models/skill.py). Flipped 2026-07-28 after shadow-running
-    # the live decision across all 44 scoreable regions: SEC alone, at -4.03
+    # the live decision across all 44 regions scoreable AT THAT DATE (the
+    # scoreable count is not a constant — see #535; it is published live as
+    # `n_scoreable`): SEC alone, at -4.03
     # error points against the -2.0 bar, stable at every window with enough
     # hours to decide (-2.88 at 5d, -2.79 at 10d) while the nearest other
     # region sits at -1.68. Rollback = flip back; the substitution is a
