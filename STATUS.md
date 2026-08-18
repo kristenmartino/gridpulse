@@ -64,7 +64,27 @@ BAs move the wrong way inside noise. **Evidence:**
 
 **Also fixed:** the parity test that should have caught this compared both AR
 implementations on a **gapless** fixture, where they agree by construction.
-`tests/unit/test_temporal_ar_seed.py` carries the gapped version.
+`tests/unit/test_temporal_ar_seed.py` carries the gapped version, plus a fuzz
+over randomised gap patterns and a companion test asserting the positional path
+**fails** that same property — so the fuzz cannot quietly stop testing anything.
+
+**[#186](https://github.com/kristenmartino/gridpulse/issues/186) re-scoped, not
+closed.** Its premise ("the two paths match today only by coincidence") is wrong
+— they do not match, and have not for as long as gaps have existed. And its
+Option A is priced: a per-row shared core is **611x** the vectorised training
+path (+372s per fleet run, ~double with the holdout), and routing inference
+through pandas is **60x** the snapshot (+54s/tick). Both buy what the property
+test gives free, against #389's rule to bound per-run cost. The paths now share a
+representation (continuous hourly grid, NaN holes) and a semantic instead. Three
+implementations exist only while the flag keeps both inference paths alive;
+the flag decision deletes one.
+
+**Caught late, worth recording:** the first temporal implementation keyed history
+by timestamp in a `dict` and cost **79x** the positional snapshot — **+74.9s per
+scoring tick** fleet-wide, which would have blocked flipping the flag on at all.
+It was not measured before it shipped. The dense hour-indexed array that replaced
+it runs at **0.5x** the positional path, and forecasts are byte-identical to the
+studied arm.
 
 ---
 

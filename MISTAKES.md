@@ -55,6 +55,7 @@ the same day as an audit — and on this repo that is most of them. Entries
 carry no time of day, so counting is the only thing with the resolution to
 tell "already reviewed" from "arrived since".
 
+- 2026-08-18 [unmeasured-cost-of-own-fix] Shipped a correctness fix whose first implementation cost 79x the code it replaced (+74.9s per scoring tick fleet-wide, on a job that has SIGKILLed at its task timeout) — dormant only because the flag defaulted off, and found by measuring a *different* question afterwards rather than before merging. — ref: #559 / PR #584
 - 2026-08-18 [guard-blind-by-construction] The train/inference autoregressive parity test (`test_training_features_match_inference_snapshot_row_by_row`) compares both implementations on a gapless synthetic fixture, where they agree by construction, so it cannot see the positional-vs-temporal divergence it exists to catch. — ref: #559 / #186
 <!-- audited-through: 2026-08-18 | entries-seen: 6 -->
 

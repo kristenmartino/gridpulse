@@ -144,6 +144,9 @@ feature value, and is orthogonal to this. It should land regardless.
 
 `temporal_ar_seed`, registered in `config.FEATURE_FLAGS`, **default off**.
 
+- `HourIndexedHistory` stores demand densely by hour, NaN where we have none —
+  **the same shape the training path already works in**, which is what makes the
+  two paths mean the same thing.
 - `compute_temporal_autoregressive_snapshot` resolves each lag to `now - k
   hours`, returning NaN when that hour is absent rather than reaching further.
 - Both recursion helpers take an optional `seed_timestamps` and use it only when
@@ -161,6 +164,59 @@ are the same thing.
 
 Default off is the honest setting for an inconclusive result. Turning it on is a
 decision that wants a shadow run, not this study.
+
+### Cost
+
+The first implementation keyed the history by timestamp in a `dict`, which
+rebuilt a list of up to 168 lookups per rolling window per step: **79x** the
+positional snapshot, **+74.9s per scoring tick** fleet-wide, +4.6% of a forecast
+phase on a job that has SIGKILLed at its 1800s timeout (#389). That would have
+blocked ever flipping the flag on, and it was not measured before it shipped.
+
+The dense hour-indexed array replaced it. A window is a slice, so it is
+**faster than the positional path it replaces**:
+
+| per BA, 384 recursive steps | snapshot cost | full loop, fleet |
+|---|---:|---:|
+| positional list (flag off) | 17.8 ms | — |
+| temporal dict (first cut) | 1418.5 ms (79.8x) | +74.9s |
+| **temporal array (shipped)** | **9.7 ms (0.5x)** | **+0.1s** |
+
+Forecasts are unchanged by the swap: the array implementation reproduces this
+study's independent treatment arm to **0.0000000000** on TIDC, PSCO and IID, so
+every number in §3 still describes what ships.
+
+## 7. Why #186 is not "unify the implementations"
+
+[#186](https://github.com/kristenmartino/gridpulse/issues/186) asks for a single
+shared core, on the reasoning that the training and inference paths "match today
+only by coincidence." Two corrections.
+
+**They do not match.** Not on gapped frames, and not for as long as gaps have
+existed. #186 is a divergence-*repair* issue, not a divergence-prevention one.
+
+**And a shared core is the expensive way to fix it.** Measured on a real 90-day
+frame (2171 rows):
+
+| unification | cost |
+|---|---|
+| training calls the per-row core | **611x** the vectorised path — +372s per fleet training run, roughly double once the holdout replays it |
+| inference calls the pandas core on a trailing frame | **60x** the positional snapshot — +54s per scoring tick fleet-wide |
+
+Both buy a structural guarantee that a property test provides for free, against
+CLAUDE.md's #389 rule to bound what one run can cost.
+
+What actually delivers #186's intent is cheaper and already here: the two paths
+now share a **representation** (a continuous hourly grid with NaN holes) and a
+**semantic** (a lag is an hour, an absent hour is NaN), and
+`TestParityProperty` fuzzes randomised gap patterns to assert they agree —
+including a companion test asserting the *positional* path **fails** that same
+property, so the fuzz cannot quietly stop generating gaps that matter.
+
+Three implementations remain only because the flag needs both inference paths
+alive. Whichever way the flag decision lands, one of them is deleted, and the
+count goes to two: bulk-vectorised for training, incremental for inference,
+which is an inherent difference in shape rather than duplicated logic.
 
 **Also worth fixing regardless of the above:**
 `test_training_features_match_inference_snapshot_row_by_row`

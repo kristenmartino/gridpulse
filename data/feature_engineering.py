@@ -274,15 +274,92 @@ def compute_autoregressive_snapshot(demand_history: list[float]) -> dict[str, fl
     }
 
 
+class HourIndexedHistory:
+    """Demand keyed by hour, stored densely with NaN for hours we do not have.
+
+    This is the same shape the training path already works in — a continuous
+    hourly grid where a gap is a NaN rather than an absent row — which is the
+    point. ``add_autoregressive_demand_features`` shifts such a grid; this
+    offsets into one. Sharing the *representation* is what makes the two paths
+    mean the same thing, and it is cheaper than sharing a call: a window is a
+    slice here, where a mapping would rebuild a list of up to 168 lookups on
+    every step (measured 79x the positional path; this is 0.5x it).
+
+    Holes are load-bearing. ``lag_24h`` at an hour we never observed must be
+    NaN, not the nearest thing 24 entries back — that silent reach is #559.
+    """
+
+    __slots__ = ("_base", "_values")
+
+    def __init__(self, base: pd.Timestamp, values: np.ndarray) -> None:
+        self._base = base
+        self._values = values
+
+    @classmethod
+    def build(
+        cls, timestamps: Any, values: Any, *, extra_hours: int = 0
+    ) -> "HourIndexedHistory | None":
+        """From parallel timestamp/value sequences, or None if they do not line up.
+
+        ``extra_hours`` reserves room past the last seed hour for predictions the
+        recursion will write back.
+        """
+        try:
+            stamps = pd.to_datetime(pd.Series(list(timestamps)), utc=True)
+            vals = np.asarray(list(values), dtype=float)
+        except (TypeError, ValueError):
+            return None
+        if len(stamps) != len(vals) or len(stamps) == 0:
+            return None
+
+        base = stamps.min().floor("h")
+        offsets = ((stamps - base).dt.total_seconds() // 3600).to_numpy(dtype=np.int64)
+        size = int(offsets.max()) + 1 + max(0, extra_hours)
+        arr = np.full(size, np.nan, dtype=float)
+        # #129: a zero or NaN reading poisons the rolling windows, so it is not
+        # history. Leaving it NaN is exactly "we do not have this hour".
+        keep = np.isfinite(vals) & (vals > 0)
+        arr[offsets[keep]] = vals[keep]
+        return cls(base, arr)
+
+    @classmethod
+    def from_mapping(
+        cls, mapping: Mapping[pd.Timestamp, float], *, extra_hours: int = 0
+    ) -> "HourIndexedHistory | None":
+        if not mapping:
+            return None
+        return cls.build(list(mapping.keys()), list(mapping.values()), extra_hours=extra_hours)
+
+    def index_of(self, ts: pd.Timestamp) -> int:
+        return int((pd.Timestamp(ts).tz_convert("UTC") - self._base).total_seconds() // 3600)
+
+    def set(self, ts: pd.Timestamp, value: float) -> None:
+        i = self.index_of(ts)
+        if 0 <= i < len(self._values):
+            self._values[i] = value
+
+    def at(self, index: int) -> float:
+        if index < 0 or index >= len(self._values):
+            return np.nan
+        return float(self._values[index])
+
+    def window(self, index: int, hours: int) -> np.ndarray:
+        """The hours actually present in ``[index - hours, index)``."""
+        lo = max(0, index - hours)
+        hi = max(lo, min(index, len(self._values)))
+        seg = self._values[lo:hi]
+        return seg[np.isfinite(seg)]
+
+
 def compute_temporal_autoregressive_snapshot(
-    history: Mapping[pd.Timestamp, float], now: pd.Timestamp
+    history: "HourIndexedHistory", now: pd.Timestamp
 ) -> dict[str, float]:
     """``compute_autoregressive_snapshot`` resolved by hour instead of position.
 
     Same key set, same arithmetic. The only difference is what "24 back" means:
-    this asks ``history`` for the hour ``now - 24h`` and returns NaN when that
-    hour is absent, where the positional version counts back 24 surviving
-    entries and silently reaches further whenever the frame has a hole.
+    this reads the hour ``now - 24h`` and returns NaN when we do not have it,
+    where the positional version counts back 24 surviving entries and silently
+    reaches further whenever the frame has a hole.
 
     That difference is not hypothetical. ``engineer_features`` drops every row
     whose lag source was null, so ``featured`` carries real discontinuities —
@@ -295,33 +372,29 @@ def compute_temporal_autoregressive_snapshot(
     likewise tolerates a gap rather than reaching past the window to fill it.
 
     Args:
-        history: Demand keyed by hour. Values are real demand for seed hours and
-            the model's own predictions for hours already forecast.
+        history: Hour-indexed demand. Real demand for seed hours, the model's
+            own predictions for hours already forecast.
         now: The hour being predicted. Lags are resolved relative to this.
 
     Returns:
         The same 21 keys ``compute_autoregressive_snapshot`` returns.
     """
+    idx = history.index_of(now)
 
     def _lag(periods: int) -> float:
-        return history.get(now - pd.Timedelta(hours=periods), np.nan)
+        return history.at(idx - periods)
 
     def _roll(window: int, op: str) -> float:
-        vals = [
-            history[ts]
-            for ts in (now - pd.Timedelta(hours=i) for i in range(1, window + 1))
-            if ts in history
-        ]
-        if not vals:
+        arr = history.window(idx, window)
+        if arr.size == 0:
             return np.nan
-        arr = np.asarray(vals, dtype=float)
         if op == "mean":
-            return float(np.mean(arr))
+            return float(arr.mean())
         if op == "std":
-            return float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+            return float(arr.std(ddof=1)) if arr.size > 1 else 0.0
         if op == "min":
-            return float(np.min(arr))
-        return float(np.max(arr))
+            return float(arr.min())
+        return float(arr.max())
 
     lag_1 = _lag(1)
     lag_2 = _lag(2)
@@ -365,9 +438,9 @@ def compute_temporal_autoregressive_snapshot(
 
 
 def _temporal_seed_history(
-    seed_demand: Any, seed_timestamps: Any
-) -> dict[pd.Timestamp, float] | None:
-    """Build the timestamp-keyed seed, or None if temporal mode is unavailable.
+    seed_demand: Any, seed_timestamps: Any, *, extra_hours: int = 0
+) -> "HourIndexedHistory | None":
+    """Build the hour-indexed seed, or None if temporal mode is unavailable.
 
     Fail-open by design: every caller that cannot supply timestamps, and every
     frame whose timestamps do not line up with its demand, falls back to the
@@ -375,18 +448,7 @@ def _temporal_seed_history(
     """
     if seed_timestamps is None:
         return None
-    try:
-        stamps = pd.to_datetime(pd.Series(list(seed_timestamps)), utc=True)
-        values = list(seed_demand)
-    except (TypeError, ValueError):
-        return None
-    if len(stamps) != len(values):
-        return None
-    return {
-        ts: float(v)
-        for ts, v in zip(stamps, values, strict=True)
-        if v is not None and not pd.isna(v) and v > 0
-    }
+    return HourIndexedHistory.build(seed_timestamps, seed_demand, extra_hours=extra_hours)
 
 
 def _future_step_timestamps(future_df: pd.DataFrame) -> list[pd.Timestamp] | None:
@@ -442,11 +504,13 @@ def recursive_autoregressive_forecast(
     # runs unchanged and byte-identical.
     from config import feature_enabled
 
-    temporal_history: dict[pd.Timestamp, float] | None = None
+    temporal_history: HourIndexedHistory | None = None
     step_stamps: list[pd.Timestamp] | None = None
     if feature_enabled("temporal_ar_seed"):
-        temporal_history = _temporal_seed_history(seed_demand, seed_timestamps)
         step_stamps = _future_step_timestamps(future_df)
+        temporal_history = _temporal_seed_history(
+            seed_demand, seed_timestamps, extra_hours=len(future_df) + 1
+        )
         if temporal_history is None or step_stamps is None:
             temporal_history, step_stamps = None, None
 
@@ -513,7 +577,7 @@ def recursive_autoregressive_forecast(
         preds.append(pred)
         history.append(pred)
         if temporal_history is not None and step_stamps is not None:
-            temporal_history[step_stamps[i]] = pred
+            temporal_history.set(step_stamps[i], pred)
     return np.asarray(preds, dtype=float)
 
 
@@ -571,15 +635,19 @@ def batched_recursive_autoregressive_forecast(
     # scenario may see another's predictions. Fail-open to positional.
     from config import feature_enabled
 
-    temporal_histories: list[dict[pd.Timestamp, float]] | None = None
+    temporal_histories: list[HourIndexedHistory] | None = None
     step_stamps: list[pd.Timestamp] | None = None
     if feature_enabled("temporal_ar_seed"):
-        base = _temporal_seed_history(seed_demand, seed_timestamps)
         step_stamps = _future_step_timestamps(future_frames[0])
-        if base is not None and step_stamps is not None:
-            temporal_histories = [dict(base) for _ in range(n)]
+        if step_stamps is not None:
+            temporal_histories = [
+                _temporal_seed_history(seed_demand, seed_timestamps, extra_hours=horizon + 1)
+                for _ in range(n)
+            ]
+            if any(h is None for h in temporal_histories):
+                temporal_histories, step_stamps = None, None
         else:
-            step_stamps = None
+            temporal_histories = None
 
     cols = list(future_frames[0].columns)
     if temporal_histories is not None and step_stamps is not None:
@@ -633,7 +701,7 @@ def batched_recursive_autoregressive_forecast(
             preds[j].append(value)
             histories[j].append(value)
             if temporal_histories is not None and step_stamps is not None:
-                temporal_histories[j][step_stamps[i]] = value
+                temporal_histories[j].set(step_stamps[i], value)
 
     return [np.asarray(p, dtype=float) for p in preds]
 

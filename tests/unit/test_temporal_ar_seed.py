@@ -20,6 +20,7 @@ import pytest
 import config
 from data.feature_engineering import (
     AUTOREGRESSIVE_DEMAND_FEATURES,
+    HourIndexedHistory,
     add_autoregressive_demand_features,
     compute_autoregressive_snapshot,
     compute_temporal_autoregressive_snapshot,
@@ -62,8 +63,8 @@ def _gapped_demand(n: int = 600, gap_start: int = GAP_START) -> pd.DataFrame:
     return df.drop(index=range(gap_start, gap_start + GAP_LEN)).reset_index(drop=True)
 
 
-def _history(df: pd.DataFrame) -> dict[pd.Timestamp, float]:
-    return {t: float(v) for t, v in zip(df["timestamp"], df["demand_mw"], strict=True)}
+def _history(df: pd.DataFrame) -> HourIndexedHistory:
+    return HourIndexedHistory.build(df["timestamp"], df["demand_mw"])
 
 
 class TestTheDefect:
@@ -250,3 +251,92 @@ class TestRecursionWiring:
             seed_timestamps=df["timestamp"].iloc[:-5],
         )
         assert np.isfinite(got).all()
+
+
+class TestParityProperty:
+    """#186's real content: the two paths must agree on ARBITRARY gap patterns.
+
+    Not one fixture — a fuzz over randomised holes. This is the guard that
+    prevents the next divergence, and it is cheaper than unifying the
+    implementations: a per-row shared core measured 611x the vectorised path on
+    a 90-day frame (+372s per fleet training run), which is why #186's Option A
+    is not the fix it looks like.
+
+    The comparison is apples to apples on purpose. `add_autoregressive_demand_features`
+    is given the SAME data on a continuous grid with NaN at the gap hours — which
+    is exactly what production's demand frame looks like, since EIA reports a gap
+    as a row with a null value. Both sides then mean "we do not have this hour".
+    """
+
+    LAGS = ("demand_lag_1h", "demand_lag_3h", "demand_lag_24h", "demand_lag_168h")
+    DERIVED = ("ramp_rate", "demand_momentum_short", "demand_momentum_long")
+
+    @staticmethod
+    def _grid_with_holes(rng, n=900, n_holes=6):
+        ts = pd.date_range("2026-03-01", periods=n, freq="h", tz="UTC")
+        demand = (
+            20_000
+            + 5_000 * np.sin(2 * np.pi * np.arange(n) / 24)
+            + 900 * np.sin(2 * np.pi * np.arange(n) / (24 * 7))
+            + rng.normal(0, 250, size=n)
+        )
+        df = pd.DataFrame({"timestamp": ts, "demand_mw": demand})
+        for _ in range(n_holes):
+            start = int(rng.integers(180, n - 30))
+            df.loc[start : start + int(rng.integers(1, 20)), "demand_mw"] = np.nan
+        return df
+
+    @pytest.mark.parametrize("seed", range(12))
+    def test_lags_and_windows_match_training_on_random_gaps(self, seed):
+        rng = np.random.default_rng(seed)
+        df = self._grid_with_holes(rng)
+        feats = add_autoregressive_demand_features(df.copy())
+
+        present = df.dropna(subset=["demand_mw"])
+        history = HourIndexedHistory.build(present["timestamp"], present["demand_mw"])
+
+        for i in rng.integers(200, len(df), size=25):
+            i = int(i)
+            snap = compute_temporal_autoregressive_snapshot(history, df["timestamp"].iloc[i])
+
+            for key in self.LAGS + self.DERIVED:
+                train, infer = float(feats[key].iloc[i]), snap[key]
+                if np.isnan(train) and np.isnan(infer):
+                    continue
+                assert train == pytest.approx(infer, rel=1e-9, abs=1e-9), (
+                    f"seed={seed} row={i} {key}: training={train} inference={infer}"
+                )
+
+            for w in (24, 72, 168):
+                for op in ("mean", "min", "max"):
+                    key = f"demand_roll_{w}h_{op}"
+                    train, infer = float(feats[key].iloc[i]), snap[key]
+                    if np.isnan(train) and np.isnan(infer):
+                        continue
+                    assert train == pytest.approx(infer, rel=1e-9, abs=1e-9), (
+                        f"seed={seed} row={i} {key}: training={train} inference={infer}"
+                    )
+
+    @pytest.mark.parametrize("seed", range(6))
+    def test_positional_path_fails_this_same_property(self, seed):
+        """The property has teeth: the shipped default cannot satisfy it.
+
+        If this ever passes, the fuzz stopped generating gaps that matter and
+        the test above is no longer evidence of anything.
+        """
+        rng = np.random.default_rng(100 + seed)
+        df = self._grid_with_holes(rng)
+        feats = add_autoregressive_demand_features(df.copy())
+        present = df.dropna(subset=["demand_mw"]).reset_index(drop=True)
+
+        mismatches = 0
+        for i in range(400, len(df), 37):
+            upto = present[present["timestamp"] < df["timestamp"].iloc[i]]
+            snap = compute_autoregressive_snapshot(upto["demand_mw"].tolist())
+            for key in self.LAGS:
+                train, infer = float(feats[key].iloc[i]), snap[key]
+                if np.isnan(train) or np.isnan(infer):
+                    continue
+                if train != pytest.approx(infer, rel=1e-9, abs=1e-9):
+                    mismatches += 1
+        assert mismatches > 0, "positional path agreed everywhere — fuzz lost its gaps"
