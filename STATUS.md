@@ -325,7 +325,10 @@ twice during this session and both times was caught only because someone was
 looking. Modelled on `deploy-divergence.yml`, which already answers the
 "needs a live API call" objection.
 
-**2026-08-18 — 554 is BUILT, and it found a second drift on its first run.**
+**2026-08-18 — 554 is BUILT and MERGED, and it found a second drift on its
+first run.** Shipped in
+[PR #560](https://github.com/kristenmartino/gridpulse/pull/560) (squashed as
+`029065d`); the issue is closed.
 `scripts/check_monitoring_divergence.py` runs hourly as a step in
 `deploy-divergence.yml` and compares every applied policy's
 `documentation.content`, `enabled`, `validity` and `notificationChannels`
@@ -353,6 +356,19 @@ correct id the whole time, which is exactly why the guard test stayed green.
 The triggers were written about identity; the failure was about content and
 state. A "revisit if" list is only as good as its guess about how the next
 failure will look.
+
+**Verified in CI, not just locally.** The step had never run on a runner before
+merge — `deploy-divergence.yml` checks out `ref: main`, so a branch dispatch
+would have run main's copy, which did not have the script yet. Dispatched
+against the merged main
+([run 32126906804](https://github.com/kristenmartino/gridpulse/actions/runs/32126906804)):
+step `success`, output `applied-table rows: 11   policies compared: 11` /
+`OK: applied policies match the repo`. That is what confirms the parts local
+runs could not — WIF resolves to the deploy SA, `roles/monitoring.viewer` is
+sufficient, and the GA `gcloud monitoring policies` group is present on a stock
+`setup-gcloud` runner (the alpha group is not, which is what blocked checking
+this by hand earlier the same day). Now on the hourly `:23` schedule alongside
+the deploy check.
 
 **Open question, split out:**
 [#549](https://github.com/kristenmartino/gridpulse/issues/549) — the gate
