@@ -212,8 +212,29 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
     """Can this BA be scored, and if not, exactly why?
 
     Returns ``{"scoreable", "reason", "reason_detail", "df_coverage",
-    "placeholder_pct", "n_hours"}``. The reason travels with the verdict so
-    every exclusion is publishable.
+    "df_asissued_coverage", "placeholder_pct", "n_hours"}``. The reason travels
+    with the verdict so every exclusion is publishable.
+
+    ## Two coverages, because one number was answering two questions (#535)
+
+    * ``df_coverage`` — **the BA's publication rate.** Does this balancing
+      authority publish a day-ahead forecast at all? A property of the BA, and
+      the only one this gate is entitled to act on, because the exclusion text
+      it produces makes a claim about the BA.
+    * ``df_asissued_coverage`` — **our capture quality.** What share of hours
+      did we observe the DF for *before the hour settled*, i.e. in time for the
+      as-issued arm? A property of our collector. Published, never a gate.
+
+    Until #535 these were the same number. ``first_seen_df`` was pinned on the
+    tick that first admitted the hour and never revisited, so a DF that EIA
+    published slightly later was lost permanently — and the gate read that loss
+    as sparse publishing. Twenty-six BAs were excluded on it, five of them large
+    ISOs, on a public page. Measured against EIA directly on 2026-08-17, exactly
+    one of the excluded set (SPP, 53.8%) is genuinely below the threshold.
+
+    ``data.vintage`` now gives the DF a second look, so ``df_coverage`` means
+    what it says. The capture-quality half did not disappear — it moved to its
+    own field, where a reader can see it and it decides nothing.
     """
     n = len(vintage_records)
     if n == 0:
@@ -222,11 +243,21 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
             "reason": EXCLUDE_INSUFFICIENT,
             "reason_detail": EXCLUSION_REASONS[EXCLUDE_INSUFFICIENT],
             "df_coverage": 0.0,
+            "df_asissued_coverage": 0.0,
             "placeholder_pct": 0.0,
             "n_hours": 0,
         }
 
+    from data.vintage import FRESH_CAPTURE_LAG_HOURS, df_capture_lag_hours
+
     has_df = sum(1 for r in vintage_records if np.isfinite(r.first_seen_df))
+    as_issued = sum(
+        1
+        for r in vintage_records
+        if np.isfinite(r.first_seen_df)
+        and (lag := df_capture_lag_hours(r)) is not None
+        and lag <= FRESH_CAPTURE_LAG_HOURS
+    )
     placeholders = sum(1 for r in vintage_records if r.was_placeholder)
     coverage = has_df / n
 
@@ -239,11 +270,37 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
     return {
         "scoreable": reason is None,
         "reason": reason,
-        "reason_detail": EXCLUSION_REASONS[reason] if reason else None,
+        # The measured figures, not just the rule. A reader who sees only
+        # "under 80% of hours" cannot tell 79% from 39%, and those are
+        # different facts about a BA.
+        "reason_detail": _reason_detail(reason, coverage, as_issued / n, n),
         "df_coverage": round(coverage, 4),
+        "df_asissued_coverage": round(as_issued / n, 4),
         "placeholder_pct": round(placeholders / n * 100, 2),
         "n_hours": n,
     }
+
+
+def _reason_detail(
+    reason: str | None, coverage: float, as_issued_coverage: float, n_hours: int
+) -> str | None:
+    """The published exclusion rationale, carrying THIS BA's measured numbers.
+
+    ``EXCLUSION_REASONS`` states the rule; this states the case. The df-coverage
+    text also names the as-issued share, because #535 was precisely a reader —
+    us — unable to tell "the BA barely publishes" from "we barely captured it"
+    from the sentence that shipped.
+    """
+    if reason is None:
+        return None
+    base = EXCLUSION_REASONS[reason]
+    if reason != EXCLUDE_DF_COVERAGE:
+        return base
+    return (
+        f"{base} Measured over {n_hours} hours: EIA published a day-ahead "
+        f"forecast for {coverage:.1%} of them, of which we captured "
+        f"{as_issued_coverage:.1%} in time to score as-issued."
+    )
 
 
 #: An hour is an unresolved stub when settled truth still equals the
@@ -280,9 +337,10 @@ def pair_hours(
       reality. This is the sharper of the two stub predicates.
     * ``first_seen_placeholder`` — flagged ``D == DF`` at first sight.
       Dropped conservatively even when later corrected.
-    * ``stale_capture`` — the hour was first seen more than
-      ``FRESH_CAPTURE_LAG_HOURS`` after it passed, so its ``first_seen_df`` is
-      a POST-revision value. Putting it on the as-issued arm collapses the
+    * ``stale_capture`` — the hour's ``DF`` was first seen more than
+      ``FRESH_CAPTURE_LAG_HOURS`` after the hour passed, so its ``first_seen_df``
+      is a POST-revision value. Measured on ``df_at`` since #535, because a DF
+      filled on a later tick is exactly the case this rule exists to catch. Putting it on the as-issued arm collapses the
       as-issued/as-revised distinction the dual arm exists to draw (#358).
       Evaluated right after ``no_df`` because it disqualifies the official
       arm's *provenance* — a more fundamental objection than "the settled
@@ -296,7 +354,7 @@ def pair_hours(
       unscored, so the sample is conditioned on OUR availability too.
     """
     out: list[PairedHour] = []
-    from data.vintage import FRESH_CAPTURE_LAG_HOURS, capture_lag_hours
+    from data.vintage import FRESH_CAPTURE_LAG_HOURS, df_capture_lag_hours
 
     drops = {
         "unresolved_stub": 0,
@@ -312,7 +370,14 @@ def pair_hours(
             drops["no_df"] += 1
             continue
         if exclude_stale_capture:
-            lag = capture_lag_hours(r)
+            # THE DF's lag, not the hour's. Since #535 a DF may be filled on a
+            # tick later than the one that admitted the hour, and it is the DF
+            # observation that the as-issued claim is about. Reverting this to
+            # `capture_lag_hours` would silently put post-revision values on the
+            # as-issued arm at scale — the exact #358/#392 defect, and the one
+            # way the #535 fix could do more harm than the bug. Pinned by
+            # TestStaleCapture::test_late_filled_df_cannot_reach_the_asissued_arm.
+            lag = df_capture_lag_hours(r)
             # An unparseable timestamp cannot be shown fresh, and the official
             # arm's whole claim is that its value was seen before the hour
             # settled — so an unmeasurable lag is treated as stale rather than
@@ -671,3 +736,89 @@ def _spread(values: list[float]) -> dict[str, float] | None:
         "max": round(hi, 3),
         "ratio": round(hi / lo, 1) if lo > 0 else None,
     }
+
+
+# ── scoreability regression detection (#535) ─────────────────
+
+
+def scoreability_alerts(
+    rollup: dict[str, Any],
+    region_payloads: list[dict[str, Any]],
+    *,
+    min_scoreable: int | None = None,
+    coverage_warn: float | None = None,
+) -> list[dict[str, Any]]:
+    """Alertable events when the scorecard's population is shrinking (#535).
+
+    Pure: returns ``[{"event", **fields}]`` for the caller to log. The scoring
+    job owns the I/O; the rule lives here beside the gate it watches, and is
+    unit-testable without Redis.
+
+    ## Why these events and not a threshold on the count we already log
+
+    ``benchmark_fleet_written`` has carried ``scoreable``/``excluded`` since
+    E0, and a metric-threshold alert on it is the obvious design and a trap —
+    the same one ``docs/monitoring/backtest_recompute_alert.json`` documents.
+    It would have to be a **threshold-BELOW** condition, so when the benchmark
+    phase stops emitting entirely the logs-based counter has *no data*, the
+    condition never evaluates, and the alert goes quiet at precisely the moment
+    it should fire.
+
+    Both events below therefore fire on the **failing** direction and increase
+    as things get worse, so absence of data can never mask them. A benchmark
+    phase that stops running is a different failure, already covered by
+    ``cloud_run_job_failure_alert`` and ``scoring_partial_failure``.
+
+    ## Two distances from the same cliff
+
+    * ``benchmark_scoreability_drop`` — the fleet count is below the floor.
+      The incident itself: #535 published 25 of 51 for three weeks.
+    * ``benchmark_coverage_at_risk`` — a BA is still scoreable but its
+      ``df_coverage`` sits in the warning band **above** the gate. By the time
+      a BA falls out, the public page is already wrong; this names it first.
+      On 2026-08-17 CAISO (82.9%) and PJM (81.0%) sat 1-3 points above the
+      0.80 gate with nothing watching them.
+
+    ``df_asissued_coverage`` is deliberately NOT alerted on. It measures our
+    capture, not the BA's publishing, and gating on it is the whole of #535.
+    It rides along on the payload so an on-call reader can tell the two apart.
+    """
+    from config import BENCHMARK_DF_COVERAGE_WARN, BENCHMARK_MIN_SCOREABLE
+
+    floor = BENCHMARK_MIN_SCOREABLE if min_scoreable is None else min_scoreable
+    warn = BENCHMARK_DF_COVERAGE_WARN if coverage_warn is None else coverage_warn
+
+    out: list[dict[str, Any]] = []
+    n_scoreable = rollup.get("n_scoreable")
+    if isinstance(n_scoreable, int) and n_scoreable < floor:
+        out.append(
+            {
+                "event": "benchmark_scoreability_drop",
+                "n_scoreable": n_scoreable,
+                "n_excluded": rollup.get("n_excluded"),
+                "floor": floor,
+                # WHICH BAs, not just how many — "26 excluded" and "26 excluded
+                # including five large ISOs" are different pages.
+                "excluded_regions": sorted(
+                    str(e.get("region")) for e in (rollup.get("excluded") or [])
+                ),
+            }
+        )
+
+    for p in region_payloads:
+        if not p.get("scoreable"):
+            continue
+        cov = p.get("df_coverage")
+        if not isinstance(cov, int | float) or cov >= warn:
+            continue
+        out.append(
+            {
+                "event": "benchmark_coverage_at_risk",
+                "region": p.get("region"),
+                "df_coverage": round(float(cov), 4),
+                "df_asissued_coverage": p.get("df_asissued_coverage"),
+                "warn_below": warn,
+                "gate": MIN_DF_COVERAGE,
+            }
+        )
+    return out

@@ -16,6 +16,75 @@
 
 ## Seed stories identified from this week's work
 
+### The metric that was measuring us — a public scorecard that lost 19 BAs and named the wrong culprit (2026-08-17 → 08-18)
+
+**S.** GridPulse publishes a benchmark scoring its forecasts against each
+balancing authority's own day-ahead forecast. The public page read **25 of 51
+scoreable**, down from 44, with five of the seven large ISOs — ERCOT, MISO,
+NYISO, ISONE, SPP — silently absent from its fleet medians. Each was excluded
+under a published reason: *"The BA publishes a day-ahead forecast for under 80%
+of hours."* It had been that way for about three weeks, found by an unrelated
+scheduled recheck. Nothing failed — the job succeeded and exited 0 every hour.
+
+**T.** Find out whether the balancing authorities had really stopped
+publishing, or we had stopped recording. Those need opposite fixes, and getting
+it wrong on a public page in the flattering direction is the expensive error.
+
+**A.** I refused to take the exclusion reason at face value and went to the
+source. Querying EIA directly over the same 30-day window the page used: ISONE
+publishes a day-ahead forecast for **100%** of hours where we had recorded
+66.8%; NYISO 96.7 vs 58.0; ERCOT 93.3 vs 64.1. Swept across all 51 BAs, exactly
+**two** fell below the threshold upstream, and one of those was already excluded
+under a different rule.
+
+Two more checks made it conclusive. The hours we were missing formed a
+**diurnal block aligned to each BA's local early morning** — ERCOT 06-09 UTC,
+NYISO 05-10, CAISO 08-09 — near-identical across unrelated BAs in different
+interconnects. Twenty-six operators do not change their filing behaviour on the
+same local clock; that is the fingerprint of a collector. And the values we had
+missed were **genuine forecasts, not placeholders**: of 210 ERCOT / 278 NYISO /
+137 PJM recovered hours, 0 / 1 / 0 had the forecast equal to the actual.
+
+The bug was four lines. We snapshot the day-ahead forecast at the moment EIA
+first publishes a metered demand value for an hour, and never look again — so a
+forecast EIA published slightly later was lost permanently. The gate counted
+those permanent gaps and published them as a claim about the BA.
+
+**The half that mattered was not the fix.** Simply back-filling the missing
+forecasts would have put *post-revision* values onto an arm whose entire claim
+is that its numbers were observed as-issued — reintroducing a defect we had
+closed two weeks earlier, at scale, in the direction that flatters whoever it
+flatters. So the fill records **when** the value was observed, and the existing
+freshness rule now grades on that timestamp instead of the hour's. Filling a
+value and earning the as-issued claim are different things.
+
+I also refuted the standing hypothesis, which was mine to inherit: a prior
+investigation had blamed a frozen upstream cache and said the decisive test
+needed in-VPC Redis access. The same records were mirrored to cloud storage —
+NYISO showed **672 distinct capture timestamps out of 719**. Capture was
+per-tick. Two of that investigation's other claims were also wrong by
+measurement, and I corrected both in the same PR.
+
+**R.** Verified by **replay before deploying** — the new capture applied to the
+real production window for all 51 BAs: **25 → 46 scoreable, 21 restored, zero
+newly excluded**, with post-fix coverage matching the independent upstream
+measurement BA by BA. SPP stayed excluded at 53.6%, because that one is real.
+
+Three things shipped alongside, because the bug was only half the failure:
+the count now lives **only** in the live payload — a guard test fails any doc
+that asserts it in prose, since a sentence cannot track an hourly recomputation
+and "just update the number" is the fix that had already failed; the page names
+its own population, so a headline cannot silently change the fleet it describes;
+and an alert watches the count *and* warns on BAs approaching the threshold —
+CAISO at 82.9% and PJM at 81.0% were one and three points from falling out with
+nothing watching them.
+
+**Takeaway.** The exclusion reason was a *sentence about the balancing
+authority* generated from a *measurement of our own pipeline*, and nothing in
+the type system, the tests or the page could tell the difference. Now they are
+two published fields that answer two different questions, and only one of them
+is allowed to exclude anybody.
+
 ### The honesty cluster — closing 15 items, and being overruled by my own data three times (2026-07-14 → 08-10)
 
 **S.** A tracking issue listed ~15 places where GridPulse showed a user a

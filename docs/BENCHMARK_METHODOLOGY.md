@@ -117,14 +117,74 @@ product, not an omission from it.
 | `df-coverage` | the BA publishes `DF` for < 80% of hours | too sparse to score fairly |
 | `insufficient-paired-hours` | fewer than 200 hours survive §4 | too thin for a per-BA verdict |
 
-**The direction of this bias is against us.** Four of the seven current
-exclusions are broken feeds, and a BA with sloppy data operations plausibly
-also forecasts sloppily — so the excluded set is disproportionately made of
-BAs where GridPulse would likely win. The rule removes our best cases, not
-our worst.
+**The direction of this bias is against us.** The broken-feed exclusions are
+BAs with sloppy data operations, which plausibly also forecast sloppily — so
+the excluded set is disproportionately made of BAs where GridPulse would
+likely win. The rule removes our best cases, not our worst.
 
-Current standing: **44 of 51 BAs scoreable**, with each exclusion and its
-reason listed in [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md).
+**Current standing is not stated here, deliberately (#535).** This paragraph
+read "44 of 51 BAs scoreable" for three weeks while the live payload served
+**25** — a prose sentence cannot track a number recomputed every hour, and
+pretending otherwise is how the page and its own methodology came to disagree
+in public. The count is published, live, as `n_scoreable` on
+[`/api/v1/benchmark`](https://gridpulse.kristenmartino.ai/api/v1/benchmark).
+Per-BA exclusions and their reasons are listed there too, and mirrored in the
+dated snapshot at
+[`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md).
+
+### The gate measures the BA, not us (#535)
+
+`df_coverage` is the share of hours **EIA published a day-ahead forecast for**.
+It is the only coverage figure the exclusion gate acts on, because the
+exclusion text it produces makes a claim about the balancing authority.
+
+Until #535 it was not that number. `first_seen_df` was pinned on the tick that
+first admitted the hour and never revisited, so a DF EIA published slightly
+later was lost permanently — and the gate read our collector's timing as the
+BA's publishing behaviour. Twenty-six BAs were excluded on it, five of them
+large ISOs. Measured against EIA directly on 2026-08-17, exactly one of that
+set (SPP, 53.8%) was genuinely below the threshold.
+
+Our own capture rate did not disappear; it moved to `df_asissued_coverage`,
+which is published beside the gate figure and decides nothing. The two answer
+different questions and are no longer allowed to share a number.
+
+### Is EIA's `DF` a strawman? Probed against NYISO's own feed (2026-08-18)
+
+A fair objection to this whole benchmark: EIA-930 is a regulatory rollup, so
+maybe we score operators on a degraded copy of a forecast they publish better
+elsewhere. NYISO is the cheapest place to check — it publishes both its own
+day-ahead load forecast (`isolf.csv`) and its integrated actual load
+(`palIntegrated.csv`), auth-free.
+
+**The truth side is settled outright: EIA's `D` for NYISO *is* NYISO's own
+data.** Summed across NYISO's eleven zones and aligned to EIA's periods, the two
+actual series agree to **0.001%, correlation 1.000000** over 144 hours. There is
+no quality gap to close on the yardstick both arms are scored against.
+
+**On the forecast side EIA's `DF` is not the weaker series.** Over 212 hours
+(2026-08-07 → 08-17), scored against that shared settled truth:
+
+| series | MAPE | median APE | bias |
+|---|---:|---:|---:|
+| EIA-930 `DF` — what this benchmark scores | **2.184%** | 2.043% | +0.30% |
+| NYISO `isolf` — the operator's own | 2.526% | 2.107% | −0.58% |
+
+The two are genuinely different — they diverge on **every one of the 212 hours**,
+by 324 MW on average (1.59% of load) — but NYISO's own is closer on **111 of
+212**, a coin flip, and slightly worse on the mean. We are not scoring against a
+degraded copy.
+
+**Limits, stated because this is a probe and not a study.** One BA, ~9 days, a
+single window, and `isolf`'s archived vintage may already include intraday
+revisions — which would flatter the operator, so the finding is conservative in
+the direction that matters. Under
+[`EVALUATION_POLICY.md`](EVALUATION_POLICY.md) this is nowhere near the bar for
+a methodology change (8 rolling origins, WAPE, satisficing constraints); it is
+sufficient only for the narrow claim it makes, which is that the strawman
+objection does not hold for NYISO. Alignment was fixed empirically from the two
+*actual* series, with no forecast involved — a first attempt using the naive
+timezone conversion was off by one hour and reversed the conclusion.
 
 ## 6. Two official arms
 
@@ -271,11 +331,14 @@ number per BA is not a supportable format.
   rests on quantiles rather than a point scorecard.
 - **Spread is reported for both arms** — min, max, and ratio, as
   `official_spread` and `gridpulse_spread`, both computed on **mean** MAPE.
-  Separately, the operators' own day-ahead accuracy spans a measured **41×**
-  across the scoreable set (1.15% to 47.21%) — that figure is a *median* APE
-  spread from
+  Separately, the operators' own day-ahead accuracy spans a wide multiple
+  across the scoreable set — that figure is a *median* APE spread from
   [`BENCHMARK_SCOREABILITY.md`](BENCHMARK_SCOREABILITY.md), not the payload
-  field, and the two are not interchangeable (§8).
+  field, and the two are not interchangeable (§8). The specific multiple is
+  **not quoted here**: it is computed over the scoreable *population*, so it
+  moves whenever the population does — as it did when #535 changed the
+  population by 21 BAs, taking the previously-quoted "41× (1.15% to 47.21%)"
+  with it. Read it off the snapshot, which carries its own date.
 
   Consistency across a fleet is a different claim from winning a head-to-head,
   and it is the more interesting one. It is also **not yet established**: no
@@ -294,7 +357,9 @@ number per BA is not a supportable format.
   curve.
 - **Not lead-matched.** The headline arm compares our ~23.9h forecast against
   a submission made 17–41h out (§7, §12.4).
-- **Not fleet-complete.** 7 of 51 BAs are excluded, by published rule.
+- **Not fleet-complete.** Some BAs are excluded, by published rule; the
+  count and the per-BA reasons ship in the payload rather than being
+  asserted here (§5).
 - **Not peer-reviewed, and not a study.** It is a continuously recomputed
   measurement with published rules and reproducible scripts.
 
@@ -402,6 +467,51 @@ justification than one that gets stricter. The point of writing the rules
 down first is that we do not get to discover them after seeing the result.
 
 ### Change log
+
+**2026-08-18 — `df_coverage` measures the BA, not our collector ([#535]).**
+*Direction: it grows the scoreable population by 21 BAs, which is the direction
+that flatters us — so the evidence is given in full, and the rule it relaxes is
+one that was measurably **wrong**, not merely strict.*
+
+No drop rule loosened. `MIN_DF_COVERAGE` is unchanged at 0.80, every per-hour
+exclusion in §4 still applies, and the `stale_capture` rule got *stricter*: it
+is now evaluated on when we observed the **DF** (`df_at`) rather than when we
+first saw the hour, so a day-ahead value filled in on a later tick cannot reach
+the as-issued arm. What changed is the input to the gate.
+
+`first_seen_df` was pinned on the tick that first admitted an hour and never
+revisited, so a DF EIA published slightly later was lost permanently — and the
+gate read our collector's timing as the BA's publishing behaviour, then
+published that reading as an exclusion reason asserting the BA "publishes a
+day-ahead forecast for under 80% of hours". `data.vintage` now gives the DF a
+second look, so the number means what its label says.
+
+**Why this is not a favourable rule change dressed up.** Measured against EIA
+directly over the same 30-day window on 2026-08-17, the excluded BAs publish DF
+for 93.3–100% of hours where we had recorded 58–83% — ISONE 100 vs 66.8, NYISO
+96.7 vs 58.0, ERCOT 93.3 vs 64.1. Swept across all 51 BAs, exactly two fall
+below the gate upstream, and one of those (SPA) was already excluded as a broken
+feed. The hours we lost form a diurnal block aligned to each BA's *local* early
+morning, near-identical across unrelated BAs in different interconnects. And the
+values are genuine forecasts, not placeholders: of 210 ERCOT / 278 NYISO / 137
+PJM recovered hours, 0 / 1 / 0 have `DF == D`.
+
+**Verified by replay before deploy**, applying the new capture to the real
+production vintage window for all 51 BAs: **25 → 46 scoreable, 21 restored, 0
+newly excluded.** SPP stays out at 53.6% measured coverage, which is genuine.
+The post-fix per-BA coverage matches the independent upstream measurement to the
+decimal on every restored BA.
+
+**What this does *not* do is make the arm easier on us.** Our capture rate did
+not improve — it is now published separately as `df_asissued_coverage` (fleet
+median 0.774), and hours whose DF arrived late are still dropped from the
+as-issued arm by `stale_capture`. A restored BA is scored on the hours it was
+always entitled to be scored on, and `MIN_PAIRED_HOURS` still governs whether
+there are enough of them; MISO in particular is expected to sit near that floor
+until the window refills.
+
+[#535]: https://github.com/kristenmartino/gridpulse/issues/535
+
 
 **2026-08-04 — `stale_capture` exclusion ([#358]).** *Direction: measured, not
 predicted, and not uniform.* Hours first seen after they had already passed

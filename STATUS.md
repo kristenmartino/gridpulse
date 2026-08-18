@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-08-12
+# Status — updated 2026-08-18
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,64 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-08-18 — [#535](https://github.com/kristenmartino/gridpulse/issues/535)
+ANSWERED and fixed: the `df-coverage` exclusion was measuring our own
+collector and publishing the result as a fact about the balancing authority.**
+
+`/api/v1/benchmark` served **25 of 51 scoreable** for ~3 weeks, excluding five
+of the seven large ISOs, under a reason reading "The BA publishes a day-ahead
+forecast for under 80% of hours". That sentence was false for all but one of
+the BAs it was applied to.
+
+**Root cause.** `_readings` admits an hour only once EIA publishes a positive
+metered `D`, snapshotting `DF` at that instant; `update_vintage_records` then
+short-circuited whenever `D` had not moved and copied `first_seen_df`
+unconditionally. A NaN captured at first sight was **permanent**, and
+`scoreability()` counted those NaNs as the BA's publishing behaviour.
+
+**Evidence, measured not inferred.** Against EIA directly over the live
+payload's own window: ISONE publishes DF for 100% of hours where we recorded
+66.8%, NYISO 96.7 vs 58.0, ERCOT 93.3 vs 64.1, MISO 93.3 vs 63.8. Swept across
+all 51 BAs, **exactly two fall below the gate upstream** — SPP (53.8%) and SPA
+(78.7%, already excluded as a broken feed). The hours we lost form a diurnal
+block aligned to each BA's *local* early morning, near-identical across
+unrelated BAs in different interconnects; and the values are genuine forecasts,
+not placeholders (of 210 ERCOT / 278 NYISO / 137 PJM recovered hours, 0/1/0
+have `DF == D`).
+
+**#536's leading hypothesis is REFUTED.** It named the frozen `fetch_demand`
+cache and said the decisive test — distinct `captured_at` in `vintage:NYISO`,
+~30 confirms / ~720 refutes — needed in-VPC Redis. The **GCS mirror carries
+the same rows**: NYISO reads **672 of 719**, ERCOT 675, CAISO 669. Capture is
+per-tick. Two further #536 claims corrected: ERCOT/MISO/ISONE do *not* have a
+"real ~13% upstream gap" (6.7 / 6.7 / **0%**), and SPP is sparse upstream
+rather than absent.
+
+**Verified by replay before deploy** — the new capture applied to the real
+production vintage window for all 51 BAs: **25 → 46 scoreable, 21 restored, 0
+newly excluded**, with post-fix coverage matching the independent upstream
+measurement on every restored BA. SPP stays out at 53.6%.
+
+**The load-bearing half is the rail, not the fill.** `df_at` dates the DF
+observation and `pair_hours` now grades staleness on it, so a late-filled DF
+is still dropped from the as-issued arm. Without that line the fix would put
+post-revision values on the as-issued arm at scale — the #358/#392 defect,
+worse than the bug it repairs.
+
+**Also shipped:** the count now lives only in the live payload (prose that
+asserts it fails a new guard test); the page names its population and no
+longer claims an ERCOT carve-out that is not there; and
+`benchmark_scoreability_alert.json` watches the count *and* warns on BAs
+approaching the gate — CAISO (82.9%) and PJM (81.0%) would both have fired.
+**The policy still needs applying in GCP**; it is declared in
+`_KNOWN_UNAPPLIED` until then.
+
+**Split out:** [#537](https://github.com/kristenmartino/gridpulse/issues/537) —
+the horizon-drift 7-day window is short fleet-wide (151-167 of 168) and LGEE
+loses ~half (80/86/89). **Different cause**: the low-actual filter is ruled out
+for LGEE (zero hours below threshold, median 5,328 MW), upstream nulls explain
+8.3% of ~50%, and `_expire_pending` is the untested leading candidate.
 
 **2026-08-07 — the 2026-08-04 incident is CLOSED, and the cost work it turned
 into is measured rather than projected.**
@@ -741,7 +799,8 @@ days after they begin.
 
 **2026-07-28 — baseline substitution flipped ON; SEC now serves the
 seasonal-naive baseline.** Flag `baseline_substitution` → True after
-shadow-running the live decision across all 44 scoreable regions.
+shadow-running the live decision across all 44 regions scoreable on that
+date. (That count is a measurement, not a constant — see the #535 entry.)
 
 **Shadow result: SEC alone**, at **−4.03** error points against the −2.0
 bar (model 12.59% vs naive 8.56% on the trailing 7 days). 43 regions keep
@@ -991,9 +1050,12 @@ against a *free* incumbent (EIA-930 publishes each BA's day-ahead
 forecast), so relative accuracy is the value proposition. Engine rides
 existing instrumentation — official arm from vintage `first_seen_df`,
 GridPulse arm from `drift_horizon` 24h/48h records, settled `last_d` as
-the single truth for both. Measured: **44 of 51 BAs scoreable**, and the
-operators' own accuracy spans **41×** (ERCOT 1.15% → PSEI 47.21%) —
-content no incumbent publishes (`docs/BENCHMARK_SCOREABILITY.md`).
+the single truth for both. Measured **as of 2026-07-27**: 44 of 51 BAs
+scoreable, operators' own accuracy spanning 41× (ERCOT 1.15% → PSEI
+47.21%) — content no incumbent publishes. **Both figures moved, and the
+first one moved because of a bug** ([#535](https://github.com/kristenmartino/gridpulse/issues/535));
+the live count ships as `n_scoreable` on `/api/v1/benchmark`, and the
+spread is a property of whatever population is scoreable that day.
 
 **Two limits block the public claim, both documented in
 `models/benchmark.py`:** (1) `first_seen_df` is *not* the day-ahead value
