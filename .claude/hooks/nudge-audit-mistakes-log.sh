@@ -2,34 +2,30 @@
 # SessionStart hook — quiet staleness check for audit-mistakes-log.
 # That skill is deliberately NOT meant to run every session (it wants a
 # fresh, decontextualized pass — see its own SKILL.md), so this only
-# speaks up when enough NEW undecided Worklog candidates have piled up
-# since the last audit to be worth a separate pass.
+# speaks up when enough NEW candidates have piled up since the last audit
+# to be worth a separate pass.
 #
-# "New since the last audit" is decided by ENTRY COUNT, not by date.
-# The first version compared each entry's date against the marker date and
-# counted only entries strictly after it, which meant every deposit made on
-# the same calendar day as an audit was invisible — permanently. On a repo
-# that lands a dozen PRs a day that is a whole day of candidates the nudge
-# would never mention, so the reminder went quiet exactly when there was
-# most to report. Dates have no sub-day resolution and the entries carry no
-# timestamps, so no comparison of dates can fix it.
+# "New since the last audit" is decided by comparing each deposit's
+# filename timestamp against .mistakes/last-audit. Two earlier versions of
+# this got it wrong in instructive ways:
 #
-# The marker therefore records how many entries the audit saw:
-#   <!-- audited-through: YYYY-MM-DD | entries-seen: N -->
-# and anything beyond N is new. Promotions remove entries and the audit
-# rewrites N to whatever it leaves behind, so both directions stay correct.
-# A missing entries-seen (or `never`) means nothing has been audited, so
-# every entry counts — the safe direction, since erring toward a nudge
-# costs one line and erring the other way is silence that looks like health.
+#   1. Compared entry DATES against a marker date, counting only entries
+#      strictly after it — so every deposit made on the same calendar day
+#      as an audit was invisible permanently, which on this repo is most
+#      of them.
+#   2. Replaced that with an entries-seen COUNT, which worked but had to be
+#      kept truthful by hand: an audit that miscounted made real candidates
+#      invisible, and nothing could detect it.
 #
-# Path resolution is deliberate: an earlier version used a bare relative
-# "MISTAKES.md" behind an [ -f ] guard, so running from any subdirectory
-# produced silence and exit 0 — indistinguishable from "checked, nothing
-# to report." That is the configured-and-inert failure shape CLAUDE.md
-# already has a graduated rule about. Resolve from the script's own
-# location so cwd cannot make this silently no-op, and prefer the
-# harness's project dir when it is set.
-if [ -n "$CLAUDE_PROJECT_DIR" ] && [ -f "$CLAUDE_PROJECT_DIR/MISTAKES.md" ]; then
+# Deposits now carry a second-resolution UTC timestamp in the filename, so
+# the comparison is exact and needs no counter to stay honest. The state is
+# the filesystem rather than a number someone maintains.
+#
+# Path resolution is deliberate: an early version used a bare relative path
+# behind an [ -f ] guard, so running from any subdirectory produced silence
+# and exit 0 — indistinguishable from "checked, nothing to report." Resolve
+# from the script's own location so cwd cannot make this silently no-op.
+if [ -n "$CLAUDE_PROJECT_DIR" ] && [ -d "$CLAUDE_PROJECT_DIR/.mistakes/worklog" ]; then
   ROOT="$CLAUDE_PROJECT_DIR"
 else
   ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." 2>/dev/null && pwd)"
@@ -41,38 +37,49 @@ log_hook() {
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >>"$LOG" 2>/dev/null || true
 }
 
-FILE="$ROOT/MISTAKES.md"
-# A genuinely absent MISTAKES.md is a legitimate quiet exit (a branch may
+WORKLOG="$ROOT/.mistakes/worklog"
+# A genuinely absent directory is a legitimate quiet exit (a branch may
 # predate it). Path resolution failing is not, and no longer can be.
-if [ ! -f "$FILE" ]; then
-  log_hook "skipped no-mistakes-file"
+if [ ! -d "$WORKLOG" ]; then
+  log_hook "skipped no-worklog-dir"
   exit 0
 fi
 
-# Marker date is for humans; entries-seen is what the decision uses.
-MARKER=$(grep -oE 'audited-through:[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}' "$FILE" \
-         | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}' | head -1)
-[ -n "$MARKER" ] || MARKER="never"
+# No last-audit file means nothing has ever been audited, so every deposit
+# counts. Erring toward a nudge costs one line; erring the other way is
+# silence that looks like health.
+# Checked with -f rather than relying on 2>/dev/null: bash sets up input
+# redirection before the stderr redirect applies, so a missing file still
+# prints. A hook that writes to stderr on an ordinary first run is noise
+# that trains people to ignore it.
+LAST=""
+if [ -f "$ROOT/.mistakes/last-audit" ]; then
+  LAST=$(tr -d '[:space:]' <"$ROOT/.mistakes/last-audit")
+fi
+[ -n "$LAST" ] || LAST="0000-00-00T000000Z"
 
-SEEN=$(grep -oE 'entries-seen:[[:space:]]*[0-9]+' "$FILE" | grep -oE '[0-9]+' | head -1)
-[ -n "$SEEN" ] || SEEN=0
-
-ENTRIES=$(awk '/^## Worklog/{f=1; next} /^## /{f=0} f && /^- [0-9]{4}-[0-9]{2}-[0-9]{2} \[/' "$FILE")
-TOTAL=$(printf '%s\n' "$ENTRIES" | grep -c '^- ')
-
-# Entries are newest-first, so anything beyond the audited count is what
-# arrived since. Clamp at zero: promotions can leave TOTAL below SEEN until
-# the next audit rewrites it, and a negative would read as "nothing new".
-COUNT=$(( TOTAL - SEEN ))
-[ "$COUNT" -lt 0 ] && COUNT=0
+TOTAL=0
+COUNT=0
+NEWEST=""
+for f in "$WORKLOG"/[0-9]*.md; do
+  [ -e "$f" ] || continue
+  TOTAL=$(( TOTAL + 1 ))
+  # Leading YYYY-MM-DDTHHMMSSZ sorts lexically, so string comparison is
+  # exact ordering without date(1) — GNU and BSD disagree on its flags.
+  stamp=$(basename "$f" | grep -oE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z')
+  [ -n "$stamp" ] || continue
+  if [ "$stamp" \> "$LAST" ]; then
+    COUNT=$(( COUNT + 1 ))
+    [ -z "$NEWEST" ] && NEWEST=$(head -1 "$f" 2>/dev/null)
+  fi
+done
 
 if [ "$COUNT" -lt 3 ]; then
-  log_hook "silent new=$COUNT total=$TOTAL seen=$SEEN since=$MARKER"
+  log_hook "silent new=$COUNT total=$TOTAL since=$LAST"
   exit 0
 fi
 
-log_hook "nudge new=$COUNT total=$TOTAL seen=$SEEN since=$MARKER"
-OLDEST=$(printf '%s\n' "$ENTRIES" | sed -n "${COUNT}p")
+log_hook "nudge new=$COUNT total=$TOTAL since=$LAST"
 cat <<EOF
-{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"MISTAKES.md has $COUNT Worklog candidates deposited since the last audit ($MARKER saw $SEEN of the current $TOTAL). Most recent unaudited: ${OLDEST#- } — Consider running the audit-mistakes-log skill in a fresh session; it's meant to run decontextualized from whatever deposited these, not mid-task here. It rewrites the entries-seen count even if it promotes nothing, which silences this until new candidates arrive."}}
+{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"$COUNT of the $TOTAL pending candidates in .mistakes/worklog/ were deposited since the last audit ($LAST). Most recent: ${NEWEST} — Consider running the audit-mistakes-log skill in a fresh session; it's meant to run decontextualized from whatever deposited these, not mid-task here. It stamps .mistakes/last-audit even when it promotes nothing, which silences this until new candidates arrive."}}
 EOF
