@@ -43,14 +43,21 @@ actually decides whether two entries share a root cause. Anyone may append;
 nothing here is authoritative until it's promoted to Analyzed.
 
 The marker below is what stops the SessionStart nudge from nagging forever.
-`audit-mistakes-log` advances it to the run date **every** time it finishes,
-including when it decides nothing graduates yet — "I looked, these can wait"
-is a real outcome and needs somewhere to be recorded. The nudge counts only
-entries dated after it, so a deliberate no-promotion decision buys quiet
-until genuinely new candidates arrive. `never` means no audit has run.
+`audit-mistakes-log` rewrites it **every** time it finishes, including when
+it decides nothing graduates yet — "I looked, these can wait" is a real
+outcome and needs somewhere to be recorded, so a deliberate no-promotion
+decision still buys quiet until new candidates arrive.
 
-<!-- audited-through: 2026-08-18 -->
+**`entries-seen` is the field that matters**; the date is for humans. The
+nudge treats anything beyond that count as new. It used to compare entry
+dates against the marker date, which silently ignored every deposit made on
+the same day as an audit — and on this repo that is most of them. Entries
+carry no time of day, so counting is the only thing with the resolution to
+tell "already reviewed" from "arrived since".
 
+<!-- audited-through: 2026-08-18 | entries-seen: 6 -->
+
+- 2026-08-18 [reminder-blind-to-same-day] The audit-staleness nudge compared entry dates against the marker date and counted only entries strictly after it, so every deposit made on the same calendar day as an audit was invisible to it permanently — 3 real candidates sat unannounced. Entries carry no time of day, so no date comparison could have worked; switched the marker to an entries-seen count. — ref: PR #582
 - 2026-08-18 [guard-decision-without-force] The close-keyword guard fired correctly on a live reference and returned a PreToolUse `ask`, and the command then ran with no prompt — in permissive or auto-approving sessions an `ask` gates nothing, so a correct guard protected nothing. Found only because per-invocation telemetry distinguished "ran and was overruled" from "never ran". Backticked case switched to `deny`. — ref: PR #579
 - 2026-08-18 [unverified-premise] Repeated an issue body's technical rationale ("the anchor cannot be recovered retrospectively because `lead_hours` is the realized lead") as established fact in `docs/BENCHMARK_METHODOLOGY.md` and a commit message; row 0 is `anchor + 1h` by construction, so the anchor is exact arithmetic and a bounded reconstruction was available. Corrected pre-merge after a challenge, not by checking. — ref: #547 / PR #555
 - 2026-08-18 [test-validity] Wrote a unit assertion against a value that a monkeypatched fixture hardcodes (`_patch_predict_one` stubs `_build_future_feature_frame` and ignores `start_ts`), so the test exercised the stub's constant rather than the code under test. Caught by the assertion failing, not by review. — ref: #547 / PR #555
