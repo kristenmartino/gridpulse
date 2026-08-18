@@ -56,7 +56,7 @@
 | models/pricing.py                     |       32 |        0 |    100% |           |
 | models/prophet\_model.py              |       74 |        4 |     95% |208, 231-238 |
 | models/rolling\_eval.py               |       97 |        0 |    100% |           |
-| models/shadow\_eval.py                |       20 |        1 |     95% |        36 |
+| models/shadow\_eval.py                |       63 |        5 |     92% |80-81, 164-165, 200 |
 | models/skill.py                       |       52 |        0 |    100% |           |
 | models/training.py                    |      100 |        2 |     98% |   184-185 |
 | models/xgboost\_model.py              |       84 |        7 |     92% |83, 107, 127-131 |
@@ -67,7 +67,7 @@
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
-| **TOTAL**                             | **8418** |  **729** | **91%** |           |
+| **TOTAL**                             | **8461** |  **733** | **91%** |           |
 
 
 ## Setup coverage badge
