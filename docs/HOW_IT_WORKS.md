@@ -231,7 +231,16 @@ matters: autoregressive lags are computed by **positional** shift, so a NaN hole
 in demand deletes the rows 1, 2, 3, 24 and 168 positions after it — including
 rows at the *tail* of the feature frame. A 16-hour hole therefore stalls the
 origin 24 hours later for as many ticks as it takes fresh demand to clear the
-deleted block. Separately, when EIA **withdraws hours it has already published**
+deleted block. Those deletions have a second consequence, separate from the
+origin: the recursion is seeded with that same feature frame, and
+`compute_autoregressive_snapshot` indexes the seed **by position**, so
+`demand_lag_168h` reads 168 *surviving rows* back rather than 168 hours back. On
+LGEE at a live origin that was 34 hours off, with `demand_roll_168h_*` spanning
+201 real hours instead of 167. A timestamp-resolved seed is implemented behind
+the `temporal_ar_seed` flag, **default off**: the defect is real, but a replay
+A/B could not show an accuracy benefit to fixing it (inconclusive at 168h and
+48h — `docs/POSITIONAL_LAG_SEED_STUDY.md`), so it ships dark pending a shadow
+run rather than moving published numbers on an underpowered result. Separately, when EIA **withdraws hours it has already published**
 the anchor collapses backwards, and the payload would otherwise publish an origin
 older than one already served — LGEE regressed 23 hours for 24 consecutive ticks
 on 2026-08-14, relabelling 40-to-63-hour-ahead rows as one-hour-ahead. The

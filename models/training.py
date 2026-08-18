@@ -116,7 +116,11 @@ def train_all_models(
         # production scoring uses, so this MAPE is commensurable with the
         # Prophet/SARIMAX multi-step holdouts (#195, single source of truth).
         xgb_forecast = recursive_autoregressive_forecast(
-            xgb_result, train_df[target_col].tolist(), val_df, predict_xgboost
+            xgb_result,
+            train_df[target_col].tolist(),
+            val_df,
+            predict_xgboost,
+            seed_timestamps=train_df.get("timestamp"),
         )[: len(y_val)]
         metrics["xgboost"] = compute_all_metrics(y_val, xgb_forecast)
         results["xgboost"] = {"model": xgb_result, "predictions": xgb_forecast}

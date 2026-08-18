@@ -19,6 +19,75 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-18 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+MEASURED: the positional AR seed reads the wrong hour, and fixing it buys no
+measured accuracy. Shipped behind `temporal_ar_seed`, default OFF.**
+
+#559 prescribed a reindex plus a 51-BA × 3-model retrain behind the ADR-010 gate.
+**Its premise does not hold.** `_parse_demand_records` never manufactures rows, so
+the demand frame is whatever EIA returned — and EIA reports gap hours as rows with
+null values. Across 51 BAs over 90 days: **7 absent rows** (all SPA, all May)
+against **78 null rows**. On 50 of 51 the grid is already continuous, `shift(24)`
+is temporally exact, and the training features were never wrong. Nothing to
+reindex, no retrain to justify. ([PR #578](https://github.com/kristenmartino/gridpulse/pull/578)
+reached the same census independently.)
+
+**The real defect is one layer down.** `dropna` deletes every row whose lag source
+was null, putting real holes into `featured` — LGEE 2171 → 1969 rows with 19h and
+17h discontinuities — and `jobs/phases.py` seeds the recursion with that frame,
+which `compute_autoregressive_snapshot` indexes **positionally**. At the origin
+production resolved on 2026-08-18, `demand_lag_168h` read `08-10T01:00` against a
+correct `08-11T11:00`: **34 hours off, live**, with `demand_roll_168h_*` spanning
+201 real hours instead of 167. One null hour corrupts `lag_24h` for 24 subsequent
+origins and `lag_168h` for 168 — a seven-day blast radius, on every tick, not only
+the ticks whose origin stalls. Seven BAs carry a corrupt origin; 44 carry none.
+
+**But the accuracy case is not there.** Replaying both seed conventions through the
+serve path against archived vintages — same model, same weather, same origins —
+`verdict()` declined twice: mean **+0.090** WAPE at 168h (n=24, MDE 0.466) and
+**+0.181** at 48h (n=85, MDE 0.406). The arms diverge **2.1–2.7% of demand**, so
+values genuinely move; the accuracy effect does not clear noise. Only TIDC beats
+its own MDE, which is a post-hoc per-BA look at an inconclusive pooled result and
+is hypothesis-generating only. The study cannot be rescued by running it harder:
+detecting +0.18 needs ~600 non-overlapping windows and 26 exist, because the defect
+requires a gap. Null control held exactly — MISO and PJM at `0.000000000%`
+divergence across 47 origins.
+
+**Shipped:** `temporal_ar_seed`, default **off**, fail-open at every seam
+(flag-off is byte-identical, pinned by test). Production with the flag on
+reproduces the study's independent treatment arm to **0.0000000000**.
+
+**Open:** whether to turn it on. That wants a shadow run, not this study — the
+honest framing is a correctness fix with no demonstrated accuracy benefit, and two
+BAs move the wrong way inside noise. **Evidence:**
+[`docs/POSITIONAL_LAG_SEED_STUDY.md`](docs/POSITIONAL_LAG_SEED_STUDY.md).
+
+**Also fixed:** the parity test that should have caught this compared both AR
+implementations on a **gapless** fixture, where they agree by construction.
+`tests/unit/test_temporal_ar_seed.py` carries the gapped version, plus a fuzz
+over randomised gap patterns and a companion test asserting the positional path
+**fails** that same property — so the fuzz cannot quietly stop testing anything.
+
+**[#186](https://github.com/kristenmartino/gridpulse/issues/186) re-scoped, not
+closed.** Its premise ("the two paths match today only by coincidence") is wrong
+— they do not match, and have not for as long as gaps have existed. And its
+Option A is priced: a per-row shared core is **611x** the vectorised training
+path (+372s per fleet run, ~double with the holdout), and routing inference
+through pandas is **60x** the snapshot (+54s/tick). Both buy what the property
+test gives free, against #389's rule to bound per-run cost. The paths now share a
+representation (continuous hourly grid, NaN holes) and a semantic instead. Three
+implementations exist only while the flag keeps both inference paths alive;
+the flag decision deletes one.
+
+**Caught late, worth recording:** the first temporal implementation keyed history
+by timestamp in a `dict` and cost **79x** the positional snapshot — **+74.9s per
+scoring tick** fleet-wide, which would have blocked flipping the flag on at all.
+It was not measured before it shipped. The dense hour-indexed array that replaced
+it runs at **0.5x** the positional path, and forecasts are byte-identical to the
+studied arm.
+
+---
+
 **2026-08-18 — [#537](https://github.com/kristenmartino/gridpulse/issues/537)
 ROOT-CAUSED: the forecast origin has no memory, so it stalls when feature
 engineering loses its tail and walks BACKWARDS when EIA withdraws hours.**

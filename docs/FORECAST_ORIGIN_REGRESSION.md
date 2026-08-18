@@ -212,16 +212,34 @@ retrain that reindexing justified is not warranted by this evidence.
 
 What is real is the other half: `dropna(subset=autoregressive)` deleting rows
 whose lag source is **null**, concentrated exactly where the origin problems are
-(IID 37, LGEE 16, PSCO 11, TIDC 10). The lag *arithmetic* on those BAs is already
-correct — the holes are null values, not missing rows. So the narrow fix is
-serve-side and changes no feature values: teach `_resolve_forecast_start`'s cap to
-ask whether AR context can be seeded for the anchor hour rather than whether that
-row survived `dropna`. Imputing the AR features instead would change the training
-row set and does need a retrain.
+(IID 37, LGEE 16, PSCO 11, TIDC 10). The lag arithmetic in the *training* frame
+is correct on those BAs — the holes are null values, not missing rows, so the
+grid `shift(24)` runs on is continuous. A narrow origin fix follows: teach
+`_resolve_forecast_start`'s cap to ask whether AR context can be seeded for the
+anchor hour rather than whether that row survived `dropna`. Imputing the AR
+features instead would change the training row set and does need a retrain.
 
-Related: [#186](https://github.com/kristenmartino/gridpulse/issues/186), which is
-a different concern — parity between the two AR implementations, explicitly with
-no change to feature values.
+*Corrected 2026-08-18 — the paragraph above originally said that fix "changes no
+feature values", and that a demand frame being a complete grid settled the
+matter. It does not, because the frame inference is seeded from is not the demand
+frame.* `dropna` deletes the rows whose lag source was null, so `featured` carries
+real discontinuities — LGEE 2171 → 1969 rows with 19h and 17h jumps — and
+`jobs/phases.py` seeds the recursion with **that** frame, which
+`compute_autoregressive_snapshot` indexes by position. At the origin production
+resolved on 2026-08-18, `demand_lag_168h` read `2026-08-10T01:00` against a
+correct `2026-08-11T11:00`: **34 hours off**, with `demand_roll_168h_*` spanning
+201 real hours instead of 167. One null hour corrupts `lag_24h` for 24 subsequent
+origins and `lag_168h` for 168. Seven BAs are affected; 44 are not.
+
+So the origin fix above and the seed defect are two problems sharing one cause,
+and only the first is value-neutral. Evidence and the replay A/B (inconclusive on
+accuracy at both horizons — this is a correctness defect, not a measured accuracy
+loss): [`docs/POSITIONAL_LAG_SEED_STUDY.md`](POSITIONAL_LAG_SEED_STUDY.md).
+
+Related: [#186](https://github.com/kristenmartino/gridpulse/issues/186) — parity
+between the two AR implementations. Also re-scoped by the above: its premise that
+the paths "match today only by coincidence" is wrong, since they demonstrably do
+not match on a gapped frame.
 
 **No published number moves at merge.** The guard is forward-only — it changes
 which payload is served on a future regressed tick and rewrites nothing already

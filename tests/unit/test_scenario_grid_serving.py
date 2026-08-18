@@ -166,7 +166,7 @@ class TestScoringJobWritePath:
 
         monkeypatch.setattr(
             "data.feature_engineering.batched_recursive_autoregressive_forecast",
-            lambda model, seed, frames, predict_fn: [
+            lambda model, seed, frames, predict_fn, seed_timestamps=None: [
                 1500.0 + 20.0 * f["temperature_2m"].to_numpy() for f in frames
             ],
         )
@@ -194,7 +194,7 @@ class TestScoringJobWritePath:
 
         seen = []
 
-        def spy(model, seed, frames, predict_fn):
+        def spy(model, seed, frames, predict_fn, seed_timestamps=None):
             seen.append({"n_frames": len(frames), "rows": len(frames[0]), "seed": len(seed)})
             return [np.full(len(f), 1500.0) for f in frames]
 
