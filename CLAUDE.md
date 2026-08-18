@@ -56,16 +56,22 @@ For any non-trivial PR, before reporting "done":
 
 Otherwise report: "no explanatory-doc impact."
 
-### Verify every `Closes #N` / issue reference before writing it
+### Verify every `#N` reference — issue or PR — before writing it
 
-Before putting `Closes #N` (or `#N` for a tracked item) in a PR body,
-commit message, or STATUS.md, run `gh issue view <N> --json title,state`
-and confirm the title matches the work. A `Closes #N` written from
+Before putting any `#N` in a commit message, PR body, or committed file,
+confirm it is what you mean — `gh issue view <N> --json title,state`, or
+`gh pr view <N> --json title,state` for a PR. A `Closes #N` written from
 memory can close the *wrong* issue and leave the right one open —
 silently corrupting the roadmap the project-state system exists to keep
 trustworthy. This bit us on 2026-05-29 (PR #165 said `Closes #150`
 when the alerting issue was #148; #150 was Prophet-interval honesty).
 One `gh issue view` per reference prevents it.
+
+Outside close-keywords the harm is provenance rather than state: a wrong
+`#N` in a doc points its evidence trail at unrelated work. And a number you
+have not created yet cannot be checked — issue and PR numbers race between
+concurrent sessions — so write the ref after the thing exists, or name it by
+branch. Evidence: `MISTAKES.md` → `[reference-verification]`.
 
 **The backtick/quote trap (this bit us twice on 2026-05-29):** GitHub
 scans *commit messages and PR bodies* for close-keywords and **ignores
