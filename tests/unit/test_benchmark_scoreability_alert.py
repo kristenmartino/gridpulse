@@ -72,20 +72,30 @@ class TestTheDropAlarm:
 
 class TestTheEarlyWarning:
     def test_it_names_the_bas_that_were_next_to_fall(self):
-        """CAISO 82.9% and PJM 81.0% on 2026-08-17 — still scoreable, 1-3 points
-        above the gate, with nothing watching them."""
+        """The real first firing, 2026-08-18T06:18Z: TEC at 80.1% — still
+        scoreable, a tenth of a point above the gate.
+
+        The fixture used to be CAISO 82.9% / PJM 81.0%, the pair this band was
+        argued from. Those were the **pre-fix broken** readings; post-fix the
+        two measure 100.0% and 99.7%, so the example asserted a situation that
+        no longer exists anywhere. TEC is the case that actually happened, and
+        it is the harder one: 0.1 points of margin rather than 1-3.
+        """
         payloads = [
-            _payload("CAISO", cov=0.8289, asissued=0.7940),
-            _payload("PJM", cov=0.8095, asissued=0.7810),
+            _payload("TEC", cov=0.8011, asissued=0.4896),
             _payload("BANC", cov=0.9930, asissued=0.9900),
         ]
         at_risk = [
             a
-            for a in scoreability_alerts(_rollup(46), payloads, coverage_warn=0.85)
+            for a in scoreability_alerts(_rollup(45), payloads, coverage_warn=0.85)
             if a["event"] == "benchmark_coverage_at_risk"
         ]
-        assert [a["region"] for a in at_risk] == ["CAISO", "PJM"]
+        assert [a["region"] for a in at_risk] == ["TEC"]
         assert all(a["gate"] == MIN_DF_COVERAGE for a in at_risk)
+        # Both coverages ride along: the on-call reader tells "the BA stopped
+        # publishing" from "our capture regressed" by comparing them, and for
+        # TEC the answer was the first — verified against EIA, 576 of 719.
+        assert at_risk[0]["df_asissued_coverage"] == 0.4896
 
     def test_it_warns_above_the_gate_not_at_it(self):
         """The whole point. A BA that has already fallen out is a page that is

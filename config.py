@@ -1145,9 +1145,19 @@ SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
 #
 # `BENCHMARK_DF_COVERAGE_WARN` is the early warning, above MIN_DF_COVERAGE
 # rather than at it: a BA that has already fallen out is a page that is
-# already wrong. On 2026-08-17 CAISO sat at 82.9% and PJM at 81.0%, 1-3 points
-# above the 0.80 gate with nothing watching them — this band would have named
-# both before either dropped.
+# already wrong.
+#
+# It earned that on its first real firing, 2026-08-18T06:18Z — hours after the
+# #535 deploy — naming TEC at 80.1%, one tenth of a point above the gate, with
+# `df_asissued_coverage` at 49.0%. Verified against EIA over the payload's own
+# 719-hour window: EIA published DF for 576 hours and we recorded 576, so the
+# asymmetry was upstream and the exclusion would have been correct. TEC's DF
+# had stopped dead at 2026-08-17T04Z while its metered D kept flowing.
+#
+# The band was originally justified by CAISO at 82.9% and PJM at 81.0% on
+# 2026-08-17. Those were the BROKEN pre-fix readings — the same first_seen_df
+# defect #535 repaired — and post-fix the two measure 100.0% and 99.7%. The
+# threshold outlived its evidence by a day; keep the number, not the example.
 BENCHMARK_MIN_SCOREABLE = int(os.getenv("BENCHMARK_MIN_SCOREABLE", "40"))
 BENCHMARK_DF_COVERAGE_WARN = float(os.getenv("BENCHMARK_DF_COVERAGE_WARN", "0.85"))
 

@@ -75,9 +75,19 @@ the count now lives **only** in the live payload — a guard test fails any doc
 that asserts it in prose, since a sentence cannot track an hourly recomputation
 and "just update the number" is the fix that had already failed; the page names
 its own population, so a headline cannot silently change the fleet it describes;
-and an alert watches the count *and* warns on BAs approaching the threshold —
-CAISO at 82.9% and PJM at 81.0% were one and three points from falling out with
-nothing watching them.
+and an alert watches the count *and* warns on BAs approaching the threshold.
+
+**The coda, one day later.** That warn band was justified by CAISO at 82.9% and
+PJM at 81.0% — one and three points from falling out with nothing watching them.
+Those numbers were produced by the broken measurement the same commit repaired:
+post-fix they read 100.0% and 99.7%. The threshold shipped with evidence its own
+fix had destroyed, and I only noticed because the alert fired for real within
+hours — **TEC at 80.1%**, which I then confirmed against EIA directly (576 DF
+hours published over the payload's own 719-hour window, 576 recorded, so the
+gap was the BA's and not our collector's). Two lessons, and the second is the
+one I'd lead with: a rationale written in the same breath as a fix is *measured
+on the pre-fix world*, so re-derive it after; and the fastest way to find out
+whether an alert is any good is to read the first thing it catches.
 
 **Takeaway.** The exclusion reason was a *sentence about the balancing
 authority* generated from a *measurement of our own pipeline*, and nothing in
