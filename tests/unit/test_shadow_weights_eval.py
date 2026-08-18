@@ -124,8 +124,8 @@ class TestQualityGate:
     **These tests pin the gate's behaviour, not a verdict.** The gate does NOT clear
     the ±2% bound: IID still reads +86.49% over 126 clean lead-1 records, against
     +1.65% from the drift path over the same window at a *longer* 24h lead. That
-    residual is a defect in the shadow record stream, tracked separately — filtering
-    is necessary here and is not sufficient.
+    residual is a defect in the shadow record stream (#541) — filtering is necessary
+    here and is not sufficient.
     """
 
     def test_low_actual_artifacts_are_dropped(self) -> None:

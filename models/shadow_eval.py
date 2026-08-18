@@ -29,8 +29,8 @@ MIN_DAYS_DEFAULT = 14
 def filter_records(records: list[dict]) -> tuple[list[dict], dict[str, int]]:
     """Apply the drift path's quality gates before either arm is scored.
 
-    **This closes the defect that made the #478 evaluation unable to decide.**
-    ``compute_drift_payload`` runs every record through :func:`filter_by_lead`
+    **One of two defects behind #478's inability to decide — not the whole of
+    it.** ``compute_drift_payload`` runs every record through :func:`filter_by_lead`
     then :func:`filter_low_actuals` before it averages anything
     (``models/drift.py``). The shadow path reused the *grading* primitive
     (``build_records_from_actuals``) and none of the *filtering* — so the two
@@ -53,8 +53,7 @@ def filter_records(records: list[dict]) -> tuple[list[dict], dict[str, int]]:
     *longer* 24h lead and reads **+1.65%**, on a feed whose actuals (339–960 MW)
     and predictions (397–882 MW) are both sane. A shorter lead cannot be 52×
     worse than a longer one, so the residual is a defect in how the shadow
-    record stream is written, tracked separately. Filtering is necessary here
-    and is not sufficient.
+    record stream is written — #541. Filtering is necessary here, not sufficient.
 
     **Filtering is on the SHARED ``actual``, so both arms keep exactly the same
     hours.** That is what makes it safe: a gate applied per-arm could keep
