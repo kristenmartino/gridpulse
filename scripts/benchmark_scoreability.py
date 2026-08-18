@@ -142,8 +142,22 @@ def main() -> int:
         "`models.benchmark.scoreability` this script calls. Where the two "
         "disagree, this file is the stale one.*\n",
         f"\n**As measured on {stamp}: {len(scoreable)} of {len(rows)} balancing "
-        "authorities are scoreable.** A BA is excluded only when it cannot be "
-        "compared *fairly*; the reason is published for every one of them.\n",
+        "authorities clear the scoreability gate.** A BA is excluded only when "
+        "it cannot be compared *fairly*; the reason is published for every one "
+        "of them.\n",
+        # The gate is not the whole rule, and the difference is not staleness.
+        # `scoreability()` answers "can this BA be compared at all"; the payload
+        # then drops any BA left with fewer than MIN_PAIRED_HOURS comparable
+        # hours, which is a per-lead question this script does not evaluate. On
+        # 2026-08-18 that is exactly one BA (MISO, 175 paired hours), so the
+        # gate reads 46 and `n_scoreable` reads 45. A reader who finds the two
+        # numbers and no explanation would reasonably assume one is wrong.
+        "\nThis is the **gate** count. The live payload additionally requires "
+        "at least `MIN_PAIRED_HOURS` comparable hours per lead, so its "
+        "`n_scoreable` can be lower — a BA that publishes a day-ahead forecast "
+        "but has too thin a paired sample is reported as "
+        "`insufficient-paired-hours`, which is a different fact from "
+        "`df-coverage` and is published as such.\n",
         "\n`df_coverage_pct` is the **BA's** publication rate — the share of "
         "hours EIA carried a day-ahead forecast for — and is the only figure "
         "the exclusion gate acts on. `df_asissued_pct` is **ours**: the share "

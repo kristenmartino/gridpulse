@@ -345,7 +345,24 @@ def deserialize_records(rows: list[dict[str, Any]] | None) -> list[VintageRecord
     for row in rows:
         try:
             df_raw = row.get("df")
+            # The two persistence paths represent "absent" differently, and
+            # only one of them round-trips through `str()` safely. Redis JSON
+            # omits the key (-> None); the GCS parquet mirror materialises the
+            # column and returns float NaN. `str(nan)` is the literal "nan" —
+            # an unparseable timestamp that `df_capture_lag_hours` then reports
+            # as an UNMEASURABLE lag, which every reader treats as stale. The
+            # offline scoreability report read 713 of 719 records that way and
+            # published an as-issued rate of 0.1%.
+            #
+            # `df` survives the same round trip only by luck: `float(nan)` is
+            # nan, which is what the field already means.
             df_at_raw = row.get("dfat")
+            if df_at_raw is not None:
+                try:
+                    if bool(pd.isna(df_at_raw)):
+                        df_at_raw = None
+                except (TypeError, ValueError):
+                    pass
             out.append(
                 VintageRecord(
                     timestamp=str(row["ts"]),
