@@ -40,6 +40,7 @@ Audit, not here. `[category]` can be a best guess; the audit pass is what
 actually decides whether two entries share a root cause. Anyone may append;
 nothing here is authoritative until it's promoted to Analyzed.
 
+- 2026-08-18 [local-verification-narrower-than-ci] Reported lint clean after running `ruff check` only; CI's lint job also runs `ruff format --check`, which failed on a newly added script and cost a CI cycle. — ref: PR #560
 - 2026-08-18 [configured-but-inert] The SessionStart nudge hook resolved `MISTAKES.md` by bare relative path behind an `[ -f ]` guard, so from any subdirectory it exited 0 with no output — identical to "checked, nothing to report." Caught by testing it from `docs/` before merge. — ref: PR #561
 - 2026-08-18 [stale-branch-diff] Nearly opened a PR from `exp/478-bias-measurability` after its earlier commits had been squash-merged into `main` — `git log branch..main` still showed them as unmerged and the branch's `STATUS.md` predated 11 later commits, so the diff would have looked like a revert. Caught by diffing against `origin/main` before pushing. — ref: this session, no PR (caught pre-push)
 
