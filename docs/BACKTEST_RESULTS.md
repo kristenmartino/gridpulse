@@ -155,8 +155,11 @@ Two things stand out:
    weather + calendar + its own predictions, so the error saturates around ~4%
    and holds roughly flat from day-ahead through 7 days (day-ahead actually
    beats the 7-day figure on only **24 of 51** BAs — a coin flip). The practical
-   consequence: the ~4.8% ensemble headline is representative of the entire
+   consequence: the ~4.35% ensemble headline is representative of the entire
    day-ahead-to-week operating range, not an artifact of the longest horizon.
+   *(Read 4.82% before 2026-08-07 — this line was not updated with the
+   distribution table above it, and said `~4.8%` for eleven days after that
+   table moved.)*
 
 **Versus industry.** Best-in-class day-ahead short-term load forecasting runs
 1–3% MAPE. GridPulse's strongest large BAs land in or near that band (PJM 1.2%,
