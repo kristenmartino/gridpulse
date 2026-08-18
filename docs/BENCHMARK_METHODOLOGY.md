@@ -431,6 +431,51 @@ down first is that we do not get to discover them after seeing the result.
 
 ### Change log
 
+**2026-08-18 — `df_coverage` measures the BA, not our collector ([#535]).**
+*Direction: it grows the scoreable population by 21 BAs, which is the direction
+that flatters us — so the evidence is given in full, and the rule it relaxes is
+one that was measurably **wrong**, not merely strict.*
+
+No drop rule loosened. `MIN_DF_COVERAGE` is unchanged at 0.80, every per-hour
+exclusion in §4 still applies, and the `stale_capture` rule got *stricter*: it
+is now evaluated on when we observed the **DF** (`df_at`) rather than when we
+first saw the hour, so a day-ahead value filled in on a later tick cannot reach
+the as-issued arm. What changed is the input to the gate.
+
+`first_seen_df` was pinned on the tick that first admitted an hour and never
+revisited, so a DF EIA published slightly later was lost permanently — and the
+gate read our collector's timing as the BA's publishing behaviour, then
+published that reading as an exclusion reason asserting the BA "publishes a
+day-ahead forecast for under 80% of hours". `data.vintage` now gives the DF a
+second look, so the number means what its label says.
+
+**Why this is not a favourable rule change dressed up.** Measured against EIA
+directly over the same 30-day window on 2026-08-17, the excluded BAs publish DF
+for 93.3–100% of hours where we had recorded 58–83% — ISONE 100 vs 66.8, NYISO
+96.7 vs 58.0, ERCOT 93.3 vs 64.1. Swept across all 51 BAs, exactly two fall
+below the gate upstream, and one of those (SPA) was already excluded as a broken
+feed. The hours we lost form a diurnal block aligned to each BA's *local* early
+morning, near-identical across unrelated BAs in different interconnects. And the
+values are genuine forecasts, not placeholders: of 210 ERCOT / 278 NYISO / 137
+PJM recovered hours, 0 / 1 / 0 have `DF == D`.
+
+**Verified by replay before deploy**, applying the new capture to the real
+production vintage window for all 51 BAs: **25 → 46 scoreable, 21 restored, 0
+newly excluded.** SPP stays out at 53.6% measured coverage, which is genuine.
+The post-fix per-BA coverage matches the independent upstream measurement to the
+decimal on every restored BA.
+
+**What this does *not* do is make the arm easier on us.** Our capture rate did
+not improve — it is now published separately as `df_asissued_coverage` (fleet
+median 0.774), and hours whose DF arrived late are still dropped from the
+as-issued arm by `stale_capture`. A restored BA is scored on the hours it was
+always entitled to be scored on, and `MIN_PAIRED_HOURS` still governs whether
+there are enough of them; MISO in particular is expected to sit near that floor
+until the window refills.
+
+[#535]: https://github.com/kristenmartino/gridpulse/issues/535
+
+
 **2026-08-04 — `stale_capture` exclusion ([#358]).** *Direction: measured, not
 predicted, and not uniform.* Hours first seen after they had already passed
 were being scored on the as-issued arm carrying post-revision values. They are
