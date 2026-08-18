@@ -2334,6 +2334,15 @@ def write_drift_metrics(
             rolling_smape_7d=headline.get("rolling_smape_7d"),
             rolling_mape_7d=headline.get("rolling_mape_7d"),
             n_low_actual_excluded_7d=headline.get("n_low_actual_excluded_7d"),
+            # #542: the healing signal. ``n_lead_unknown_7d`` declining tick
+            # over tick is re-grading no longer blanking leads; ``n_lead_
+            # excluded_7d`` rising is the P2-19 filter re-engaging on records
+            # that had been bypassing it. Both were already computed and
+            # published in the payload — and neither was ever read, which is
+            # how the defect survived. Logging them puts the counters where
+            # the post-deploy check actually looks.
+            n_lead_excluded_7d=headline.get("n_lead_excluded_7d"),
+            n_lead_unknown_7d=headline.get("n_lead_unknown_7d"),
             # #512: the window's DEPTH, logged every write. A key expiry drops
             # this from 720 to 1 and nothing else in the system notices — the
             # job is stateless, so it cannot tell "history lost" from "new BA".
