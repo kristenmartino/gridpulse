@@ -1147,7 +1147,10 @@ SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
 # since the BA's newest published DF) does — so this band no longer sits ahead
 # of anything. It is kept as an informational signal that a BA's publishing is
 # degrading, and there is deliberately NO early warning on the staleness gate
-# yet: that needs a new log event and a new GCP policy.
+# yet: that needs a new log event and a new GCP policy (#587). Note the
+# ordering that arrangement leaves behind is incidental — a dead feed trips
+# this band at ~108h of a 719-hour window, ahead of the 168h gate, only
+# because of what these two constants happen to be.
 #
 # Its one real firing, 2026-08-18T06:18Z — hours after the #535 deploy — named
 # TEC at 80.1%, a tenth of a point above the then-gate, `df_asissued_coverage`

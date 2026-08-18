@@ -963,11 +963,14 @@ def scoreability_alerts(
     entry so an on-call reader sees the distance to the **real** gate rather
     than inferring it from a rate.
 
-    **Stated rather than left implicit: there is no early warning on the
-    staleness gate itself yet.** Adding one means a new log event and a new
-    GCP policy, which is a deploy-coupled change this PR does not carry. Until
-    then a feed that dies is caught by ``benchmark_scoreability_drop`` at the
-    fleet floor, which is later than it should be.
+    **Stated rather than left implicit: nothing watches the staleness gate
+    itself yet (#587).** ``benchmark_scoreability_drop`` cannot cover it — its
+    floor is 40 against a ceiling of 46, so six BAs must die before it fires
+    and one dying feed never trips it. What does warn today is an accident:
+    a dead feed's coverage crosses the 0.85 band after ~108h of the 719-hour
+    window, ~60h before this gate, so the ordering holds only while those two
+    unrelated constants keep their present values — and it is already
+    saturated for a BA like TEC that sits below the band regardless.
     """
     from config import BENCHMARK_DF_COVERAGE_WARN, BENCHMARK_MIN_SCOREABLE
 
