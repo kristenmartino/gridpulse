@@ -70,17 +70,31 @@ across different window counts without their respective nulls is invalid;
 every figure in this section is reported against its own null for that
 reason.
 
-## 3. Mutual validation against an independent measurement
+## 3. Mutual validation against an independent analysis
 
 This result reproduces a sign flip measured independently, on a different
 metric and different windows, in the parallel fleet-baseline work: xgboost
 ahead at 24h, ensemble ahead at 48h/72h. That measurement's paired xgboost-
 vs-ensemble delta moved **−0.0635 → +0.0554** across horizons — the same
 crossover this study's strategy table shows (xgboost wins 24h by 0.091,
-ensemble wins 48h by 0.052 and 72h by 0.001). Two independent measurements
-agreeing on the crossover, on different data, is stronger evidence for it
-than either alone — and it's the same underlying fact as §1/§2: the models
-are close enough that which one is "ahead" depends on the window.
+ensemble wins 48h by 0.052 and 72h by 0.001).
+
+Two independent ANALYSES agreeing on the crossover — different metric (MAPE
+vs WAPE), different window slicing, different extraction path — is stronger
+evidence than either alone. Note the limit: both derive from the same
+`gridpulse:drift_horizon` records, so this rules out analysis error, not a
+defect in the record store itself.
+
+**Provenance of the comparison figure**, for anyone re-deriving it: swept
+2026-08-17, `GET /api/v1/drift/{BA}` for all 51 regions, `rolling_mape_7d`,
+single live window. Paired xgboost-ensemble: −0.0635 (t=−0.54) at 24h,
+−0.0087 (t=−0.05) at 48h, +0.0554 (t=+0.40) at 72h; negative = xgboost lower
+MAPE. Sign consistency for xgboost-better: 0.608 / 0.549 / 0.510. Ensemble
+beaten by some single model on 36/38/38 of 51 BAs. Champion constant across
+24/48/72h on 28 of 51 BAs (the ensemble itself on 6).
+
+It's the same underlying fact as §1/§2: the models are close enough that
+which one is "ahead" depends on the window.
 
 ## 4. Champion counts — "best fixed policy" is not "usually wins per BA"
 
