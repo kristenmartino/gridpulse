@@ -245,6 +245,16 @@ repeatable, not that the stated cause was the operative one, and the control
 that separated them was the one never run. `test_monitoring_policies_applied.py`
 now fails the build on any runbook over the cap.
 
+**Split out:**
+[#554](https://github.com/kristenmartino/gridpulse/issues/554) — the length
+check closes *one* reason committed and applied can diverge; the likelier one
+is untouched, since applying a documentation edit is still a manual step
+outside CI and nothing compares the applied runbook to the committed file. The
+same issue covers noticing a policy left `enabled: false` — which happened
+twice during this session and both times was caught only because someone was
+looking. Modelled on `deploy-divergence.yml`, which already answers the
+"needs a live API call" objection.
+
 **Open question, split out:**
 [#549](https://github.com/kristenmartino/gridpulse/issues/549) — the gate
 cannot tell chronic sparsity from episodic blackout and publishes the first
