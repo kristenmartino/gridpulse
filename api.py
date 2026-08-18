@@ -801,7 +801,14 @@ def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "reason": payload.get("reason"),
         "reason_detail": payload.get("reason_detail"),
         "revision_class": payload.get("revision_class"),
+        # BOTH coverages, deliberately (#535). `df_coverage` is the BA's
+        # publication rate and gates the exclusion; `df_asissued_coverage` is
+        # OUR capture rate and gates nothing. Publishing only the first is
+        # exactly how #535 hid for three weeks — the excluded BAs' reason said
+        # "this BA barely publishes" and no public field could contradict it.
+        # Exporting one without the other rebuilds that blind spot.
         "df_coverage": payload.get("df_coverage"),
+        "df_asissued_coverage": payload.get("df_asissued_coverage"),
         "placeholder_pct": payload.get("placeholder_pct"),
         # #348: which series this row scores, and which one the product
         # actually serves for this BA. They differ wherever a BA was

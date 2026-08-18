@@ -666,3 +666,65 @@ class TestDeferredDayAheadCapture:
         ]
         row = serialize_records(recs)[0]
         assert "df" not in row and "dfat" not in row
+
+
+class TestParquetNullRoundTrip:
+    """The GCS mirror and Redis disagree about how "absent" looks (#535).
+
+    Redis JSON omits an absent key; the parquet mirror materialises the column
+    and hands back float NaN. `deserialize_records` has to accept both, and the
+    failure is silent in the worst way: `str(nan)` produces the literal string
+    `"nan"`, which parses as a timestamp nowhere, so `df_capture_lag_hours`
+    returns None, which every caller treats as an *unmeasurable* — therefore
+    stale — capture. The offline report read 713 of 719 records that way and
+    published an as-issued coverage of 0.1% against a true ~64%.
+
+    Nothing in production noticed, because production reads Redis.
+    """
+
+    def test_nan_dfat_from_parquet_deserializes_to_none(self):
+        row = {
+            "ts": "2026-08-01T00:00:00+00:00",
+            "d": 1000.0,
+            "at": "2026-08-01T01:00:00+00:00",
+            "ld": 1000.0,
+            "n": 0,
+            "df": 950.0,
+            "dfat": float("nan"),
+        }
+        rec = deserialize_records([row])[0]
+        assert rec.df_at is None, "NaN is absence, not a timestamp spelled 'nan'"
+        assert df_capture_lag_hours(rec) == 1.0, (
+            "and the lag must fall back to captured_at, not become unmeasurable"
+        )
+
+    def test_a_real_dfat_still_survives_parquet(self):
+        row = {
+            "ts": "2026-08-01T00:00:00+00:00",
+            "d": 1000.0,
+            "at": "2026-08-01T01:00:00+00:00",
+            "ld": 1000.0,
+            "n": 0,
+            "df": 950.0,
+            "dfat": "2026-08-01T09:00:00+00:00",
+        }
+        assert df_capture_lag_hours(deserialize_records([row])[0]) == 9.0
+
+    def test_the_whole_mirror_shape_round_trips(self):
+        """A frame built the way `write_parquet` builds it — mixed present and
+        absent — is what actually reaches the report."""
+        recs = [
+            VintageRecord(
+                timestamp=f"2026-08-01T{h:02d}:00:00+00:00",
+                first_seen_d=1000.0,
+                first_seen_df=950.0,
+                captured_at=f"2026-08-01T{h + 1:02d}:00:00+00:00",
+                last_d=1000.0,
+                df_at=None if h % 2 else f"2026-08-01T{h + 1:02d}:00:00+00:00",
+            )
+            for h in range(10)
+        ]
+        frame = pd.DataFrame(serialize_records(recs))
+        back = deserialize_records(frame.to_dict("records"))
+        assert [r.df_at for r in back] == [r.df_at for r in recs]
+        assert all(df_capture_lag_hours(r) == 1.0 for r in back)

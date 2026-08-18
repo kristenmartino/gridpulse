@@ -97,3 +97,34 @@ def test_the_snapshot_publishes_both_coverages():
     """
     text = (_ROOT / "docs/BENCHMARK_SCOREABILITY.md").read_text()
     assert "df_coverage_pct" in text and "df_asissued_pct" in text
+
+
+def test_the_api_exports_every_scoreability_field():
+    """A field computed and stored but never exported is invisible (#535).
+
+    `_export_benchmark_payload` is an allow-list at a public trust boundary,
+    which is correct — but it means adding a field to `scoreability()` is only
+    half the change, and the missing half fails silently: the payload is valid,
+    the tests pass, and the number simply never reaches a reader.
+
+    That is not hypothetical. `df_asissued_coverage` shipped in the #535 fix,
+    was written to Redis on the first tick, and was absent from
+    `/api/v1/benchmark` because this allow-list was not updated — so the public
+    surface still published one coverage where the whole argument of the fix was
+    that publishing one is what hid the bug.
+
+    Asserted structurally rather than as a fixed list, so the next field added
+    to `scoreability()` cannot repeat it.
+    """
+    import inspect
+
+    import api
+    from models.benchmark import scoreability
+
+    computed = set(scoreability([], None).keys()) - {"n_hours"}
+    exported = inspect.getsource(api._export_benchmark_payload)
+    missing = sorted(k for k in computed if f'"{k}"' not in exported)
+    assert not missing, (
+        f"scoreability() computes {missing} but _export_benchmark_payload does "
+        "not export them — the value exists in Redis and never reaches a reader"
+    )
