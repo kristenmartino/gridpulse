@@ -39,7 +39,9 @@ from models.benchmark import (
 class _Rec:
     """Minimal stand-in for data.vintage.VintageRecord."""
 
-    def __init__(self, ts, first_seen_df, last_d, was_placeholder=False, captured_at=None):
+    def __init__(
+        self, ts, first_seen_df, last_d, was_placeholder=False, captured_at=None, df_at=None
+    ):
         self.timestamp = ts
         self.first_seen_df = first_seen_df
         self.last_d = last_d
@@ -49,6 +51,11 @@ class _Rec:
         # it — and an hour that was never seen fresh has no business on the
         # as-issued arm (#358), which the stale tests below exercise.
         self.captured_at = captured_at if captured_at is not None else ts
+        # `None` = "no separate DF observation date", which is what every
+        # pre-#535 record carries and what makes `df_capture_lag_hours` fall
+        # back to `captured_at`. Set it explicitly to model a DF that arrived on
+        # a LATER tick than the hour itself — the #535 case.
+        self.df_at = df_at
 
 
 def _records(n=300, *, df=1000.0, actual=1000.0, placeholder=False):
@@ -816,3 +823,132 @@ class TestStaleCaptureImpact:
             )
             is None
         )
+
+
+class TestDeferredDayAheadCapture:
+    """The #535 rail: filling a DF late must not buy it the as-issued arm.
+
+    `data.vintage` now gives a missing `DF` a second look, because pinning it at
+    first sight measured our collector and published the result as a fact about
+    the BA. That fix is only safe while `pair_hours` grades freshness on the DF
+    observation (`df_at`) rather than on the hour's own capture — otherwise the
+    fix quietly puts post-revision values on the as-issued arm at scale, which
+    is a worse defect than the one it repairs.
+    """
+
+    def test_late_filled_df_cannot_reach_the_asissued_arm(self):
+        # Hour seen fresh; its DF only turned up 9h later.
+        recs = [
+            _Rec(
+                "2026-07-01T00:00:00Z",
+                900.0,
+                1000.0,
+                captured_at="2026-07-01T01:00:00Z",
+                df_at="2026-07-01T09:00:00Z",
+            )
+        ]
+        pairs, drops = pair_hours(recs, {_normalize_ts(recs[0].timestamp): 1050.0})
+        assert pairs == [], "a DF observed 9h after the hour is not 'as issued'"
+        assert drops["stale_capture"] == 1
+        assert drops["no_df"] == 0, "the DF exists — it is its provenance that fails"
+
+    def test_a_promptly_filled_df_still_scores(self):
+        """The rail is a freshness test, not a ban on ever filling a DF.
+
+        If it rejected every filled value the #535 fix would restore the
+        exclusion labels and no scoreable hours, which is the failure mode worth
+        distinguishing from success.
+        """
+        recs = [
+            _Rec(
+                "2026-07-01T00:00:00Z",
+                900.0,
+                1000.0,
+                captured_at="2026-07-01T01:00:00Z",
+                df_at="2026-07-01T02:00:00Z",
+            )
+        ]
+        pairs, drops = pair_hours(recs, {_normalize_ts(recs[0].timestamp): 1050.0})
+        assert len(pairs) == 1 and drops["stale_capture"] == 0
+
+    def test_the_rail_reads_df_at_and_not_captured_at(self):
+        """Pins the direction, which a symmetric fixture cannot.
+
+        Here the HOUR is stale and the DF is fresh — impossible in production,
+        and chosen precisely because the two clocks disagree: a `pair_hours`
+        still grading on `captured_at` drops this row, and one grading on
+        `df_at` keeps it. Nothing else in the suite separates them.
+        """
+        recs = [
+            _Rec(
+                "2026-07-01T00:00:00Z",
+                900.0,
+                1000.0,
+                captured_at="2026-07-02T00:00:00Z",  # 24h — stale by the old rule
+                df_at="2026-07-01T01:00:00Z",  # 1h — fresh by the new one
+            )
+        ]
+        pairs, _ = pair_hours(recs, {_normalize_ts(recs[0].timestamp): 1050.0})
+        assert len(pairs) == 1, "the as-issued claim is about the DF observation"
+
+
+class TestTwoCoverages:
+    """`df_coverage` describes the BA; `df_asissued_coverage` describes us (#535).
+
+    One number used to answer both questions, and the answer it gave was
+    published as the BA's. Twenty-six BAs were excluded on it — measured against
+    EIA directly, exactly one of them (SPP) was genuinely below the threshold.
+    """
+
+    @staticmethod
+    def _rec(hour, *, df, df_at):
+        ts = f"2026-07-{1 + hour // 24:02d}T{hour % 24:02d}:00:00Z"
+        return _Rec(ts, df, 1000.0, captured_at=ts, df_at=df_at)
+
+    def test_a_ba_that_publishes_but_we_captured_late_is_still_scoreable(self):
+        """The whole of #535 in one assertion."""
+        recs = [
+            self._rec(h, df=900.0, df_at=f"2026-07-{1 + h // 24:02d}T{h % 24:02d}:00:00Z")
+            for h in range(60)
+        ] + [
+            # Published by EIA, captured by us a day late.
+            self._rec(h, df=900.0, df_at="2026-08-01T00:00:00Z")
+            for h in range(60, 100)
+        ]
+        out = scoreability(recs, "bulk")
+        assert out["df_coverage"] == 1.0, "EIA published for every hour"
+        assert out["df_asissued_coverage"] == 0.6, "we captured 60% of them in time"
+        assert out["scoreable"] is True
+        assert out["reason"] is None
+
+    def test_a_ba_that_genuinely_does_not_publish_is_still_excluded(self):
+        """SPP measures 53.8% upstream. Restoring it would be the regression,
+        not the win — a bigger number is not the goal."""
+        recs = [self._rec(h, df=900.0, df_at=None) for h in range(50)] + [
+            self._rec(h, df=float("nan"), df_at=None) for h in range(50, 100)
+        ]
+        out = scoreability(recs, "bulk")
+        assert out["df_coverage"] == 0.5
+        assert out["scoreable"] is False
+        assert out["reason"] == "df-coverage"
+
+    def test_the_exclusion_reason_carries_this_bas_measured_numbers(self):
+        """A reader who sees only "under 80% of hours" cannot tell 79% from
+        39%, and cannot tell a non-publishing BA from a capture gap at all —
+        which is exactly how #535 stayed invisible for three weeks."""
+        recs = [self._rec(h, df=900.0, df_at=None) for h in range(39)] + [
+            self._rec(h, df=float("nan"), df_at=None) for h in range(39, 100)
+        ]
+        detail = scoreability(recs, "bulk")["reason_detail"]
+        assert "39.0%" in detail, f"the BA's measured coverage is missing from: {detail}"
+        assert "100 hours" in detail
+        assert "as-issued" in detail
+
+    def test_as_issued_coverage_never_gates(self):
+        """It is our number, published for interpretation. A BA must not be
+        excluded for our collector's behaviour — that is the bug."""
+        recs = [self._rec(h, df=900.0, df_at="2026-09-01T00:00:00Z") for h in range(100)]
+        out = scoreability(recs, "bulk")
+        assert out["df_asissued_coverage"] == 0.0
+        assert out["df_coverage"] == 1.0
+        assert out["scoreable"] is True

@@ -19,7 +19,9 @@ This module is the missing recorder. For each target hour it pins:
 
 * ``first_seen_d``   — the value EIA published when we first saw the hour.
   **This is the number the anchor actually used.** It never changes.
-* ``first_seen_df``  — the BA's own day-ahead forecast at that same moment.
+* ``first_seen_df``  — the earliest day-ahead forecast we observed for the
+  hour. Usually captured at that same moment; where EIA had not published it
+  yet, filled by a later tick and dated by ``df_at`` (#535).
 * ``last_d``         — EIA's latest value for the hour, i.e. settled.
 * ``n_updates``      — how many times it moved.
 
@@ -95,10 +97,16 @@ class VintageRecord:
 
     timestamp: str  # ISO-8601 UTC, the target hour
     first_seen_d: float  # what the anchor used
-    first_seen_df: float  # BA day-ahead forecast at first sight; NaN if absent
-    captured_at: str  # ISO-8601 UTC, when we first saw it
+    first_seen_df: float  # earliest BA day-ahead forecast we observed; NaN if never
+    captured_at: str  # ISO-8601 UTC, when we first saw the hour (its ``D``)
     last_d: float  # EIA's current value — settled, once revisions stop
     n_updates: int = 0
+    #: When we first observed a finite ``DF`` for this hour. Usually equal to
+    #: ``captured_at``; LATER when EIA had not published the day-ahead forecast
+    #: yet at the moment its metered ``D`` first admitted the hour (#535).
+    #: ``None`` on records written before this field existed — every reader
+    #: falls back to ``captured_at``, so old rows keep their old meaning.
+    df_at: str | None = None
 
     @property
     def revision_pct(self) -> float | None:
@@ -122,7 +130,17 @@ class VintageRecord:
         Exact equality is the fingerprint, not a tolerance: metered demand does
         not land on a day-ahead forecast to the megawatt. Measured base rate on
         settled hours is 0-3%, vs 100% at the newest hour for 12/43 BAs.
+
+        **False whenever the DF came from a later tick** (``df_at`` set and
+        differing from ``captured_at``). The claim is that the ``D`` we first
+        saw *was* the day-ahead forecast — a statement about one moment. Once
+        #535 let a missing ``DF`` be filled on a subsequent tick, the equality
+        test could compare two values captured hours apart and manufacture a
+        placeholder flag out of a coincidence. A record that cannot evidence
+        the claim does not get to make it.
         """
+        if self.df_at is not None and self.df_at != self.captured_at:
+            return False
         if not np.isfinite(self.first_seen_d) or not np.isfinite(self.first_seen_df):
             return False
         return self.first_seen_d == self.first_seen_df
@@ -197,6 +215,40 @@ def update_vintage_records(
     * **unseen** → record ``first_seen_d`` / ``first_seen_df`` / ``captured_at``.
     * **seen, value moved** → bump ``n_updates`` and refresh ``last_d``.
       ``first_seen_d`` is never touched — it is the whole point of the record.
+    * **seen, no ``first_seen_df`` yet, one available now** → fill it and stamp
+      ``df_at``. See below.
+
+    ## Why the DF gets a second look (#535)
+
+    ``_readings`` admits an hour only once EIA publishes a positive metered
+    ``D``, and snapshots ``DF`` at that same instant. EIA does not always have
+    the day-ahead forecast loaded by then: measured across the production
+    vintage mirror on 2026-08-17, the hours we were missing form a *diurnal*
+    block aligned to each BA's local early morning — ERCOT 06-09 UTC, NYISO
+    05-10, PJM/DUK 05-08, CAISO 08-09 — near-identical across unrelated BAs in
+    different interconnects, which is the fingerprint of our collector and not
+    of 26 BAs changing their filing behaviour on the same local clock.
+
+    This loop used to short-circuit on ``continue`` whenever ``D`` had not
+    moved, and its rebuild branch copied ``first_seen_df`` unconditionally, so a
+    NaN captured at first sight was **permanent**. ``models.benchmark`` then
+    counted those NaNs and published them as "the BA publishes a day-ahead
+    forecast too sparsely to score" — a claim about the BA, made from a
+    measurement of us. Against EIA directly, the same BAs publish DF for
+    93.3-100% of hours where we recorded 58-83%, and the values we had missed
+    are genuine forecasts, not placeholders (of 210 ERCOT / 278 NYISO / 137 PJM
+    recovered hours, 0 / 1 / 0 have ``DF == D``).
+
+    So the rebuild now fires when **either** ``D`` moved beyond
+    ``REVISION_EPSILON_MW`` **or** ``first_seen_df`` is absent and this tick has
+    one. A ``first_seen_df`` that is already finite is *never* overwritten —
+    that invariant is the whole point of the record, and it is pinned by a test.
+
+    ``df_at`` records which tick supplied the DF, so a value pulled in late
+    cannot pass itself off as as-issued: ``df_capture_lag_hours`` reads it, and
+    the benchmark's ``stale_capture`` rule (#358/#392) drops the hour from the
+    as-issued arm. Filling the value and *earning the as-issued claim* are two
+    different things, and only the first happens here.
 
     Records whose target hour has aged out of ``window_hours`` are trimmed.
     Returns a chronologically-sorted list, oldest first. Never raises on a
@@ -217,17 +269,30 @@ def update_vintage_records(
                 captured_at=captured_at,
                 last_d=d_val,
                 n_updates=0,
+                # Same tick, so the placeholder claim is evidenced. When the DF
+                # is absent there is nothing to date, and `None` reads as "no DF
+                # observation" rather than as a same-tick one.
+                df_at=captured_at if np.isfinite(df_val) else None,
             )
             continue
-        if abs(d_val - prior.last_d) <= REVISION_EPSILON_MW:
+
+        # Decide BOTH updates before either short-circuit: a tick that brings
+        # the missing DF usually brings no revision to `D`, and the old
+        # `continue` on an unmoved `D` is exactly what made the fill impossible.
+        d_moved = abs(d_val - prior.last_d) > REVISION_EPSILON_MW
+        fills_df = not np.isfinite(prior.first_seen_df) and np.isfinite(df_val)
+        if not d_moved and not fills_df:
             continue
+
         by_ts[hour] = VintageRecord(
             timestamp=prior.timestamp,
             first_seen_d=prior.first_seen_d,
-            first_seen_df=prior.first_seen_df,
+            # Never overwrite a DF we already hold — the "first seen" contract.
+            first_seen_df=df_val if fills_df else prior.first_seen_df,
             captured_at=prior.captured_at,
-            last_d=d_val,
-            n_updates=prior.n_updates + 1,
+            last_d=d_val if d_moved else prior.last_d,
+            n_updates=prior.n_updates + 1 if d_moved else prior.n_updates,
+            df_at=captured_at if fills_df else prior.df_at,
         )
 
     kept = []
@@ -248,6 +313,11 @@ def serialize_records(records: list[VintageRecord]) -> list[dict[str, Any]]:
     resolution EIA itself publishes); ``first_seen_d`` and ``last_d`` are
     rounded identically so ``was_placeholder``'s exact-equality test and
     ``revision_pct`` survive the round trip unchanged.
+
+    ``dfat`` is omitted when ``None``, on the same contract as ``df``: a row
+    written before #535 has no DF observation date, and its absence must
+    deserialize back to ``None`` so every reader takes the ``captured_at``
+    fallback rather than inventing a same-tick capture it cannot evidence.
     """
     return [
         {
@@ -257,6 +327,7 @@ def serialize_records(records: list[VintageRecord]) -> list[dict[str, Any]]:
             "ld": round(r.last_d, 2),
             "n": r.n_updates,
             **({"df": round(r.first_seen_df, 2)} if np.isfinite(r.first_seen_df) else {}),
+            **({"dfat": r.df_at} if r.df_at is not None else {}),
         }
         for r in records
     ]
@@ -274,6 +345,7 @@ def deserialize_records(rows: list[dict[str, Any]] | None) -> list[VintageRecord
     for row in rows:
         try:
             df_raw = row.get("df")
+            df_at_raw = row.get("dfat")
             out.append(
                 VintageRecord(
                     timestamp=str(row["ts"]),
@@ -282,6 +354,7 @@ def deserialize_records(rows: list[dict[str, Any]] | None) -> list[VintageRecord
                     captured_at=str(row["at"]),
                     last_d=float(row["ld"]),
                     n_updates=int(row.get("n", 0)),
+                    df_at=str(df_at_raw) if df_at_raw is not None else None,
                 )
             )
         except (KeyError, TypeError, ValueError):
@@ -350,11 +423,40 @@ def capture_lag_hours(record: VintageRecord) -> float | None:
     codebase, which is the drift `OFFICIAL_DOCUMENTED_LEAD_H` already taught
     us to avoid — one declaration, imported, pinned by a test.
     """
-    target = canonical_hour(record.timestamp)
-    captured = canonical_hour(record.captured_at)
-    if target is None or captured is None:
+    return _lag_hours(record.timestamp, record.captured_at)
+
+
+def df_capture_lag_hours(record: VintageRecord) -> float | None:
+    """Hours between the target hour and when we first saw its ``DF``.
+
+    The benchmark's official arm claims its value was observed *as issued*, and
+    since #535 a ``DF`` may be filled on a tick later than the one that first
+    admitted the hour — so the freshness question is about the **DF**
+    observation, not the ``D`` one. Where ``df_at`` is absent (records written
+    before #535, and hours with no DF at all) this is exactly
+    :func:`capture_lag_hours`, which is what those rows have always been graded
+    on.
+
+    Separate from :func:`capture_lag_hours` rather than a parameter on it
+    because ``classify_region`` legitimately wants the ``D``-capture lag: it
+    asks how fresh the *anchor's seed* was, which has nothing to do with when
+    the day-ahead forecast turned up.
+    """
+    return _lag_hours(record.timestamp, record.df_at or record.captured_at)
+
+
+def _lag_hours(target_ts: str, observed_ts: str) -> float | None:
+    """Hours from a target hour to an observation, or None if either is unparseable.
+
+    The single implementation both public lag helpers delegate to — the
+    ``OFFICIAL_DOCUMENTED_LEAD_H`` lesson applied one level down, so the two
+    notions of lag cannot drift apart in their arithmetic.
+    """
+    target = canonical_hour(target_ts)
+    observed = canonical_hour(observed_ts)
+    if target is None or observed is None:
         return None
-    delta = datetime.fromisoformat(captured) - datetime.fromisoformat(target)
+    delta = datetime.fromisoformat(observed) - datetime.fromisoformat(target)
     return delta.total_seconds() / 3600.0
 
 

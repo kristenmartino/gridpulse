@@ -26,8 +26,10 @@ import pytest
 from data.vintage import (
     VintageRecord,
     canonical_hour,
+    capture_lag_hours,
     classify_region,
     deserialize_records,
+    df_capture_lag_hours,
     serialize_records,
     summarize,
     update_vintage_records,
@@ -496,3 +498,171 @@ class TestVintageGcsMirror:
         result = phases.write_vintage_records("AZPS", self._frame())
         assert result.ok is True, "a best-effort mirror failure must not fail capture"
         assert "gridpulse:vintage:AZPS" in store  # the Redis truth still landed
+
+
+class TestDeferredDayAheadCapture:
+    """The DF gets a second look, and the second look cannot rewrite history (#535).
+
+    ``_readings`` admits an hour only once EIA publishes a positive metered
+    ``D``, and used to snapshot ``DF`` at that instant and never revisit it. EIA
+    does not always have the day-ahead forecast loaded by then — measured across
+    the production vintage mirror, the hours we lost formed a diurnal block
+    aligned to each BA's local early morning, near-identical across unrelated
+    BAs, which is a fingerprint of our collector rather than of the BAs. The
+    permanent NaN was then published by ``models.benchmark`` as "this BA
+    publishes a day-ahead forecast too sparsely to score".
+
+    The fill is only half of it. The other half is that a value pulled in late
+    must not be able to pass itself off as as-issued, which is what ``df_at``
+    exists to prevent.
+    """
+
+    @staticmethod
+    def _frame(hour, d, df):
+        return pd.DataFrame(
+            {"timestamp": [pd.Timestamp(hour)], "demand_mw": [d], "forecast_mw": [df]}
+        )
+
+    def test_absent_df_is_filled_by_a_later_tick(self):
+        t0 = datetime(2026, 8, 1, 1, 0, tzinfo=UTC)
+        first = update_vintage_records(
+            [], self._frame("2026-08-01T00:00:00Z", 1000.0, float("nan")), now=t0
+        )
+        assert np.isnan(first[0].first_seen_df)
+        assert first[0].df_at is None, "no DF observed means no DF observation date"
+
+        t1 = datetime(2026, 8, 1, 2, 0, tzinfo=UTC)
+        later = update_vintage_records(
+            first, self._frame("2026-08-01T00:00:00Z", 1000.0, 950.0), now=t1
+        )
+        assert later[0].first_seen_df == 950.0, (
+            "a DF EIA published after we first saw the hour is recoverable — "
+            "not recovering it is #535"
+        )
+        assert later[0].df_at == t1.isoformat()
+        assert later[0].captured_at == t0.isoformat(), "the D-capture date is untouched"
+
+    def test_a_df_we_already_hold_is_never_overwritten(self):
+        """The 'first seen' contract. Losing it destroys the whole instrument."""
+        t0 = datetime(2026, 8, 1, 1, 0, tzinfo=UTC)
+        first = update_vintage_records(
+            [], self._frame("2026-08-01T00:00:00Z", 1000.0, 900.0), now=t0
+        )
+        t1 = datetime(2026, 8, 1, 5, 0, tzinfo=UTC)
+        # A revised DF *and* a revised D, so both update paths run at once.
+        later = update_vintage_records(
+            first, self._frame("2026-08-01T00:00:00Z", 1234.0, 999.0), now=t1
+        )
+        assert later[0].first_seen_df == 900.0, "the as-issued DF must survive a revision"
+        assert later[0].df_at == t0.isoformat()
+        assert later[0].last_d == 1234.0, "last_d still tracks EIA's current value"
+        assert later[0].n_updates == 1
+
+    def test_filling_the_df_alone_does_not_count_as_a_revision(self):
+        """``n_updates`` measures how far the DEMAND reading moved.
+
+        Counting a DF fill would inflate it, and ``classify_region`` reads
+        ``n_updates`` to decide the revision class that drives ADR-009's anchor
+        conditioning — so this would silently reclassify feeds.
+        """
+        t0 = datetime(2026, 8, 1, 1, 0, tzinfo=UTC)
+        first = update_vintage_records(
+            [], self._frame("2026-08-01T00:00:00Z", 1000.0, float("nan")), now=t0
+        )
+        later = update_vintage_records(
+            first,
+            self._frame("2026-08-01T00:00:00Z", 1000.0, 950.0),
+            now=datetime(2026, 8, 1, 2, 0, tzinfo=UTC),
+        )
+        assert later[0].n_updates == 0
+        assert later[0].last_d == 1000.0
+
+    def test_a_late_filled_df_cannot_evidence_a_placeholder(self):
+        """``was_placeholder`` claims the first-seen D *was* the day-ahead value.
+
+        That is a statement about one moment. With a DF captured hours later,
+        the equality test would compare two unrelated observations and turn a
+        coincidence into a flag — one that drops the hour from both benchmark
+        arms.
+        """
+        t0 = datetime(2026, 8, 1, 1, 0, tzinfo=UTC)
+        first = update_vintage_records(
+            [], self._frame("2026-08-01T00:00:00Z", 1000.0, float("nan")), now=t0
+        )
+        later = update_vintage_records(
+            first,
+            # Numerically identical to first_seen_d — the coincidence.
+            self._frame("2026-08-01T00:00:00Z", 1000.0, 1000.0),
+            now=datetime(2026, 8, 1, 2, 0, tzinfo=UTC),
+        )
+        assert later[0].first_seen_d == later[0].first_seen_df
+        assert later[0].was_placeholder is False, (
+            "equality across two different ticks is not evidence of a placeholder"
+        )
+
+    def test_df_capture_lag_is_measured_on_the_df_not_the_hour(self):
+        rec = VintageRecord(
+            timestamp="2026-08-01T00:00:00+00:00",
+            first_seen_d=1000.0,
+            first_seen_df=950.0,
+            captured_at="2026-08-01T01:00:00+00:00",
+            last_d=1000.0,
+            df_at="2026-08-01T09:00:00+00:00",
+        )
+        assert capture_lag_hours(rec) == 1.0, "the hour itself was seen fresh"
+        assert df_capture_lag_hours(rec) == 9.0, (
+            "but its DF was not — and the as-issued claim is about the DF"
+        )
+
+    def test_legacy_records_fall_back_to_captured_at(self):
+        """Every row written before #535 has no ``df_at``, and must keep its
+        old grading rather than being silently re-dated."""
+        rec = VintageRecord(
+            timestamp="2026-08-01T00:00:00+00:00",
+            first_seen_d=1000.0,
+            first_seen_df=950.0,
+            captured_at="2026-08-01T02:00:00+00:00",
+            last_d=1000.0,
+        )
+        assert rec.df_at is None
+        assert df_capture_lag_hours(rec) == capture_lag_hours(rec) == 2.0
+
+    def test_df_at_survives_the_redis_round_trip(self):
+        recs = [
+            VintageRecord(
+                timestamp="2026-08-01T00:00:00+00:00",
+                first_seen_d=1000.0,
+                first_seen_df=950.0,
+                captured_at="2026-08-01T01:00:00+00:00",
+                last_d=1000.0,
+                df_at="2026-08-01T09:00:00+00:00",
+            )
+        ]
+        back = deserialize_records(serialize_records(recs))
+        assert back[0].df_at == "2026-08-01T09:00:00+00:00"
+
+    def test_a_row_without_dfat_deserializes_to_none(self):
+        """Not to the captured_at, and not to a crash: the key is absent on
+        every row already in Redis and GCS."""
+        legacy = {
+            "ts": "2026-08-01T00:00:00+00:00",
+            "d": 1000.0,
+            "at": "2026-08-01T01:00:00+00:00",
+            "ld": 1000.0,
+            "n": 0,
+            "df": 950.0,
+        }
+        assert deserialize_records([legacy])[0].df_at is None
+
+    def test_a_record_with_no_df_omits_dfat_from_the_wire(self):
+        recs = [
+            VintageRecord(
+                timestamp="2026-08-01T00:00:00+00:00",
+                first_seen_d=1000.0,
+                first_seen_df=float("nan"),
+                captured_at="2026-08-01T01:00:00+00:00",
+                last_d=1000.0,
+            )
+        ]
+        row = serialize_records(recs)[0]
+        assert "df" not in row and "dfat" not in row

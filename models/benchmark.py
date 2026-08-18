@@ -212,8 +212,29 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
     """Can this BA be scored, and if not, exactly why?
 
     Returns ``{"scoreable", "reason", "reason_detail", "df_coverage",
-    "placeholder_pct", "n_hours"}``. The reason travels with the verdict so
-    every exclusion is publishable.
+    "df_asissued_coverage", "placeholder_pct", "n_hours"}``. The reason travels
+    with the verdict so every exclusion is publishable.
+
+    ## Two coverages, because one number was answering two questions (#535)
+
+    * ``df_coverage`` — **the BA's publication rate.** Does this balancing
+      authority publish a day-ahead forecast at all? A property of the BA, and
+      the only one this gate is entitled to act on, because the exclusion text
+      it produces makes a claim about the BA.
+    * ``df_asissued_coverage`` — **our capture quality.** What share of hours
+      did we observe the DF for *before the hour settled*, i.e. in time for the
+      as-issued arm? A property of our collector. Published, never a gate.
+
+    Until #535 these were the same number. ``first_seen_df`` was pinned on the
+    tick that first admitted the hour and never revisited, so a DF that EIA
+    published slightly later was lost permanently — and the gate read that loss
+    as sparse publishing. Twenty-six BAs were excluded on it, five of them large
+    ISOs, on a public page. Measured against EIA directly on 2026-08-17, exactly
+    one of the excluded set (SPP, 53.8%) is genuinely below the threshold.
+
+    ``data.vintage`` now gives the DF a second look, so ``df_coverage`` means
+    what it says. The capture-quality half did not disappear — it moved to its
+    own field, where a reader can see it and it decides nothing.
     """
     n = len(vintage_records)
     if n == 0:
@@ -222,11 +243,21 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
             "reason": EXCLUDE_INSUFFICIENT,
             "reason_detail": EXCLUSION_REASONS[EXCLUDE_INSUFFICIENT],
             "df_coverage": 0.0,
+            "df_asissued_coverage": 0.0,
             "placeholder_pct": 0.0,
             "n_hours": 0,
         }
 
+    from data.vintage import FRESH_CAPTURE_LAG_HOURS, df_capture_lag_hours
+
     has_df = sum(1 for r in vintage_records if np.isfinite(r.first_seen_df))
+    as_issued = sum(
+        1
+        for r in vintage_records
+        if np.isfinite(r.first_seen_df)
+        and (lag := df_capture_lag_hours(r)) is not None
+        and lag <= FRESH_CAPTURE_LAG_HOURS
+    )
     placeholders = sum(1 for r in vintage_records if r.was_placeholder)
     coverage = has_df / n
 
@@ -239,11 +270,37 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
     return {
         "scoreable": reason is None,
         "reason": reason,
-        "reason_detail": EXCLUSION_REASONS[reason] if reason else None,
+        # The measured figures, not just the rule. A reader who sees only
+        # "under 80% of hours" cannot tell 79% from 39%, and those are
+        # different facts about a BA.
+        "reason_detail": _reason_detail(reason, coverage, as_issued / n, n),
         "df_coverage": round(coverage, 4),
+        "df_asissued_coverage": round(as_issued / n, 4),
         "placeholder_pct": round(placeholders / n * 100, 2),
         "n_hours": n,
     }
+
+
+def _reason_detail(
+    reason: str | None, coverage: float, as_issued_coverage: float, n_hours: int
+) -> str | None:
+    """The published exclusion rationale, carrying THIS BA's measured numbers.
+
+    ``EXCLUSION_REASONS`` states the rule; this states the case. The df-coverage
+    text also names the as-issued share, because #535 was precisely a reader —
+    us — unable to tell "the BA barely publishes" from "we barely captured it"
+    from the sentence that shipped.
+    """
+    if reason is None:
+        return None
+    base = EXCLUSION_REASONS[reason]
+    if reason != EXCLUDE_DF_COVERAGE:
+        return base
+    return (
+        f"{base} Measured over {n_hours} hours: EIA published a day-ahead "
+        f"forecast for {coverage:.1%} of them, of which we captured "
+        f"{as_issued_coverage:.1%} in time to score as-issued."
+    )
 
 
 #: An hour is an unresolved stub when settled truth still equals the
@@ -280,9 +337,10 @@ def pair_hours(
       reality. This is the sharper of the two stub predicates.
     * ``first_seen_placeholder`` — flagged ``D == DF`` at first sight.
       Dropped conservatively even when later corrected.
-    * ``stale_capture`` — the hour was first seen more than
-      ``FRESH_CAPTURE_LAG_HOURS`` after it passed, so its ``first_seen_df`` is
-      a POST-revision value. Putting it on the as-issued arm collapses the
+    * ``stale_capture`` — the hour's ``DF`` was first seen more than
+      ``FRESH_CAPTURE_LAG_HOURS`` after the hour passed, so its ``first_seen_df``
+      is a POST-revision value. Measured on ``df_at`` since #535, because a DF
+      filled on a later tick is exactly the case this rule exists to catch. Putting it on the as-issued arm collapses the
       as-issued/as-revised distinction the dual arm exists to draw (#358).
       Evaluated right after ``no_df`` because it disqualifies the official
       arm's *provenance* — a more fundamental objection than "the settled
@@ -296,7 +354,7 @@ def pair_hours(
       unscored, so the sample is conditioned on OUR availability too.
     """
     out: list[PairedHour] = []
-    from data.vintage import FRESH_CAPTURE_LAG_HOURS, capture_lag_hours
+    from data.vintage import FRESH_CAPTURE_LAG_HOURS, df_capture_lag_hours
 
     drops = {
         "unresolved_stub": 0,
@@ -312,7 +370,14 @@ def pair_hours(
             drops["no_df"] += 1
             continue
         if exclude_stale_capture:
-            lag = capture_lag_hours(r)
+            # THE DF's lag, not the hour's. Since #535 a DF may be filled on a
+            # tick later than the one that admitted the hour, and it is the DF
+            # observation that the as-issued claim is about. Reverting this to
+            # `capture_lag_hours` would silently put post-revision values on the
+            # as-issued arm at scale — the exact #358/#392 defect, and the one
+            # way the #535 fix could do more harm than the bug. Pinned by
+            # TestStaleCapture::test_late_filled_df_cannot_reach_the_asissued_arm.
+            lag = df_capture_lag_hours(r)
             # An unparseable timestamp cannot be shown fresh, and the official
             # arm's whole claim is that its value was seen before the hour
             # settled — so an unmeasurable lag is treated as stale rather than
