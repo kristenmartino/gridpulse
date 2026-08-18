@@ -132,7 +132,11 @@ weaker copy for an agent to remember by hand.
 
 **Reassessment runs in both directions, not just forward:**
 - *Worklog → Analyzed*: `audit-mistakes-log` re-scans for a pattern that no
-  single entry crosses the bar on alone but the tally does in aggregate.
+  single entry crosses the bar on alone but the tally does in aggregate. It
+  advances `MISTAKES.md`'s `audited-through` marker on every run, including
+  runs that promote nothing — "I looked, these can wait" is a decision, and
+  recording it is what keeps the reminder from repeating a decision you have
+  already made until you learn to ignore it.
 - *Existing rules → still true?*: a rule outlives the bug that produced it.
   When touching code a guardrail here cites, check it still describes
   reality — the same discipline "Verify every `Closes #N`" and the
@@ -172,6 +176,14 @@ legitimate, and what the rule actually requires is that a human verified the
 number. This is the same principle as marking an entry `resolved — enforced
 by <X>`: prefer the guard, and keep prose for the judgment calls nothing
 mechanical can decide.
+
+**The enforcement layer reports on itself.** Every mistake hook appends a
+line to `.claude/hook-activity.log` (gitignored, local, safe to delete) on
+every invocation, silent runs included — so "no cause to fire" and "never
+ran" stay distinguishable, which is exactly what this repo has failed to
+tell apart before. `audit-mistakes-log` reads it and reports whether
+enforcement is actually running. A guard nobody can confirm is running is
+indistinguishable from one that isn't.
 
 ## Start here
 

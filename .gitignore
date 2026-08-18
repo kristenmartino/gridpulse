@@ -71,3 +71,7 @@ docker-compose.override.yml
 # Internal strategy note — explicitly not for publication
 docs/internal/MARKET_POSITION.md
 scratch/
+
+# Hook telemetry — local signal about whether the mistake guards
+# actually fire; safe to delete, not repo evidence (see MISTAKES.md)
+.claude/hook-activity.log
