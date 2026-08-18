@@ -248,3 +248,22 @@ the number moves, and both public pages have already shipped a stale one.
 - **Per-PR**: any PR that moves a value here updates it in the same commit (CLAUDE.md end-of-PR check item #2)
 - **Audit cadence**: re-verify each row against its source quarterly (or after every 20 PRs at high velocity)
 - This file is **derived from code/data**, not authoritative on its own — if a value here disagrees with the linked source, **the source wins**
+
+### What deliberately is NOT here
+
+**The benchmark scoreable count** (`n_scoreable` on `/api/v1/benchmark`) has no
+row and must not get one. It is recomputed every scoring tick, so a sentence
+cannot track it — that is exactly [#535](https://github.com/kristenmartino/gridpulse/issues/535),
+where `docs/BENCHMARK_METHODOLOGY.md` said "44 of 51" in the present tense for
+three weeks while the API served 25. The previous fix was "write the correct
+figure", and it is the one that already failed.
+
+The end-of-PR check in `CLAUDE.md` sends a moved cited fact *here*, which makes
+this file the most likely place for someone to helpfully add it. It is guarded:
+`tests/unit/test_benchmark_count_is_not_hardcoded.py` fails on an undated
+`**N of 51 … scoreable**` claim in this file. Cite the live payload, or stamp
+the figure with the date it was measured.
+
+Same rule, same reason, for per-BA `df_coverage` — see
+`docs/BENCHMARK_SCOREABILITY.md`, which is generated, dated, and says outright
+which side loses a disagreement.
