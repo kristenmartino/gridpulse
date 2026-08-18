@@ -794,7 +794,7 @@ def run() -> int:
     # reason). Fire-and-forget — never fail a scoring run for it.
     try:
         from data.redis_client import redis_get, redis_key
-        from models.benchmark import fleet_rollup
+        from models.benchmark import fleet_rollup, scoreability_alerts
 
         payloads = []
         for r in regions:
@@ -811,6 +811,15 @@ def run() -> int:
                 wins=rollup["fleet"]["wins"],
                 losses=rollup["fleet"]["losses"],
             )
+            # #535: the scorecard's POPULATION is a published fact, and it
+            # shrank by 19 BAs for three weeks with nothing watching. Emitted
+            # at ERROR because these are the alert signals matched by
+            # docs/monitoring/benchmark_scoreability_alert.json — a scorecard
+            # quietly changing the fleet it describes is a correctness bug on
+            # a public page, not an INFO-level curiosity. Both events fire on
+            # the FAILING direction, so no-data can never mask them.
+            for alert in scoreability_alerts(rollup, payloads):
+                log.error(alert.pop("event"), **alert)
         else:
             log.warning("benchmark_fleet_skipped_no_payloads")
     except Exception as e:

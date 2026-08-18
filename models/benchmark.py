@@ -736,3 +736,89 @@ def _spread(values: list[float]) -> dict[str, float] | None:
         "max": round(hi, 3),
         "ratio": round(hi / lo, 1) if lo > 0 else None,
     }
+
+
+# ── scoreability regression detection (#535) ─────────────────
+
+
+def scoreability_alerts(
+    rollup: dict[str, Any],
+    region_payloads: list[dict[str, Any]],
+    *,
+    min_scoreable: int | None = None,
+    coverage_warn: float | None = None,
+) -> list[dict[str, Any]]:
+    """Alertable events when the scorecard's population is shrinking (#535).
+
+    Pure: returns ``[{"event", **fields}]`` for the caller to log. The scoring
+    job owns the I/O; the rule lives here beside the gate it watches, and is
+    unit-testable without Redis.
+
+    ## Why these events and not a threshold on the count we already log
+
+    ``benchmark_fleet_written`` has carried ``scoreable``/``excluded`` since
+    E0, and a metric-threshold alert on it is the obvious design and a trap —
+    the same one ``docs/monitoring/backtest_recompute_alert.json`` documents.
+    It would have to be a **threshold-BELOW** condition, so when the benchmark
+    phase stops emitting entirely the logs-based counter has *no data*, the
+    condition never evaluates, and the alert goes quiet at precisely the moment
+    it should fire.
+
+    Both events below therefore fire on the **failing** direction and increase
+    as things get worse, so absence of data can never mask them. A benchmark
+    phase that stops running is a different failure, already covered by
+    ``cloud_run_job_failure_alert`` and ``scoring_partial_failure``.
+
+    ## Two distances from the same cliff
+
+    * ``benchmark_scoreability_drop`` — the fleet count is below the floor.
+      The incident itself: #535 published 25 of 51 for three weeks.
+    * ``benchmark_coverage_at_risk`` — a BA is still scoreable but its
+      ``df_coverage`` sits in the warning band **above** the gate. By the time
+      a BA falls out, the public page is already wrong; this names it first.
+      On 2026-08-17 CAISO (82.9%) and PJM (81.0%) sat 1-3 points above the
+      0.80 gate with nothing watching them.
+
+    ``df_asissued_coverage`` is deliberately NOT alerted on. It measures our
+    capture, not the BA's publishing, and gating on it is the whole of #535.
+    It rides along on the payload so an on-call reader can tell the two apart.
+    """
+    from config import BENCHMARK_DF_COVERAGE_WARN, BENCHMARK_MIN_SCOREABLE
+
+    floor = BENCHMARK_MIN_SCOREABLE if min_scoreable is None else min_scoreable
+    warn = BENCHMARK_DF_COVERAGE_WARN if coverage_warn is None else coverage_warn
+
+    out: list[dict[str, Any]] = []
+    n_scoreable = rollup.get("n_scoreable")
+    if isinstance(n_scoreable, int) and n_scoreable < floor:
+        out.append(
+            {
+                "event": "benchmark_scoreability_drop",
+                "n_scoreable": n_scoreable,
+                "n_excluded": rollup.get("n_excluded"),
+                "floor": floor,
+                # WHICH BAs, not just how many — "26 excluded" and "26 excluded
+                # including five large ISOs" are different pages.
+                "excluded_regions": sorted(
+                    str(e.get("region")) for e in (rollup.get("excluded") or [])
+                ),
+            }
+        )
+
+    for p in region_payloads:
+        if not p.get("scoreable"):
+            continue
+        cov = p.get("df_coverage")
+        if not isinstance(cov, int | float) or cov >= warn:
+            continue
+        out.append(
+            {
+                "event": "benchmark_coverage_at_risk",
+                "region": p.get("region"),
+                "df_coverage": round(float(cov), 4),
+                "df_asissued_coverage": p.get("df_asissued_coverage"),
+                "warn_below": warn,
+                "gate": MIN_DF_COVERAGE,
+            }
+        )
+    return out

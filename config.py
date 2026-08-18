@@ -1133,6 +1133,24 @@ SCORING_RUNTIME_CREEP_RUNS = int(os.getenv("SCORING_RUNTIME_CREEP_RUNS", "3"))
 # so this absolute floor tolerates the expected no-model tail without noise.
 SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
 
+# #535: the public benchmark scorecard lost 19 BAs and nothing noticed for
+# three weeks. Two thresholds, both watching the SAME failure — coverage
+# leaving the population — at different distances from the cliff.
+#
+# `BENCHMARK_MIN_SCOREABLE` is the floor on the fleet count. The structural
+# exclusions are 4 broken feeds plus SPP (genuinely 53.8% upstream, measured
+# 2026-08-17), so 46 of 51 is the real ceiling; 40 means six MORE BAs have
+# gone, which is a regression rather than churn. The #535 event (25) clears
+# this bar by a mile.
+#
+# `BENCHMARK_DF_COVERAGE_WARN` is the early warning, above MIN_DF_COVERAGE
+# rather than at it: a BA that has already fallen out is a page that is
+# already wrong. On 2026-08-17 CAISO sat at 82.9% and PJM at 81.0%, 1-3 points
+# above the 0.80 gate with nothing watching them — this band would have named
+# both before either dropped.
+BENCHMARK_MIN_SCOREABLE = int(os.getenv("BENCHMARK_MIN_SCOREABLE", "40"))
+BENCHMARK_DF_COVERAGE_WARN = float(os.getenv("BENCHMARK_DF_COVERAGE_WARN", "0.85"))
+
 # Soft deadline — shed work before Cloud Run SIGKILLs the task (2026-08-04).
 #
 # `run()` submits all 51 BAs to the pool and has no concept of time, so when
