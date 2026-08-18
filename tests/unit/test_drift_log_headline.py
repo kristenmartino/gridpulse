@@ -122,3 +122,48 @@ class TestTheOldFieldsAreGone:
         previous, demand = _fixture({"arima": 60_000.0, "ensemble": 40_000.0})
         kw = _call(previous, demand)
         assert not [k for k in kw if k.startswith("sample_")], sorted(kw)
+
+
+class TestTheLeadCountersAreLogged:
+    """#542: the two counters that carried the defect in plain sight.
+
+    `n_lead_excluded_7d` and `n_lead_unknown_7d` were computed and published in
+    the Redis payload from the day the lead filter shipped, precisely so the
+    "unknown leads age out" transition would be observable. Nobody read them,
+    and `regrade_records` blanking `lead_hours` drove `n_lead_unknown_7d` to
+    79% of the fleet window over weeks without anything noticing.
+
+    Redis is a private Memorystore IP, so the payload is unreadable from
+    outside the VPC — the log line is where a post-deploy check actually
+    looks. A counter that exists only where nobody looks is not observability.
+    """
+
+    def test_both_counters_reach_the_log_line(self) -> None:
+        previous, demand = _fixture({"arima": 60_000.0, "ensemble": 40_000.0})
+        kw = _call(previous, demand)
+        assert kw["n_lead_excluded_7d"] == 0
+        assert kw["n_lead_unknown_7d"] == 0
+
+    def test_a_multi_hour_lead_is_visible_as_an_exclusion(self) -> None:
+        """The signal that matters. EIA publishes with a 1-4h lag, so the newest
+        matchable hour can sit several rows into the forecast; that record is
+        then dropped from a window named "1-hour-ahead" and the log must say so.
+        """
+        ts = pd.Timestamp.now(tz="UTC").floor("h") - pd.Timedelta(hours=1)
+        # Two forecast rows; only the SECOND has an actual, so the graded
+        # record has a lead of 2 and the P2-19 filter removes it.
+        previous = {
+            "region": "ERCOT",
+            "forecasts": [
+                {"timestamp": (ts - pd.Timedelta(hours=1)).isoformat(), "ensemble": 40_000.0},
+                {"timestamp": ts.isoformat(), "ensemble": 40_000.0},
+            ],
+        }
+        demand = pd.DataFrame({"timestamp": [ts], "demand_mw": [ACTUAL_MW]})
+        kw = _call(previous, demand)
+
+        assert kw["lead_hours"] == 2
+        assert kw["n_lead_excluded_7d"] == 1
+        assert kw["n_lead_unknown_7d"] == 0, "a known lead must never log as unknown"
+        # Excluded from the mean, so there is no 7d figure to report at all.
+        assert kw["rolling_mape_7d"] is None

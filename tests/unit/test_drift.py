@@ -920,3 +920,113 @@ class TestPayloadRegrade:
         )
         block = out["models"]["ensemble"]["24h"]
         assert block["rolling_mape_7d"] == pytest.approx(13.22, abs=0.05)
+
+
+class TestRegradePreservesLead:
+    """#542: re-grading must not blank ``lead_hours``.
+
+    The defect and its blast radius: ``regrade_records`` rebuilt a record
+    without carrying the field, and ``filter_by_lead`` KEEPS unknown-lead
+    records by design (they were assumed to be pre-field history). So every
+    EIA revision quietly moved one more record past the P2-19 headline filter.
+    Measured in production 2026-08-18T05:17Z, ensemble block: **2,275 of 2,880
+    records (79%) unknown-lead** — IID 704/720 and SEC 682/720 against PJM
+    443/720, the share tracking each BA's revision rate, which is what makes
+    re-grading rather than pre-field history the only explanation.
+
+    The sibling ``models.shadow_eval.regrade_records`` preserved the field
+    deliberately from the day it shipped, and its test names this issue.
+    """
+
+    def _rec(self, ts: str, predicted: float, actual: float, lead: int | None) -> DriftRecord:
+        return DriftRecord(
+            timestamp=ts,
+            predicted=predicted,
+            actual=actual,
+            abs_pct_error=abs(predicted - actual) / actual * 100.0,
+            lead_hours=lead,
+        )
+
+    def test_lead_survives_the_rebuild(self):
+        """The direct pin. A revision moves the actual; it cannot change how
+        far ahead the prediction reached."""
+        from models.drift import regrade_records
+
+        rec = self._rec("2026-07-17T05:00:00+00:00", 4200.0, 967.0, 6)
+        regraded, stats = regrade_records([rec], {"2026-07-17T05:00:00+00:00": 4840.0})
+
+        assert stats["n_regraded"] == 1, "fixture must actually re-grade"
+        assert regraded[0].actual == 4840.0, "the actual should move"
+        assert regraded[0].lead_hours == 6, "...and the lead should not"
+
+    def test_unknown_lead_stays_unknown(self):
+        """The inverse: re-grading must not invent a lead either. A genuinely
+        pre-field record has no recoverable lead and must keep saying so."""
+        from models.drift import regrade_records
+
+        rec = self._rec("2026-07-17T05:00:00+00:00", 4200.0, 967.0, None)
+        regraded, _ = regrade_records([rec], {"2026-07-17T05:00:00+00:00": 4840.0})
+        assert regraded[0].lead_hours is None
+
+    def test_regraded_contaminating_lead_is_still_excluded(self):
+        """The end-to-end case that would have caught this.
+
+        Every fixture in ``TestPayloadRegrade`` is lead-less, so the whole
+        re-grade path could blank the field without a single test noticing. A
+        lead-6 record must stay out of the 1h headline *after* it re-grades,
+        not just before.
+        """
+        now = datetime.now(UTC)
+        ts_dirty = (now - timedelta(hours=2)).isoformat()
+        ts_clean = (now - timedelta(hours=3)).isoformat()
+        existing = {
+            "models": {
+                "ensemble": {
+                    "records": [
+                        # lead 6 with a huge error, scored against a partial
+                        {"ts": ts_dirty, "p": 4200.0, "a": 950.0, "e": 342.1, "l": 6},
+                        # lead 1, already settled — the honest half of the window
+                        {"ts": ts_clean, "p": 4900.0, "a": 4840.0, "e": 1.24, "l": 1},
+                    ]
+                }
+            }
+        }
+        # Both hours revise, so BOTH records go through the rebuild.
+        settled = {ts_dirty: 4840.0, ts_clean: 4845.0}
+
+        out = compute_drift_payload("PJM", existing, {}, actuals=settled, now_iso=now.isoformat())
+        blk = out["models"]["ensemble"]
+
+        assert out["_regrade_stats"]["n_regraded"] == 2, "fixture must re-grade both"
+        assert blk["n_lead_excluded_7d"] == 1, "the lead-6 record must still be filtered"
+        assert blk["n_lead_unknown_7d"] == 0, "re-grading must not manufacture unknowns"
+        assert blk["n_7d"] == 1
+        # 4900 vs 4845 = 1.135%. Had the lead-6 record leaked back in it would
+        # have dragged this to ~7% (its own re-graded error is ~13.2%).
+        assert blk["rolling_mape_7d"] == pytest.approx(1.135, abs=0.01)
+
+    def test_horizon_records_stay_lead_free_across_regrade(self):
+        """The no-op half, pinned rather than asserted.
+
+        ``resolve_horizon_snapshots`` never sets a lead and
+        ``_horizon_rollup_block`` never lead-filters — 24/48/72h records have a
+        DESIGNED horizon. So this fix must not change the horizon path at all,
+        which is what keeps ``benchmark.serve_grade`` off the blast radius.
+        """
+        from models.drift import compute_horizon_drift_payload
+
+        now = datetime.now(UTC)
+        ts = (now - timedelta(hours=2)).isoformat()
+        record = DriftRecord(timestamp=ts, predicted=4200.0, actual=950.0, abs_pct_error=342.1)
+        assert record.lead_hours is None
+        existing = {
+            "models": {"ensemble": {"24h": {"records": serialize_records([record])}}},
+            "pending": [],
+        }
+        out = compute_horizon_drift_payload(
+            "LGEE", existing, None, {ts: 4840.0}, now_iso=now.isoformat()
+        )
+        block = out["models"]["ensemble"]["24h"]
+        assert block["rolling_mape_7d"] == pytest.approx(13.22, abs=0.05), "still re-grades"
+        assert all("l" not in row for row in block["records"]), "and still carries no lead"
+        assert "n_lead_excluded_7d" not in block, "horizon blocks do not lead-filter"

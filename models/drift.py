@@ -103,7 +103,9 @@ class DriftRecord:
     #: record then lands in one pooled statistic under a lead it never had.
     #:
     #: ``None`` on records written before this field existed, and on any record
-    #: whose source payload lacked a usable first row — never guessed.
+    #: whose source payload lacked a usable first row — never guessed. Those
+    #: are the only two ways it goes unknown; :func:`regrade_records` blanking
+    #: it on every revision was a third, and was the whole of #542.
     #:
     #: Measured in production before acting: **97% of records are lead 1**, 3%
     #: are lead 2–6, and 97.5% of ticks discard no other matchable hour. That
@@ -260,10 +262,28 @@ def filter_by_lead(
     lead-6 record is a strict improvement; dropping an unknown one is a coin
     flip that costs seven days of history to win three percent of purity.
 
-    This self-heals. Every record written since the field shipped carries a
-    lead, so once the pre-field records age out of the 30-day window the
-    filter is exact and ``n_unknown_kept`` goes to zero. That counter is
-    published so the transition is observable rather than assumed.
+    **The self-healing claim this docstring used to make was false for weeks
+    (#542).** It read: every record written since the field shipped carries a
+    lead, so once the pre-field records age out the filter is exact and
+    ``n_unknown_kept`` goes to zero. That was conditional on nothing else
+    blanking the field — and :func:`regrade_records` was blanking it on every
+    revision, so unknowns were being manufactured faster than they aged out
+    and ``n_unknown_kept`` converged **upward**. Measured 2026-08-18T05:17Z
+    before the fix: **2,275 of 2,880 records (79%) unknown-lead**, IID 704/720
+    against PJM 443/720 — the share tracking each BA's revision rate, which is
+    the signature of re-grading rather than of pre-field history.
+
+    Two things follow, and the second is the one worth keeping:
+
+    * The claim holds again for records written from the #542 fix onward.
+      History already blanked is **unrecoverable** — the forecast payload that
+      would prove its lead is long overwritten — so it ages out of the 30-day
+      window rather than being repaired.
+    * ``n_unknown_kept`` was published precisely so this transition would be
+      observable rather than assumed. It did its job: it carried the defect in
+      plain sight for weeks. Nobody read it. A counter nobody reads is not
+      observability, and that is the durable lesson here — not the one line
+      that fixed the constructor.
 
     No-op when ``max_lead`` is ``None``.
     """
@@ -546,6 +566,11 @@ def regrade_records(
       (``first_seen_d``, #312) is the instrument of record for what the
       pipeline originally saw. This function is why the retired revision
       probe is no longer needed.
+    * **``lead_hours`` is carried through untouched (#542).** A revision moves
+      the actual; it cannot change how far ahead the prediction reached. This
+      function dropped the field for weeks, and because :func:`filter_by_lead`
+      keeps unknown-lead records, that quietly defeated the P2-19 headline
+      filter on exactly the BAs that revise most.
 
     Returns ``(regraded, stats)`` where stats carries ``n_regraded`` and the
     mean/max absolute shift (as % of the new actual) — the observability that
@@ -577,6 +602,17 @@ def regrade_records(
                 # NaN sentinel -> __post_init__ recomputes sMAPE from the
                 # new pair; carrying the old sMAPE would silently desync it.
                 smape=float("nan"),
+                # #542: the two fields are opposites and the omission of this
+                # one read as intentional next to the sentinel above. sMAPE is
+                # DERIVED from the pair that just moved, so it must be
+                # recomputed. ``lead_hours`` is a property of the OBSERVATION —
+                # how far ahead the prediction reached — which a revision to
+                # the actual cannot touch. Dropping it turned every revision
+                # into a blanked lead, and ``filter_by_lead`` keeps unknown
+                # leads, so the P2-19 headline filter was progressively
+                # defeated: 2,275 of 2,880 records (79%) unknown-lead by
+                # 2026-08-18, tracking each BA's revision rate exactly.
+                lead_hours=r.lead_hours,
             )
         )
     stats: dict[str, Any] = {"n_regraded": len(shifts)}

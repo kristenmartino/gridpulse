@@ -72,6 +72,26 @@ RECONCILE_WINDOW_HOURS = 24 * 7
 #: check SHOULD diverge — that is a real finding, not a bug here.
 RECONCILE_LOW_ACTUAL_FRACTION = 0.10
 
+#: Mirrors ``models.drift.HEADLINE_LEAD_HOURS`` (P2-19 / #273), on the same
+#: threshold-spec footing as the fraction above.
+#:
+#: **Added with the #542 fix, and it is not optional.** The displayed
+#: ``rolling_mape_7d`` is lead-filtered; this checker was not. While
+#: ``regrade_records`` blanked ``lead_hours`` the mismatch was invisible —
+#: almost nothing was being filtered on either side — so A1 fired on **1** of
+#: 204 (region, model) blocks. Repairing the lead field re-engages the
+#: producer's filter and the two populations part company: measured on the
+#: 2026-08-18T07:06Z production window, A1 would have fired on **12** blocks,
+#: every one of them a difference in *which hours were scored* rather than a
+#: divergence from settled demand. With this mirrored, **0**.
+#:
+#: This is the one place the module's "independently re-implement" rule needs
+#: reading carefully. The rule protects against inheriting the producer's
+#: notion of a *window* or an *aggregate*. It was never a licence to grade a
+#: different **population** — a checker that scores hours the panel excludes is
+#: not checking the panel.
+RECONCILE_MAX_LEAD_HOURS = 1
+
 
 @dataclass(frozen=True)
 class ReconcileFinding:
@@ -163,6 +183,26 @@ def _within_window(records: list[Any], window_hours: int, now: datetime) -> list
     return keep
 
 
+def _drop_contaminating_leads(records: list[Any], max_lead: int | None) -> list[Any]:
+    """Drop records whose *known* lead exceeds ``max_lead`` (mirrors #273).
+
+    Independently implemented rather than reusing ``models.drift.filter_by_lead``,
+    which is typed to ``DriftRecord`` and belongs to the producer — the same
+    stance :func:`_drop_low_actuals` takes toward ``filter_low_actuals``.
+
+    Unknown-lead records are **kept**, matching the producer exactly. Diverging
+    on that would recreate the population mismatch in the opposite direction.
+    """
+    if max_lead is None:
+        return records
+    out = []
+    for r in records:
+        lead = getattr(r, "lead_hours", None)
+        if lead is None or lead <= max_lead:
+            out.append(r)
+    return out
+
+
 def _drop_low_actuals(
     pairs: list[tuple[float, float]], min_fraction: float
 ) -> list[tuple[float, float]]:
@@ -190,8 +230,13 @@ def recompute_settled_mape(
     window_hours: int = RECONCILE_WINDOW_HOURS,
     now: datetime | None = None,
     min_actual_fraction: float = RECONCILE_LOW_ACTUAL_FRACTION,
+    max_lead: int | None = RECONCILE_MAX_LEAD_HOURS,
 ) -> tuple[float | None, float | None, int]:
     """Rescore the stored predictions against settled demand.
+
+    Scored over the same population the panel displays: within the window,
+    ``max_lead``-filtered (#542), low-actual-filtered. Windowing and
+    aggregation stay independently implemented; the *population* must not be.
 
     Returns ``(settled_mape, mean_abs_revision_pct, n_compared)``. Hours absent
     from ``settled`` are **skipped, not counted as agreement**: the GCS parquet
@@ -201,6 +246,9 @@ def recompute_settled_mape(
     """
     now = now or datetime.now(UTC)
     in_window = _within_window(records, window_hours, now)
+    # #542: same population as the displayed figure, or this compares two
+    # different measurements and reports the difference as a divergence.
+    in_window = _drop_contaminating_leads(in_window, max_lead)
 
     pairs: list[tuple[float, float]] = []
     revisions: list[float] = []

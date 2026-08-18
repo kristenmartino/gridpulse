@@ -1060,6 +1060,42 @@ independent path's +8.96%. The diff also surfaced a separate latent bug — the
 re-grade silently erases each record's lead metadata, leaving **79% of drift
 records** bypassing a filter built specifically to exclude them.
 
+**Follow-on (#542), and the part worth telling.** That latent bug was a
+one-line omission next to a line that was correct: the constructor deliberately
+reset sMAPE to a recompute sentinel — right, because sMAPE is *derived* from
+the value that changed — and silently dropped `lead_hours`, which is a property
+of the observation a revision cannot touch. The fix is one line. The work was
+proving what it moves, because those numbers are published.
+
+Two things made that measurable. First, the code fix repairs nothing already
+broken — a blanked record's lead is unrecoverable inside the pipeline — so a
+merge-time before/after would have read "0.00 everywhere, trust me." Second,
+the lead had been in a log line the whole time, so I rebuilt the erased map
+from 31 days of Cloud Logging and validated the harness against the payload
+before believing any of it: reproduced the published sample count on **204 of
+204** blocks. Recovery inside the 7-day window was **100%**.
+
+**I predicted the direction and was wrong.** I expected the headline to fall
+uniformly, since error grows with lead. It moved *both ways* — 17 BAs better,
+20 worse, AZPS 9.78 → 11.43 and PSCO 9.64 → 10.77. That is a better result than
+the one I predicted: a correction that only ever flattered the product would
+deserve suspicion. And the tail is where it lives — the fleet moved 0.076 pts
+while LDWP moved 3.85 and its sample count fell 25 → 15, below the threshold at
+which the product is willing to show a number at all.
+
+**Two things fell out that I did not go looking for.** The checker that
+validates this very panel (`reconcile.py`) graded a *different population* than
+the panel — it never lead-filtered. While the leads were blanked that mismatch
+was invisible, because there was nothing to filter; repairing them took its
+false-alarm count from 1 to 12, and mirroring the filter took it to 0. A
+checker had been agreeing with the thing it checks by accident. And
+reconstructing the leads answered a *different* open issue for free: one BA's
+forecast origin had frozen for 15 ticks and then served a 23-hour-older
+vintage for another 24, which is simultaneously why its "1-hour-ahead" window
+carried leads out to **63 hours** and why its 24-hour horizon window was half
+empty. One upstream phenomenon, two unrelated defects, and the leading
+hypothesis for the second one (`_expire_pending`) was wrong.
+
 **Lesson to convey**: *Three experiments, three instrument failures — imputed weather in the replay, stale actuals in the shadow, blanked leads in the drift. The bound everyone kept arguing about was never the problem. When a result is impossible, the instrument is the first suspect and your own last fix is the second: I shipped a correct fix with an incorrect explanation, and only the measurement caught it. And once you have two systems that should agree, stop theorising and diff them — `pred_differs=0` ended a debate that three hypotheses and a day of reasoning had not.*
 
 ## Practice instructions (after PR-C2 expands these)
