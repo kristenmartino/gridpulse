@@ -32,22 +32,7 @@ README = MONITORING_DIR / "README.md"
 #: Policies deliberately NOT applied yet, with the reason. To apply one: run the
 #: gcloud recipe in the README, add its row (with live id) to the
 #: applied-policies table, then delete it from this dict.
-_KNOWN_UNAPPLIED: dict[str, str] = {
-    # #535. Shipped as policy-as-code with the fix; applying it creates a live
-    # alert policy in GCP, which is a production change and a separate step from
-    # merging the code that emits the events. Until it is applied, the two
-    # events are emitted into a void — which is exactly what this file exists to
-    # make impossible to forget, so this entry is the reminder, not a waiver.
-    #
-    # To apply: follow the gcloud recipe in docs/monitoring/README.md, add the
-    # row with its live id to the applied-policies table, then delete this
-    # entry. The policy is a plain conditionMatchedLog pair and needs no
-    # logs-based metric created first.
-    "benchmark_scoreability_alert.json": (
-        "awaiting apply — created with the #535 fix; needs the gcloud apply step "
-        "and a live id in the README table"
-    ),
-}
+_KNOWN_UNAPPLIED: dict[str, str] = {}
 
 #: Live-id line format in the README table, e.g. `alertPolicies/5813319064717268577`.
 _LIVE_ID = re.compile(r"`alertPolicies/\d+`")

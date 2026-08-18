@@ -23,7 +23,11 @@ from pathlib import Path
 from models.benchmark import MIN_DF_COVERAGE, scoreability_alerts
 
 _ROOT = Path(__file__).resolve().parents[2]
-_POLICY = _ROOT / "docs/monitoring/benchmark_scoreability_alert.json"
+#: One policy per event. The Cloud Monitoring API rejects a policy carrying
+#: more than one log-matching condition, and the split is the better shape
+#: anyway: the drop is an incident (the page is already wrong), the at-risk
+#: is a lead (a BA is 1-3 points from falling out).
+_POLICIES = sorted((_ROOT / "docs/monitoring").glob("benchmark_*_alert.json"))
 
 
 def _payload(region, *, scoreable=True, cov=1.0, asissued=1.0):
@@ -121,14 +125,29 @@ class TestThePolicyMatchesTheCode:
         }
         assert emitted == {"benchmark_scoreability_drop", "benchmark_coverage_at_risk"}
 
+        assert _POLICIES, "no benchmark alert policy files found"
         filters = " ".join(
             c["conditionMatchedLog"]["filter"]
-            for c in json.loads(_POLICY.read_text())["conditions"]
+            for path in _POLICIES
+            for c in json.loads(path.read_text())["conditions"]
         )
         for event in emitted:
             assert f'jsonPayload.event="{event}"' in filters, (
-                f"{event} is emitted but no condition in {_POLICY.name} matches it — "
+                f"{event} is emitted but no committed benchmark policy matches it — "
                 "the alert would never fire"
+            )
+
+    def test_each_policy_carries_exactly_one_log_condition(self):
+        """The Cloud Monitoring API rejects more than one, and it does so at
+        apply time — so a combined policy passes every local check and then
+        cannot be deployed. Pinned because that is exactly how this shipped
+        wrong the first time."""
+        for path in _POLICIES:
+            conds = json.loads(path.read_text())["conditions"]
+            assert len(conds) == 1, (
+                f"{path.name} has {len(conds)} conditions; "
+                "'Alert policies with a log matching condition can only have a "
+                "single condition' — split it"
             )
 
     def test_the_job_emits_them_at_error(self):

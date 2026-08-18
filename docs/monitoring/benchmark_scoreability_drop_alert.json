@@ -1,0 +1,22 @@
+{
+  "displayName": "GridPulse \u2014 benchmark scoreable count below floor (#535)",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The `gridpulse-scoring-job` emitted **`benchmark_scoreability_drop`**: the public benchmark scorecard at `/benchmark` now scores fewer than `BENCHMARK_MIN_SCOREABLE` (default 40) balancing authorities.\n\n**Why this is worth an alert.** On 2026-08-17 the scorecard read **25 of 51**, down from 44, with **five of the seven large ISOs** (ERCOT, MISO, NYISO, ISONE, SPP) silently absent from its fleet medians. It had been that way for ~3 weeks. Nothing failed \u2014 the job succeeded, wrote valid payloads and exited 0. The page simply changed the population its headline described while the sentence above it stayed the same, and it was found by an unrelated scheduled recheck.\n\nStructural exclusions are 4 broken feeds plus SPP (genuinely 53.8% upstream), so ~46 of 51 is the real ceiling; below 40 means six more have gone. The entry carries `excluded_regions`, because \"26 excluded\" and \"26 excluded including five large ISOs\" are different pages.\n\n**Runbook:**\n1. `curl -s https://gridpulse.kristenmartino.ai/api/v1/benchmark | jq '{n_scoreable, n_excluded, excluded}'`.\n2. Read `excluded_regions` on the log entry \u2014 if the newly-missing BAs are large ISOs, treat it as a public-correctness incident, not a data curiosity.\n3. Check upstream directly before blaming the collector. Query EIA for the same window and count hours carrying a `DF` row for a suspect BA: if EIA has ~100% and we have 60%, the capture path regressed (that is #535 exactly). `scripts/benchmark_scoreability.py` regenerates the per-BA table from the GCS vintage mirror.\n4. Confirm vintage capture is running: `gcloud logging read 'jsonPayload.event=\"demand_vintage\"' --limit 5 --format='value(jsonPayload.region,jsonPayload.n_records)'`. A window well under 719 records means capture, not coverage.\n5. If the drop is legitimate, no code change \u2014 but regenerate `docs/BENCHMARK_SCOREABILITY.md` so the committed snapshot stops contradicting the page.\n\n**Why it counts the failing direction.** The count has been in `benchmark_fleet_written` since E0, and a metric threshold on that field is the obvious design and the same trap `backtest_recompute_alert.json` documents: it must be a threshold-BELOW condition, so a benchmark phase that stops emitting leaves the counter with no data, the condition never evaluates, and the alert goes quiet exactly when it should fire. Both #535 events increase as things get worse. A phase that stops running is a different failure, covered by `cloud_run_job_failure_alert` and `scoring_partial_failure`.\n\n**Separate the two questions before doing anything else.** `df_coverage` is the BA's publication rate; `df_asissued_coverage` is our capture rate, and both ride on the log entry. If coverage is low and as-issued coverage is close to it, EIA genuinely stopped publishing and the exclusion is correct. If `df_coverage` is healthy while `df_asissued_coverage` collapsed, the problem is ours \u2014 that asymmetry IS #535, where a `first_seen_df` pinned at first sight made our collector's timing look like the BA's behaviour."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "benchmark scoreable count below BENCHMARK_MIN_SCOREABLE",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"gridpulse-scoring-job\" AND jsonPayload.event=\"benchmark_scoreability_drop\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "3600s"
+    },
+    "autoClose": "604800s"
+  }
+}

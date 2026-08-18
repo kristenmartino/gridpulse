@@ -149,6 +149,43 @@ Our own capture rate did not disappear; it moved to `df_asissued_coverage`,
 which is published beside the gate figure and decides nothing. The two answer
 different questions and are no longer allowed to share a number.
 
+### Is EIA's `DF` a strawman? Probed against NYISO's own feed (2026-08-18)
+
+A fair objection to this whole benchmark: EIA-930 is a regulatory rollup, so
+maybe we score operators on a degraded copy of a forecast they publish better
+elsewhere. NYISO is the cheapest place to check — it publishes both its own
+day-ahead load forecast (`isolf.csv`) and its integrated actual load
+(`palIntegrated.csv`), auth-free.
+
+**The truth side is settled outright: EIA's `D` for NYISO *is* NYISO's own
+data.** Summed across NYISO's eleven zones and aligned to EIA's periods, the two
+actual series agree to **0.001%, correlation 1.000000** over 144 hours. There is
+no quality gap to close on the yardstick both arms are scored against.
+
+**On the forecast side EIA's `DF` is not the weaker series.** Over 212 hours
+(2026-08-07 → 08-17), scored against that shared settled truth:
+
+| series | MAPE | median APE | bias |
+|---|---:|---:|---:|
+| EIA-930 `DF` — what this benchmark scores | **2.184%** | 2.043% | +0.30% |
+| NYISO `isolf` — the operator's own | 2.526% | 2.107% | −0.58% |
+
+The two are genuinely different — they diverge on **every one of the 212 hours**,
+by 324 MW on average (1.59% of load) — but NYISO's own is closer on **111 of
+212**, a coin flip, and slightly worse on the mean. We are not scoring against a
+degraded copy.
+
+**Limits, stated because this is a probe and not a study.** One BA, ~9 days, a
+single window, and `isolf`'s archived vintage may already include intraday
+revisions — which would flatter the operator, so the finding is conservative in
+the direction that matters. Under
+[`EVALUATION_POLICY.md`](EVALUATION_POLICY.md) this is nowhere near the bar for
+a methodology change (8 rolling origins, WAPE, satisficing constraints); it is
+sufficient only for the narrow claim it makes, which is that the strawman
+objection does not hold for NYISO. Alignment was fixed empirically from the two
+*actual* series, with no forecast involved — a first attempt using the naive
+timezone conversion was off by one hour and reversed the conclusion.
+
 ## 6. Two official arms
 
 EIA revises the day-ahead forecast for some BAs after the fact. Across a
