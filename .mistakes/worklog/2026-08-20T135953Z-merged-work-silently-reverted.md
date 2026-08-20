@@ -1,1 +1,0 @@
-2026-08-20 [merged-work-silently-reverted] A squash merge removed 27 files belonging to two PRs GitHub still reports as merged — every .mistakes/worklog deposit from #588 and #590's whole script — while carrying its own change through, so nothing failed and main simply stopped containing work that had landed 13 minutes earlier. — ref: #594 vs #588/#590
