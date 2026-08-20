@@ -1,0 +1,1 @@
+2026-08-18 [bash-version-assumption] Wrote the worklog migration with mapfile and declare -A, which macOS bash 3.2 does not have; it died on first run. Same shape as verifying against a narrower environment than the one that matters. — ref: PR #588

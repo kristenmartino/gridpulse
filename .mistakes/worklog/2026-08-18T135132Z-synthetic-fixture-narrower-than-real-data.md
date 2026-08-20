@@ -1,0 +1,1 @@
+2026-08-18 [synthetic-fixture-narrower-than-real-data] The audit nudge interpolated deposit text into its JSON output unescaped, so any deposit containing a double quote emitted invalid JSON and the hook failed silently — caught only when it first ran against real migrated entries, because every synthetic test fixture used quote-free text. — ref: PR #588
