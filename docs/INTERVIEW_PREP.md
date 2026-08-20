@@ -1380,3 +1380,22 @@ I also caught myself building an unbounded cost into a job that has been killed 
 **Result**: The shadow ships dark, correctly scoped, with the honest limitation written into the code, the docs and the tooling rather than discovered by whoever waited a year for it.
 
 **Lesson to convey**: *"Run it in production and see" is a real answer to some questions and a way of deferring others indefinitely. The cheap check is to compute, before building the instrument, what sample it will accumulate and how long that takes — because an instrument that cannot reach significance is not neutral, it's a commitment to not deciding, dressed up as rigour. And gating a cost is not the same as bounding it.*
+---
+
+### 35. "Tell me about a time your own experiment found the bug in your own fix."
+
+**Situation**: I'd shipped a correctness fix — autoregressive lags resolved by timestamp instead of by list position — behind a flag, off, because an observational study couldn't show it improved accuracy. To settle that, I built a pre-registered study that injected synthetic gaps so the sample size stopped being rationed by how often the upstream dropped data.
+
+**Task**: Run it and decide the flag.
+
+**Action**: It came back **not confirmed** — and on the population the fix was meant to help, the point estimate ran *against* the hypothesis. That's the moment where it's tempting to look for a reason the study was unfair.
+
+Instead I checked a specific suspicion I'd written down weeks earlier and not acted on. My fix returned NaN when a lag asked for an hour we'd never observed — honest, and the entire point of resolving by hour. But a shared row-build step then did `fillna(0)`, so the model was handed a demand lag of **zero megawatts**: an impossible value, and precisely the poison a separate guard elsewhere in the codebase exists to exclude. I measured it firing on **13% of forecast steps, 22.6% on the worst balancing authority** — which had the worst regression.
+
+So the study hadn't measured what I thought. It compared *temporal-indexing-plus-zero-fill* against positional indexing. The control arm never had this problem, because its history always had enough entries to return *some* plausible value, just from the wrong hour.
+
+I reported the pre-registered result as it stood — not confirmed — rather than quietly re-running with a fix and presenting that as the original result. Then I decided the absent-hour policy explicitly instead of inheriting it: interpolate across short holes using a threshold that already existed in the codebase, fall back to the same clock hour on previous days for long ones so a sixteen-hour hole isn't smoothed across a diurnal cycle. Zero-fill rate went to **0.00%**. The re-run is a *new* pre-registration, because the first one's stopping rule was one run and re-running against it would be the exact re-tuning that rule forbids.
+
+**Result**: The flag is still off, and now for a reason I trust. The re-run has all four possible outcomes' readings fixed in advance — including "still negative", which would mean my diagnosis was wrong and the feature should be removed rather than merely left dark.
+
+**Lesson to convey**: *A study that contradicts you is doing its job, and the first thing to check is your own treatment arm, not the study's fairness. The failure here wasn't the zero-fill — it was that I'd identified it as an open question in writing and shipped anyway, on the grounds that it was rare. "Rare" was 13%. And once a study has told you something, you don't get to re-run it into agreeing; you write a new pre-registration and let it be a new question.*

@@ -278,6 +278,17 @@ def compute_autoregressive_snapshot(demand_history: list[float]) -> dict[str, fl
     }
 
 
+#: Longest hole an absent point lag may be linearly interpolated across.
+#: Reused from ``data.preprocessing`` rather than chosen here — it is this
+#: repo's existing judgement about how far demand can be interpolated safely.
+ABSENT_HOUR_INTERPOLATION_MAX_H = 6
+
+#: How many days back a long-hole lag may reach for the same clock hour.
+#: Matches ``demand_lag_168h``'s own horizon, so this never reaches for context
+#: the feature set does not already use.
+ABSENT_HOUR_SEASONAL_LOOKBACK_DAYS = 7
+
+
 class HourIndexedHistory:
     """Demand keyed by hour, stored densely with NaN for hours we do not have.
 
@@ -347,6 +358,67 @@ class HourIndexedHistory:
             return np.nan
         return float(self._values[index])
 
+    def lag(self, index: int) -> float:
+        """Value at ``index``, imputed when we never observed that hour.
+
+        A point lag has to hold *something*: the recursion cannot skip a step,
+        and the row build zero-fills whatever is left NaN. Zero is the worst
+        available answer — ``demand_lag_24h = 0 MW`` is the #129 poison the seed
+        filter exists to exclude, and the injection study measured it firing on
+        13% of forecast steps (22.6% on IID), which is the likeliest reason that
+        study came back against its own hypothesis
+        (``docs/POSITIONAL_LAG_INJECTION_STUDY.md``).
+
+        So an absent hour is imputed, in two regimes chosen to match how demand
+        actually behaves:
+
+        1. **Short hole — linear interpolation** between the observations either
+           side. The bound is ``MAX_INTERPOLATION_GAP_HOURS`` (6), reused from
+           ``data.preprocessing`` rather than invented here, and it covers the
+           dominant case: 25 of the 31 real gap runs measured across the fleet
+           are a single hour.
+        2. **Long hole — same clock hour, previous days.** Interpolating across
+           a 16-hour hole would smooth over a diurnal cycle, so instead step back
+           in 24-hour multiples and take the first hour we have. Demand's
+           dominant structure is diurnal; this preserves phase exactly, which a
+           nearest-neighbour fill does not.
+
+        NaN only when neither regime finds anything — a frame that thin has
+        bigger problems, and the caller still zero-fills it as before.
+
+        **This is a serve-only estimate and is out of distribution by
+        construction.** Training drops any row whose lag source was NaN
+        (``engineer_features``), so the model never saw an imputed lag. The goal
+        is not to be right about the missing hour, it is to keep the row close
+        to the distribution the model was fit on — which a plausible value does
+        and zero does not.
+        """
+        direct = self.at(index)
+        if not np.isnan(direct):
+            return direct
+
+        # Bounded scan: if either edge of the hole is further than the
+        # interpolation limit, the hole is too long for regime 1 by definition,
+        # so there is no reason to keep looking.
+        span = ABSENT_HOUR_INTERPOLATION_MAX_H
+        lo = hi = None
+        for step in range(1, span + 1):
+            if lo is None and not np.isnan(self.at(index - step)):
+                lo = index - step
+            if hi is None and not np.isnan(self.at(index + step)):
+                hi = index + step
+            if lo is not None and hi is not None:
+                break
+        if lo is not None and hi is not None and (hi - lo - 1) <= span:
+            lo_v, hi_v = self.at(lo), self.at(hi)
+            return float(lo_v + (hi_v - lo_v) * (index - lo) / (hi - lo))
+
+        for day in range(1, ABSENT_HOUR_SEASONAL_LOOKBACK_DAYS + 1):
+            seasonal = self.at(index - 24 * day)
+            if not np.isnan(seasonal):
+                return float(seasonal)
+        return np.nan
+
     def window(self, index: int, hours: int) -> np.ndarray:
         """The hours actually present in ``[index - hours, index)``."""
         lo = max(0, index - hours)
@@ -386,7 +458,11 @@ def compute_temporal_autoregressive_snapshot(
     idx = history.index_of(now)
 
     def _lag(periods: int) -> float:
-        return history.at(idx - periods)
+        # Imputed when absent — see ``HourIndexedHistory.lag``. Rolling windows
+        # below deliberately do NOT impute: ``min_periods=1`` on the training
+        # side skips a NaN inside the window rather than filling it, so
+        # ``window()`` matching that is what keeps the two paths equivalent.
+        return history.lag(idx - periods)
 
     def _roll(window: int, op: str) -> float:
         arr = history.window(idx, window)

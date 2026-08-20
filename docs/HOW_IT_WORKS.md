@@ -236,7 +236,17 @@ origin: the recursion is seeded with that same feature frame, and
 `compute_autoregressive_snapshot` indexes the seed **by position**, so
 `demand_lag_168h` reads 168 *surviving rows* back rather than 168 hours back. On
 LGEE at a live origin that was 34 hours off, with `demand_roll_168h_*` spanning
-201 real hours instead of 167. A second, observation-only arm runs beside the served one behind
+201 real hours instead of 167. When a lag asks for an hour we never observed, it is imputed rather than left
+NaN: holes of six hours or fewer are interpolated across (the bound is
+`MAX_INTERPOLATION_GAP_HOURS`, and 25 of 31 measured gap runs are a single hour),
+longer ones fall back to the same clock hour on a previous day so a 16-hour hole
+is not smoothed over a diurnal cycle. That policy exists because the alternative
+is `row.fillna(0)` handing the model `demand_lag_24h = 0 MW` — measured on 13% of
+forecast steps before it was fixed. The imputation is serve-only and out of
+distribution by construction: training drops any row whose lag source was NaN, so
+the model never saw one.
+
+A second, observation-only arm runs beside the served one behind
 `temporal_ar_seed_shadow` (also default off), writing
 `gridpulse:seed_shadow:{region}` — never into the served payload, since the
 drift primitives treat every numeric key in a forecast row as a model. It is
