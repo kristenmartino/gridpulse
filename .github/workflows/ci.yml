@@ -87,6 +87,7 @@ jobs:
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
+        id: setup-python
         with:
           python-version: '3.11'
 
@@ -94,23 +95,47 @@ jobs:
       # this replaces) only saved the download; the ~46s was unpacking
       # scipy/xgboost/shap/prophet. Keyed on requirements.txt, so the install
       # re-runs exactly when dependencies change and not otherwise.
+      #
+      # The key carries the EXACT interpreter version, not '3.11'. A venv's
+      # bin/python is a symlink into the hosted toolchain, so when the runner
+      # image ships a different 3.11.x than the one that built the cache, that
+      # symlink dangles, `.venv/bin/python` stops resolving, and PATH quietly
+      # falls through to the hosted interpreter. That is intermittent by
+      # nature -- it depends which runner image you land on -- and it failed
+      # main on 808bc036 and af04d7cf while passing on neighbouring commits.
       - name: Cache virtualenv
         id: venv-cache
         uses: actions/cache@v4
         with:
           path: .venv
-          key: venv-${{ runner.os }}-py3.11-${{ hashFiles('requirements.txt') }}
+          key: >-
+            venv-${{ runner.os }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('requirements.txt') }}
+
+      # A cache hit is not proof of a usable venv: a partial restore, or any
+      # future path skew the key does not capture, leaves one that cannot run.
+      # Check rather than assume, and delete it so the install step rebuilds --
+      # the alternative is the silent fallthrough described above.
+      - name: Check the restored venv actually runs
+        id: venv-health
+        run: |
+          if .venv/bin/python -c 'import sys' 2>/dev/null; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            rm -rf .venv
+          fi
 
       - name: Install dependencies
-        if: steps.venv-cache.outputs.cache-hit != 'true'
+        if: steps.venv-health.outputs.ok != 'true'
         run: |
           python -m venv .venv
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -r requirements.txt
 
       # Every later step calls pytest / diff-cover / coverage bare, so the
-      # venv has to lead PATH. The venv is created at a fixed workspace path,
-      # which is stable across runs, so its shebangs stay valid when restored.
+      # venv has to lead PATH. The workspace path is stable across runs, so
+      # shebangs survive a restore -- but see the cache key above for the part
+      # that is NOT stable.
       - name: Activate venv
         run: echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
