@@ -579,6 +579,13 @@ class TestBenchmarkPagePosture:
         # the split keys off the published reason, not off "has no verdict"
         assert "FAIRNESS_REASONS" in body
         assert "'broken-feed', 'df-coverage'" in body
+        # The code a live exclusion actually carries must be in the list, or
+        # the excluded BA renders under "pending" — i.e. as young rather than
+        # as permanently excluded, the one misreading this split exists to
+        # prevent. Retired codes stay for payloads written before a rename.
+        from models.benchmark import EXCLUDE_DF_FEED_GAP
+
+        assert f"'{EXCLUDE_DF_FEED_GAP}'" in body
 
     def test_never_calls_it_their_day_ahead_forecast(self, body) -> None:
         """§12.1 is absolute: a revision landing before our first capture is

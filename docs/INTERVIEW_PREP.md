@@ -1328,6 +1328,8 @@ Result: I stopped, posted the measurements to the issue to correct its premise i
 
 The detail I'd want them to ask about: keeping TEC costs us. Its own forecast beats ours there by 1.45 MAPE points. The old rule would have quietly dropped a row we lose on, using a reason our own numbers contradicted — and a benchmark that excludes its losses on an unmeasured pretext is not a benchmark.
 
+**The follow-on, two days later, is the part I'd actually lead with.** The gate I shipped measured hours since the BA's *most recent* forecast. Correct while a feed is down — and wrong the moment it comes back, because the trailing gap collapses to zero on the first tick while the two-week hole is still sitting in the scoring window. The BA would have been scored across two disjoint clusters of hours under a "last 30 days" header, which is verbatim the condition my own exclusion text described. I found it by asking what happens when SPP returns, not from any failure: nothing was broken, and nothing would have looked broken until a dead feed resumed. The fix reads the longest gap anywhere in the window instead of the trailing one, changes no BA's verdict today, and I proved it with a counterfactual rather than an argument — SPP plus six hours of resumed publishing reads trailing 0h, longest 391h.
+
 What I'd tell someone: a well-written ticket is a hypothesis, not a specification. This one diagnosed the defect exactly and got the mechanism wrong, and the tell was that its central distinction had never been measured — only inferred from a percentage. The cheapest option is the most dangerous one to take on trust, because cheap usually means "changes labels, not decisions", and a more accurate label on an unjustified decision still ships the decision.
 ---
 
