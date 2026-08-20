@@ -254,3 +254,40 @@ is reserved for establishing the base rate on the remainder.
 
 Statements about what the results mean are the researcher's and are not
 delegated to a model. No agent output is quoted as analysis.
+
+---
+
+## 9. Which forecast, and which hours
+
+*Added 2026-08-20, before the first measurement. Recorded here because it is
+a real choice with two defensible answers, and choosing it after seeing
+results would be the exact failure this document exists to prevent.*
+
+### 9.1 The placebo arm scores the OPERATOR's forecast, not GridPulse's
+
+The ownership question is about the bias in a *utility's own* published
+day-ahead forecast. GridPulse's forecast is irrelevant to it. So the placebo
+arm computes signed bias on `first_seen_df` — the earliest day-ahead value
+the BA published, as-issued — against the settled actual. GridPulse's arm is
+not part of this study.
+
+### 9.2 The `no_gridpulse` drop is reported both ways
+
+`models.benchmark.pair_hours` drops an hour when GridPulse has no matured
+prediction for it, because the published benchmark scores both arms on
+identical hours. That rule is correct *there* and questionable *here*: our
+availability is not a property of the operator, so inheriting it conditions
+this study's sample on something orthogonal to its hypothesis, and it could
+correlate with ownership through BA size or feed quality.
+
+Both are therefore computed, and which is primary is fixed now:
+
+- **Primary — operator-arm pairing.** Every fairness rule that concerns the
+  *official* arm applies: `no_df`, `unsettled`, `unresolved_stub`,
+  `first_seen_placeholder`, `stale_capture`. The `no_gridpulse` drop does
+  not.
+- **Sensitivity — benchmark pairing.** The published gate unchanged,
+  including `no_gridpulse`, so the result is comparable to `/benchmark`.
+
+If the two disagree about the ownership conclusion, the study reports that
+disagreement as its headline finding rather than picking the friendlier one.
