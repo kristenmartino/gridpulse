@@ -31,39 +31,26 @@ and go check `CLAUDE.md` instead.
 
 ## Worklog (undecided candidates)
 
-One line per entry, newest first — **new entries go at the top of the list
-below, immediately under the `audited-through` marker**, not above the marker
-and not appended at the bottom. An entry above the marker reads as already
-audited when it is not. Format:
-`- YYYY-MM-DD [category] one-line description — <ref: PR/issue/session>`
+**Pending candidates live in [`.mistakes/worklog/`](.mistakes/worklog/), one
+file per deposit** — not in this file. Read them with:
 
-No root cause, no prevention, no status field — that analysis happens in
-Audit, not here. `[category]` can be a best guess; the audit pass is what
-actually decides whether two entries share a root cause. Anyone may append;
-nothing here is authoritative until it's promoted to Analyzed.
+```bash
+cat .mistakes/worklog/2026-*.md     # every pending candidate
+ls .mistakes/worklog/*.md | wc -l   # how many are waiting
+```
 
-The marker below is what stops the SessionStart nudge from nagging forever.
-`audit-mistakes-log` rewrites it **every** time it finishes, including when
-it decides nothing graduates yet — "I looked, these can wait" is a real
-outcome and needs somewhere to be recorded, so a deliberate no-promotion
-decision still buys quiet until new candidates arrive.
+They were an inline list here until 2026-08-18. Every session that deposited
+had to insert at the same line, so parallel deposits conflicted — ten PRs
+touched this file that day and three were open at once. The cost was never
+the conflict itself but the hand-merge that resolves it, which can silently
+drop someone else's deposit from the one file whose job is not losing
+evidence. A directory has nothing to merge.
 
-**`entries-seen` is the field that matters**; the date is for humans. The
-nudge treats anything beyond that count as new. It used to compare entry
-dates against the marker date, which silently ignored every deposit made on
-the same day as an audit — and on this repo that is most of them. Entries
-carry no time of day, so counting is the only thing with the resolution to
-tell "already reviewed" from "arrived since".
-
-<!-- audited-through: 2026-08-20 | entries-seen: 7 -->
-
-- 2026-08-18 [optimisation-made-it-worse] Added Docker buildx `cache-to: type=gha,mode=max` to CI on the assumption a layer cache beats a rebuild; it took the image build 83s -> 371s (mode=max exports every intermediate layer, and the image carries prophet/xgboost/shap/scipy) and made docker the new critical path. Caught on the first CI run and reverted before merge. — ref: PR #586
-- 2026-08-18 [instrumentation] the max-instances alert summed ALIGN_MAX across the active/idle state label and revision_name, so deploy rollover read as a sustained ceiling and reported 7 against a ceiling of 4, while no revision exceeded 2 — ref: #581 / PR #583
-- 2026-08-18 [guard-coverage-gap] Shipped a guard test against stale published counts whose surface list omitted `docs/CANONICAL_FACTS.md` — the file CLAUDE.md's end-of-PR check routes a moved cited fact to, and so the likeliest place for one to be added. — ref: PR #538, fixed in #551
-- 2026-08-18 [destructive-step-chained-to-unchecked-outcome] Ran `gh pr merge 567` and the head-branch delete in one command without gating the delete on the merge result; the merge failed on a fresh conflict and the delete then closed the PR. Recovered from the intact local branch. — ref: PR #567
-- 2026-08-18 [worklog-concurrent-deposit] Two sessions depositing at the same time collided: PRs #566, #570 and #567 all inserted at the top of this list, producing a merge conflict in this file on four separate rebase steps. The resolution is trivial (keep both) but every concurrent deposit hits it. — ref: PR #567
-- 2026-08-18 [local-verification-narrower-than-ci] Reported lint clean after running `ruff check` only; CI's lint job also runs `ruff format --check`, which failed on a newly added script and cost a CI cycle. — ref: PR #560
-- 2026-08-18 [configured-but-inert] The SessionStart nudge hook resolved `MISTAKES.md` by bare relative path behind an `[ -f ]` guard, so from any subdirectory it exited 0 with no output — identical to "checked, nothing to report." Caught by testing it from `docs/` before merge. — ref: PR #561
+Format and rules for depositing:
+[`.mistakes/worklog/README.md`](.mistakes/worklog/README.md).
+`audit-mistakes-log` consumes those files and promotes what crosses the bar
+into the Analyzed section below; `.mistakes/last-audit` records when it last
+ran, so a deliberate "these can wait" buys quiet until new candidates arrive.
 
 ---
 

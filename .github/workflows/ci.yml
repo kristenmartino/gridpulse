@@ -22,6 +22,7 @@ concurrency:
 jobs:
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: No hardcoded secrets
@@ -53,6 +54,7 @@ jobs:
   # requires every job to pass.
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -73,6 +75,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # The coverage comment action writes a badge to an orphan data branch and
     # posts/updates a single PR comment.
     permissions:
@@ -192,6 +195,7 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       # Plain `docker build`, deliberately. buildx with `cache-to:

@@ -74,6 +74,7 @@ jobs:
   guard:
     name: Guard — will something newer supersede this commit?
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: read
@@ -95,6 +96,7 @@ jobs:
   deploy-production:
     name: Build & Deploy to Cloud Run (Production)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: guard
     if: needs.guard.outputs.proceed == 'true'
     environment: production

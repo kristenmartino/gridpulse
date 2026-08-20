@@ -1329,3 +1329,20 @@ Result: I stopped, posted the measurements to the issue to correct its premise i
 The detail I'd want them to ask about: keeping TEC costs us. Its own forecast beats ours there by 1.45 MAPE points. The old rule would have quietly dropped a row we lose on, using a reason our own numbers contradicted — and a benchmark that excludes its losses on an unmeasured pretext is not a benchmark.
 
 What I'd tell someone: a well-written ticket is a hypothesis, not a specification. This one diagnosed the defect exactly and got the mechanism wrong, and the tell was that its central distinction had never been measured — only inferred from a percentage. The cheapest option is the most dangerous one to take on trust, because cheap usually means "changes labels, not decisions", and a more accurate label on an unjustified decision still ships the decision.
+---
+
+### 32. "Tell me about a time the fix everyone had agreed on was the wrong fix."
+
+**Situation**: An issue in our forecasting platform said our autoregressive lag features were computed by *positional* shift, so a hole in the demand series meant `demand_lag_24h` wasn't actually demand 24 hours ago. The prescribed fix was written up and agreed: reindex the frame to a continuous hourly grid, then retrain 51 balancing authorities × 3 models behind our acceptance gate, then re-measure published accuracy. Days of compute.
+
+**Task**: Implement it. But the issue's own closing section admitted the deciding question — whether this degraded forecast *values* or merely deleted rows — was **unmeasured**.
+
+**Action**: I measured that first, because it was cheap. The demand parser never manufactures rows, so every row in our archive came from the upstream API — which meant I could just look. Across all 51 BAs over 90 days: 7 rows genuinely absent (all in one BA, all from May), and 78 rows *present with null values*. On 50 of 51 BAs the grid was already continuous, so `shift(24)` was temporally exact and **the prescribed reindex was a no-op for the fleet**. The models had never been trained under a wrong convention, so the retrain wasn't warranted either.
+
+But the defect was real — just one layer down. The `dropna` that removes rows whose lag source was null punches holes into the *feature* frame, and that frame is what seeds inference. I verified with production code at the origin the system would resolve that minute: `demand_lag_168h` read `08-10 01:00` when it should have read `08-11 11:00`. Thirty-four hours off, live.
+
+Then I refused to over-claim it. I replayed both seed conventions through the real serve path against archived model vintages — same model, same weather, same origins — and the accuracy verdict came back **inconclusive at both horizons**, mean +0.09 WAPE against a minimum detectable effect of 0.47. The values moved 2–3%; the accuracy didn't measurably improve. And the study couldn't be rescued by running it harder: detecting that effect needed ~600 non-overlapping windows and only 26 existed, because the defect requires a gap and gaps are rare.
+
+**Result**: Shipped the fix behind a flag, default off, argued explicitly as a **correctness** change rather than an accuracy win — because the evidence didn't support the second claim. A colleague working the same issue in parallel had reached the compatible half of this and published a doc saying the fix "changes no feature values"; I posted the reproduction showing the demand frame being a complete grid doesn't make the *feature* frame one. I also found that the parity test which should have caught all of this compares the two implementations on a **gapless** fixture — where they agree by construction.
+
+**Lesson to convey**: *A written plan freezes what was known when it was written, and the more precisely it's specified the more it reads as settled. The cheapest thing I did was check the premise before executing four expensive steps. The second cheapest was declining to claim an accuracy benefit I'd just failed to measure — a real defect and a worthwhile fix are not the same as a number that got better, and conflating them is how an underpowered study becomes a published result.*

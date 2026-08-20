@@ -427,6 +427,7 @@ def _predict_single_fold(
             train_df["demand_mw"].tolist(),
             test_df,
             predict_xgboost,
+            seed_timestamps=train_df.get("timestamp"),
         )
 
     elif model_name == "prophet":

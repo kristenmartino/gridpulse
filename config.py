@@ -1411,6 +1411,17 @@ FEATURE_FLAGS: dict[str, bool] = {
     # #326: replay each candidate XGBoost through the real serve path at
     # persist time; refuse the latest.json repoint on a degenerate curve.
     "model_serve_gate": True,
+    # #559: resolve the recursion's autoregressive lags by TIMESTAMP instead of
+    # by position in the seed list. `dropna` deletes every row whose lag source
+    # was null, so `featured` carries real holes, and `history[-168]` is then 168
+    # surviving rows back rather than 168 hours back — measured 34h off on LGEE
+    # at a live origin. Default OFF: the defect is a genuine correctness bug, but
+    # the replay A/B could not show an accuracy benefit to fixing it (mean
+    # +0.090 WAPE at 168h against an MDE of 0.466, inconclusive at both horizons
+    # — docs/POSITIONAL_LAG_SEED_STUDY.md), so this ships dark for a shadow run
+    # rather than moving published numbers on an underpowered result. Fail-open:
+    # without seed timestamps the positional path runs unchanged, byte-identical.
+    "temporal_ar_seed": False,
     # ADR-011 (#332): NBM-composite forecast weather. Shipped dark in PR A,
     # flipped ON 2026-07-22 after the deploy verified. Measured basis:
     # +0.921 sMAPE pts paired through the real serve path (AZPS +3.70,

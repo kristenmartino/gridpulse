@@ -65,9 +65,9 @@ For any non-trivial PR, before reporting "done":
    changed**? → update [`STATUS.md`](STATUS.md) in the same PR
 5. **Something went wrong** (measurement error, wrong assumption, wasted
    time, a trap you had to work around, a near-miss caught before it
-   shipped)? → log it in [`MISTAKES.md`](MISTAKES.md). See "Mistake logging
-   & rule graduation" below for format and for when it also needs a rule
-   here.
+   shipped)? → drop one file in [`.mistakes/worklog/`](.mistakes/worklog/).
+   See "Mistake logging & rule graduation" below for format and for when it
+   also needs a rule here.
 
 Otherwise report: "no explanatory-doc impact."
 
@@ -106,10 +106,12 @@ Two rules follow:
 
 ## Mistake logging & rule graduation
 
-Deposit one line to [`MISTAKES.md`](MISTAKES.md)'s Worklog whenever
-something costs real time, nearly ships wrong, or would change how you'd
-approach the next similar task: date, a best-guess `[category]` tag, one
-sentence, a ref. **Stop there.** Don't diagnose root cause, don't propose a
+Deposit whenever something costs real time, nearly ships wrong, or would
+change how you'd approach the next similar task: one new file under
+`.mistakes/worklog/` named `<UTC timestamp>-<category>.md`, holding one
+sentence with a date, a best-guess category and a ref. A new file every
+time, never an edit to an existing one — that is what lets parallel
+sessions deposit without colliding. **Stop there.** Don't diagnose root cause, don't propose a
 fix, don't decide whether it's a repeat of anything — do that mid-task and
 you're reasoning about your own mistake with the same tunnel vision that
 produced it, which is exactly what makes early-generation `MISTAKES.md`
@@ -120,7 +122,7 @@ always happens.
 **A separate pass decides everything else.** Something else — the
 [`audit-mistakes-log`](.claude/skills/audit-mistakes-log/SKILL.md) skill,
 run periodically with none of the depositing session's context — reads the
-Worklog, tallies entries by category (grouping by *root cause*, not surface
+pending deposits, tallies them by category (grouping by *root cause*, not surface
 symptom: #541's stale actuals and #542's blanked leads are one pattern, "an
 instrument measured something other than what it was checking," not two),
 and only once a category crosses the graduation bar drafts the full
@@ -164,10 +166,10 @@ weaker copy for an agent to remember by hand.
 **Reassessment runs in both directions, not just forward:**
 - *Worklog → Analyzed*: `audit-mistakes-log` re-scans for a pattern that no
   single entry crosses the bar on alone but the tally does in aggregate. It
-  advances `MISTAKES.md`'s `audited-through` marker on every run, including
-  runs that promote nothing — "I looked, these can wait" is a decision, and
-  recording it is what keeps the reminder from repeating a decision you have
-  already made until you learn to ignore it.
+  stamps `.mistakes/last-audit` on every run, including runs that promote
+  nothing — "I looked, these can wait" is a decision, and recording it is
+  what keeps the reminder from repeating a decision you have already made
+  until you learn to ignore it.
 - *Existing rules → still true?*: a rule outlives the bug that produced it.
   When touching code a guardrail here cites, check it still describes
   reality — the same discipline "Verify every `Closes #N`" and the
@@ -183,7 +185,8 @@ working session doesn't load the whole archive to check its own work,
 because the archive is the thing this section exists to keep *out* of every
 session's context by promoting its signal into the one file that's always
 loaded. The only exceptions are the two processes that exist specifically to
-touch the archive: a Worklog deposit (append one line, don't read the rest),
+touch it: a deposit (write one new file under `.mistakes/worklog/`, don't
+read the rest),
 and `audit-mistakes-log` (reads all of it, deliberately, on its own separate
 pass).
 
@@ -193,7 +196,7 @@ runs *in*-session — hooked after plan approval, and run by hand before a
 commit or PR — and checks the plan or diff against the invariants already in
 this file (already loaded, no extra read), so a known pattern gets caught
 before it ships rather than logged after. If it catches something new, it
-adds one Worklog line (never a full entry, never a re-read of the archive to
+writes one deposit file (never a full entry, never a re-read of the archive to
 "check for similar entries" — that judgment call belongs to the audit pass)
 and moves on.
 
@@ -302,9 +305,9 @@ the canonical list; expansion history is `Original 8 → V1.α +8 → V3.ζ +35`
     models from GCS, writes forecasts + alerts + diagnostics +
     weather-correlation to Redis. Entry point: `python -m jobs scoring`.
   - `gridpulse-training-job` — daily at 04:00 UTC. Trains XGBoost/Prophet/
-    SARIMAX, persists to `gs://nextera-portfolio-energy-cache/models/`,
+    SARIMAX, persists to `gs://nextera-portfolio-energy-cache/cache/models/`,
     writes backtests to Redis. Entry point: `python -m jobs training`.
-- **Model store** — GCS at `gs://nextera-portfolio-energy-cache/models/` via
+- **Model store** — GCS at `gs://nextera-portfolio-energy-cache/cache/models/` via
   `models/persistence.py`. Layout: `{region}/{model_name}/{version}.pkl` +
   `.meta.json`, atomically pointed to by `latest.json`. Scoring job pulls
   via `load_model()` with local disk cache at `/app/trained_models/`.
@@ -420,7 +423,10 @@ data/
   eia_client.py           → EIA API v2: demand, generation, interchange
   weather_client.py       → Open-Meteo: 17 weather vars, historical + forecast
   noaa_client.py          → NOAA/NWS: severe weather alerts
-  preprocessing.py        → Merge, align UTC, interpolate gaps <6h, flag gaps ≥6h
+  preprocessing.py        → Merge demand+weather (left-join onto demand, no reindex).
+                            `handle_missing_values` (interpolate <6h, flag ≥6h) lives
+                            here but has NO production caller — scoring goes
+                            merge → engineer_features directly
   feature_engineering.py  → 49 features (17 raw + 32 derived): CDD/HDD, wind power, solar CF, lags, rolling
   demo_data.py            → Synthetic data generator for offline/demo mode where explicitly used
   audit.py                → Forecast audit trail (model version, data hash, feature hash)

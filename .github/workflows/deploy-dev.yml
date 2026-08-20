@@ -32,6 +32,7 @@ jobs:
   guard:
     name: Guard — is this commit still dev's HEAD?
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.event.workflow_run.conclusion == 'success'
     permissions:
       contents: read
@@ -58,6 +59,7 @@ jobs:
   deploy-dev:
     name: Build & Deploy to Cloud Run (Dev)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: guard
     if: needs.guard.outputs.proceed == 'true'
     permissions:

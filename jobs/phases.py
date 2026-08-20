@@ -1291,6 +1291,7 @@ def _predict_xgboost_with_recursive_autoregressive(
         featured["demand_mw"].tolist(),
         future_df.iloc[:n_recursive],
         predict_xgboost,
+        seed_timestamps=featured.get("timestamp"),
     )
 
     if horizon <= n_recursive:
@@ -1415,6 +1416,7 @@ def serve_path_gate(
                     seed["demand_mw"].tolist(),
                     future.iloc[:horizon],
                     predict_xgboost,
+                    seed_timestamps=seed.get("timestamp"),
                 ),
                 dtype=float,
             )
@@ -2367,7 +2369,11 @@ def _write_scenario_grid(
         # parity with the single-frame SSOT is a differential test.
         def forecaster(frames: list[pd.DataFrame]) -> list[np.ndarray]:
             return batched_recursive_autoregressive_forecast(
-                model, featured["demand_mw"], frames, predict_xgboost
+                model,
+                featured["demand_mw"],
+                frames,
+                predict_xgboost,
+                seed_timestamps=featured.get("timestamp"),
             )
 
         payload = build_scenario_grid(
