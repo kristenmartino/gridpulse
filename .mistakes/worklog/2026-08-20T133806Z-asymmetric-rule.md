@@ -1,1 +1,0 @@
-2026-08-20 [asymmetric-rule] Shipped a scoreability gate measuring hours since the newest published DF, which is correct while a feed is down and wrong when it resumes — the trailing gap collapses to ~0 on the first tick back while the hole is still inside the scoring window. Found by asking what happens when SPP returns, not by any failure. — ref: #587 / PR #580

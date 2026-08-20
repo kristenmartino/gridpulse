@@ -50,6 +50,17 @@ Evidence: `MISTAKES.md` → `[verification-instrument]`: twice confirmed a
 deploy by checking a payload timestamp or a per-BA field that both moved for
 unrelated reasons, not by checking the write that actually mattered.
 
+**Gate a destructive git step on its actual outcome, not the assumed one.**
+Before a branch delete, an `add -A` after a `reset`, or any other
+irreversible git step, inspect what the step before it actually did (the
+merge's real result, what a reset+`add -A` actually staged) rather than
+assuming it succeeded or targeted what you expected — especially in a
+worktree whose base may be stale relative to `origin/main`. Evidence:
+`MISTAKES.md` → `[unchecked-destructive-git-chaining]`: a chained merge+delete
+deleted a branch after its merge had actually failed on conflict; a
+`reset --soft` + `add -A` in a stale worktree nearly staged ~490 lines of two
+other sessions' already-merged work as a "reversion."
+
 ## End-of-PR explanatory-doc check
 
 For any non-trivial PR, before reporting "done":
@@ -541,7 +552,34 @@ that compute agreement between two derived measures (a replay, a
 recorded-vs-live comparison), include a control case designed to disagree,
 checked before results are inspected — two independent bugs can cancel each
 other and still read as 100% agreement. Evidence: `MISTAKES.md` →
-`[verification-checked-the-wrong-thing]`, four occurrences on 2026-08-18.
+`[verification-checked-the-wrong-thing]`, five occurrences.
+
+**Match the real target environment when validating.** A local check that
+passes can still fail the real target when it validates a substitute: the
+exact CI command(s), not a subset (`ruff check` alone misses CI's `ruff
+format --check`); real/production-shaped data, not a synthesizable-clean
+fixture (a JSON-escaping bug was invisible against quote-free test text);
+the actual runtime, not an assumed one (macOS ships bash 3.2 — no
+`mapfile`/`declare -A`). Evidence: `MISTAKES.md` →
+`[environment-narrower-than-target]`, three occurrences.
+
+**A guard needs a fixture that can trigger what it exists to catch.** A test
+suite that only confirms a guard runs and returns is not the same as
+confirming it can detect its target defect — a fixture engineered to be
+clean (no gaps, a comment-stripped exemption) can structurally never
+exercise the failure path. Include at least one fixture known to trigger the
+defect shape, and verify any exemption actually reaches the guard's
+mechanics rather than assuming it does. Evidence: `MISTAKES.md` →
+`[guard-blind-by-construction]`, two occurrences.
+
+**Write the domain requirement before the code.** When shipping a statistic,
+gate, or invariant check, state the domain requirement in words first, then
+adversarially probe its boundary (resumption after absence, a blocked vs. a
+scattered gap, a value read back through an intermediate store) — a test
+that only encodes the implementation's own comparison shares its blind spot
+and won't catch a boundary case. Evidence: `MISTAKES.md` →
+`[metric-definition-blind-to-edge-case]`, three occurrences, all caught by
+manual adversarial review rather than by any test.
 
 ---
 

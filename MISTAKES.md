@@ -67,20 +67,228 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 | reference-verification (was github-close-keywords) | 3 | graduated | CLAUDE.md → "Verify every `#N` reference" + "The backtick/quote trap" |
 | reliability-timeout-budget | 2 (distinct root causes, same family) | graduated | CLAUDE.md → "Upstream-outage resilience" + "Partial degradation is a DIFFERENT failure class" |
 | single-source-of-truth-drift | 3 | graduated (strengthened 2026-08-20) | CLAUDE.md → End-of-PR check item 2 (grep now `web/ docs/`); `MODEL_DISPLAY_NAMES` + AST sweep test |
-| stale-repo-snapshot | 3 | graduated | CLAUDE.md → "Before recommending what's next" (re-derive the premise) |
+| stale-repo-snapshot | 6 | graduated (strengthened 2026-08-20, twice) | CLAUDE.md → "Before recommending what's next" (re-derive the premise; merge-safety sentence) |
 | claim-shipped-before-measurement | 4 | graduated (2026-08-20) | CLAUDE.md → "Verify a claim before writing it as fact" |
-| verification-checked-the-wrong-thing | 4 | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
+| verification-checked-the-wrong-thing | 5 | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
+| unmeasured-performance-impact | 2 | graduated (2026-08-20) | CLAUDE.md → Required working style, "Validate after meaningful changes" |
+| verification-instrument | 1 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next", "Verify a production state by its terminal write" |
 | reminder-blind-to-same-day | 1 | resolved (2026-08-20) | entries-seen counter (PR #582); already narrated in CLAUDE.md's mechanical-guard section |
 | guard-decision-without-force | 1 | resolved (2026-08-20) | backticked case now `deny` (PR #579); already narrated in CLAUDE.md's mechanical-guard section |
-| worklog-concurrent-deposit | 1 (in Worklog) | open | recurred during the 2026-08-18 audit itself — near the bar |
+| worklog-concurrent-deposit | 1 | resolved (2026-08-20) | one-file-per-deposit design (PR #588) structurally removes the conflict |
 | guard-coverage-gap | 1 (in Worklog) | open | none yet — watching for a repeat |
-| destructive-step-chained-to-unchecked-outcome | 1 (in Worklog) | open | none yet — watching for a repeat |
-| local-verification-narrower-than-ci | 1 (in Worklog) | open | none yet — watching for a repeat |
+| environment-narrower-than-target | 3 | graduated (2026-08-20) | CLAUDE.md → Testing § "Match the real target environment when validating" |
+| guard-blind-by-construction | 2 | graduated (2026-08-20) | CLAUDE.md → Testing § "A guard needs a fixture that can trigger what it exists to catch" |
+| metric-definition-blind-to-edge-case (was statistic-confounded-by-shape) | 3 | graduated (2026-08-20) | CLAUDE.md → Testing § "Write the domain requirement before the code" |
+| unchecked-destructive-git-chaining | 2 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next" § "Gate a destructive git step on its actual outcome" |
 | configured-but-inert | 1 (in Worklog) | open | none yet — watching for a repeat |
-| optimisation-made-it-worse | 1 (in Worklog) | open | none yet — watching for a repeat |
 | instrumentation | 1 (in Worklog) | open | none yet — watching for a repeat |
+| ci-guard-intermittent | 1 (in Worklog) | open | none yet — watching for a repeat |
+| scratch-over-tracked-config | 1 (in Worklog) | open | none yet — watching for a repeat |
+| inherited-policy-not-decided | 1 (in Worklog) | open | none yet — watching for a repeat |
+| watcher-predicate | 1 (in Worklog) | open | echoes a known personal pattern (verify deploy by SHA via ancestry, not equality) not yet codified in this repo — watching for a repeat before drafting |
+| probe-artifact-read-as-residual | 1 (in Worklog) | open | a diagnostic probe reported a uniform residual rate that was the probe omitting a guard the real study applies, not a real defect — landed on `main` after this pass's fetch, folded into the tally so `last-audit` stays accurate; watching for a repeat |
 
 ### Entries
+
+**2026-08-20 — Three local checks passed while validating against a substitute that didn't match the real target [environment-narrower-than-target]**
+- **What happened:** Three incidents where a local check reported success
+  because it validated against something narrower than the real target,
+  never noticed until the real target ran. (1) `ruff check` was run alone
+  and reported clean; CI's lint job also runs `ruff format --check`, which
+  failed on a newly added script and cost a CI cycle (PR #560). (2) The
+  audit-nudge hook interpolated deposit text into JSON output unescaped;
+  every synthetic test fixture used quote-free text, so the bug was invisible
+  until the hook first ran against real migrated entries, several of which
+  quoted error messages and doc headlines (PR #588). (3) The Worklog
+  migration script used `mapfile` and `declare -A`, which macOS's default
+  bash (3.2) does not have — it died on first run against the real shell
+  rather than whatever shell the script was drafted against (PR #588).
+- **Root cause:** In all three, the check that ran locally was a narrower
+  stand-in for the real target — a subset of the CI command, a synthetically
+  clean fixture, an assumed shell version — and the narrowing was invisible
+  because the substitute *looked* equivalent. Nothing in the local check's
+  own design would have revealed the gap; only running against the real
+  target (the full CI command, real quoted deposit text, the actual macOS
+  bash) did.
+- **Prevention:** Match the real target environment when validating locally:
+  the exact CI command(s) (not a subset), real/production-shaped data rather
+  than synthesizable-clean fixtures, and the actual runtime a script will
+  execute under (macOS ships bash 3.2, not a newer bash).
+- **Status:** graduated → CLAUDE.md § Testing, "Match the real target
+  environment when validating" (2026-08-20).
+- **Related:** PR #560, PR #588 (two occurrences from the same PR, distinct
+  root-cause instances). Three Worklog lines consumed
+  (`local-verification-narrower-than-ci`, `synthetic-fixture-narrower-than-real-data`,
+  `bash-version-assumption`).
+
+**2026-08-20 — A guard tested only on inputs that could not trigger the defect shape it exists to catch [guard-blind-by-construction]**
+- **What happened:** Two guards that passed while blind to their own target
+  defect. (1) The train/inference autoregressive parity test
+  (`test_training_features_match_inference_snapshot_row_by_row`) compares
+  both implementations on a gapless synthetic fixture, where they agree by
+  construction — it cannot see the positional-vs-temporal divergence it
+  exists to catch, because that divergence only appears on gapped series
+  (`#559` / `#186`). (2) A public-copy percentage-sweep carried an exemption
+  for a "30%" figure that was assumed to reach the sweep and be correctly
+  waved through; `_prose_of` already strips comments before the sweep runs,
+  so the exemption never actually exercised the sweep's mechanics, silently
+  waving through a real unregistered product claim elsewhere (PR #609/#610).
+- **Root cause:** A guard's own test suite validated that the guard runs and
+  returns a result, not that the guard can actually detect the specific
+  failure mode it was built for. A fixture engineered to be clean (no gaps,
+  a comment-stripped exemption) structurally cannot exercise the code path
+  that would reveal a real defect.
+- **Prevention:** When a guard/test exists to catch a specific defect shape,
+  include at least one fixture known to trigger that shape, and verify any
+  exemption actually reaches the guard's mechanics rather than assuming it
+  does.
+- **Status:** graduated → CLAUDE.md § Testing, "A guard needs a fixture that
+  can trigger what it exists to catch" (2026-08-20).
+- **Related:** #559, #186, PR #609, PR #610. Two Worklog lines consumed
+  (`guard-blind-by-construction` ×2, same tag, distinct incidents).
+
+**2026-08-20 — A statistic's own test encoded the same narrow assumption as its implementation, so only manual adversarial reasoning caught the edge cases [metric-definition-blind-to-edge-case]**
+- **What happened:** Three incidents in the benchmark-gating work around
+  PR #580, all found by hand rather than by any test. (1)
+  `absent_hours_bias_pct` shipped with a 20-absent-hour floor fitted to 3-4h
+  noise cases; live WALC read -19.88% over 49 absent hours sitting in two
+  contiguous ~48h blocks, because the statistic conflates *which* hours a BA
+  skips with *what load did* during the outage — a blocked, contiguous
+  absence is a structurally different case from scattered short gaps, and
+  the statistic's own name promised a selection-bias correction it doesn't
+  provide for the blocked shape. (2) A scoreability gate was correct while a
+  feed was down but wrong on the very first tick after the feed resumed — the
+  gate's definition never considered the resumption boundary as a distinct
+  state. (3) A docstring and its test asserted `warn < gate` as a sufficient
+  condition, when the real requirement depended on Redis read-staleness
+  across two files that nothing in the check connected.
+- **Root cause:** Each check's own test suite encoded the same boundary
+  assumption as the implementation — it verified the code did what the code
+  does, not what the domain actually requires. None of the three were caught
+  by their test because the test and the implementation shared the same
+  blind spot; all three surfaced only when someone reasoned adversarially
+  about the metric's boundary (resumption after absence, blocked vs.
+  scattered gaps, cross-file staleness) rather than trusting the test.
+- **Prevention:** When shipping a statistic, gate, or invariant check, write
+  the domain requirement in words before the code, and adversarially probe
+  its boundary (resumption after absence, blocked vs. scattered gaps, values
+  read back through an intermediate store) — a test that only encodes the
+  implementation's own comparison won't catch this.
+- **Status:** graduated → CLAUDE.md § Testing, "Write the domain requirement
+  before the code" (2026-08-20).
+- **Related:** PR #580 (all three occurrences). Renamed from
+  `statistic-confounded-by-shape`, which named only occurrence (1); the
+  broader pattern covers all three. Three Worklog lines consumed.
+
+**2026-08-20 — A destructive git step ran without inspecting the actual outcome of the step before it [unchecked-destructive-git-chaining]**
+- **What happened:** Two incidents where a destructive git command ran on an
+  assumed rather than inspected outcome. (1) `gh pr merge 567` and the
+  head-branch delete were chained in one command without gating the delete
+  on the merge's result; the merge failed on a fresh conflict, and the
+  delete then ran anyway, closing the PR (PR #567). (2) In a worktree whose
+  base had gone stale relative to `origin/main`, `git reset --soft
+  origin/main` followed by `git add -A` staged ~490 lines of two other
+  sessions' already-merged work as if it were a "reversion" to be discarded
+  — caught only later, by a rebase conflict, not by inspecting what `add -A`
+  had actually staged (PR #603).
+- **Root cause:** Both commands assumed the outcome of the preceding
+  destructive step rather than checking it — the merge's success, and the
+  reset's target being current — before taking the next irreversible action.
+  In a repo under heavy concurrent use, a stale worktree base makes "assumed"
+  and "actual" diverge silently; nothing about the commands themselves
+  signals the mismatch.
+- **Prevention:** Gate a destructive git step (branch delete, `add -A` after
+  a `reset`) on inspecting the actual outcome/diff of the step before it, not
+  the assumed one — especially in a worktree whose base may be stale
+  relative to `origin/main`.
+- **Status:** graduated → CLAUDE.md § "Before recommending what's next",
+  "Gate a destructive git step on its actual outcome" (2026-08-20). Promoted
+  on both bars: repeat (2 occurrences), and occurrence (2) alone is close to
+  severity — it would have silently reverted shipped work from two other
+  sessions in a now-heavily-concurrent repo.
+- **Related:** PR #567, PR #603. Two Worklog lines consumed.
+
+**2026-08-20 — A fix shipped 79x costlier than what it replaced, and a CI cache change made builds 4.5x slower, both unmeasured before landing [unmeasured-performance-impact]**
+- **What happened:** Two incidents where a change's own resource cost was
+  never measured against real invocation frequency before it shipped. (1) A
+  correctness fix for the positional-vs-temporal AR seed divergence (`#559`)
+  landed with a first implementation that cost +74.9s per scoring tick
+  fleet-wide — 79x the code it replaced — on a job that has already
+  SIGKILLed at its task timeout (`#389`). It stayed dormant only because the
+  flag defaulted off; the cost was found afterward, by measuring a different
+  question (the seed shadow study), not by anyone checking the fix's own
+  wall-clock cost before merging it (PR #584). (2) CI's Docker buildx cache
+  was changed to `cache-to: type=gha,mode=max` on the assumption that a
+  layer cache beats a cold rebuild; `mode=max` exports every intermediate
+  layer, and the image carries prophet/xgboost/shap/scipy, so the image
+  build went from 83s to 371s and became the new critical path. Caught only
+  because the very next CI run happened to be watched, and reverted before
+  merge (PR #586).
+- **Root cause:** Both changes were reasoned about qualitatively ("this is
+  more correct," "a cache should be faster") without measuring the actual
+  cost against the real invocation shape — per-tick × 51-BA fan-out in (1),
+  per-CI-run image size in (2). A plausible-sounding optimization or fix can
+  be a regression in wall-clock or resource terms, and nothing short of
+  measuring against real invocation frequency catches that before it ships.
+- **Prevention:** Validate after meaningful changes by measuring wall-clock
+  or resource cost against real invocation frequency (per call × real
+  fan-out, per CI run) — not assumed — before reporting a change done.
+- **Status:** graduated → CLAUDE.md § Required working style, "Validate
+  after meaningful changes" (2026-08-20, landed in commit `f67d8893`, backfilled
+  here 2026-08-20).
+- **Related:** #559, PR #584, PR #586, #389. Two Worklog lines consumed into
+  this entry (`unmeasured-cost-of-own-fix`, `optimisation-made-it-worse`).
+
+**2026-08-20 — Twice confirmed a production deploy from a signal adjacent to the claim, not the write that actually mattered [verification-instrument]**
+- **What happened:** Two attempts to verify that a fix (`#549` / PR #580)
+  had actually deployed to production both checked the wrong instrument.
+  First, the check waited for the benchmark payload's `updated_at` field to
+  advance — but a scoring tick already in flight advances that field
+  regardless of whether the deploy landed, so it can pass before the new
+  code ever ran. Second, the check waited for a specific per-BA field to
+  appear — but the scoring job writes per-BA keys first and
+  `meta:benchmark_fleet` last, so the fleet-level list (which is what
+  actually determines exclusion) still carried the old reason well after
+  the per-BA field had already updated. Neither check was wrong about
+  whether the deploy eventually landed; both were wrong about what they
+  had actually proven at the moment they reported success.
+- **Root cause:** A field that updates independently of the claim being
+  verified — because it's driven by an in-flight tick, or written earlier
+  in the same pipeline than the field that matters — can advance without
+  confirming the claim. Neither check identified the *specific* terminal
+  write that constitutes "this landed" before treating an easier-to-observe
+  neighbor as a stand-in for it.
+- **Prevention:** To verify a production state, identify the specific field
+  or artifact that is the actual claim — the last key a job writes, the
+  served artifact's own version/tag — and check that directly, not an
+  adjacent signal that merely correlates with it.
+- **Status:** graduated → CLAUDE.md § Before recommending what's next,
+  "Verify a production state by its terminal write, not an adjacent signal"
+  (2026-08-20, landed in commit `f67d8893`, backfilled here 2026-08-20).
+- **Related:** #549, PR #580. One Worklog line consumed into this entry
+  (`verification-instrument`).
+
+**2026-08-20 — One-file-per-deposit structurally removed the Worklog merge-conflict pattern [worklog-concurrent-deposit, resolved]**
+- **What happened:** Before 2026-08-18, the Worklog was a single inline list
+  in `MISTAKES.md`; every depositing session had to insert at the same
+  line, so concurrent deposits collided. Recorded concretely: PRs #566,
+  #570, and #567 all inserted at the top of the list, producing a merge
+  conflict on four separate rebase steps in one day. The resolution was
+  always trivial (keep both lines) but every concurrent deposit hit it, and
+  a hand-merge is exactly the kind of step that can silently drop someone
+  else's evidence — which is the one thing this file's job is to not do.
+- **Root cause:** A single shared file with an insert-at-the-top convention
+  has no way for two concurrent writers to avoid touching the same lines.
+- **Prevention:** Already shipped, not a prose rule — PR #588 moved the
+  Worklog to `.mistakes/worklog/`, one file per deposit, named by UTC
+  timestamp. Two sessions depositing at the same moment now write different
+  filenames and cannot conflict; the failure mode is structurally
+  impossible rather than merely discouraged.
+- **Status:** resolved — enforced by PR #588 (`.mistakes/worklog/` directory
+  structure, landed as commit `af04d7cf`). No CLAUDE.md line needed: a
+  guard a structural fix already owns doesn't need a second, weaker prose
+  copy for an agent to remember by hand.
+- **Related:** PRs #566, #567, #570, #588.
 
 **2026-08-20 — Four claims shipped as fact before anyone measured them, one nearly justifying an unwarranted retrain [claim-shipped-before-measurement]**
 - **What happened:** Four separate incidents where a causal, quantitative, or
@@ -167,6 +375,18 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   entry (`test-validity`, `harness-agrees-for-the-wrong-reason`,
   `mock-never-applied`, `test-hermeticity`). The specific instances are
   already fixed in code; the rule generalizes the lesson for future tests.
+- **2026-08-20 addendum (5th occurrence):** A new prose guard passed clean
+  against the exact break it was written to catch — `**` emphasis in the
+  real instruction text defeated its regex, and one incidental, unrelated
+  mention elsewhere in the file satisfied the presence check it also ran.
+  Found only by mutation testing, and the first mutation run itself read as
+  ambiguous between "the guard is weak" and "the mutation never applied" —
+  the same shape the existing prevention already names (verify the check
+  fires on a designed-to-fail case) but here applied to a text/regex guard
+  rather than a mock or a harness-agreement measure. No new CLAUDE.md
+  language needed; the existing prevention already generalizes to any
+  guard, not just mocks. Related: PR #602. Worklog line
+  `guard-missed-its-own-case` consumed into this entry.
 
 **2026-08-20 — The audit-staleness nudge's own date bug, and the close-keyword guard's own `ask`-in-permissive-mode gap [resolved, not graduated]**
 - **What happened:** Two Worklog entries documented bugs in this repo's own
@@ -260,6 +480,45 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   that promoted this was itself interrupted by a fourth instance of the same
   pattern — `main` gained four Worklog entries, including occurrence (2), while
   the analysis was in flight, so the first draft of this entry counted two.
+- **2026-08-20 addendum (4th–6th occurrences, rule strengthened again):** Three
+  more instances landed the same day, all before the merge-safety strengthening
+  below shipped. (4) A squash merge (`#594`) landed carrying its own change
+  while silently removing 27 files belonging to two PRs (`#588`, `#590`)
+  GitHub still reports as merged — including every `.mistakes/worklog`
+  deposit and `#590`'s whole script — so `main` simply stopped containing
+  work that had landed 13 minutes earlier; nothing failed, nothing warned.
+  (5) A just-fixed incident was reported as still-live, and stale line
+  references were published into two public issue comments, because the
+  "is this still true" check ran against the read taken minutes earlier
+  rather than being re-checked against `origin/main` before writing it down
+  — by then `#598` had already restored the affected half. (6) Every
+  "is this still true" check in a separate session ran against a local
+  `main` eight commits behind `origin/main`, because the restore PR had
+  merged twelve hours earlier straight into the remote and the local clone
+  was never fetched — an already-fixed incident was reported as live damage
+  a second time, from a different mechanism than (5) (a stale local clone,
+  not a stale in-memory read). **Prevention (strengthened):** re-deriving a
+  premise against "`origin/main`" is only as good as the last fetch — a
+  local `main` branch is not `origin/main` until you fetch it. CLAUDE.md's
+  merge-safety sentence (added same day) also now covers squash-merging
+  itself as an action that must re-check its branch point, not only actions
+  that read repo state. **This includes merging**: before squash-merging a
+  branch — especially one touching infra/structural files — confirm its
+  branch point is still current against `origin/main`, not just that CI is
+  green.
+- **Observation for a future pass:** six occurrences of the same root cause
+  in three days, three of them on the day the rule was strengthened, is
+  worth treating as evidence the prose rule alone may not be sufficient in a
+  repo now under sustained concurrent multi-session use (this very audit was
+  instructed to `git fetch` before starting, precisely because that can no
+  longer be assumed). Worth a future pass considering a mechanical nudge
+  (e.g., a SessionStart hook that runs `git fetch` and reports how far local
+  is behind `origin/main`) rather than relying solely on prose discipline.
+  Not drafted here — mechanism design is out of scope for a single audit
+  pass, flagged for the human instead.
+- **Related (addendum):** #594, #588, #590, #598, #537, #559. Three more
+  Worklog lines consumed into this entry (`merged-work-silently-reverted`,
+  `stale-repo-state-claim`, `verified-against-stale-local-main`).
 
 **2026-08-11 — One model, three display names, in three different places, patched three times locally and generalized zero times [single-source-of-truth-drift]**
 - **What happened:** Models tab showed "SARIMAX," Forecast tab showed
