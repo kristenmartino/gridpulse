@@ -44,6 +44,32 @@ design rationale rather than something an on-call reader acts on, and moving it
 here is what brought that runbook back under the 4000-character documentation
 cap — see the section on that cap below.)
 
+### Why the gap gate replaced the coverage rate (#549, #587)
+
+`df_coverage` — the share of window hours carrying a published day-ahead
+forecast — gated benchmark scoreability until [#549](https://github.com/kristenmartino/gridpulse/issues/549).
+It no longer gates anything; `MAX_DF_GAP_HOURS` does, and since
+[#587](https://github.com/kristenmartino/gridpulse/issues/587) it compares the
+*longest* no-DF stretch in the window rather than only the trailing one.
+
+The reason is that **a publication rate cannot tell two different failures
+apart.** A BA that half-publishes all month and a BA that published completely
+and then stopped dead can report the same coverage figure, and only the second
+one is unscoreable — its remaining hours no longer describe the same period as
+every other row on the page.
+
+Measured across all 51 BAs on 2026-08-18, **no BA is diffusely sparse**, which
+is the shape the rate gate implicitly assumed: SPP's absence is ONE contiguous
+341-hour block (feed stopped 2026-08-04T06Z), and TEC's is six whole-day blocks
+with a live feed. The pre-#549 exclusion text asserted the diffuse shape for
+both. A worked example of the integer-comparison step in that runbook: TEC read
+576 DF rows both ways on 2026-08-18, settling "is the absence theirs or ours?"
+in a single call.
+
+(Moved out of the `benchmark_coverage_at_risk` runbook on 2026-08-20 for the
+same reason as the section above — it is rationale, not an on-call action, and
+the runbook was 187 characters from the cap that silently disarms the alert.)
+
 ### The max-instances aggregation counted rollovers, not instances (2026-08-18)
 
 `web_service_max_instances_alert.json` fired at 11:54Z claiming the service was
