@@ -26,6 +26,15 @@ ancestor of `main` the moment that PR lands. Check the claim against
 rather than executing as written. Evidence: `MISTAKES.md` → "Three artifacts
 captured `main` at authoring time".
 
+**Verify a claim before writing it as fact.** Before writing a causal,
+quantitative, or attribution claim into any committed artifact (doc, issue,
+commit message, test, or config) as established fact, check it against the
+actual code or data — run the measurement, read the row, grep the function
+— rather than inheriting another artifact's stated rationale. Evidence:
+`MISTAKES.md` → `[claim-shipped-before-measurement]`, four occurrences, one
+of which (#559) shipped a doc section justifying an unwarranted
+51-BA × 3-model retrain that the real measurement never supported.
+
 ## End-of-PR explanatory-doc check
 
 For any non-trivial PR, before reporting "done":
@@ -35,13 +44,19 @@ For any non-trivial PR, before reporting "done":
    Mermaid diagrams in same PR
 2. **A cited fact moved** (value referenced across multiple docs)?
    → update [`docs/CANONICAL_FACTS.md`](docs/CANONICAL_FACTS.md) in same PR,
-   **and `grep -rn '<old literal>' web/`** — the public pages at `/about` and
-   `/benchmark` cite these numbers too, and a stale one there is published to
-   the internet rather than merely wrong internally. `/about` shipped `4.8%`
-   for four days after the 2026-08-07 retrain moved it to `4.35%`, because the
-   test that claimed to check this only asserted the literal was on the page
-   and never opened CANONICAL_FACTS. `tests/unit/test_public_copy_traces_to_canonical_facts.py`
-   now fails on the *source* side instead; this grep catches it a step earlier.
+   **and `grep -rn '<old literal>' web/ docs/`** — the public pages at
+   `/about` and `/benchmark` cite these numbers too, and a stale one there is
+   published to the internet rather than merely wrong internally. `/about`
+   shipped `4.8%` for four days after the 2026-08-07 retrain moved it to
+   `4.35%`, because the test that claimed to check this only asserted the
+   literal was on the page and never opened CANONICAL_FACTS.
+   `tests/unit/test_public_copy_traces_to_canonical_facts.py` now fails on
+   the *source* side instead; this grep catches it a step earlier. The `docs/`
+   half of the scope exists because a moved fact can also strand a stale
+   restatement *inside its own source doc* — `docs/BACKTEST_RESULTS.md`
+   republished its distribution table on 2026-08-07 but left a "~4.8%
+   ensemble headline" line ~90 lines below it uncorrected for 11 days
+   (PR #404); `web/`-only scope would never have caught that.
 3. **STAR-story trigger hit** (trade-off, debugging arc, surprising
    decision, recovery, scope-cut)?
    → add the story to [`docs/INTERVIEW_PREP.md`](docs/INTERVIEW_PREP.md)
@@ -490,6 +505,17 @@ Scopes: data, models, sim, personas, ui, infra
   claimed coverage that did not exist. There is still NO browser tier;
   adding one is a new tier, not a rename back.
 - Run: `pytest tests/ -v --cov=data --cov=models --cov=simulation --cov=personas --cov=components`
+
+**Verify a mock actually intercepted.** When a test relies on
+mocking/monkeypatching, assert the substitution was exercised (a call count,
+the absence of real I/O) — a silently-defeated mock (a function-local
+`import` re-binding the real module, a default bound at def time instead of
+read live) produces a passing test that validates nothing. For harnesses
+that compute agreement between two derived measures (a replay, a
+recorded-vs-live comparison), include a control case designed to disagree,
+checked before results are inspected — two independent bugs can cancel each
+other and still read as 100% agreement. Evidence: `MISTAKES.md` →
+`[verification-checked-the-wrong-thing]`, four occurrences on 2026-08-18.
 
 ---
 
