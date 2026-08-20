@@ -1,6 +1,6 @@
 ---
 name: audit-mistakes-log
-description: Periodic, deliberately decontextualized audit of MISTAKES.md — tallies Worklog candidates by likely root cause, drafts full Analyzed entries and candidate CLAUDE.md rule promotions once a pattern crosses the graduation bar, and spot-checks existing CLAUDE.md rules for staleness. Not a mid-task skill — run it standalone, ideally in a fresh session with none of the memory of whichever session deposited the candidates it's reviewing, on a schedule (weekly, or whenever the Worklog has accumulated a handful of new lines) rather than as part of normal implementation work. Never edits CLAUDE.md directly; drafts proposals for human approval.
+description: Periodic, deliberately decontextualized audit of the pending mistake candidates in .mistakes/worklog/ (one file per deposit) — tallies them by likely root cause, drafts full Analyzed entries for MISTAKES.md and candidate CLAUDE.md rule promotions once a pattern crosses the graduation bar, and spot-checks existing CLAUDE.md rules for staleness. Not a mid-task skill — run it standalone, ideally in a fresh session with none of the memory of whichever session deposited the candidates it's reviewing, on a schedule (weekly, or whenever .mistakes/worklog/ has accumulated a handful of new files) rather than as part of normal implementation work. Never edits CLAUDE.md directly; drafts proposals for human approval.
 ---
 
 # Audit the mistakes log
