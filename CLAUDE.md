@@ -23,8 +23,12 @@ reinforce the staleness — `git log branch..main` lists squash-merged commits
 as unmerged, and a branch stacked on a squash-merged PR stops being an
 ancestor of `main` the moment that PR lands. Check the claim against
 `origin/main` or the live service; if it no longer holds, stop and report
-rather than executing as written. Evidence: `MISTAKES.md` → "Three artifacts
-captured `main` at authoring time".
+rather than executing as written. **This includes merging**: before
+squash-merging a branch — especially one touching infra/structural files —
+confirm its branch point is still current against `origin/main`, not just
+that CI is green. Evidence: `MISTAKES.md` → "Three artifacts captured `main`
+at authoring time" (4th occurrence: a squash merge reverted a just-landed
+structural change 13 minutes after it shipped, deleting the files it added).
 
 **Verify a claim before writing it as fact.** Before writing a causal,
 quantitative, or attribution claim into any committed artifact (doc, issue,
@@ -34,6 +38,17 @@ actual code or data — run the measurement, read the row, grep the function
 `MISTAKES.md` → `[claim-shipped-before-measurement]`, four occurrences, one
 of which (#559) shipped a doc section justifying an unwarranted
 51-BA × 3-model retrain that the real measurement never supported.
+
+**Verify a production state by its terminal write, not an adjacent signal.**
+The same discipline applies to confirming something happened in production
+(e.g. "did this deploy land," "did the scoring job pick this up") — identify
+the specific field or artifact that is the actual claim (the last key a job
+writes, the served artifact's own version/tag) and check that directly. A
+field that updates independently — driven by an in-flight tick, or written
+earlier in the same pipeline — can advance without confirming the claim.
+Evidence: `MISTAKES.md` → `[verification-instrument]`: twice confirmed a
+deploy by checking a payload timestamp or a per-BA field that both moved for
+unrelated reasons, not by checking the write that actually mattered.
 
 ## End-of-PR explanatory-doc check
 
@@ -253,7 +268,12 @@ Your job is to improve product coherence, positioning, and UX **without breaking
 - Plan briefly
 - Implement in small increments
 - Preserve working behavior unless explicitly asked to change it
-- Validate after meaningful changes
+- Validate after meaningful changes, including their wall-clock/resource
+  cost measured against real invocation frequency (per call × real fan-out,
+  per CI run) — not assumed. Evidence: `MISTAKES.md` →
+  `[unmeasured-performance-impact]`: a fix shipped 79x costlier than the
+  code it replaced, found afterward by luck; a CI cache change made builds
+  4.5x slower, caught only because the next run happened to be watched.
 - Summarize what changed, why, and what remains
 
 ### Guardrails
