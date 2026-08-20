@@ -84,6 +84,37 @@ move in the published metric. The realised MDE is reported whatever it is; if
 the run yields fewer scoreable windows than planned, that is stated rather than
 quietly absorbed.
 
+### Amendment, 2026-08-20 — before any result was computed
+
+Target n was set before checking it was reachable, and for stratum A it is not.
+Only **7** BAs are ever naturally gapped, and a 90-day mirror yields **40**
+non-overlapping 48h windows each after warm-up and truth requirements:
+
+| stratum | BAs | windows | MDE |
+|---|---:|---:|---:|
+| **A — naturally gapped** | 7 (structural ceiling) | **280** | **0.224** |
+| **B — never gapped** | 12 (expanded from 6) | **480** | **0.171** |
+
+Stratum A cannot be enlarged. Extending history does not help: archived model
+vintages only reach 2026-05-07, which is a tighter bound than the mirror, and
+without a vintage there is nothing to replay. So:
+
+* **Stratum A is powered for a 0.25-pt effect but NOT for the +0.181 the
+  observational study estimated.** If the true effect is that size, A is
+  expected to return inconclusive, and that is a limit of the available data,
+  not a finding.
+* **Stratum B is expanded to 12 BAs** — MISO, PJM, ERCOT, CAISO, SPP, DUK,
+  ISONE, NYISO, FPL, TVA, BPAT, PACE — reaching the original target and the
+  original MDE.
+
+Reading fixed now, so it cannot be chosen later: if **A is inconclusive and B is
+decisive**, that is evidence the mechanism is real at a size B can see and A
+cannot, and the honest summary is "smaller than 0.224 pts on the affected
+population." It is **not** licence to quote B's number as A's.
+
+This amendment is recorded rather than folded in silently, and it is committed
+in its own commit before the runner exists — the ordering is checkable in git.
+
 ## 6. What counts as confirmation
 
 The hypothesis is **confirmed** only if all three hold:
