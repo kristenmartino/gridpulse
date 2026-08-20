@@ -85,9 +85,9 @@ import numpy as np
 
 #: Fraction of hours a BA publishes a day-ahead forecast for. **Published,
 #: never a gate** — see the "Coverage does not gate" section on
-#: :func:`scoreability`. Retained as the warning band's reference point
-#: (``BENCHMARK_DF_COVERAGE_WARN`` in ``config.py``) and as the figure the
-#: exclusion sentences quote.
+#: :func:`scoreability`. Retained only as the figure the exclusion sentences
+#: quote; the warning band it once anchored was retired with the rate alert
+#: it fed (#587).
 MIN_DF_COVERAGE = 0.80
 
 #: The longest stretch of the window a BA's day-ahead forecast may be missing
@@ -1025,7 +1025,7 @@ def scoreability_alerts(
     region_payloads: list[dict[str, Any]],
     *,
     min_scoreable: int | None = None,
-    coverage_warn: float | None = None,
+    gap_warn_hours: float | None = None,
 ) -> list[dict[str, Any]]:
     """Alertable events when the scorecard's population is shrinking (#535).
 
@@ -1052,43 +1052,82 @@ def scoreability_alerts(
 
     * ``benchmark_scoreability_drop`` — the fleet count is below the floor.
       The incident itself: #535 published 25 of 51 for three weeks.
-    * ``benchmark_coverage_at_risk`` — a BA is still scoreable but its
-      ``df_coverage`` sits in the warning band **above** the gate. By the time
-      a BA falls out, the public page is already wrong; this names it first.
-      First real firing 2026-08-18T06:18Z: TEC at 80.1%, a tenth of a point
-      above the 0.80 gate, with ``df_asissued_coverage`` 49.0%. Checked
-      against EIA over the same 719-hour window — 576 DF hours published, 576
-      recorded — so the gap was TEC's, not ours. (The band was first argued
-      from CAISO 82.9% / PJM 81.0%; those were the broken pre-fix numbers and
-      now read 100.0% / 99.7%.)
+    * ``benchmark_df_gap_at_risk`` — a BA is still scoreable but its longest
+      DF gap has entered the warning band **below** the gate. By the time a BA
+      falls out, the public page is already wrong; this names it first.
 
     ``df_asissued_coverage`` is deliberately NOT alerted on. It measures our
     capture, not the BA's publishing, and gating on it is the whole of #535.
     It rides along on the payload so an on-call reader can tell the two apart.
 
-    ## Since #549 this event watches a number that no longer gates
+    ## The gate's own warning, and why the ordering is no longer an accident
 
-    Coverage stopped deciding the population; ``MAX_DF_GAP_HOURS`` does.
-    ``benchmark_coverage_at_risk`` is kept because a BA's publishing rate
-    degrading is still worth a look, but it is now purely informational — its
-    original "by the time a BA falls out the page is already wrong" argument
-    belongs to a gate it no longer guards. ``df_stale_hours`` rides on the
-    entry so an on-call reader sees the distance to the **real** gate rather
-    than inferring it from a rate.
+    ``benchmark_df_gap_at_risk`` — a still-scoreable BA whose longest DF gap
+    has passed ``BENCHMARK_DF_GAP_WARN_HOURS`` on its way to
+    ``MAX_DF_GAP_HOURS``. This is the one that watches the gate.
 
-    **Stated rather than left implicit: nothing watches the staleness gate
-    itself yet (#587).** ``benchmark_scoreability_drop`` cannot cover it — its
-    floor is 40 against a ceiling of 46, so six BAs must die before it fires
-    and one dying feed never trips it. What does warn today is an accident:
-    a dead feed's coverage crosses the 0.85 band after ~108h of the 719-hour
-    window, ~60h before this gate, so the ordering holds only while those two
-    unrelated constants keep their present values — and it is already
-    saturated for a BA like TEC that sits below the band regardless.
+    #587 was not that no warning existed; a dying feed's coverage did cross
+    the 0.85 band roughly 60h before the 168h gate. It was that **the warning
+    measured a rate and the gate measured a duration**, so "warn first" was an
+    arithmetic coincidence of two unrelated constants and the window length.
+    Change the window to 14 days and the band trips at ~50h; widen the gate
+    and the order inverts. Nothing tested it because nothing could: the two
+    numbers were not comparable.
+
+    Both are now hours of gap on the same measurement, so the thresholds
+    order by construction for any window length. That is necessary and it is
+    **not sufficient**, which the first draft of this docstring got wrong:
+
+    * The warning is only *observed* if some tick evaluates the BA while its
+      gap is inside the band. ``scoreability_alerts`` is fed payloads read
+      back from Redis (``jobs/scoring_job.py``), not the ones just computed,
+      so what it sees can lag the truth.
+    * The band is therefore only safe while **the widest a payload can lag is
+      narrower than the band**. It is: ``REDIS_TTL`` is 24h, the band is 48h,
+      so a payload stale enough to skip the band has expired instead — and a
+      BA whose key expired leaves ``payloads`` entirely and is counted by
+      ``benchmark_scoreability_drop``, a louder alert, rather than slipping
+      through quietly.
+
+    Those two constants live in different files and nothing connected them, so
+    this relation was itself an accident of the kind #587 is about.
+    ``test_the_band_is_wider_than_a_payload_can_go_stale`` now pins it.
+
+    A first observation already past the gate — a newly-tracked BA, a rebuilt
+    vintage store — gets no warning, correctly: there is no lead time to give
+    when the condition is already true.
+
+    ## What this warning is scoped to
+
+    Only BAs that are **currently scored**. A BA excluded for another reason
+    (``broken-feed``, ``insufficient-paired-hours``) is not watched, and that
+    is deliberate rather than an oversight: the warning exists to give lead
+    time before the published population *changes*, and a BA that is already
+    out cannot make the page wrong by staying out. It answers "who might
+    leave", never "who might fail to return".
+
+    ## Why ``benchmark_coverage_at_risk`` is gone
+
+    Retired here rather than left running. Once coverage stopped gating (#549)
+    it was watching a number that decides nothing, and the measurement showed
+    what that costs: it fired on **every tick** from the #580 deploy onward for
+    TEC — 0.822 and drifting, feed fully alive, correctly scored, nothing to
+    do about it. A permanently-firing alert on a healthy BA is worse than no
+    alert, because it trains the reader to ignore the channel that the real
+    warning now shares.
+
+    **The gap it leaves, stated rather than papered over:** a BA whose
+    publication rate decays *diffusely* — many short holes, no long one — trips
+    neither the new warning nor the gate. No BA in this fleet behaves that way
+    (#549 measured it: every BA with any absence has 92-100% of those hours in
+    runs of >=3h), so this is a shape we have never observed rather than one we
+    have decided to tolerate. If it appears, it needs its own measurement, not
+    a resurrected rate threshold.
     """
-    from config import BENCHMARK_DF_COVERAGE_WARN, BENCHMARK_MIN_SCOREABLE
+    from config import BENCHMARK_DF_GAP_WARN_HOURS, BENCHMARK_MIN_SCOREABLE
 
     floor = BENCHMARK_MIN_SCOREABLE if min_scoreable is None else min_scoreable
-    warn = BENCHMARK_DF_COVERAGE_WARN if coverage_warn is None else coverage_warn
+    warn = BENCHMARK_DF_GAP_WARN_HOURS if gap_warn_hours is None else gap_warn_hours
 
     out: list[dict[str, Any]] = []
     n_scoreable = rollup.get("n_scoreable")
@@ -1110,25 +1149,25 @@ def scoreability_alerts(
     for p in region_payloads:
         if not p.get("scoreable"):
             continue
-        cov = p.get("df_coverage")
-        if not isinstance(cov, int | float) or cov >= warn:
+        gap = p.get("df_longest_gap_hours")
+        if not isinstance(gap, int | float) or gap < warn:
             continue
         out.append(
             {
-                "event": "benchmark_coverage_at_risk",
+                "event": "benchmark_df_gap_at_risk",
                 "region": p.get("region"),
-                "df_coverage": round(float(cov), 4),
-                "df_asissued_coverage": p.get("df_asissued_coverage"),
-                "warn_below": warn,
-                # The real gate since #549, and the distance to it. `gate` used
-                # to be MIN_DF_COVERAGE, which no longer decides anything.
-                # `df_longest_gap_hours` is what the gate compares, not
-                # `df_stale_hours` — both ride along so an on-call reader can
-                # tell "the feed is down now" from "it came back and the hole
-                # is still in the window" (#587).
-                "df_stale_hours": p.get("df_stale_hours"),
-                "df_longest_gap_hours": p.get("df_longest_gap_hours"),
+                # The gate's own quantity, the warning line, and the gate — all
+                # in the same unit, which is the whole of #587.
+                "df_longest_gap_hours": round(float(gap), 1),
+                "warn_above": warn,
                 "gate_gap_hours": MAX_DF_GAP_HOURS,
+                # Trailing gap beside the longest, so a reader can tell "the
+                # feed is down right now" from "it came back and the hole is
+                # still in the window" without opening the payload.
+                "df_stale_hours": p.get("df_stale_hours"),
+                "df_last_published_at": p.get("df_last_published_at"),
+                "df_coverage": p.get("df_coverage"),
+                "df_asissued_coverage": p.get("df_asissued_coverage"),
             }
         )
     return out
