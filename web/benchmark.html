@@ -960,7 +960,7 @@
        scoring tick overwrites them, and dropping it would render those BAs in
        the 'pending' table — 'young', not 'excluded' — which is the one
        misreading this split exists to prevent. */
-    var FAIRNESS_REASONS = ['broken-feed', 'df-coverage', 'df-feed-stopped'];
+    var FAIRNESS_REASONS = ['broken-feed', 'df-coverage', 'df-feed-stopped', 'df-feed-gap'];
 
     function reasonOf(region) {
       return region.reason || head(data, region).reason || 'insufficient-paired-hours';

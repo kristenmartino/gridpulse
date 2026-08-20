@@ -114,7 +114,7 @@ product, not an omission from it.
 | Reason | Test | Rationale |
 |---|---|---|
 | `broken-feed` | vintage revision class is `broken` | the feed's provisional readings revise so heavily that intraday scoring is meaningless — **and** (ADR-009) GridPulse anchors its own forecast on that BA's day-ahead value, which would make the comparison partly self-referential |
-| `df-feed-stopped` | the BA's most recent `DF` is more than 168h old | it has stopped publishing, so every hour we could score predates the stop and the row would describe a different slice of the window than every other row |
+| `df-feed-gap` | the BA's longest stretch with no published `DF` exceeds 168h | the hours we could score are broken by a hole big enough that the row would describe a different slice of the window than every other row |
 | `insufficient-paired-hours` | fewer than 200 hours survive §4 | too thin for a per-BA verdict |
 
 **The direction of this bias is against us.** The broken-feed exclusions are
@@ -156,10 +156,22 @@ the coverage gate ever correctly excluded — is absent in **one contiguous
 at 80.1%, is absent in six blocks and publishes 100% of hours on the days it
 publishes at all. Both confirmed against EIA directly, so neither is ours.
 
-What separates them is liveness, and it separates them cleanly — hours since
-the newest published DF were SPP **341**, TEC **30**, every other BA **≤6**. So
-that is what gates, at `MAX_DF_STALENESS_HOURS = 168`, which sits 11× above the
-live fleet's worst and 2× below the one dead feed.
+What separates them is liveness, and it separates them cleanly. So that is
+what gates, at `MAX_DF_GAP_HOURS = 168`.
+
+The gate reads the **longest** stretch of the window with no published DF, not
+just the trailing one (#587). Trailing-only is right while a feed is down and
+wrong the moment it comes back: the trailing gap collapses to ~0 on the first
+tick while the hole it left is still inside the window, so the BA would be
+scored across two disjoint clusters of hours under a "last 30 days" header —
+the exact condition this exclusion's own text describes. Measured 2026-08-20,
+the longest gap per BA was SPP **391**, SPA 52, LDWP 48, WALC 48, TEC 30, and
+every remaining BA at most 25 — a 3.2× margin below the gate for the live
+fleet and 2.3× above it for the one dead feed.
+
+Both numbers are published: `df_stale_hours` (trailing) and
+`df_longest_gap_hours` (the gate's figure). They differ exactly when a feed has
+come back and its hole has not yet aged out.
 
 The hazard the rate was standing in for — that a BA which goes quiet when the
 grid gets hard would be graded only on its easy hours — is now measured
@@ -634,6 +646,22 @@ placeholders. §5's broken-feed row, by giving the ADR-009 self-reference as a
 both: **against us** — each replaces an implied claim of independence with a
 stated dependence.
 
+**2026-08-20 — the gate reads the whole window, not only its trailing edge
+([#587]).**
+*Direction: no BA moves today — replayed over the live window, the same 46
+clear the gate before and after, because for a feed that is still dark the
+trailing gap IS the longest. It changes what happens when SPP's feed returns:
+before, SPP became scoreable on the first tick back, over a window with a
+two-week hole in the middle of it.*
+
+`MAX_DF_STALENESS_HOURS` was renamed `MAX_DF_GAP_HOURS`, same value, because a
+constant named for staleness that gates on interior holes is a trap for the
+next reader. The reason code `df-feed-stopped` became `df-feed-gap` for the
+same reason: a feed that resumed is still excluded on its hole, and "stopped"
+would be false of it — the species of false label #549 exists to prevent. `df_stale_hours` survives as a published field — it is still the
+honest answer to "is the feed down right now" — beside the gate's own
+`df_longest_gap_hours`.
+
 **2026-08-18 — the gate measures whether the feed is alive, not how often it
 fires ([#549]).**
 *Direction: it **retains** a BA whose own day-ahead forecast beats ours — TEC,
@@ -701,6 +729,7 @@ until the window refills.
 
 [#535]: https://github.com/kristenmartino/gridpulse/issues/535
 [#549]: https://github.com/kristenmartino/gridpulse/issues/549
+[#587]: https://github.com/kristenmartino/gridpulse/issues/587
 
 
 **2026-08-04 — `stale_capture` exclusion ([#358]).** *Direction: measured, not

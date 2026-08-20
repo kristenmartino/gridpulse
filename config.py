@@ -1143,9 +1143,9 @@ SCORING_MIN_OK_REGIONS = int(os.getenv("SCORING_MIN_OK_REGIONS", "40"))
 # #535 event (25) clears this bar by a mile.
 #
 # `BENCHMARK_DF_COVERAGE_WARN` was the early warning ahead of the coverage
-# gate. Since #549 coverage does not gate — `MAX_DF_STALENESS_HOURS` (168h
-# since the BA's newest published DF) does — so this band no longer sits ahead
-# of anything. It is kept as an informational signal that a BA's publishing is
+# gate. Since #549 coverage does not gate — `MAX_DF_GAP_HOURS` (168h, the
+# longest stretch of the window with no published DF; trailing-edge only until
+# #587) does — so this band no longer sits ahead of anything. It is kept as an informational signal that a BA's publishing is
 # degrading, and there is deliberately NO early warning on the staleness gate
 # yet: that needs a new log event and a new GCP policy (#587). Note the
 # ordering that arrangement leaves behind is incidental — a dead feed trips
