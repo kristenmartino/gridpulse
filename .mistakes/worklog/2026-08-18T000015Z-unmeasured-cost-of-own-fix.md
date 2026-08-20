@@ -1,1 +1,0 @@
-2026-08-18 [unmeasured-cost-of-own-fix] Shipped a correctness fix whose first implementation cost 79x the code it replaced (+74.9s per scoring tick fleet-wide, on a job that has SIGKILLed at its task timeout) — dormant only because the flag defaulted off, and found by measuring a *different* question afterwards rather than before merging. — ref: #559 / PR #584

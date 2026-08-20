@@ -1,1 +1,0 @@
-2026-08-18 [evidence-verification] #549 asserted SPP is "diffusely sparse" and the repo repeated it in config.py, a benchmark.py docstring and a pinned test; SPP's absence is in fact ONE contiguous 341h outage since 2026-08-04, measured only because the plan required fitting the classifier to real data before writing it — ref: #549
