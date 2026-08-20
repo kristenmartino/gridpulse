@@ -379,6 +379,48 @@ class TestDrift:
         assert "records" not in p24
 
     @patch("api.redis_get")
+    def test_horizon_blocks_export_loss_channel_counters(self, mock_redis, client):
+        """#537: n_dedup_skipped_7d / n_expired_unresolved_7d / n_malformed_7d
+        pass through the export allow-list when present, and the internal
+        top-level ``pending`` / ``diag_events`` state they're derived from
+        never leaks into the public response."""
+
+        def route(key):
+            if "drift_horizon" in key:
+                return {
+                    "region": "FPL",
+                    "horizons": ["24h", "48h", "72h"],
+                    "pending": [{"target_ts": "2026-07-07T15:00:00+00:00", "horizon": "24h"}],
+                    "diag_events": [{"logged_at": "x", "horizon": "24h", "n_dedup_skipped": 5}],
+                    "models": {
+                        "xgboost": {
+                            "24h": {
+                                "rolling_mape_7d": 5.41,
+                                "grade": "acceptable",
+                                "n_records": 24,
+                                "n_7d": 94,
+                                "n_dedup_skipped_7d": 40,
+                                "n_expired_unresolved_7d": 30,
+                                "n_malformed_7d": 0,
+                            }
+                        }
+                    },
+                }
+            return None
+
+        mock_redis.side_effect = route
+        resp = client.get("/api/v1/drift/FPL")
+        body = resp.get_json()
+        xg24 = body["by_horizon"]["models"]["xgboost"]["24h"]
+        assert xg24["n_7d"] == 94
+        assert xg24["n_dedup_skipped_7d"] == 40
+        assert xg24["n_expired_unresolved_7d"] == 30
+        assert xg24["n_malformed_7d"] == 0
+        # Internal cache-schema state stays internal.
+        assert "pending" not in body["by_horizon"]
+        assert "diag_events" not in body["by_horizon"]
+
+    @patch("api.redis_get")
     def test_unknown_models_and_fields_never_auto_publish(self, mock_redis, client):
         """Allow-list on both axes: unknown model names and unknown block
         fields in the internal cache schema must not leak."""

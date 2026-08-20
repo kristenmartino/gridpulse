@@ -19,6 +19,57 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-20 — [#537](https://github.com/kristenmartino/gridpulse/issues/537)
+the fleet-wide drift shortfall is measured and split. The hypothesis it was
+measured to test is refuted, and JEA is not the case anyone thought.**
+*Measurement only — no code changed. Does not displace the #559 focus below.*
+
+The suspected second loss channel — snapshots entering the pending buffer and
+`_expire_pending` dropping them at 120 h because the actual never published — is
+**1.5 % of the shortfall, and zero of it expired**. All 530 absent hours have a
+settled actual in the vintage mirror; the expiry channel is bounded above at
+**4 hours across all 51 BAs and the whole 168 h window**.
+
+What is real is a third mechanism neither the issue nor the hypothesis named.
+The origin **skips**: a 24h snapshot for target `T` needs some tick to see hour
+`T−25h` as its newest, and when EIA publishes two hours in one tick no tick ever
+does. The origin jumps, the target is never proposed, and there is no
+re-proposal path. Tested against its own control — **82.7 %** of absent hours
+show the same-tick signature against **0.16 %** of resolved ones.
+
+| channel (ensemble 24h, 6069 h) | hours | share |
+|---|---:|---:|
+| **A** origin skip (never proposed) | **436** | 81.0 % |
+| **B** origin freeze, `last_featured_ts` (#559) | **91** | 16.9 % |
+| **C** unresolved actual — the hypothesis | **8** | 1.5 % |
+
+**JEA is channel A, 64 of 65.** Its feed went dark and back-filled 24 hours at a
+time (all of 2026-08-15 first seen at one instant, 08-17T16:04Z); the absent run
+ends exactly 24 h after the feed recovered, the horizon's own offset. The six
+hours that arrived **39–45 h late resolved fine** — the buffer tolerates a late
+actual, so nothing was lost at resolution. `168 − 102 = 66` was arithmetic
+across two buffers and does not survive either.
+
+**Pre-deploy prediction for the origin-cap fix, on the record:** it reaches
+channel B only — **at most 91 records, 91.14 % → 92.64 %**, on six BAs
+(LGEE 21, SPA 18, PSCO 16, LDWP/IID/AZPS 10 each). JEA moves ≤ 1. If the median
+BA improves, it is measuring something else.
+
+**Open, and needs its own issue (not filed here):** channel A is not fixable —
+the orphaned hour's only forecast is at a 23 h lead, and filing it in a 24h
+window is the P2-19 mislabelling. So `n_7d = 168` is unreachable by design and
+`/benchmark` owes a standing coverage disclosure. **Evidence:**
+[`docs/DRIFT_COVERAGE_CHANNELS.md`](docs/DRIFT_COVERAGE_CHANNELS.md).
+
+**Also refuted while checking it:** this file's 2026-07-16 claim that ten
+regions never revise. Over the 30 days the vintage mirror now holds, all ten do
+— PNM 27.5 %, PGE 33.7 %, JEA 16.1 %. That is `n_updates` on **`D`**, the actual
+demand; it is **not** the day-ahead-`DF` revision rate in
+`BENCHMARK_METHODOLOGY.md` §6, which is a different series and is unaffected.
+The line below is left as dated history; do not build on it.
+
+---
+
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 candidate 1: the origin stall is fixed and the PR is held as a DRAFT.**
 Branch `fix/forecast-origin-stall-559`.

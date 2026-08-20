@@ -5,6 +5,12 @@ open half. The drift-side half is settled in
 [`docs/DRIFT_LEAD_REGRADE.md`](DRIFT_LEAD_REGRADE.md) (#542) and is not revisited
 here.
 
+**This document covers the two mechanisms that move an origin already in use —
+the freeze and the regression. A third moves it past hours it never used:**
+[`docs/DRIFT_COVERAGE_CHANNELS.md`](DRIFT_COVERAGE_CHANNELS.md) measures the
+origin **skip**, which turns out to be 81% of the fleet-wide `n_7d` shortfall
+and is the whole of JEA's.
+
 **All figures measured against production.** Replay and log sweep captured
 2026-08-18T09:00Z over the tick window 2026-08-11T12:00Z → 2026-08-18T07:00Z.
 Live numbers move hourly.
