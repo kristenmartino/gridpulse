@@ -44,7 +44,7 @@ def temporal_off(monkeypatch):
     monkeypatch.setitem(config.FEATURE_FLAGS, "temporal_ar_seed", False)
 
 
-def _gapped_demand(n: int = 600, gap_start: int = GAP_START) -> pd.DataFrame:
+def _gapped_demand(n: int = 600, gap_start: int | None = GAP_START) -> pd.DataFrame:
     """A demand series with a contiguous hole cut OUT of the row grid.
 
     This is the post-``dropna`` shape: the hours are simply absent, which is
@@ -60,6 +60,8 @@ def _gapped_demand(n: int = 600, gap_start: int = GAP_START) -> pd.DataFrame:
         + rng.normal(0, 300, size=n)
     )
     df = pd.DataFrame({"timestamp": ts, "demand_mw": demand})
+    if gap_start is None:
+        return df
     return df.drop(index=range(gap_start, gap_start + GAP_LEN)).reset_index(drop=True)
 
 
@@ -113,18 +115,39 @@ class TestTemporalSnapshot:
             want = float(df.loc[df["timestamp"] == want_ts, "demand_mw"].iloc[0])
             assert snap[f"demand_lag_{k}h"] == pytest.approx(want), f"lag_{k}h"
 
-    def test_an_absent_hour_is_nan_not_a_further_reach(self):
-        """The honest answer for a missing hour is "unknown".
+    def test_a_short_hole_is_interpolated_across(self):
+        """The dominant real case: 25 of 31 measured gap runs are one hour."""
+        df = _gapped_demand(gap_start=None)
+        holed = df.drop(index=[300]).reset_index(drop=True)
+        now = df["timestamp"].iloc[300] + pd.Timedelta(hours=24)
 
-        The positional version cannot express this — it always returns *some*
-        value, which is the defect.
-        """
+        snap = compute_temporal_autoregressive_snapshot(_history(holed), now)
+        neighbours = float((df["demand_mw"].iloc[299] + df["demand_mw"].iloc[301]) / 2)
+        assert snap["demand_lag_24h"] == pytest.approx(neighbours)
+        truth = compute_temporal_autoregressive_snapshot(_history(df), now)["demand_lag_24h"]
+        assert abs(snap["demand_lag_24h"] - truth) < 0.05 * abs(truth)
+
+    def test_a_long_hole_falls_back_to_the_same_clock_hour(self):
+        """Interpolating across 16 hours would smooth over a diurnal cycle."""
         df = _gapped_demand()
-        # An origin whose 24h-ago hour lands inside the hole.
-        # 24h before this origin is the FIRST removed hour.
         now = df["timestamp"].iloc[GAP_START - 1] + pd.Timedelta(hours=25)
         snap = compute_temporal_autoregressive_snapshot(_history(df), now)
-        assert np.isnan(snap["demand_lag_24h"])
+
+        prior_day = now - pd.Timedelta(hours=48)
+        expected = float(df.loc[df["timestamp"] == prior_day, "demand_mw"].iloc[0])
+        assert snap["demand_lag_24h"] == pytest.approx(expected)
+
+    def test_an_imputed_lag_is_never_zero(self):
+        """The whole point: `row.fillna(0)` turns any NaN here into 0 MW, the
+        #129 poison the seed filter exists to exclude."""
+        df = _gapped_demand()
+        for offset in range(1, 40):
+            now = df["timestamp"].iloc[GAP_START - 1] + pd.Timedelta(hours=offset)
+            snap = compute_temporal_autoregressive_snapshot(_history(df), now)
+            for key in ("demand_lag_1h", "demand_lag_3h", "demand_lag_24h", "demand_lag_168h"):
+                v = snap[key]
+                assert not np.isnan(v), f"{key} NaN at +{offset}h — becomes 0 MW downstream"
+                assert v > 0, f"{key} non-positive at +{offset}h"
 
     def test_rolling_windows_cover_hours_present_in_the_window(self):
         df = _gapped_demand()
@@ -295,14 +318,24 @@ class TestParityProperty:
         present = df.dropna(subset=["demand_mw"])
         history = HourIndexedHistory.build(present["timestamp"], present["demand_mw"])
 
+        # Skipping NaN-training rows is correct, but could hollow the test out
+        # entirely — the exact failure this file was written about.
+        compared = 0
+
         for i in rng.integers(200, len(df), size=25):
             i = int(i)
             snap = compute_temporal_autoregressive_snapshot(history, df["timestamp"].iloc[i])
 
             for key in self.LAGS + self.DERIVED:
                 train, infer = float(feats[key].iloc[i]), snap[key]
-                if np.isnan(train) and np.isnan(infer):
+                # Parity is only DEFINED where training kept the row. A NaN
+                # training lag means `engineer_features` dropped it and the model
+                # never saw it, while serve cannot skip a step and must impute
+                # (`HourIndexedHistory.lag`). Asserting equality there would
+                # forbid the very policy this change adds.
+                if np.isnan(train):
                     continue
+                compared += 1
                 assert train == pytest.approx(infer, rel=1e-9, abs=1e-9), (
                     f"seed={seed} row={i} {key}: training={train} inference={infer}"
                 )
@@ -316,6 +349,11 @@ class TestParityProperty:
                     assert train == pytest.approx(infer, rel=1e-9, abs=1e-9), (
                         f"seed={seed} row={i} {key}: training={train} inference={infer}"
                     )
+
+        assert compared >= 50, (
+            f"only {compared} lag comparisons survived the NaN skip — the fuzz is "
+            "no longer exercising parity and would pass on a broken implementation"
+        )
 
     @pytest.mark.parametrize("seed", range(6))
     def test_positional_path_fails_this_same_property(self, seed):

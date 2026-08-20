@@ -20,6 +20,47 @@ follow-up commit.
 ## Active focus + open question
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+the absent-hour policy is decided rather than inherited, and the re-run is
+pre-registered.**
+
+The injection study did not confirm its hypothesis, and the diagnosis was a
+defect in the treatment arm: an absent lag hour returned NaN and the shared
+`row.fillna(0)` turned it into `demand_lag_24h = 0 MW` — the #129 poison — on
+**13% of forecast steps, 22.6% on IID**. So that run measured
+temporal-indexing-*plus-zero-fill*, not the hypothesis.
+
+**Policy now chosen, not inherited** (`HourIndexedHistory.lag`): a hole of
+**≤ 6 hours** is linearly interpolated across — the bound is
+`MAX_INTERPOLATION_GAP_HOURS`, reused from `data.preprocessing` rather than
+invented, and 25 of 31 measured gap runs are a single hour — and a longer hole
+falls back to the **same clock hour on previous days**, up to 7, because
+interpolating across a 16-hour hole would smooth over a diurnal cycle.
+
+**Measured, before any accuracy claim:** NaN-lag rate on scored windows is
+**0.00%** across nine BAs, against 13.08–22.57% before. Nothing is zero-filled.
+The earlier 8.33% residual was an artifact of the probe, not the policy — four
+early windows with too little history, which the study's own guard never scores.
+
+**The parity invariant changed, and the tests say so.** Parity is only *defined*
+where training kept the row: a NaN training lag means the row was dropped and the
+model never saw it, while serve cannot skip a step and must impute. The fuzz now
+skips those rows — and asserts it still compared ≥50 lags, so it cannot pass by
+skipping everything, which is the failure this file was written about.
+
+**Re-run pre-registered** as a NEW registration, not an amendment — the previous
+stopping rule was one run and is spent. Same seed, same holes, same strata, so
+the runs are paired and only the policy moved. All four outcomes have their
+readings fixed in advance, including "A still negative", which would mean the
+diagnosis was wrong and the flag should be considered for removal rather than
+merely left off. **Evidence:**
+[`docs/POSITIONAL_LAG_INJECTION_RERUN_PREREGISTRATION.md`](docs/POSITIONAL_LAG_INJECTION_RERUN_PREREGISTRATION.md).
+
+**Flag stays off.** Stratum A remains structurally underpowered for a 0.18-pt
+effect; that is not fixed by this change.
+
+---
+
+**2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 the injection study says NOT CONFIRMED, and found a defect in the fix itself.**
 
 Pre-registered, run, and the hypothesis (temporal seed lowers WAPE on gapped
