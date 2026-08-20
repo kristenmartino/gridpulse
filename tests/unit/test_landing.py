@@ -133,3 +133,56 @@ class TestLandingContent:
             "solutions",
         ):
             assert banned not in lowered, f"posture pin violated: {banned!r}"
+
+
+class TestAboutBenchmarkClaim:
+    """/about carries one live benchmark sentence, server-rendered from the
+    same allow-listed payload /benchmark renders from — never hardcoded in
+    the static HTML (the #535 lesson)."""
+
+    def test_claim_is_injected_from_the_payload(self, client, monkeypatch) -> None:
+        import api
+
+        payload = {
+            "fleet": {"median_gridpulse_mape": 4.08, "median_official_mape": 3.85, "n": 44},
+            "regions": [],
+        }
+        monkeypatch.setattr(api, "build_benchmark_payload", lambda: payload)
+        body = client.get("/about").get_data(as_text=True)
+        assert '<p class="bench-claim">' in body
+        assert "within 0.23 points" in body
+        assert landing._CLAIM_MARKER not in body
+
+    def test_claim_handles_the_winning_direction_too(self, client, monkeypatch) -> None:
+        """Both directions derived — a flipped median must flip the sentence,
+        not break it."""
+        import api
+
+        payload = {
+            "fleet": {"median_gridpulse_mape": 3.5, "median_official_mape": 4.1, "n": 44},
+            "regions": [],
+        }
+        monkeypatch.setattr(api, "build_benchmark_payload", lambda: payload)
+        body = client.get("/about").get_data(as_text=True)
+        assert "the closer forecast on the typical operator" in body
+
+    def test_fails_open_when_the_payload_raises(self, client, monkeypatch) -> None:
+        """Enrichment must never 500 the page: the card's qualitative copy
+        stands on its own and the marker never leaks."""
+        import api
+
+        calls: list[int] = []
+
+        def boom():
+            calls.append(1)
+            raise RuntimeError("redis down")
+
+        monkeypatch.setattr(api, "build_benchmark_payload", boom)
+        resp = client.get("/about")
+        # The patch must actually have intercepted — a silently-defeated mock
+        # would make this test pass without exercising the fail-open path.
+        assert calls, "patched build_benchmark_payload was never called"
+        assert resp.status_code == 200
+        body = resp.get_data(as_text=True)
+        assert '<p class="bench-claim">' not in body
+        assert landing._CLAIM_MARKER not in body

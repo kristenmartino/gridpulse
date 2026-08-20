@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Benchmark: GridPulse vs each balancing authority's own forecast</title>
+  <title>How accurate is GridPulse? Scored against operators' own forecasts</title>
 
   <link rel="canonical" href="https://gridpulse.kristenmartino.ai/benchmark">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,10 +23,10 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
   <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
 
-  <meta name="description" content="GridPulse scored against each US balancing authority's own EIA-930 day-ahead forecast — same hours, same settled actuals, rules and limits published.">
+  <meta name="description" content="How accurate is GridPulse? Scored against each US grid operator's own EIA-930 day-ahead forecast — same hours, same settled actuals, rules and limits published.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/benchmark">
-  <meta property="og:title" content="Forecast Benchmark — GridPulse">
+  <meta property="og:title" content="How accurate is GridPulse? — Forecast Benchmark">
   <meta property="og:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
   <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta property="og:image:width" content="1200">
@@ -36,7 +36,7 @@
        declared the card type from the start and supplied no image until
        2026-08-11 — title and description were missing too. -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Forecast Benchmark — GridPulse">
+  <meta name="twitter:title" content="How accurate is GridPulse? — Forecast Benchmark">
   <meta name="twitter:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
   <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta name="theme-color" content="#0a0a0b">
@@ -51,8 +51,8 @@
     "@type": "WebPage",
     "@id": "https://gridpulse.kristenmartino.ai/benchmark",
     "url": "https://gridpulse.kristenmartino.ai/benchmark",
-    "name": "Benchmark: GridPulse vs each balancing authority's own forecast",
-    "description": "GridPulse scored against each US balancing authority's own EIA-930 day-ahead forecast — same hours, same settled actuals, with the rules, exclusions and limits published.",
+    "name": "How accurate is GridPulse? Scored against operators' own forecasts",
+    "description": "GridPulse scored against each US grid operator's own EIA-930 day-ahead forecast — same hours, same settled actuals, with the rules, exclusions and limits published.",
     "inLanguage": "en",
     "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
     "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
@@ -144,7 +144,7 @@
     .subhead { font-size: 18px; color: var(--text-secondary); max-width: 62ch; }
     .subhead + .subhead { margin-top: 14px; }
     /* The result, stated before the reader reaches a single table. Leading
-       with the scoreboard let a one-line skim end at "his model loses";
+       with the scoreboard let a one-line skim end at "the model loses";
        leading with the shape of the result is both more accurate and more
        useful, and it is generated from the payload so it cannot flatter. */
     .verdict {
@@ -190,6 +190,9 @@
     .tile .sub { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
     .tile.ours .value { color: var(--ours); }
     .tile.theirs .value { color: var(--theirs); }
+    /* A self-labeling value ("theirs 20.6× · ours 5.8×") runs longer than a
+       bare number; drop it a size rather than letting it wrap mid-pair. */
+    .tile.wide .value { font-size: 19px; line-height: 1.5; }
 
     /* Server-rendered summary. Present in the initial HTML so a crawler that
        does not execute JavaScript still reads the scoreboard; removed by
@@ -232,7 +235,15 @@
     }
     thead th button::after { content: ' \2195'; opacity: 0.4; }
     tbody td, tbody th { padding: 9px 12px; text-align: right; border-bottom: 1px solid var(--border-subtle); font-variant-numeric: tabular-nums; }
+    /* The BA label must survive horizontal scroll — on a phone every other
+       column is off-screen at some point, and a number with no row label is
+       unreadable. Opaque background so data cells slide under it. */
+    tbody th.ba, thead th:first-child {
+      position: sticky; left: 0; z-index: 2; background: var(--bg-base);
+    }
+    thead th:first-child { z-index: 3; background: var(--bg-raised); }
     tbody tr:hover { background: var(--bg-hover); }
+    tbody tr:hover th.ba { background: var(--bg-hover); }
     tbody tr:last-child td { border-bottom: 0; }
     /* A BA's drop-count row belongs to the row ABOVE it. Without this the
        divider lands between them and the detail reads as a heading for the
@@ -343,14 +354,16 @@
         <p class="eyebrow">Forecast Benchmark</p>
         <h1>Measured against the forecast you already have.</h1>
         <p class="subhead">
-          Every US balancing authority publishes its own day-ahead demand
-          forecast through EIA-930, free. This page scores GridPulse against
-          that forecast — on the same hours, against the same settled actual,
-          under rules written down before the results were read.
+          Every US balancing authority — the regional operators that run the
+          grid — publishes its own day-ahead demand forecast through EIA-930,
+          free. This page scores GridPulse against that forecast — on the same
+          hours, against the same settled actual, under rules written down
+          before the results were read.
         </p>
         <p class="subhead">
-          The exclusions, the drop counts and the known limits are published
-          here too. They are the part that makes the rest worth reading.
+          GridPulse is built from public data alone: an independent second
+          check on the forecast an operator already runs on. Every exclusion,
+          drop count and known limit is published below.
         </p>
         <p class="verdict" id="verdict" hidden></p>
       </div>
@@ -389,28 +402,45 @@
             <section aria-labelledby="rows-h">
               <h2 id="rows-h">Per balancing authority</h2>
               <p class="section-lede">
-                Mean MAPE over the paired hours in the 30-day window, at our
-                nominal 24-hour horizon. <strong>n</strong> is the number of
-                hours both forecasts and a settled actual exist for — the only
-                hours either arm is scored on. Expand a row for the hours that
-                were dropped and why.
+                Each row compares the two forecasts' mean MAPE — the average
+                miss, as a share of actual demand — over the paired hours in
+                the 30-day window, at our nominal 24-hour horizon.
+                <strong>Hours scored</strong> counts the hours both forecasts
+                and a settled actual exist for — the only hours either side is
+                graded on. Expand a row for the hours that were dropped and
+                why.
               </p>
               <div class="table-scroll tall">
                 <table id="rows">
                   <thead>
                     <tr>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="region">Balancing authority</button></th>
-                      <th scope="col" aria-sort="none"><button type="button" data-sort="n">n<span class="unit">paired hours</span></button></th>
-                      <th scope="col" aria-sort="none"><button type="button" data-sort="official">Earliest day-ahead we observed<span class="unit">as-issued, mean MAPE %</span></button></th>
-                      <th scope="col" aria-sort="none"><button type="button" data-sort="official_revised">Same forecast, as revised<span class="unit">as-revised, mean MAPE %</span></button></th>
-                      <th scope="col" aria-sort="none"><button type="button" data-sort="gridpulse">GridPulse<span class="unit">mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="n">Hours scored<span class="unit">n — paired hours</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="official">Operator's forecast, as first published<span class="unit">as-issued &middot; mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="official_revised">Same forecast, after revisions<span class="unit">as-revised &middot; mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="gridpulse">GridPulse forecast<span class="unit">mean MAPE %</span></button></th>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="delta">Difference<span class="unit">points, + = GridPulse closer</span></button></th>
-                      <th scope="col">Both scorings agree?</th>
+                      <th scope="col">Same winner either way?<span class="unit">as-published vs revised</span></th>
                     </tr>
                   </thead>
                   <tbody></tbody>
                 </table>
               </div>
+              <!-- Visible legend for the row badges. The badges carry title
+                   tooltips too, but a tooltip needs a hover — this is the
+                   path a phone reader actually has. Unhidden by renderRows()
+                   only when a flagged row is on the page. -->
+              <p class="drops" id="flag-legend" style="margin-top:10px" hidden>
+                <span class="flag">rollback</span> &mdash; our own drift
+                monitor already grades this forecast as failing; the number
+                stands, but we would not defend it.
+                <span class="flag substituted">not served</span> &mdash; this
+                BA is served a simpler fallback series, so the model scored
+                here is not what its users receive.
+                <span class="flag substituted">not in medians</span> &mdash;
+                reported separately; not folded into the fleet medians or
+                spread.
+              </p>
             </section>
 
             <section aria-labelledby="excluded-h" id="excluded-section" hidden>
@@ -418,11 +448,8 @@
               <p class="section-lede">
                 A balancing authority is left out only when it cannot be scored
                 fairly — a feed whose readings revise too heavily to score
-                intraday, or one that publishes a day-ahead forecast too
-                rarely. Note the direction: most of these are broken feeds, and
-                a BA with sloppy data operations plausibly also forecasts
-                sloppily, so this list likely removes cases favourable to us
-                rather than unfavourable ones.
+                intraday, or one that has stopped publishing a day-ahead
+                forecast. Each row carries its reason.
               </p>
               <div class="table-scroll">
                 <table id="excluded">
@@ -443,10 +470,10 @@
               <p class="section-lede">
                 These balancing authorities qualify on every fairness rule but
                 have not yet built up enough comparable hours for a verdict.
-                Forecasts mature at 24 per horizon per day, so a newly scored
-                BA needs <strong>at least nine days</strong> before it can
-                appear above. A BA with no verdict yet has not accumulated
-                evidence — it has not lost.
+                Each day adds at most 24 newly scoreable hours per horizon, so
+                a newly scored BA needs <strong>just over a week</strong>
+                before it can appear above. A BA with no verdict yet has not
+                accumulated evidence — it has not lost.
               </p>
               <div class="table-scroll">
                 <table id="pending">
@@ -465,18 +492,19 @@
             <section aria-labelledby="limits-h">
               <h2 id="limits-h">What this does not show</h2>
               <p class="section-lede">
-                Written down because a benchmark without them is marketing. The
-                full list lives in the methodology.
+                Published so the numbers above can be checked, not taken on
+                faith. The full list lives in the methodology.
               </p>
               <div class="limits">
                 <div class="limit">
                   <h3>The 24-hour arm is not lead-matched</h3>
                   <p>
-                    Our realized lead measures 23.80&ndash;23.95h across a
-                    15-BA sample, inside the 17&ndash;41h window EIA documents
-                    for day-ahead submissions. On a typical hour the operator plausibly
-                    forecast from further out than we did &mdash; on the arm
-                    every comparison here is taken from.
+                    Operators submit day-ahead forecasts 17&ndash;41 hours out
+                    by EIA's documentation; ours run just under 24 (the
+                    measured range is under &ldquo;How this is
+                    measured&rdquo;). On a typical hour the operator plausibly
+                    forecast from further out than we did &mdash; on the very
+                    horizon every comparison here is taken from.
                   </p>
                 </div>
                 <div class="limit">
@@ -515,12 +543,12 @@
             <h3>How this is measured</h3>
             <dl>
               <dt>Comparison</dt><dd>ours vs the earliest day-ahead we observed</dd>
-              <dt>Truth</dt><dd>EIA settled value</dd>
-              <dt>Applied to</dt><dd>both arms, same hours</dd>
+              <dt>Truth</dt><dd>EIA settled value — what both sides are graded against</dd>
+              <dt>Applied to</dt><dd>both sides, same hours</dd>
               <dt>Window</dt><dd>30 days</dd>
               <dt>Horizon</dt><dd>nominal 24h</dd>
-              <dt>Realized lead</dt><dd id="realized-lead">&mdash;</dd>
-              <dt>Verdict metric</dt><dd>mean MAPE</dd>
+              <dt>Realized lead<span style="display:block;font-size:11px">hours actually ahead</span></dt><dd id="realized-lead">&mdash;</dd>
+              <dt>Verdict metric</dt><dd>mean MAPE — the one statistic that decides</dd>
               <dt>Updated</dt><dd id="updated">&mdash;</dd>
             </dl>
             <p class="panel-note" id="lead-note">
@@ -707,6 +735,16 @@
           'is worse than what a user of this BA actually receives.');
       }
 
+      /* The fleet lede says this BA is "reported separately"; without a mark
+         on the row itself, it looked identical to every row that is folded
+         in. */
+      if (data.isolated && data.isolated[region.region]) {
+        badge('substituted', 'not in medians',
+          'Reported separately: this BA is not folded into the fleet medians or spread.');
+        note('This row is reported separately and is not folded into the fleet ' +
+          'medians or spread above \u2014 the methodology covers the carve-out.');
+      }
+
       return notes;
     }
 
@@ -730,27 +768,79 @@
       return null;
     }
 
+    /* The fleet population: scored rows minus any BA reported separately
+       (`isolated`). The payload's medians, wins and losses describe this
+       population, so every statistic derived on this page must walk the
+       same one. */
+    function fleetRows() {
+      return (data.regions || []).filter(scored).filter(function (r) {
+        return !(data.isolated && data.isolated[r.region]);
+      });
+    }
+
+    /* Spread derived from the SAME rows the table renders — the payload's
+       fleet block can be written a beat apart from the per-BA keys, and
+       quoting both sources let the tile and the verdict disagree in the
+       third digit on one screen. One source, one number. */
+    function spreadOf(rows, arm) {
+      var vals = rows.map(function (r) { return (head(data, r)[arm] || {}).mape; })
+        .filter(function (v) { return typeof v === 'number' && isFinite(v) && v > 0; });
+      if (vals.length < 2) { return {}; }
+      var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+      return { min: lo, max: hi, ratio: Math.round((hi / lo) * 10) / 10 };
+    }
+
+    function median(vals) {
+      if (!vals.length) { return null; }
+      var s = vals.slice().sort(function (a, b) { return a - b; });
+      var mid = s.length >> 1;
+      return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+    }
+
+    /* Two populations, split once and used by the tiles and both lower
+       tables: a BA excluded by a fairness rule is a permanent, reasoned
+       omission, while a BA short of paired hours is simply young. */
+    function splitUnscored() {
+      var unscored = (data.regions || []).filter(function (r) { return !scored(r); });
+      return {
+        excluded: unscored.filter(function (r) { return FAIRNESS_REASONS.indexOf(reasonOf(r)) !== -1; }),
+        pending: unscored.filter(function (r) { return FAIRNESS_REASONS.indexOf(reasonOf(r)) === -1; })
+      };
+    }
+
     function renderTiles() {
       var tiles = document.getElementById('tiles');
       var fleet = data.fleet || {};
-      var spreadOurs = fleet.gridpulse_spread || {};
-      var spreadTheirs = fleet.official_spread || {};
+      var rows = fleetRows();
+      var spreadOurs = spreadOf(rows, 'gridpulse');
+      var spreadTheirs = spreadOf(rows, 'official');
+      var split = splitUnscored();
+      /* The sub distinguishes "excluded for a reason" from "still young" —
+         one bucket is a verdict about the feed, the other is not a verdict
+         at all, and the single word "excluded" blurred them. */
+      var exclusionSub;
+      if (data.n_excluded === null || data.n_excluded === undefined) {
+        exclusionSub = 'exclusion count unavailable this tick — see the tables below';
+      } else if (split.pending.length) {
+        exclusionSub = split.excluded.length + ' excluded for fairness, ' +
+          split.pending.length + ' still accumulating — reasons below';
+      } else {
+        exclusionSub = data.n_excluded + ' excluded, each with a published reason';
+      }
       var items = [
         {
-          label: 'Scoreable',
+          label: 'Operators scored',
           /* Rendered as N of 51, not a bare N. A lone number gives a reader no
              way to see the denominator move, which is exactly how #535 hid. */
           value: (data.n_scoreable === null || data.n_scoreable === undefined)
             ? '—' : data.n_scoreable + ' / 51',
-          sub: (data.n_excluded === null || data.n_excluded === undefined)
-            ? 'exclusion count unavailable this tick — see the tables below'
-            : data.n_excluded + ' excluded, each with a published reason'
+          sub: exclusionSub
         },
         {
           label: 'Their median error', cls: 'theirs',
           value: fleet.median_official_mape === null || fleet.median_official_mape === undefined
             ? '—' : num(fleet.median_official_mape) + '%',
-          sub: 'median across BAs of each BA’s mean MAPE'
+          sub: 'median across operators of each one’s average error (mean MAPE)'
         },
         {
           label: 'Our median error', cls: 'ours',
@@ -759,14 +849,16 @@
           sub: 'same statistic, same hours, same window'
         },
         {
-          label: 'Spread across BAs',
-          value: (spreadTheirs.ratio ? spreadTheirs.ratio + '×' : '—') +
-                 ' / ' + (spreadOurs.ratio ? spreadOurs.ratio + '×' : '—'),
-          /* Naming the statistic is not optional here: the 41× figure quoted
-             in the scoreability report is a MEDIAN APE spread, and this is a
-             mean-MAPE one over a different population. */
-          sub: 'theirs / ours — worst ÷ best BA mean MAPE, 30-day window, ' +
-               'over the ' + (fleet.n === undefined ? '—' : fleet.n) + ' scoreable BAs' +
+          label: 'Spread across operators', cls: 'wide',
+          value: (spreadTheirs.ratio && spreadOurs.ratio)
+            ? 'theirs ' + spreadTheirs.ratio + '× · ours ' + spreadOurs.ratio + '×'
+            : '—',
+          /* Naming the statistic is not optional here: the spread multiple in
+             the scoreability report is a MEDIAN APE one over a different
+             population, and quoting either without its name invites mixing
+             them. */
+          sub: 'worst ÷ best operator mean MAPE, 30-day window — lower is steadier — ' +
+               'over the ' + (fleet.n === undefined ? '—' : fleet.n) + ' scored operators' +
                ((data.isolated && data.isolated.ERCOT) ? ' excl. ERCOT' : '') +
                (spreadTheirs.min ? ' (theirs ' + num(spreadTheirs.min) + '–' + num(spreadTheirs.max) +
                  '%, ours ' + num(spreadOurs.min) + '–' + num(spreadOurs.max) + '%)' : '')
@@ -801,10 +893,14 @@
         ' balancing authorities — those scoreable under the published rules — ' +
         'GridPulse is closer on ' + wins + ' and the operator is closer on ' + losses + '. ';
       if (missing.length) {
+        /* "each is listed below" rather than "see the exclusion table":
+           a still-accumulating BA renders in the pending table, and pointing
+           every absence at the exclusion table sent readers to a row that
+           was not there. */
         lede += 'Note the population: ' + missing.join(', ') +
           (missing.length === 1 ? ' is ' : ' are ') +
-          'excluded from these medians, so this is not a whole-fleet figure — ' +
-          'see the exclusion table for each reason. ';
+          'not in these medians, so this is not a whole-fleet figure — ' +
+          'each is listed below with its reason. ';
       }
       if (ercotIsolated) {
         lede += 'ERCOT is reported separately rather than folded in. ';
@@ -817,7 +913,10 @@
 
     /* Written from the payload every load, with both directions handled — a
        hard-coded verdict would become a lie the first time the numbers moved,
-       which is the whole failure mode this page exists to avoid. */
+       which is the whole failure mode this page exists to avoid. The order is
+       deliberate too: the shape of the result (how close, how steady, how the
+       margins fall) is the finding, and the median tally is the last word
+       rather than the first. */
     function renderVerdict() {
       var fleet = data.fleet || {};
       var ours = fleet.median_gridpulse_mape;
@@ -828,39 +927,58 @@
       }
       var weLead = ours < theirs;
       var gap = num(Math.abs(ours - theirs));
+      var rows = fleetRows();
+      var so = spreadOf(rows, 'gridpulse'), st = spreadOf(rows, 'official');
       var parts = [];
 
+      /* 1 — the shape: proximity and steadiness, in plain terms. */
       parts.push(
         weLead
-          ? 'On the typical balancing authority GridPulse is the closer of the two — ' +
-            num(ours) + '% against ' + num(theirs) + '%, a gap of ' + gap + ' points.'
-          : 'On the typical balancing authority the operator’s own forecast is the ' +
-            'closer of the two — ' + num(theirs) + '% against our ' + num(ours) + '%, a gap of ' +
-            gap + ' points, and they are closer on ' + fleet.losses + ' of ' + fleet.n + ' BAs.'
+          ? 'On the typical grid operator GridPulse is the closer forecast — ' +
+            num(ours) + '% average error against their ' + num(theirs) +
+            '% — built from public data alone.'
+          : 'GridPulse runs within ' + gap + ' points of the operators’ own ' +
+            'forecasts on the typical grid — ' + num(ours) + '% average error ' +
+            'against their ' + num(theirs) + '% — built from public data alone.'
       );
-
-      var so = fleet.gridpulse_spread || {}, st = fleet.official_spread || {};
       if (so.ratio && st.ratio) {
         parts.push(
           so.ratio < st.ratio
-            ? 'What does separate the two is consistency: our error spans ' + so.ratio +
-              '× from best BA to worst, theirs ' + st.ratio + '×.'
-            : 'Their error is also the more consistent of the two — ' + st.ratio +
-              '× from best BA to worst, against our ' + so.ratio + '×.'
+            ? 'It is also the steadier of the two: our error spans ' + so.ratio +
+              '× from best operator to worst, theirs ' + st.ratio + '×.'
+            : 'Theirs is also the steadier of the two — ' + st.ratio +
+              '× from best operator to worst, against our ' + so.ratio + '×.'
         );
       }
 
-      /* Name the largest gap in each direction rather than only ours — the
+      /* 2 — how the margins fall, both directions, from the same rows the
+         table renders. Naming the extreme in each direction stays: the
          asymmetry is the finding, and half of it is unflattering. */
-      var scoredRows = (data.regions || []).filter(scored);
-      var byDelta = scoredRows.slice().sort(function (a, b) {
+      var winDeltas = [], lossDeltas = [];
+      rows.forEach(function (r) {
+        var d = head(data, r).delta_mape;
+        if (typeof d !== 'number' || !isFinite(d)) { return; }
+        if (d > 0) { winDeltas.push(d); } else if (d < 0) { lossDeltas.push(-d); }
+      });
+      var mWin = median(winDeltas), mLoss = median(lossDeltas);
+      if (mWin !== null && mLoss !== null) {
+        parts.push('When the operator is closer, the median margin is ' + num(mLoss) +
+          ' points; when GridPulse is closer, it is ' + num(mWin) + '.');
+      }
+      var byDelta = rows.slice().sort(function (a, b) {
         return head(data, b).delta_mape - head(data, a).delta_mape;
       });
       if (byDelta.length > 1) {
         var best = byDelta[0], worst = byDelta[byDelta.length - 1];
         var bh = head(data, best), wh = head(data, worst);
         if (bh.delta_mape > 0) {
-          parts.push('The gap is widest where an operator forecasts its own load poorly: ' +
+          /* "The largest gaps run our way" is a claim, so it is only made
+             when the widest win actually exceeds the widest loss. */
+          var gapsRunOurWay = wh.delta_mape >= 0 || bh.delta_mape > -wh.delta_mape;
+          parts.push(
+            (gapsRunOurWay
+              ? 'The largest gaps run our way, where an operator forecasts its own load poorly: '
+              : 'The widest gap in our favour is where an operator forecasts its own load poorly: ') +
             best.region + ' reads ' + num(bh.official.mape) + '% against our ' +
             num(bh.gridpulse.mape) + '%.');
         }
@@ -868,6 +986,17 @@
           parts.push('Our own worst row is ' + worst.region + ', at ' +
             num(wh.gridpulse.mape) + '% against their ' + num(wh.official.mape) + '%.');
         }
+      }
+
+      /* 3 — the tally, stated plainly, last. */
+      if (fleet.wins !== undefined && fleet.losses !== undefined && fleet.wins !== null) {
+        parts.push(
+          weLead
+            ? 'At the median GridPulse is the closer of the two, closer on ' +
+              fleet.wins + ' of ' + fleet.n + ' operators.'
+            : 'At the median the operator’s own forecast is the closer ' +
+              'of the two, closer on ' + fleet.losses + ' of ' + fleet.n + ' operators.'
+        );
       }
 
       el.textContent = parts.join(' ');
@@ -885,12 +1014,14 @@
         return 0;
       });
 
+      var anyFlagged = false;
       rowsBody.innerHTML = '';
       list.forEach(function (region) {
         var h = head(data, region);
         var tr = rowsBody.insertRow();
         tr.className = 'data';
         var rowFlags = flagRow(rowHeader(tr, region), region);
+        if (rowFlags.length) { anyFlagged = true; }
         cell(tr, h.n);
         cell(tr, num((h.official || {}).mape), 'theirs');
         cell(tr, num((h.official_revised || {}).mape), 'theirs');
@@ -935,10 +1066,10 @@
         p.textContent = parts.length ? parts.join(' · ') : 'No hours dropped in this window.';
         det.appendChild(p);
         /* The realized lead lives in the sidebar: it varies by ~0.15h across
-           the fleet, so repeating it on 44 rows says nothing and invites the
-           reasonable suspicion that the row is boilerplate. What IS per-row
-           is the exception — a row whose lead was not measured this tick, and
-           whose horizon therefore remains a nominal label. */
+           the fleet, so repeating it on every row says nothing and invites
+           the reasonable suspicion that the row is boilerplate. What IS
+           per-row is the exception — a row whose lead was not measured this
+           tick, and whose horizon therefore remains a nominal label. */
         if (h.lead_basis !== 'observed') {
           var lead = document.createElement('p');
           lead.className = 'drops';
@@ -948,6 +1079,7 @@
         }
         dc.appendChild(det);
       });
+      document.getElementById('flag-legend').hidden = !anyFlagged;
     }
 
     /* Two populations, and merging them is dishonest in BOTH directions: a BA
@@ -966,16 +1098,30 @@
       return region.reason || head(data, region).reason || 'insufficient-paired-hours';
     }
 
+    /* Human phrase for each reason code. The code itself stays on the row in
+       small type, because it is what /api/v1/benchmark reports and a reader
+       auditing the payload should be able to match the two by eye. */
+    var REASON_LABELS = {
+      'broken-feed': 'readings revise too heavily',
+      'df-coverage': 'day-ahead forecast rarely published',
+      'df-feed-stopped': 'day-ahead feed stopped'
+    };
+
     function renderExcluded() {
-      var unscored = (data.regions || []).filter(function (r) { return !scored(r); });
-      var excluded = unscored.filter(function (r) { return FAIRNESS_REASONS.indexOf(reasonOf(r)) !== -1; });
-      var pending = unscored.filter(function (r) { return FAIRNESS_REASONS.indexOf(reasonOf(r)) === -1; });
+      var split = splitUnscored();
+      var excluded = split.excluded, pending = split.pending;
 
       excludedBody.innerHTML = '';
       excluded.forEach(function (region) {
         var tr = excludedBody.insertRow();
         rowHeader(tr, region);
-        cell(tr, reasonOf(region));
+        var slug = reasonOf(region);
+        var reasonTd = tr.insertCell();
+        reasonTd.textContent = REASON_LABELS[slug] || slug;
+        var code = document.createElement('span');
+        code.className = 'ba-name';
+        code.textContent = slug;
+        reasonTd.appendChild(code);
         var td = cell(tr, region.reason_detail || '—');
         td.style.textAlign = 'left';
         td.style.color = 'var(--text-secondary)';
