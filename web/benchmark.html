@@ -359,9 +359,9 @@
         <p class="eyebrow">Forecast Benchmark</p>
         <h1>How accurate is GridPulse?</h1>
         <p class="subhead">
-          Every US balancing authority — the regional operators that run the
-          grid — publishes its own day-ahead demand forecast through EIA-930,
-          free. This page scores GridPulse against that forecast — on the same
+          Every US balancing authority (the regional operators that run the
+          grid) publishes its own day-ahead demand forecast through EIA-930,
+          free. This page scores GridPulse against that forecast on the same
           hours, against the same settled actual, under rules written down
           before the results were read.
         </p>
@@ -407,13 +407,13 @@
             <section aria-labelledby="rows-h">
               <h2 id="rows-h">Per balancing authority</h2>
               <p class="section-lede">
-                Each row compares the two forecasts' mean MAPE — the average
-                miss, as a share of actual demand — over the paired hours in
-                the 30-day window, at our nominal 24-hour horizon.
-                <strong>Hours scored</strong> counts the hours both forecasts
-                and a settled actual exist for — the only hours either side is
-                graded on. Expand a row for the hours that were dropped and
-                why.
+                Each row compares the two forecasts' mean MAPE (the average
+                miss, as a share of actual demand) over the paired hours in the
+                30-day window, at our nominal 24-hour horizon.
+                <strong>Hours scored</strong> counts the hours where both
+                forecasts and a settled actual exist. Those are the only hours
+                either side is graded on. Expand a row to see which hours were
+                dropped and why.
               </p>
               <div class="table-scroll tall">
                 <table id="rows">
@@ -477,7 +477,7 @@
                 Each day adds at most 24 newly scoreable hours per horizon, so
                 a newly scored BA needs <strong>just over a week</strong>
                 before it can appear above. A BA with no verdict yet has not
-                accumulated evidence — it has not lost.
+                accumulated evidence yet, which is not the same as losing.
               </p>
               <div class="table-scroll">
                 <table id="pending">
@@ -496,8 +496,8 @@
             <section aria-labelledby="limits-h">
               <h2 id="limits-h">What this does not show</h2>
               <p class="section-lede">
-                Published so the numbers above can be checked, not taken on
-                faith. The full list lives in the methodology.
+                Published so the numbers above can be checked. The full list
+                lives in the methodology.
               </p>
               <div class="limits">
                 <div class="limit">

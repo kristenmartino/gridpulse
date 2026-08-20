@@ -314,8 +314,8 @@
           <p>
             So the fallbacks are now gated: when the web tier is configured for
             Redis-only operation and no real data is available, it returns
-            nothing and the interface says it is warming up. An empty state is a
-            worse demo and a much better product.
+            nothing and the interface says it is warming up. That shows worse in a
+            demo and behaves better in production.
           </p>
         </section>
 
@@ -481,9 +481,10 @@
             So before the training job promotes a candidate, it replays that
             candidate through the <strong>real serve path</strong> from three
             anchors. A candidate that fails is still kept for forensics, but the
-            pointer stays on yesterday&rsquo;s accepted model.
-            Stale-but-sane beats fresh-but-insane &mdash; the same principle the
-            data layer applies when an upstream API degrades.
+            pointer stays on yesterday&rsquo;s accepted model. Serving a
+            slightly older model that behaves is better than serving a new one
+            that does not, which is the same rule the data layer follows when
+            an upstream API degrades.
           </p>
           <h3>The visibility gate, and why it asks the most generous question</h3>
           <p>
