@@ -67,11 +67,20 @@ _PUBLIC_FIGURES: dict[str, Path] = {
     "27%": _DOCS / "HOW_IT_WORKS.md",  # vintages that dive in the serve regime
     "6.96%": _DOCS / "HOW_IT_WORKS.md",  # the visibility-gate generosity example
     "70%": _DOCS / "BENCHMARK_METHODOLOGY.md",  # first-published EIA revision error
+    "30%": _DOCS / "BACKTEST_RESULTS.md",  # top of the 15–30% weight plain 1/MAPE kept
 }
 
 #: Percentages that are presentation, not claims — they appear in prose-ish
 #: positions but describe the page itself rather than the product.
-_NON_CLAIM_PERCENTAGES = frozenset({"30%"})  # --accent-ring alpha, in a CSS comment
+#:
+#: Empty on purpose. It held "30%", annotated as the --accent-ring alpha in a
+#: CSS comment — but _prose_of strips <style> blocks AND comments before the
+#: sweep runs, so that value was never reaching it. The only 30% in any page's
+#: prose is /methodology's "plain inverse-MAPE blending kept 15–30% of the
+#: weight", a product claim, which the exemption was silently waving through.
+#: An exemption whose stated reason is already handled elsewhere does not
+#: narrow the sweep — it blinds it.
+_NON_CLAIM_PERCENTAGES: frozenset[str] = frozenset()
 
 
 def _prose_of(path: Path) -> str:
