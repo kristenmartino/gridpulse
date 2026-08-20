@@ -80,9 +80,52 @@ windows.** Both halves are true, and the second is why it does not ship.
    first place to look. That is a **new** question and needs its own
    pre-registration; the artifacts here record `gap_len`, `gap_hour_utc` and
    `gap_lead_h` per window precisely so it can be asked without re-running.
-4. **The seed shadow is now more useful than it was.** It forces this same
-   treatment arm, which no longer carries the zero-fill defect, so what it
-   records in production is finally evidence about temporal indexing.
+4. **The seed shadow is more useful than it was, but not yet clean.** It forces
+   this same treatment arm, and the zero-fill defect is genuinely gone. The
+   conclusion that its output is *therefore* evidence about temporal indexing
+   does **not** follow, because the arm carries a second, unrelated defect:
+   [#624](https://github.com/kristenmartino/gridpulse/issues/624) —
+   `HourIndexedHistory.build` sizes its array from the last **present** seed
+   hour, so a trailing gap makes `set()` silently discard the recursion's own
+   later predictions (measured: an array ending 11 hours into a 48-hour
+   horizon). Production seeds that history from the post-`dropna` `featured`
+   frame, so the gap that motivates the temporal path is also what under-sizes
+   its storage. Read shadow divergence with #624 named until it is fixed.
+
+   Found by the replication run's criterion-4 control channel (below), not by
+   this study's own hypothesis, and not fixed here — the stopping rule forbids
+   it.
+
+## Independently replicated
+
+This study was run twice, concurrently and without coordination, by two
+sessions working from the same pre-registration and separate implementations.
+The second run's per-window artifacts are committed here as
+`POSITIONAL_LAG_INJECTION_RERUN_REPLICATION_{A,B}.json`.
+
+| | this run | replication |
+|---|---:|---:|
+| A mean / median | +0.268 / +0.132 | +0.275 / +0.155 |
+| A MDE / consistency | 0.172 / 0.594 | 0.169 / 0.610 |
+| B mean / median | +0.614 / +0.309 | +0.620 / +0.298 |
+| B MDE / consistency | 0.107 / 0.729 | 0.106 / 0.743 |
+| criterion 4 (NaN-lag) | 0 / 32,832 steps | 0 / 32,688 steps |
+| control-arm bias | −2.03% | −2.015% |
+| null control | exact | `max|diff| = 0.0000000000` |
+
+Same verdict, same §6 reading, and both runs independently observed that §6's
+*rationale* for "both inconclusive" ("the effect is below 0.18 pts") did not
+hold while its bucket did.
+
+**The step counts differ — 32,832 against 32,688 — and that is the point.**
+Identical figures would suggest shared code; near-identical ones from separately
+written instruments are the stronger evidence. This investigation has twice had
+a harness agree with itself for the wrong reason
+(`docs/FORECAST_ORIGIN_REGRESSION.md` §2, §11), so a second implementation
+landing in the same place is worth more here than a tighter single number.
+
+The replication's figures are **not** restatements of this run's and should not
+be quoted as such. Where a per-BA number is cited anywhere, cite one run.
 
 ## Limits
 

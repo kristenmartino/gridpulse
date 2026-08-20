@@ -69,11 +69,89 @@ HORIZON = 48
 LOOKBACK = 168
 WARMUP = LOOKBACK + 24
 
+#: Criterion 4 of the re-run pre-registration: the NaN-lag rate must be
+#: RE-MEASURED here, on this run's scored windows, not inherited from #615's own
+#: reporting. These are the four point lags that land in the row and are then
+#: zero-filled by ``row.fillna(0)`` — the #129 poison the absent-hour policy
+#: exists to remove.
+POINT_LAG_KEYS = ("demand_lag_1h", "demand_lag_3h", "demand_lag_24h", "demand_lag_168h")
+
+#: Per-call flags recorded by the instrumented snapshot, cleared per arm.
+_SNAPSHOT_FLAGS: list[tuple[bool, bool]] = []
+
+
+def install_nan_lag_probe() -> None:
+    """Wrap the temporal snapshot so every call records whether it NaN'd.
+
+    Pure observation: the wrapper returns the callee's dict unchanged, so the
+    treatment arm is byte-identical to an uninstrumented run. The caller asserts
+    the expected call count afterwards — a probe that silently failed to
+    intercept would otherwise report 0.00% for the wrong reason, which is
+    exactly the failure mode criterion 4 exists to rule out.
+    """
+    import data.feature_engineering as fe
+
+    if getattr(fe.compute_temporal_autoregressive_snapshot, "_nan_lag_probe", False):
+        return
+    inner = fe.compute_temporal_autoregressive_snapshot
+
+    def wrapped(history, now):
+        snap = inner(history, now)
+        _SNAPSHOT_FLAGS.append(
+            (
+                any(np.isnan(snap[k]) for k in POINT_LAG_KEYS),
+                any(isinstance(v, float) and np.isnan(v) for v in snap.values()),
+            )
+        )
+        return snap
+
+    wrapped._nan_lag_probe = True
+    fe.compute_temporal_autoregressive_snapshot = wrapped
+
 
 def _client():
     from google.cloud import storage
 
     return storage.Client()
+
+
+def nan_lag_probe_selftest() -> tuple[bool, bool]:
+    """Positive and negative controls for the criterion-4 probe, run before results.
+
+    Criterion 4 is satisfied by a **zero**, and a probe that silently flagged
+    nothing would produce the same zero. The call-count assertion in
+    ``run_region`` proves the wrapper intercepted; it does not prove the wrapper
+    can ever report non-zero. So before any window is scored, drive the wrapped
+    snapshot through two histories with known answers:
+
+    * **designed to disagree** — one observed hour, then a query 200 hours later.
+      Both imputation regimes must fail there (no neighbour within 6, no same
+      clock hour within 7 days), so the point lags are genuinely NaN and the
+      probe MUST flag it.
+    * **designed to agree** — a dense contiguous history, where nothing is
+      absent and the probe MUST NOT flag it.
+
+    Returns:
+        ``(flagged_on_nan, flagged_on_dense)`` — criterion 4's measurement is
+        only readable when this is ``(True, False)``.
+    """
+    import data.feature_engineering as fe
+
+    base = pd.Timestamp("2026-01-01T00:00:00Z")
+
+    _SNAPSHOT_FLAGS.clear()
+    sparse = fe.HourIndexedHistory.build([base], [1000.0], extra_hours=400)
+    fe.compute_temporal_autoregressive_snapshot(sparse, base + pd.Timedelta(hours=200))
+    flagged_on_nan = bool(_SNAPSHOT_FLAGS and _SNAPSHOT_FLAGS[-1][0])
+
+    _SNAPSHOT_FLAGS.clear()
+    stamps = [base + pd.Timedelta(hours=h) for h in range(400)]
+    dense = fe.HourIndexedHistory.build(stamps, [1000.0 + h for h in range(400)])
+    fe.compute_temporal_autoregressive_snapshot(dense, base + pd.Timedelta(hours=399))
+    flagged_on_dense = bool(_SNAPSHOT_FLAGS and _SNAPSHOT_FLAGS[-1][0])
+
+    _SNAPSHOT_FLAGS.clear()
+    return flagged_on_nan, flagged_on_dense
 
 
 def load_mirror(kind: str, region: str) -> pd.DataFrame:
@@ -161,6 +239,7 @@ def run_region(client, region: str, vintages: list[tuple], *, seed: int) -> list
             continue
 
         arms: dict[str, np.ndarray] = {}
+        nan_lag_steps = nan_any_steps = 0
         ok = True
         for arm, temporal in (("control", False), ("treatment", True)):
             feat = engineer_features(merge_demand_weather(injected, weather))
@@ -176,6 +255,7 @@ def run_region(client, region: str, vintages: list[tuple], *, seed: int) -> list
                 ok = False
                 break
             FEATURE_FLAGS["temporal_ar_seed"] = temporal
+            _SNAPSHOT_FLAGS.clear()
             try:
                 arms[arm] = recursive_autoregressive_forecast(
                     model,
@@ -186,6 +266,20 @@ def run_region(client, region: str, vintages: list[tuple], *, seed: int) -> list
                 )
             finally:
                 FEATURE_FLAGS["temporal_ar_seed"] = False
+            if temporal:
+                # The recursion probes the snapshot once to resolve column
+                # positions, then calls it once per step: 1 + HORIZON. Anything
+                # else means the probe did not intercept the arm it claims to
+                # measure, and a 0.00% rate from a defeated probe would be
+                # indistinguishable from a real one. Fail loudly instead.
+                if len(_SNAPSHOT_FLAGS) != HORIZON + 1:
+                    raise RuntimeError(
+                        f"nan-lag probe intercepted {len(_SNAPSHOT_FLAGS)} calls, "
+                        f"expected {HORIZON + 1} — instrumentation is not measuring the arm"
+                    )
+                steps = _SNAPSHOT_FLAGS[1:]
+                nan_lag_steps = int(sum(1 for point, _ in steps if point))
+                nan_any_steps = int(sum(1 for _, anyk in steps if anyk))
         if not ok or len(arms) != 2:
             continue
 
@@ -204,6 +298,9 @@ def run_region(client, region: str, vintages: list[tuple], *, seed: int) -> list
                 "n": int(good.sum()),
                 **meta,
                 "identical": bool(np.array_equal(c[good], t[good])),
+                "nan_lag_steps": nan_lag_steps,
+                "nan_any_steps": nan_any_steps,
+                "horizon_steps": HORIZON,
                 "wape_control": float(100 * np.abs(act[good] - c[good]).sum() / denom),
                 "wape_treatment": float(100 * np.abs(act[good] - t[good]).sum() / denom),
                 "mape_control": float(100 * np.mean(np.abs((act[good] - c[good]) / act[good]))),
@@ -303,6 +400,14 @@ def main() -> None:
         else (STRATUM_A if args.stratum == "A" else STRATUM_B)
     )
     client = _client()
+    install_nan_lag_probe()
+
+    pos, neg = nan_lag_probe_selftest()
+    print(f"-- nan-lag probe controls: flags a real NaN={pos}, flags a dense history={neg} --")
+    if not pos or neg:
+        print("   PROBE CONTROLS FAILED — criterion 4 cannot be measured. Run void.")
+        return
+
     all_rows: list[dict] = []
     for i, region in enumerate(regions):
         vints = vintage_index(client, region)
@@ -310,9 +415,12 @@ def main() -> None:
         all_rows.extend(rows)
         if rows:
             d = pd.DataFrame(rows)
+            nan_rate = 100 * d.nan_lag_steps.sum() / d.horizon_steps.sum()
             print(
                 f"{region:6} n={len(rows):3}  div={d.divergence_pct.mean():6.3f}%  "
-                f"WAPE ctl={d.wape_control.mean():6.3f} trt={d.wape_treatment.mean():6.3f}",
+                f"WAPE ctl={d.wape_control.mean():6.3f} trt={d.wape_treatment.mean():6.3f}  "
+                f"nan-lag {int(d.nan_lag_steps.sum())}/{int(d.horizon_steps.sum())} "
+                f"({nan_rate:.2f}%)",
                 flush=True,
             )
         else:
@@ -340,6 +448,26 @@ def main() -> None:
     if any(not nc["exact"] for nc in checked):
         print("   NULL CONTROL FAILED — the harness is measuring something else. Run void.")
         return
+
+    # Criterion 4, re-measured on THIS run's scored windows.
+    tot_steps = int(df.horizon_steps.sum())
+    tot_nan = int(df.nan_lag_steps.sum())
+    tot_any = int(df.nan_any_steps.sum())
+    print("\n-- criterion 4: NaN-lag rate on scored windows (treatment arm) --")
+    print(
+        f"   point lags NaN: {tot_nan}/{tot_steps} steps "
+        f"({100 * tot_nan / tot_steps:.4f}%)  [criterion 4 requires 0.0000%]"
+    )
+    print(
+        f"   any snapshot key NaN: {tot_any}/{tot_steps} steps ({100 * tot_any / tot_steps:.4f}%)"
+    )
+    worst = (
+        df.groupby("region")[["nan_lag_steps", "horizon_steps"]]
+        .sum()
+        .assign(rate=lambda x: 100 * x.nan_lag_steps / x.horizon_steps)
+        .sort_values("rate", ascending=False)
+    )
+    print(f"   worst BA: {worst.index[0]} at {worst['rate'].iloc[0]:.4f}%")
 
     n_identical = int(df.identical.sum())
     print(f"\n-- injected windows where the arms still matched: {n_identical}/{len(df)} --")
