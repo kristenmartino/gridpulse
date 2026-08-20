@@ -1399,3 +1399,57 @@ I reported the pre-registered result as it stood — not confirmed — rather th
 **Result**: The flag is still off, and now for a reason I trust. The re-run has all four possible outcomes' readings fixed in advance — including "still negative", which would mean my diagnosis was wrong and the feature should be removed rather than merely left dark.
 
 **Lesson to convey**: *A study that contradicts you is doing its job, and the first thing to check is your own treatment arm, not the study's fairness. The failure here wasn't the zero-fill — it was that I'd identified it as an open question in writing and shipped anyway, on the grounds that it was rare. "Rare" was 13%. And once a study has told you something, you don't get to re-run it into agreeing; you write a new pre-registration and let it be a new question.*
+
+---
+
+### 36. "Tell me about a fix you deliberately shipped inert."
+
+**Situation**: A forecast's origin — the hour it claims to start from — was
+freezing. Fresh demand kept arriving and the origin stood still, on 7 to 9 of
+612 balancing-authority ticks a day, up to sixteen hours behind on the worst
+one. It was one line: the origin was capped at `min(last real demand hour, last
+row of the engineered feature frame)`.
+
+**Task**: Fix the cap without turning a stall into something worse.
+
+**Action**: The second term existed for a real reason — guarantee we can build
+autoregressive lag context for the origin row. But it asked a *stricter*
+question than that. The feature frame is post-`dropna`, and we drop any row
+whose lag source was null, so one missing hour deletes the rows one, two,
+three, twenty-four and a hundred sixty-eight hours later. The tail of that
+frame ends behind demand we hold and have never doubted. The right question is
+"do we hold hourly demand for the hours before this origin", which is a fact
+about the demand grid and has nothing to do with `dropna`.
+
+The obvious fix — advance the origin to the last real demand hour — is a
+**silent-corruption bug**. The recursion seeds from that same feature frame and
+indexes it *by position*, so `demand_lag_1h` means "the last surviving entry",
+not "the hour before the origin". Advance the origin and that lag quietly reads
+the wrong hour. I proved it rather than reasoning about it: there's a predicate
+in the codebase that states exactly when positional indexing lands on the hours
+it names, and it requires the seed's last entry to *be* the hour before the
+origin — so it is false by construction for any advanced origin. No positional
+advance is ever provably safe.
+
+There's a second implementation that resolves lags by hour, behind a flag that
+is off because a study of it came back inconclusive. Under *that* one the
+advance is sound — but only if the recursion is also handed the hours `dropna`
+deleted, or it imputes hours we're holding in memory. I measured that too: on a
+sixteen-hour hole the near lags came out 691 and 662 MW wrong, because the hole
+is too long to interpolate and the fallback steps back a day into the hole
+itself. So the origin and its seed are resolved together, and the origin clamps
+back if a seed reaching it can't be built — the bad state is unreachable, not
+merely unlikely.
+
+**Result**: The fix is gated on that flag, which means it changes nothing in
+production today. I said so plainly instead of finding a way to make the number
+move. Cost measured before merge, not after: +1.6 ms on a stalled region, +14 ms
+across a fleet tick on a job with a 1,800-second ceiling. Six mutations, each
+killed by its own test.
+
+**Lesson to convey**: *"The origin is stale" and "the origin is wrong" are not
+the same severity, and a fix that trades the first for the second is a
+regression however good the metric looks. When the sound version of a fix
+depends on a feature that isn't on yet, the honest move is to say the fix is
+inert and name what would make it live — not to ship the unsound version
+because it's the one that shows up in the dashboard.*

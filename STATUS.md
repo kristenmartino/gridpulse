@@ -20,6 +20,44 @@ follow-up commit.
 ## Active focus + open question
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+candidate 1: the origin stall is fixed and the PR is held as a DRAFT.**
+Branch `fix/forecast-origin-stall-559`.
+
+`_resolve_forecast_start` capped the anchor at `min(last_real_demand,
+last_featured_ts)`. The second term asks whether the origin's predecessor row
+survived `dropna(subset=autoregressive)` — feature-frame bookkeeping — where it
+means to ask whether we hold hourly demand for it. One null hour deletes the
+rows 1/2/3/24/168 hours later, so the tail of `featured` ends behind demand
+that arrived and is real. The anchor now advances across the contiguous run of
+real demand hours after that tail, and the recursion is handed those hours.
+
+**Gated on `temporal_ar_seed`, and the gate is the finding.** The positional
+seed reads `demand_lag_1h` as "the last surviving entry", so an advanced origin
+indexes it to the wrong hour. `positional_seed_matches_hours` requires the
+seed's last entry to *be* `origin - 1h`, so it is false by construction for any
+advanced origin — **no positional advance is ever provably safe**, which is why
+this ships inert rather than live. Without the bridged seed the hour-indexed arm
+is not safe either: measured on the 16h fixture, `demand_lag_1h` off by 691 MW,
+`demand_lag_3h` by 662, because the hole is too long to interpolate and the
+fallback steps back 24h into the hole. Origin and seed are therefore resolved
+together and the origin clamps back if a reaching seed cannot be built.
+
+**Cost, measured before merge (#389):** +1.61 ms per stalled BA, −0.01 ms per
+unstalled one → **+14 ms per fleet tick** at the observed 9 stalls, +82 ms if
+every BA stalled. Once per BA, not inside the 384-step recursion; the recursion
+itself is unchanged (20.7 vs 21.2 ms/BA). Six mutations, six kills.
+
+**Blocked on:** the channel-split measurement for
+[#537](https://github.com/kristenmartino/gridpulse/issues/537) — how the `n_7d`
+shortfall divides between *never proposed* (origin repeats; what this fixes) and
+*proposed but never resolved* (the upstream actual never published; this cannot
+touch it). JEA (`n_7d` 102) shows zero stalls and looks like the second channel;
+LGEE (94) looks like the first. Merging before that lands would publish a
+recovery prediction with no way to test it.
+
+---
+
+**2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 the absent-hour policy is decided rather than inherited, and the re-run is
 pre-registered.**
 
