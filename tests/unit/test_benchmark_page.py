@@ -580,7 +580,9 @@ class TestBenchmarkPagePosture:
         assert 'id="pending-section"' in body
         assert 'id="excluded-section"' in body
         assert "still accumulating" in body.lower()
-        assert "has not lost" in body.lower()
+        # The posture, not the wording: a BA short of paired hours must not
+        # read as a BA that was scored and lost.
+        assert "not the same as losing" in body.lower()
         # the split keys off the published reason, not off "has no verdict"
         assert "FAIRNESS_REASONS" in body
         assert "'broken-feed', 'df-coverage'" in body
