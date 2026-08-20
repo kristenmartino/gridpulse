@@ -1,0 +1,1 @@
+2026-08-20 [verification-checked-the-wrong-thing] The criterion-4 NaN-lag probe reported 0.00% on a smoke run before it had any control designed to disagree, so the controls landed after the first result was seen rather than before — ref: #559 re-run.

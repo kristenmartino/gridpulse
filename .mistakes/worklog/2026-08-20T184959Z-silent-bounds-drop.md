@@ -1,0 +1,1 @@
+2026-08-20 [silent-bounds-drop] The temporal AR seed's hour-indexed history reserves its prediction room from the last present seed hour, so a trailing gap makes `set()` silently discard later predictions and empties the rolling-24h window mid-horizon — found only because a probe counted non-lag NaNs — ref: #559 re-run study.

@@ -20,43 +20,57 @@ follow-up commit.
 ## Active focus + open question
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
-the absent-hour policy is decided rather than inherited, and the re-run is
-pre-registered.**
+the re-run is done: the sign flipped, the verdict did not. BOTH STRATA
+INCONCLUSIVE — the pre-committed reading — and the flag stays off.**
 
-The injection study did not confirm its hypothesis, and the diagnosis was a
-defect in the treatment arm: an absent lag hour returned NaN and the shared
-`row.fillna(0)` turned it into `demand_lag_24h = 0 MW` — the #129 poison — on
-**13% of forecast steps, 22.6% on IID**. So that run measured
-temporal-indexing-*plus-zero-fill*, not the hypothesis.
+The re-run to
+[`docs/POSITIONAL_LAG_INJECTION_RERUN_PREREGISTRATION.md`](docs/POSITIONAL_LAG_INJECTION_RERUN_PREREGISTRATION.md)
+is complete. **Not confirmed:** two of four criteria hold.
 
-**Policy now chosen, not inherited** (`HourIndexedHistory.lag`): a hole of
-**≤ 6 hours** is linearly interpolated across — the bound is
-`MAX_INTERPOLATION_GAP_HOURS`, reused from `data.preprocessing` rather than
-invented, and 25 of 31 measured gap runs are a single hour — and a longer hole
-falls back to the **same clock hour on previous days**, up to 7, because
-interpolating across a 16-hour hole would smooth over a diurnal cycle.
+| stratum | n | mean Δ WAPE | median | MDE | consistency | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| **A** naturally gapped | 249 | **+0.2749** | +0.1548 | 0.169 | 0.610 | not decisive |
+| **B** never gapped | 432 | **+0.6200** | +0.2981 | 0.106 | 0.743 | not decisive |
 
-**Measured, before any accuracy claim:** NaN-lag rate on scored windows is
-**0.00%** across nine BAs, against 13.08–22.57% before. Nothing is zero-filled.
-The earlier 8.33% residual was an artifact of the probe, not the policy — four
-early windows with too little history, which the study's own guard never scores.
+**The diagnosis was right about the mechanism.** Stratum A's mean was −0.265
+with a median of +0.067 in the first run; on the *same* 249 paired windows with
+the absent-hour policy in place it is **+0.2749 with a median of +0.1548** — a
++0.54-pt swing, signs now agreeing. The zero-fill was carrying the negative
+result. B moved +0.187 → +0.620, and all 19 BAs across both strata are positive
+in direction.
 
-**The parity invariant changed, and the tests say so.** Parity is only *defined*
-where training kept the row: a NaN training lag means the row was dropped and the
-model never saw it, while serve cannot skip a step and must impute. The fuzz now
-skips those rows — and asserts it still compared ≥50 lags, so it cannot pass by
-skipping everything, which is the failure this file was written about.
+**It is still not a decision.** Both strata clear their magnitude test and both
+fail on **window reliability**: 61% (A) and 74% (B) of windows won, against the
+75% `MIN_SIGN_CONSISTENCY` requires. Stratum A also fails satisficing (treatment
+bias −2.238% vs ±2.0%) — though the **control's own bias is −2.015%**, itself
+outside the bound, so that constraint is partly a property of the injected-gap
+population. B misses the reliability bar by three windows (321/432 vs 324); that
+is recorded, and it is not quoted as a pass anywhere.
 
-**Re-run pre-registered** as a NEW registration, not an amendment — the previous
-stopping rule was one run and is spent. Same seed, same holes, same strata, so
-the runs are paired and only the policy moved. All four outcomes have their
-readings fixed in advance, including "A still negative", which would mean the
-diagnosis was wrong and the flag should be considered for removal rather than
-merely left off. **Evidence:**
-[`docs/POSITIONAL_LAG_INJECTION_RERUN_PREREGISTRATION.md`](docs/POSITIONAL_LAG_INJECTION_RERUN_PREREGISTRATION.md).
+**Criterion 4 re-measured in the run, not inherited: 0 / 32,688 steps, 0.0000%**
+NaN point lags, worst BA 0.0000%, against 13.08–22.57% before. The probe carries
+a per-window interception assertion plus a designed-to-disagree / designed-to-
+agree control pair. **Null control exact** across six BAs,
+`max|diff| = 0.0000000000`.
 
-**Flag stays off.** Stratum A remains structurally underpowered for a 0.18-pt
-effect; that is not fixed by this change.
+**A second, distinct defect surfaced** — not the absent-hour policy, and not
+fixed here because §7 allows one run. `HourIndexedHistory.build` reserves
+`extra_hours` from the **last present seed hour**, so a trailing gap eats the
+room and `set()` silently discards the recursion's own later predictions,
+emptying the rolling-24h window mid-horizon. 14 steps in one PACE window
+(0.0675% of B). **Fix it before the #597 seed shadow is read as evidence** — it
+forces the same treatment arm.
+
+**Flag stays off**, and is **not** removed: removal was the pre-committed
+response to "A still negative," and A is no longer negative. Stratum A remains
+structurally underpowered (7 gapped BAs, ~280-window cap); that was never fixed
+by this change and needs a different design, not another run. **Evidence:**
+[`docs/POSITIONAL_LAG_INJECTION_RERUN_STUDY.md`](docs/POSITIONAL_LAG_INJECTION_RERUN_STUDY.md).
+
+**Open question:** file the `extra_hours` truncation as its own issue, and
+decide whether a third pre-registration is worth the compute given that the
+answer "real, positive, directionally consistent, not per-window reliable" is
+already publishable.
 
 ---
 
