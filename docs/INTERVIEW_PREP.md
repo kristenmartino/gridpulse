@@ -1425,3 +1425,70 @@ I tested that against its own control: 82.7% of absent hours showed the skip sig
 And I recommended **not** fixing the big one. The skipped hour does have a prediction in the next payload — but at a 23-hour lead, not 24. Filing it in a window labelled 24-hour would be exactly the mislabelling a previous piece of work had gone to some trouble to eliminate. So a full window is unreachable by design, and what that earns is a permanent disclosure on the public benchmark page, not a patch.
 
 **Lesson to convey**: *"The data is missing" and "the data never arrived" are different claims, and the gap between them is where I nearly lost a week. The thing that saved it wasn't cleverness — it was picking a measurement window narrow enough that the answer was read rather than inferred, and writing down a control designed to fail before I looked at anything. Also: the suggestive arithmetic was a coincidence across two different buffers. It was the most persuasive thing in the whole issue and it was worth nothing.*
+
+---
+
+### 37. "Tell me about a fix you deliberately shipped inert."
+
+**Situation**: A forecast's origin — the hour it claims to start from — was
+freezing. Fresh demand kept arriving and the origin stood still, on 7 to 9 of
+612 balancing-authority ticks a day, up to sixteen hours behind on the worst
+one. It was one line: the origin was capped at `min(last real demand hour, last
+row of the engineered feature frame)`.
+
+**Task**: Fix the cap without turning a stall into something worse.
+
+**Action**: The second term existed for a real reason — guarantee we can build
+autoregressive lag context for the origin row. But it asked a *stricter*
+question than that. The feature frame is post-`dropna`, and we drop any row
+whose lag source was null, so one missing hour deletes the rows one, two,
+three, twenty-four and a hundred sixty-eight hours later. The tail of that
+frame ends behind demand we hold and have never doubted. The right question is
+"do we hold hourly demand for the hours before this origin", which is a fact
+about the demand grid and has nothing to do with `dropna`.
+
+The obvious fix — advance the origin to the last real demand hour — is a
+**silent-corruption bug**. The recursion seeds from that same feature frame and
+indexes it *by position*, so `demand_lag_1h` means "the last surviving entry",
+not "the hour before the origin". Advance the origin and that lag quietly reads
+the wrong hour. I proved it rather than reasoning about it: there's a predicate
+in the codebase that states exactly when positional indexing lands on the hours
+it names, and it requires the seed's last entry to *be* the hour before the
+origin — so it is false by construction for any advanced origin. No positional
+advance is ever provably safe.
+
+There's a second implementation that resolves lags by hour, behind a flag that
+is off because a study of it came back inconclusive. Under *that* one the
+advance is sound — but only if the recursion is also handed the hours `dropna`
+deleted, or it imputes hours we're holding in memory. I measured that too: on a
+sixteen-hour hole the near lags came out 691 and 662 MW wrong, because the hole
+is too long to interpolate and the fallback steps back a day into the hole
+itself. So the origin and its seed are resolved together, and the origin clamps
+back if a seed reaching it can't be built — the bad state is unreachable, not
+merely unlikely.
+
+**Result**: The fix is gated on that flag, which means it changes nothing in
+production today. I said so plainly instead of finding a way to make the number
+move. Cost measured before merge, not after: +1.6 ms on a stalled region, +14 ms
+across a fleet tick on a job with a 1,800-second ceiling. Six mutations, each
+killed by its own test.
+
+**Postscript, which is the more useful half**: a concurrent measurement then
+sized the problem I'd fixed. The drift-window shortfall it was supposed to
+explain splits three ways, and the freeze is **17%** of it — 91 hours of 6,069,
+across ten balancing authorities, with forty-one at zero. The dominant channel,
+81%, is a different thing entirely: when the upstream publishes two hours in one
+tick, no tick ever sees the earlier one as its newest hour, so that target is
+never proposed and nothing re-proposes it. My fix does not touch it. I rewrote
+the prediction in the PR from "most of the gap should close" to "at most 91
+records, forty-one balancing authorities do not move, and **if the median one
+improves that is a falsification signal, not a win**."
+
+**Lesson to convey**: *"The origin is stale" and "the origin is wrong" are not
+the same severity, and a fix that trades the first for the second is a
+regression however good the metric looks. When the sound version of a fix
+depends on a feature that isn't on yet, the honest move is to say the fix is
+inert and name what would make it live — not to ship the unsound version
+because it's the one that shows up in the dashboard. And when someone finally
+measures the thing you've been fixing, the right response is to shrink your own
+claim to fit the measurement, in writing, before anyone asks.*

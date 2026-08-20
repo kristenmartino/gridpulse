@@ -897,6 +897,73 @@ def _overlay_weather_normal_tail(
     return future_df
 
 
+def _ar_seed_bridge(
+    featured: pd.DataFrame,
+    demand_df: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Real-demand hours that ``dropna`` deleted from the tail of ``featured``.
+
+    ``engineer_features`` drops every row whose autoregressive lag source was
+    null, so one null hour deletes the rows 1, 2, 3, 24 and 168 hours after it
+    — including, when the null hour sits 1-3/24/168 hours before the frame end,
+    the *tail*. Those deleted rows carry **real** demand: they were dropped for
+    what their lag pointed at, not for what they hold.
+
+    This returns exactly those hours, as the maximal run of **contiguous**
+    hourly rows carrying real demand (non-NaN and strictly positive — the same
+    #129 predicate ``_resolve_forecast_start`` selects on) beginning at
+    ``last_featured_ts + 1h``. Empty whenever the very next hour is missing,
+    unusable, or not hourly-adjacent, so a caller that treats "empty" as
+    "cannot advance" degrades to today's behaviour.
+
+    Contiguity is the point, not an implementation detail: it is what lets the
+    recursion's near lags (``demand_lag_1h/2h/3h``, ``ramp_rate``) at an origin
+    past the bridge resolve to the hours they name.
+
+    Args:
+        featured: Engineered frame (post-``dropna``).
+        demand_df: The frame the forecast anchors on (``RegionData.anchor_frame``).
+
+    Returns:
+        ``timestamp`` / ``demand_mw`` rows, oldest first. Possibly empty.
+    """
+    empty = pd.DataFrame({"timestamp": [], "demand_mw": []})
+    if featured is None or featured.empty or "timestamp" not in featured.columns:
+        return empty
+    if demand_df is None or demand_df.empty:
+        return empty
+    if "timestamp" not in demand_df.columns or "demand_mw" not in demand_df.columns:
+        return empty
+
+    last_featured_ts = featured["timestamp"].max()
+    stamps = demand_df["timestamp"]
+    # Fail closed on anything that does not line up — a non-datetime column, a
+    # tz mismatch, an empty tail. The comparisons below would raise, and the
+    # honest answer to "can we bridge?" on frames that do not line up is no.
+    try:
+        stamps_tz = stamps.dt.tz
+    except (AttributeError, TypeError):
+        return empty
+    if stamps_tz != getattr(last_featured_ts, "tz", None) or pd.isna(last_featured_ts):
+        return empty
+
+    mask = (
+        demand_df["demand_mw"].notna() & (demand_df["demand_mw"] > 0) & (stamps > last_featured_ts)
+    )
+    tail = demand_df.loc[mask, ["timestamp", "demand_mw"]].sort_values("timestamp")
+    if tail.empty:
+        return empty
+
+    tail = tail.reset_index(drop=True)
+    hour = pd.Timedelta(hours=1)
+    if tail["timestamp"].iloc[0] != last_featured_ts + hour:
+        return empty
+    breaks = np.asarray(tail["timestamp"].diff() != hour, dtype=bool).copy()
+    breaks[0] = False  # the leading NaT diff is not a break
+    n = int(np.argmax(breaks)) if breaks.any() else len(tail)
+    return tail.iloc[:n]
+
+
 def _resolve_forecast_start(
     featured: pd.DataFrame,
     demand_df: pd.DataFrame,
@@ -926,6 +993,12 @@ def _resolve_forecast_start(
     2. Last timestamp in ``featured`` (pre-fix behavior, may leave a gap)
     3. ``demand_df.timestamp.max() + 1h`` as the last-resort floor
 
+    #559: when ``featured``'s tail is older than the last real demand hour —
+    ``dropna(subset=autoregressive)`` deleting rows whose lag source was null —
+    the anchor may advance across ``_ar_seed_bridge``'s contiguous run of real
+    demand hours, but ONLY under ``temporal_ar_seed``. See the comment at the
+    cap for why the positional seed can never take that advance safely.
+
     Args:
         featured: Engineered DataFrame (post-merge, post-dropna).
         demand_df: Raw EIA demand DataFrame from ``data.demand_df``.
@@ -933,6 +1006,8 @@ def _resolve_forecast_start(
     Returns:
         Forecast-start timestamp (timezone-aware UTC).
     """
+    from config import feature_enabled
+
     last_featured_ts = featured["timestamp"].max()
 
     def _fallback(reason: str) -> pd.Timestamp:
@@ -960,12 +1035,39 @@ def _resolve_forecast_start(
 
     last_real_demand = real_demand.max()
 
-    # Cap at last_featured so we don't generate a forecast row for
-    # which we can't compute autoregressive lag context. This means
-    # ``last_real > last_featured`` (theoretically possible if
-    # feature-engineering drops rows for reasons unrelated to demand
-    # NaN-ness) falls back to last_featured + 1h.
+    # The cap exists so we never forecast an hour whose autoregressive lag
+    # context we cannot seed. ``last_featured_ts`` is a STRICTER question than
+    # that — it asks whether the origin's predecessor row survived
+    # ``dropna(subset=autoregressive)``, which is feature-frame warm-up
+    # bookkeeping, not a fact about the demand we hold. A single null hour
+    # deletes the rows 1/2/3/24/168 hours later, so the tail of ``featured``
+    # can end 16 hours behind demand that arrived and is real, and the origin
+    # freezes there while fresh hours keep landing (#559 candidate 1, driving
+    # the #537 drift shortfall).
+    #
+    # The question the cap SHOULD ask is "do we hold real hourly demand for the
+    # hours immediately before the origin?" — answerable from the demand grid,
+    # independent of ``dropna``. ``_ar_seed_bridge`` answers it.
+    #
+    # GATED ON ``temporal_ar_seed``, and this is load-bearing rather than
+    # cautious. The recursion's positional seed reads ``demand_lag_1h`` as
+    # "the last surviving entry", so an origin advanced past the tail of
+    # ``featured`` would index it to ``last_featured_ts`` instead of
+    # ``start - 1h`` — turning a stall into a silently wrong value, which is
+    # worse than the stall. ``positional_seed_matches_hours`` is the exact
+    # condition for the positional arm being right, and it requires the seed's
+    # last entry to BE ``start - 1h``; it is therefore false by construction
+    # for every advanced origin, so no positional advance is ever provably
+    # safe. Only the hour-indexed path (``temporal_ar_seed``, #584/#615)
+    # resolves the bridged origin's lags to the hours they name. Flag off →
+    # byte-identical to the pre-#559 behaviour.
     anchor = min(last_real_demand, last_featured_ts)
+    bridge_hours = 0
+    if last_featured_ts < last_real_demand and feature_enabled("temporal_ar_seed"):
+        bridge = _ar_seed_bridge(featured, demand_df)
+        if not bridge.empty:
+            anchor = bridge["timestamp"].max()
+            bridge_hours = len(bridge)
     start = anchor + pd.Timedelta(hours=1)
 
     # #537: the resolved origin was previously observable ONLY by reconstructing
@@ -976,15 +1078,86 @@ def _resolve_forecast_start(
     # NaN hole deleted rows from the tail of the feature frame (the lags are
     # positional and ``dropna`` drops the rows that read them), while
     # ``real_demand`` binding means the demand series itself ends there.
+    #
+    # ``binding_term`` names the term the RESOLVED start actually sits on, so
+    # a fully bridged stall reports ``real_demand`` — which is true, the demand
+    # series is what bounds it now. ``featured_bridged`` is the partial case:
+    # the bridge ran into a hole before reaching ``last_real_demand``.
+    if start == last_real_demand + pd.Timedelta(hours=1):
+        binding_term = "real_demand"
+    elif start == last_featured_ts + pd.Timedelta(hours=1):
+        binding_term = "featured"
+    else:
+        binding_term = "featured_bridged"
     log.info(
         "forecast_start_resolved",
         region=region,
         forecast_start=start.isoformat(),
         last_real_demand=last_real_demand.isoformat(),
         last_featured_ts=last_featured_ts.isoformat(),
-        binding_term="featured" if last_featured_ts < last_real_demand else "real_demand",
+        binding_term=binding_term,
+        bridge_hours=bridge_hours,
     )
     return start
+
+
+def _ar_seed_for_origin(
+    featured: pd.DataFrame,
+    demand_df: pd.DataFrame | None,
+    forecast_start: pd.Timestamp,
+    *,
+    region: str | None = None,
+) -> tuple[pd.Timestamp, pd.DataFrame | None]:
+    """Couple an advanced origin to the seed that can actually serve it.
+
+    ``_resolve_forecast_start`` may advance the origin past the tail of
+    ``featured`` across ``_ar_seed_bridge``. Those bridge hours are absent from
+    ``featured`` — that is the defect — so the recursion must be handed them
+    explicitly, or the hour-indexed seed would *impute* hours we hold: on
+    LGEE's 16-hour hole ``HourIndexedHistory.lag`` would fall through
+    interpolation into the 24h step-back regime and read demand from two days
+    earlier for ``demand_lag_1h``. Strictly worse than the stall.
+
+    So the two must not be able to drift apart. This returns them together, and
+    **clamps the origin back** to ``last_featured_ts + 1h`` if a bridge that
+    reaches it cannot be produced — making "origin advanced, seed did not"
+    unreachable rather than merely unlikely.
+
+    Returns:
+        ``(forecast_start, seed_frame)``. ``seed_frame`` is ``None`` whenever
+        the origin needs no bridge, in which case callers seed from
+        ``featured`` exactly as before.
+    """
+    hour = pd.Timedelta(hours=1)
+    if featured is None or featured.empty or "timestamp" not in featured.columns:
+        return forecast_start, None
+    last_featured_ts = featured["timestamp"].max()
+    if pd.isna(last_featured_ts) or forecast_start <= last_featured_ts + hour:
+        return forecast_start, None
+
+    bridge = _ar_seed_bridge(featured, demand_df)
+    if bridge.empty or bridge["timestamp"].max() + hour != forecast_start:
+        log.error(
+            "forecast_origin_bridge_unavailable",
+            region=region,
+            forecast_start=forecast_start.isoformat(),
+            last_featured_ts=last_featured_ts.isoformat(),
+            bridge_hours=len(bridge),
+        )
+        return last_featured_ts + hour, None
+
+    seed = pd.concat(
+        [featured[["timestamp", "demand_mw"]], bridge[["timestamp", "demand_mw"]]],
+        ignore_index=True,
+    )
+    log.info(
+        "forecast_origin_bridged",
+        region=region,
+        forecast_start=forecast_start.isoformat(),
+        last_featured_ts=last_featured_ts.isoformat(),
+        bridge_hours=len(bridge),
+    )
+    return forecast_start, seed
 
 
 def _demand_at(frame: pd.DataFrame | None, ts: pd.Timestamp) -> float | None:
@@ -1041,11 +1214,15 @@ def _anchor_provenance(
 
     anchor_ts = forecast_start - pd.Timedelta(hours=1)
 
-    # The seed of ``demand_lag_1h`` comes from the FEATURED frame
+    # The seed of ``demand_lag_1h`` normally comes from the FEATURED frame
     # (data/feature_engineering.py filters it to positive non-NaN and takes
     # history[-1]), so that is the authoritative source for the value. The
-    # anchor frame is the fallback for the degenerate branches where the hour
-    # survived selection but not feature engineering.
+    # anchor frame is the fallback for the branches where the hour survived
+    # selection but not feature engineering — which since #559 includes the
+    # ordinary bridged case: an origin advanced across ``_ar_seed_bridge``
+    # anchors on an hour ``dropna`` deleted, and the bridge took that hour's
+    # value from this same anchor frame. So the fallback is not a degenerate
+    # path there; it is the one that names the value actually seeded.
     anchor_mw = _demand_at(featured, anchor_ts)
     if anchor_mw is None:
         anchor_mw = _demand_at(data.anchor_frame, anchor_ts)
@@ -1257,6 +1434,7 @@ def _predict_xgboost_with_recursive_autoregressive(
     horizon: int,
     recursive_hours: int = RECURSIVE_AUTOREGRESSIVE_HOURS,
     force_temporal: bool | None = None,
+    seed_frame: pd.DataFrame | None = None,
 ) -> np.ndarray:
     """XGBoost prediction with recursive autoregressive features for hours 1..N.
 
@@ -1289,12 +1467,18 @@ def _predict_xgboost_with_recursive_autoregressive(
     # both production scoring and holdout evaluation (#195/#186). The helper
     # filters the seed to real demand readings (non-NaN, > 0) — a single zero
     # in the history poisons the next 168 rolling-window features (#129).
+    # #559: ``seed_frame`` carries the hours ``dropna`` deleted from the tail of
+    # ``featured`` when the origin was bridged past them (``_ar_seed_for_origin``).
+    # It only ever differs from ``featured`` on ticks the origin advanced, which
+    # requires ``temporal_ar_seed`` — so the positional arm always sees exactly
+    # today's seed.
+    seed = featured if seed_frame is None else seed_frame
     recursive_preds = recursive_autoregressive_forecast(
         model,
-        featured["demand_mw"].tolist(),
+        seed["demand_mw"].tolist(),
         future_df.iloc[:n_recursive],
         predict_xgboost,
-        seed_timestamps=featured.get("timestamp"),
+        seed_timestamps=seed.get("timestamp"),
         force_temporal=force_temporal,
     )
 
@@ -1551,6 +1735,7 @@ def _predict_one(
     future_df: pd.DataFrame,
     horizon: int,
     start_ts: Any | None = None,
+    seed_frame: pd.DataFrame | None = None,
 ) -> np.ndarray | None:
     """Dispatch a single model to its predict function and return point forecasts.
 
@@ -1572,7 +1757,7 @@ def _predict_one(
     try:
         if model_name == "xgboost":
             return _predict_xgboost_with_recursive_autoregressive(
-                model, featured, future_df, horizon
+                model, featured, future_df, horizon, seed_frame=seed_frame
             )
         if model_name == "prophet":
             from models.prophet_model import predict_prophet
@@ -2192,6 +2377,13 @@ def predict_and_write_forecast(
         # land outside the Kalman gap window and get re-forecast.
         with substep("resolve_start"):
             forecast_start = _resolve_forecast_start(featured, data.anchor_frame, region=region)
+            # #559: an origin bridged past the tail of ``featured`` and the seed
+            # that can serve it are resolved together — see ``_ar_seed_for_origin``.
+            # ``seed_frame`` is None on every unbridged tick, which is all of them
+            # while ``temporal_ar_seed`` is off.
+            forecast_start, seed_frame = _ar_seed_for_origin(
+                featured, data.anchor_frame, forecast_start, region=region
+            )
 
         # #537: a forecast origin must never go BACKWARDS. It is recomputed from
         # scratch every tick with no memory of the last one, so when EIA retracts
@@ -2270,6 +2462,7 @@ def predict_and_write_forecast(
                     future_df,
                     FORECAST_HORIZON_HOURS,
                     start_ts=forecast_start,
+                    seed_frame=seed_frame,
                 )
             if preds is None or len(preds) < FORECAST_HORIZON_HOURS:
                 continue

@@ -71,6 +71,57 @@ The line below is left as dated history; do not build on it.
 ---
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+candidate 1: the origin stall is fixed, gated on `temporal_ar_seed`.**
+
+`_resolve_forecast_start` capped the anchor at `min(last_real_demand,
+last_featured_ts)`. The second term asks whether the origin's predecessor row
+survived `dropna(subset=autoregressive)` — feature-frame bookkeeping — where it
+means to ask whether we hold hourly demand for it. One null hour deletes the
+rows 1/2/3/24/168 hours later, so the tail of `featured` ends behind demand
+that arrived and is real. The anchor now advances across the contiguous run of
+real demand hours after that tail, and the recursion is handed those hours.
+
+**Gated on `temporal_ar_seed`, and the gate is the finding.** The positional
+seed reads `demand_lag_1h` as "the last surviving entry", so an advanced origin
+indexes it to the wrong hour. `positional_seed_matches_hours` requires the
+seed's last entry to *be* `origin - 1h`, so it is false by construction for any
+advanced origin — **no positional advance is ever provably safe**, which is why
+this ships inert rather than live. Without the bridged seed the hour-indexed arm
+is not safe either: measured on the 16h fixture, `demand_lag_1h` off by 691 MW,
+`demand_lag_3h` by 662, because the hole is too long to interpolate and the
+fallback steps back 24h into the hole. Origin and seed are therefore resolved
+together and the origin clamps back if a reaching seed cannot be built.
+
+**Cost, measured before merge (#389):** +1.61 ms per stalled BA, −0.01 ms per
+unstalled one → **+14 ms per fleet tick** at the observed 9 stalls, +82 ms if
+every BA stalled. Once per BA, not inside the 384-step recursion; the recursion
+itself is unchanged (20.7 vs 21.2 ms/BA). Six mutations, six kills.
+
+**The channel split landed ([#625](https://github.com/kristenmartino/gridpulse/pull/625),
+`docs/DRIFT_COVERAGE_CHANNELS.md`) and this fix is the small channel.** Three
+channels, not two: **A** origin *skip* 436 h (81.0%, unreachable — no
+re-proposal path exists), **B** origin *freeze* **91 h (16.9%, this PR)**, **C**
+unresolved actual 8 h (1.5%). So the prediction is concrete, not conditional:
+**≤ 91 records recovered fleet-wide — 5,531 → 5,622 of 6,069, coverage 91.14% → 92.63%**, JEA moves ≤ 1
+hour, **41 BAs do not move at all** (channel B is ten BAs: LGEE 21, SPA 18,
+PSCO 16, LDWP/IID/AZPS 10 each, TIDC 3, PACE/SC/JEA 1). **If the median BA
+improves, that is falsification, not a win.** No target implies `n_7d = 168` —
+it is unreachable by construction, ceiling 165.
+
+**Still held as a draft**: #625 is itself open, so the baseline the prediction
+is tested against is not on `main` yet.
+
+**And it is inert for as long as `temporal_ar_seed` is off — which the re-run
+below leaves off, with its stopping rule spent.** That is the honest cost of
+refusing the unsound version, and it is stated rather than worked around: the
+stall stays live until the flag flips, because the alternative is an origin
+whose near lags read hours nobody named. If the flag is never flipped, the
+open question this raises is whether the origin should instead be advanced by
+giving the *positional* recursion the bridge hours too — sound for
+`demand_lag_1h/2h/3h` and `ramp_rate`, and provably nothing for `lag_24h` /
+`lag_168h` / the rolling windows, which are already misindexed on exactly these
+BAs. That is a **different, measurable** question, not this PR.
+
 the losing quarter is DIFFUSE. Nothing to carve out, and both pre-specified
 hypotheses were backwards. This line of inquiry is closed.**
 
