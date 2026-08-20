@@ -20,6 +20,35 @@ follow-up commit.
 ## Active focus + open question
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+the seed shadow is being turned ON, now that its arm is worth observing.**
+
+It shipped dark because, at the time, an absent lag hour returned NaN and the
+shared `row.fillna(0)` made it `demand_lag_24h = 0 MW` on **13% of forecast
+steps** — so anything it recorded would have been evidence about that bug, not
+about temporal indexing. With the absent-hour policy decided the rate is **0
+across 32,832 scored steps**, and the arm is finally the thing we mean to watch.
+
+`temporal_ar_seed` stays **off** — this changes what is *recorded*, never what is
+served, and a test pins the served payload byte-identical either way.
+
+**Two things the flip itself surfaced**, neither of which a unit-test-only run
+would have shown:
+- a test asserted `redis_set.call_count == 1`, which is a fact about which
+  enrichment flags are on rather than about the model metrics it was testing.
+  It now selects the forecast payload by key.
+- with the flag on, 44-of-51 never-gapping BAs would have re-persisted an empty
+  payload **every hour**. The write is now skipped when nothing was computed and
+  nothing graded, and the `seed_shadow_written` log — which fires on every
+  invocation — carries "ran, nothing to do" instead. That is strictly stronger
+  than a key that only sometimes exists.
+
+**Watch after deploy:** `seed_shadow_written` (`n_records` must climb) and
+`seed_shadow_audit_diverged` (must stay absent — it is an alarm about the gate,
+not a finding about the seed).
+
+---
+
+**2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 re-run: the policy fix worked, stratum A's sign flipped, and the hypothesis is
 STILL not confirmed — now for a different reason.**
 

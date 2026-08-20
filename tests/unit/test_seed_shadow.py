@@ -252,13 +252,28 @@ class TestItDoesNotDisturbWhatShips:
 class TestThePayload:
     @patch("data.redis_client.redis_get", return_value=None)
     @patch("data.redis_client.redis_set")
-    def test_it_records_why_a_tick_computed_nothing(self, mock_set, _get, shadow_on):
-        """A quiet key must not be ambiguous between "no gaps" and "not running"."""
-        _call(_featured(), region="ZZZNOTAREGION")
-        payload = next(c.args[1] for c in mock_set.call_args_list if "seed_shadow:" in c.args[0])
-        assert payload["gate"] == "identical"
-        assert payload["computed"] is False
-        assert payload["audited"] is False
+    def test_a_tick_that_computes_nothing_writes_nothing_but_still_says_so(
+        self, mock_set, _get, shadow_on
+    ):
+        """ "No gaps" must stay distinguishable from "not running".
+
+        With nothing computed and nothing graded there is nothing to store, so
+        44-of-51 never-gapping BAs do not re-persist an empty payload every
+        hour. The LOG carries the signal instead, and it fires on every
+        invocation — which is strictly stronger than a key that only sometimes
+        exists.
+        """
+        with patch("jobs.phases.log") as log:
+            _call(_featured(), region="ZZZNOTAREGION")
+
+        assert not [c for c in mock_set.call_args_list if "seed_shadow:" in c.args[0]]
+        written = next(
+            c for c in log.info.call_args_list if c.args and c.args[0] == "seed_shadow_written"
+        )
+        assert written.kwargs["gate"] == "identical"
+        assert written.kwargs["computed"] is False
+        assert written.kwargs["audited"] is False
+        assert written.kwargs["persisted"] is False
 
     @patch("data.redis_client.redis_get", return_value=None)
     @patch("data.redis_client.redis_set")
@@ -305,11 +320,16 @@ class TestThePerRunCap:
     ):
         """A dropped observation that reads as "no gap" would bias the sample."""
         monkeypatch.setattr(config, "SEED_SHADOW_MAX_REGIONS_PER_TICK", 0)
-        _call(_featured(gap_at=HOURS - 60))
-        payload = next(c.args[1] for c in mock_set.call_args_list if "seed_shadow:" in c.args[0])
-        assert payload["gate"] == "diverges"
-        assert payload["computed"] is False
-        assert payload["budget_declined"] is True
+        with patch("jobs.phases.log") as log:
+            _call(_featured(gap_at=HOURS - 60))
+        written = next(
+            c for c in log.info.call_args_list if c.args and c.args[0] == "seed_shadow_written"
+        )
+        # The distinction that matters: this BA WOULD have diverged, and the
+        # observation was dropped for budget — not because there was no gap.
+        assert written.kwargs["gate"] == "diverges"
+        assert written.kwargs["computed"] is False
+        assert written.kwargs["budget_declined"] is True
 
     @patch("data.redis_client.redis_get", return_value=None)
     @patch("data.redis_client.redis_set")
