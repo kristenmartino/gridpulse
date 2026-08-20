@@ -186,3 +186,32 @@ class TestAboutBenchmarkClaim:
         body = resp.get_data(as_text=True)
         assert '<p class="bench-claim">' not in body
         assert landing._CLAIM_MARKER not in body
+
+
+class TestMetricRobustness:
+    """The verdict's metric-robustness sentence is derived, never asserted:
+    "the same" only when both alternate statistics are computable and agree,
+    a flip named when one disagrees, silence when the data cannot say."""
+
+    @staticmethod
+    def _row(g_med, o_med, g_wape, o_wape):
+        return {
+            "gridpulse": {"median_ape": g_med, "wape": g_wape},
+            "official": {"median_ape": o_med, "wape": o_wape},
+        }
+
+    def test_agreement_on_both_statistics(self) -> None:
+        rows = [self._row(4.0, 3.0, 4.1, 3.1), self._row(5.0, 4.0, 5.1, 4.1)]
+        out = landing._metric_robustness(rows, we_lead=False)
+        assert "the verdict is the same" in out
+
+    def test_a_flip_is_named_not_hidden(self) -> None:
+        # median APE favours us while the headline (we_lead=False) does not.
+        rows = [self._row(2.0, 3.0, 4.1, 3.1), self._row(3.0, 4.0, 5.1, 4.1)]
+        out = landing._metric_robustness(rows, we_lead=False)
+        assert "median APE" in out and "flips" in out
+
+    def test_silent_when_not_computable(self) -> None:
+        # One row per arm is below the two-value floor — no claim either way.
+        rows = [self._row(4.0, 3.0, 4.1, 3.1)]
+        assert landing._metric_robustness(rows, we_lead=False) == ""
