@@ -1,0 +1,1 @@
+2026-08-20 [claim-shipped-before-measurement] Published a PR predicting "most of LGEE's n_7d gap closes" from the task briefing's two-channel framing; the measurement that landed 15 minutes later found three channels and capped the reachable share at 16.9% — ref: PR #627, #625, #537.
