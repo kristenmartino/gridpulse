@@ -47,13 +47,19 @@ unstalled one → **+14 ms per fleet tick** at the observed 9 stalls, +82 ms if
 every BA stalled. Once per BA, not inside the 384-step recursion; the recursion
 itself is unchanged (20.7 vs 21.2 ms/BA). Six mutations, six kills.
 
-**Blocked on:** the channel-split measurement for
-[#537](https://github.com/kristenmartino/gridpulse/issues/537) — how the `n_7d`
-shortfall divides between *never proposed* (origin repeats; what this fixes) and
-*proposed but never resolved* (the upstream actual never published; this cannot
-touch it). JEA (`n_7d` 102) shows zero stalls and looks like the second channel;
-LGEE (94) looks like the first. Merging before that lands would publish a
-recovery prediction with no way to test it.
+**The channel split landed ([#625](https://github.com/kristenmartino/gridpulse/pull/625),
+`docs/DRIFT_COVERAGE_CHANNELS.md`) and this fix is the small channel.** Three
+channels, not two: **A** origin *skip* 436 h (81.0%, unreachable — no
+re-proposal path exists), **B** origin *freeze* **91 h (16.9%, this PR)**, **C**
+unresolved actual 8 h (1.5%). So the prediction is concrete, not conditional:
+**≤ 91 records recovered fleet-wide, coverage 91.14% → 92.64%**, JEA moves ≤ 1
+hour, **41 BAs do not move at all** (channel B is ten BAs: LGEE 21, SPA 18,
+PSCO 16, LDWP/IID/AZPS 10 each, TIDC 3, PACE/SC/JEA 1). **If the median BA
+improves, that is falsification, not a win.** No target implies `n_7d = 168` —
+it is unreachable by construction, ceiling 165.
+
+**Still held as a draft**: #625 is itself open, so the baseline the prediction
+is tested against is not on `main` yet.
 
 **And it is inert for as long as `temporal_ar_seed` is off — which the re-run
 below leaves off, with its stopping rule spent.** That is the honest cost of

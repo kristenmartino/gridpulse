@@ -282,6 +282,13 @@ origin's near lags to the wrong hour, which is worse than the freeze.
 `featured_bridged`, for the case where the run stops at a hole before reaching
 the last real hour.
 
+Size it honestly: the freeze is **16.9%** of the 24h drift window's shortfall
+(91 hours of 6,069, ten BAs, 41 at zero). The dominant channel is an origin
+**skip** — when EIA publishes two hours in one tick, no tick ever sees the
+earlier one as its newest hour, so that target is never proposed and nothing
+re-proposes it — at 81.0%, and the anchor is not where that is fixed. Evidence:
+[`docs/DRIFT_COVERAGE_CHANNELS.md`](DRIFT_COVERAGE_CHANNELS.md).
+
 Measured basis: broken-class anchors averaged 58.2% wrong vs the day-ahead's
 14.5% (`docs/ANCHOR_CONDITIONING_STUDY.md`); every other class keeps its
 unmodified anchor because the same study showed substitution would not help

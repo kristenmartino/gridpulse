@@ -1447,9 +1447,22 @@ move. Cost measured before merge, not after: +1.6 ms on a stalled region, +14 ms
 across a fleet tick on a job with a 1,800-second ceiling. Six mutations, each
 killed by its own test.
 
+**Postscript, which is the more useful half**: a concurrent measurement then
+sized the problem I'd fixed. The drift-window shortfall it was supposed to
+explain splits three ways, and the freeze is **17%** of it — 91 hours of 6,069,
+across ten balancing authorities, with forty-one at zero. The dominant channel,
+81%, is a different thing entirely: when the upstream publishes two hours in one
+tick, no tick ever sees the earlier one as its newest hour, so that target is
+never proposed and nothing re-proposes it. My fix does not touch it. I rewrote
+the prediction in the PR from "most of the gap should close" to "at most 91
+records, forty-one balancing authorities do not move, and **if the median one
+improves that is a falsification signal, not a win**."
+
 **Lesson to convey**: *"The origin is stale" and "the origin is wrong" are not
 the same severity, and a fix that trades the first for the second is a
 regression however good the metric looks. When the sound version of a fix
 depends on a feature that isn't on yet, the honest move is to say the fix is
 inert and name what would make it live — not to ship the unsound version
-because it's the one that shows up in the dashboard.*
+because it's the one that shows up in the dashboard. And when someone finally
+measures the thing you've been fixing, the right response is to shrink your own
+claim to fit the measurement, in writing, before anyone asks.*
