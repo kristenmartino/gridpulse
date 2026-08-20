@@ -232,8 +232,10 @@
         <p class="eyebrow">Methodology</p>
         <h1>How GridPulse forecasts US electricity demand</h1>
         <p class="lede">
-          Three base models, one ensemble, 49 weather-derived features, and
-          51 balancing authorities scored every hour against live EIA data.
+          Three forecasting models blended into one ensemble, 49
+          weather-derived features, and 51 balancing authorities &mdash; the
+          regional operators that keep electricity supply and demand matched
+          across the grid &mdash; scored every hour against live EIA data.
           This page describes what the system actually does &mdash; including
           the places the architecture is measurably worse than the simpler
           alternative.
@@ -257,7 +259,7 @@
 
       <article>
         <section id="tiers">
-          <h2>Three runtime tiers, four external data sources</h2>
+          <h2>Three runtime tiers, three external services</h2>
           <p>
             GridPulse runs as three separate things, and keeping them separate
             is the single most load-bearing decision in the system.
@@ -279,11 +281,14 @@
             </li>
           </ul>
           <p>
-            Data comes from four places: the <strong>EIA</strong> API for
-            demand, generation and interchange; <strong>Open-Meteo</strong> for
-            17 weather variables; <strong>NOAA&rsquo;s National Weather
-            Service</strong> for severe-weather alerts; and NOAA&rsquo;s
-            <strong>National Blend of Models</strong> for forecast-hour weather.
+            Data comes from three outside services: the <strong>EIA</strong>
+            API for demand, generation and interchange;
+            <strong>Open-Meteo</strong> for 17 weather variables; and
+            <strong>NOAA&rsquo;s National Weather Service</strong> for
+            severe-weather alerts. Forecast-hour weather is a composite of
+            NOAA&rsquo;s <strong>National Blend of Models</strong> over the
+            base forecast &mdash; that arrives through Open-Meteo as a model
+            option, not as a fourth feed of its own.
           </p>
         </section>
 
@@ -334,11 +339,12 @@
             A balancing authority responds to weather across its whole
             territory, but the fetch originally sampled one representative
             point &mdash; for MISO, a single spot in rural Illinois standing in
-            for fifteen states. Each footprint is now sampled at up to
-            <strong>12 fixed cells</strong> and averaged, worth
-            <strong>+1.14 sMAPE points</strong> overall (MISO +1.77, PJM +1.41)
-            and approximately nothing for compact single-metro authorities,
-            which keep their single point.
+            for a territory running from Minnesota to Louisiana. Each footprint
+            is now sampled at up to <strong>12 fixed cells</strong> and
+            averaged, worth <strong>+1.14 sMAPE points</strong> overall
+            (sMAPE is a symmetric variant of the average-error percentage;
+            MISO +1.77, PJM +1.41) and approximately nothing for compact
+            single-metro authorities, which keep their single point.
           </p>
           <p>
             Two details matter more than they look. Wind direction uses a
@@ -362,12 +368,16 @@
           </p>
           <h3>Why inverse-MAPE weighting instead of stacking</h3>
           <p>
-            The ensemble weights each model by
-            <code>weight &prop; (1/MAPE)&sup3;</code>, normalised to sum to one.
-            Stacking would be the more fashionable choice; this was picked
-            because the weights are transparent and trivial to debug &mdash;
-            you can always answer &ldquo;which model is dominating right now,
-            and why&rdquo; by reading three numbers.
+            The ensemble gives each model a share of the vote in proportion to
+            how accurate it has been: <code>weight &prop; (1/MAPE)&sup3;</code>,
+            normalised to sum to one. MAPE is mean absolute percentage error
+            &mdash; the average miss, as a share of actual demand &mdash; so a
+            model with lower error carries more weight. Training a second model
+            to combine the three (&ldquo;stacking&rdquo;) would be the more
+            fashionable choice; this was picked because the weights are
+            transparent and trivial to debug &mdash; you can always answer
+            &ldquo;which model is dominating right now, and why&rdquo; by
+            reading three numbers.
           </p>
           <p>
             The cubing is not decoration. Plain inverse-MAPE blending kept
@@ -424,9 +434,11 @@
           </p>
           <p>
             GridPulse scores the way it serves, recursively over a 168-hour
-            holdout. That runs roughly <strong>2&times; harder</strong> on the
-            models than the teacher-forced equivalent. It is the number a
-            seven-day forecast deserves.
+            <em>holdout</em> &mdash; a stretch of real history withheld from
+            training, so the model is graded on hours it has never seen. That
+            runs roughly <strong>2&times; harder</strong> on the models than
+            the teacher-forced equivalent. It is the number a seven-day
+            forecast deserves.
           </p>
           <h3>Why there is no single &ldquo;across-51&rdquo; number</h3>
           <p>
@@ -434,10 +446,13 @@
             pooled. The distribution is too wide for a mean to describe: on
             the best-achievable-per-authority view the best sits at
             <strong>1.72%</strong> and the worst at <strong>23.26%</strong>.
-            A single
-            headline figure would be a different claim depending on which
-            authority a reader cared about &mdash; which is to say, not a claim
-            at all.
+            (Those two bracket the <em>best base model per authority</em>. The
+            <strong>4.35%</strong> median quoted elsewhere on this site is a
+            different figure &mdash; the served ensemble, across all 51 &mdash;
+            and the gap between the two is the subject of the section above.)
+            A single headline figure would be a different claim depending on
+            which authority a reader cared about &mdash; which is to say, not a
+            claim at all.
           </p>
           <p>
             Every forecast is also scored against the balancing
@@ -475,8 +490,8 @@
             A second gate decides which authorities appear in the product at
             all. It is judged on the training holdout against the seven-day
             band &mdash; deliberately the most generous question available,
-            because hiding a balancing authority is a heavy act. As measured, it
-            hides none of the 51.
+            because hiding a balancing authority is a heavy act. As measured on
+            2026-07-28, it hides none of the 51.
           </p>
           <p>
             The cost of that generosity is real, and worth stating: one
