@@ -1,1 +1,0 @@
-2026-08-18 [stale-restatement-in-source-doc] `docs/BACKTEST_RESULTS.md` republished its distribution table on 2026-08-07 but left a "~4.8% ensemble headline" restatement ~90 lines below it in the same file, so the doc contradicted itself for 11 days while the public pages that source it were updated correctly. — ref: PR #404 / session 2026-08-18 walkthrough refresh

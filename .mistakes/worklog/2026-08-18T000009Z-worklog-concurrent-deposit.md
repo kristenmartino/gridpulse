@@ -1,1 +1,0 @@
-2026-08-18 [worklog-concurrent-deposit] Two sessions depositing at the same time collided: PRs #566, #570 and #567 all inserted at the top of this list, producing a merge conflict in this file on four separate rebase steps. The resolution is trivial (keep both) but every concurrent deposit hits it. — ref: PR #567

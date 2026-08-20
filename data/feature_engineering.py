@@ -25,6 +25,7 @@ from config import (
     SOLAR_RATED_IRRADIANCE,
     WIND_CUTOUT_SPEED_MS,
 )
+from data.preprocessing import frame_region
 
 log = structlog.get_logger()
 
@@ -79,7 +80,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df = df.copy()
-    log.info("feature_engineering_start", input_rows=len(df))
+    log.info("feature_engineering_start", region=frame_region(df), input_rows=len(df))
 
     df = engineer_exogenous_features(df)
     df = add_autoregressive_demand_features(df)
@@ -119,6 +120,9 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     log.info(
         "feature_engineering_complete",
+        # #537: without this, the dropped-row count below could not be attributed
+        # to a BA — and dropped rows are exactly where the origin defects live.
+        region=frame_region(df),
         output_rows=len(df),
         dropped_rows=dropped,
         feature_count=len(feature_cols),

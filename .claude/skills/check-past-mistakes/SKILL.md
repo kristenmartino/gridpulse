@@ -1,6 +1,6 @@
 ---
 name: check-past-mistakes
-description: Cross-check a just-approved plan or just-finished implementation against this repo's known mistake patterns before it ships. Fires automatically via hook after plan approval (ExitPlanMode); otherwise invoke it manually — before committing or opening a PR, and any time something feels like it might repeat a past mistake. Reads only CLAUDE.md (already loaded, no extra cost) — never MISTAKES.md's full archive. If it catches something new, it deposits exactly one new file under .mistakes/worklog/ and stops; it does not diagnose or propose fixes.
+description: Cross-check a just-approved plan or just-finished implementation against this repo's known mistake patterns before it ships. Fires automatically via hook after plan approval (ExitPlanMode); otherwise invoke it manually — before committing or opening a PR, and any time something feels like it might repeat a past mistake. Reads only CLAUDE.md (already loaded, no extra cost) — never MISTAKES.md's full archive. If it catches something new, it deposits exactly one line to MISTAKES.md's Worklog and stops; it does not diagnose or propose fixes.
 ---
 
 # Check past mistakes
@@ -65,28 +65,17 @@ Something can go wrong, or nearly go wrong, in a way that doesn't match any
 existing CLAUDE.md rule — that's exactly the kind of thing this whole system
 exists to eventually catch. When that happens:
 
-1. Write **one new file** under `.mistakes/worklog/`, named
-   `<UTC timestamp>-<category>.md` — get the stamp from
-   `date -u +%Y-%m-%dT%H%M%SZ`:
-
-   ```
-   .mistakes/worklog/2026-08-18T114530Z-guard-decision-without-force.md
-   ```
-
-   holding exactly one line:
-   `YYYY-MM-DD [category] one-line description — <ref: issue/PR/session>`
-
-   **Always a new file; never edit an existing one.** That is what makes
-   concurrent deposits impossible to conflict — this repo runs several
-   sessions at once, and when the Worklog was a single list every parallel
-   deposit collided, which put friction on the one step that has to stay
-   frictionless. The timestamp is also what tells the audit which
-   candidates arrived since it last ran, so don't flatten it to a date.
+1. Add **exactly one line** to `MISTAKES.md`'s `## Worklog (undecided
+   candidates)` section, in its existing format:
+   `- YYYY-MM-DD [category] one-line description — <ref: issue/PR/session>`
+   **Insert it as the first entry in the list** (right after the section's
+   intro text, before the existing top entry) — the section is newest-first,
+   and appending to the bottom would silently invert that.
 2. Pick a best-guess `[category]` tag. Getting it slightly wrong is fine —
    the audit pass groups by root cause later, not by trusting the tag.
 3. **Stop there.** Do not write a root cause. Do not propose a prevention.
    Do not decide whether it's a repeat of something else — don't even read
-   the other deposits or `MISTAKES.md` to check. That restraint is deliberate: a
+   the rest of `MISTAKES.md` to check. That restraint is deliberate: a
    session mid-task diagnosing its own mistake carries the same tunnel
    vision that produced it, and analysis is `audit-mistakes-log`'s job,
    done later with none of this session's context. If depositing ever feels
@@ -100,5 +89,5 @@ exists to eventually catch. When that happens:
 
 Either: nothing matched, say so briefly and move on — or: something
 matched and got flagged before shipping — or: something new got deposited
-as one Worklog deposit. All three are a complete, successful run of this
+as one Worklog line. All three are a complete, successful run of this
 skill; none of them require touching `CLAUDE.md`.

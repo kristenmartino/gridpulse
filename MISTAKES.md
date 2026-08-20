@@ -31,26 +31,55 @@ and go check `CLAUDE.md` instead.
 
 ## Worklog (undecided candidates)
 
-**Pending candidates live in [`.mistakes/worklog/`](.mistakes/worklog/), one
-file per deposit** — not in this file. Read them with:
+One line per entry, newest first — **new entries go at the top of the list
+below, immediately under the `audited-through` marker**, not above the marker
+and not appended at the bottom. An entry above the marker reads as already
+audited when it is not. Format:
+`- YYYY-MM-DD [category] one-line description — <ref: PR/issue/session>`
 
-```bash
-cat .mistakes/worklog/2026-*.md     # every pending candidate
-ls .mistakes/worklog/*.md | wc -l   # how many are waiting
-```
+No root cause, no prevention, no status field — that analysis happens in
+Audit, not here. `[category]` can be a best guess; the audit pass is what
+actually decides whether two entries share a root cause. Anyone may append;
+nothing here is authoritative until it's promoted to Analyzed.
 
-They were an inline list here until 2026-08-18. Every session that deposited
-had to insert at the same line, so parallel deposits conflicted — ten PRs
-touched this file that day and three were open at once. The cost was never
-the conflict itself but the hand-merge that resolves it, which can silently
-drop someone else's deposit from the one file whose job is not losing
-evidence. A directory has nothing to merge.
+The marker below is what stops the SessionStart nudge from nagging forever.
+`audit-mistakes-log` rewrites it **every** time it finishes, including when
+it decides nothing graduates yet — "I looked, these can wait" is a real
+outcome and needs somewhere to be recorded, so a deliberate no-promotion
+decision still buys quiet until new candidates arrive.
 
-Format and rules for depositing:
-[`.mistakes/worklog/README.md`](.mistakes/worklog/README.md).
-`audit-mistakes-log` consumes those files and promotes what crosses the bar
-into the Analyzed section below; `.mistakes/last-audit` records when it last
-ran, so a deliberate "these can wait" buys quiet until new candidates arrive.
+**`entries-seen` is the field that matters**; the date is for humans. The
+nudge treats anything beyond that count as new. It used to compare entry
+dates against the marker date, which silently ignored every deposit made on
+the same day as an audit — and on this repo that is most of them. Entries
+carry no time of day, so counting is the only thing with the resolution to
+tell "already reviewed" from "arrived since".
+
+- 2026-08-18 [unmeasured-cost-of-own-fix] Shipped a correctness fix whose first implementation cost 79x the code it replaced (+74.9s per scoring tick fleet-wide, on a job that has SIGKILLed at its task timeout) — dormant only because the flag defaulted off, and found by measuring a *different* question afterwards rather than before merging. — ref: #559 / PR #584
+- 2026-08-18 [guard-blind-by-construction] The train/inference autoregressive parity test (`test_training_features_match_inference_snapshot_row_by_row`) compares both implementations on a gapless synthetic fixture, where they agree by construction, so it cannot see the positional-vs-temporal divergence it exists to catch. — ref: #559 / #186
+<!-- audited-through: 2026-08-18 | entries-seen: 6 -->
+
+- 2026-08-18 [verification-instrument] Twice reported a production deploy verified from a signal adjacent to the claim: first waited for the benchmark payload's `updated_at` to advance (a tick already in flight advances it regardless of the deploy), then for a per-BA field to appear (the scoring job writes per-BA keys first and `meta:benchmark_fleet` last, so the fleet list still carried the old exclusion reason). Neither was wrong about the deploy, both were wrong about what they proved. — ref: #549 / PR #580
+- 2026-08-18 [statistic-confounded-by-shape] Shipped `absent_hours_bias_pct` with a 20-absent-hour floor fitted to 3-4h noise cases, but live WALC reads -19.88% over 49 absent hours sitting in two contiguous ~48h blocks — for a blocked absence the statistic conflates which hours the BA skips with what load did during the outage, which is not the selection bias it is named for. Published and gates nothing, so nothing is wrong in production; the docstring inviting a future gate does not carry the caveat. — ref: #549 / PR #580
+- 2026-08-18 [evidence-verification] #549 asserted SPP is "diffusely sparse" and the repo repeated it in config.py, a benchmark.py docstring and a pinned test; SPP's absence is in fact ONE contiguous 341h outage since 2026-08-04, measured only because the plan required fitting the classifier to real data before writing it — ref: #549
+- 2026-08-18 [harness-agrees-for-the-wrong-reason] A per-tick replay reproducing production's forecast origin scored ~100% agreement on a frame that was an hour short throughout: `captured_at` is stamped minutes INTO the tick that records it, and a drift record grades the PREVIOUS tick's payload, so the two errors cancelled. Caught only by control BAs designated before any output was inspected. — ref: PR #558
+- 2026-08-18 [premise-not-measured-before-filing] Filed #559 and shipped a doc section arguing the origin stall came from positional AR lags on gapped series, and that fixing it required a 51-BA x 3-model retrain behind the ADR-010 gate. Measured hours later: absent rows are 7 of 110,704 fleet-wide (0.0063%), all in one BA — the frames are complete grids, so the retrain's justification never existed. Corrected in public on the issue and in the doc. — ref: PR #578
+
+- 2026-08-18 [optimisation-made-it-worse] Added Docker buildx `cache-to: type=gha,mode=max` to CI on the assumption a layer cache beats a rebuild; it took the image build 83s -> 371s (mode=max exports every intermediate layer, and the image carries prophet/xgboost/shap/scipy) and made docker the new critical path. Caught on the first CI run and reverted before merge. — ref: PR #586
+- 2026-08-18 [test-hermeticity] The suite made 79 live calls per run to api.eia.gov and archive-api.open-meteo.com — cache-first clients fell through to the live API on a miss, so mocked tests asserted against today's grid, and CI inherited third-party latency and 429s (~50s/run; worst two tests 30.8s and 29.3s). — ref: branch perf/ci-hermetic-and-parallel
+- 2026-08-18 [mock-never-applied] Two mocks silently did not apply and neither test noticed: patching `data.redis_client.redis` was defeated by a function-local `import redis` (real DNS lookup, 4.5s), and `monkeypatch.setattr(cache_mod, "CACHE_DB_PATH", ...)` was defeated by a default bound at def time (16 threads onto the real repo-root cache.db). — ref: branch perf/ci-hermetic-and-parallel
+- 2026-08-18 [stale-restatement-in-source-doc] `docs/BACKTEST_RESULTS.md` republished its distribution table on 2026-08-07 but left a "~4.8% ensemble headline" restatement ~90 lines below it in the same file, so the doc contradicted itself for 11 days while the public pages that source it were updated correctly. — ref: PR #404 / session 2026-08-18 walkthrough refresh
+- 2026-08-18 [instrumentation] the max-instances alert summed ALIGN_MAX across the active/idle state label and revision_name, so deploy rollover read as a sustained ceiling and reported 7 against a ceiling of 4, while no revision exceeded 2 — ref: #581 / PR #583
+- 2026-08-18 [reminder-blind-to-same-day] The audit-staleness nudge compared entry dates against the marker date and counted only entries strictly after it, so every deposit made on the same calendar day as an audit was invisible to it permanently — 3 real candidates sat unannounced. Entries carry no time of day, so no date comparison could have worked; switched the marker to an entries-seen count. — ref: PR #582
+- 2026-08-18 [guard-decision-without-force] The close-keyword guard fired correctly on a live reference and returned a PreToolUse `ask`, and the command then ran with no prompt — in permissive or auto-approving sessions an `ask` gates nothing, so a correct guard protected nothing. Found only because per-invocation telemetry distinguished "ran and was overruled" from "never ran". Backticked case switched to `deny`. — ref: PR #579
+- 2026-08-18 [unverified-premise] Repeated an issue body's technical rationale ("the anchor cannot be recovered retrospectively because `lead_hours` is the realized lead") as established fact in `docs/BENCHMARK_METHODOLOGY.md` and a commit message; row 0 is `anchor + 1h` by construction, so the anchor is exact arithmetic and a bounded reconstruction was available. Corrected pre-merge after a challenge, not by checking. — ref: #547 / PR #555
+- 2026-08-18 [test-validity] Wrote a unit assertion against a value that a monkeypatched fixture hardcodes (`_patch_predict_one` stubs `_build_future_feature_frame` and ignores `start_ts`), so the test exercised the stub's constant rather than the code under test. Caught by the assertion failing, not by review. — ref: #547 / PR #555
+- 2026-08-18 [guard-coverage-gap] Shipped a guard test against stale published counts whose surface list omitted `docs/CANONICAL_FACTS.md` — the file CLAUDE.md's end-of-PR check routes a moved cited fact to, and so the likeliest place for one to be added. — ref: PR #538, fixed in #551
+- 2026-08-18 [explanation-before-measurement] Wrote the causal claim into a shipped docstring ("this closes the defect", naming `filter_low_actuals` as the mechanism) before running the production measurement that would test it; the measurement showed that filter dropped 2 records fleet-wide and a different one did the work. Caught and corrected pre-merge. — ref: PR #543 / #541
+- 2026-08-18 [destructive-step-chained-to-unchecked-outcome] Ran `gh pr merge 567` and the head-branch delete in one command without gating the delete on the merge result; the merge failed on a fresh conflict and the delete then closed the PR. Recovered from the intact local branch. — ref: PR #567
+- 2026-08-18 [worklog-concurrent-deposit] Two sessions depositing at the same time collided: PRs #566, #570 and #567 all inserted at the top of this list, producing a merge conflict in this file on four separate rebase steps. The resolution is trivial (keep both) but every concurrent deposit hits it. — ref: PR #567
+- 2026-08-18 [local-verification-narrower-than-ci] Reported lint clean after running `ruff check` only; CI's lint job also runs `ruff format --check`, which failed on a newly added script and cost a CI cycle. — ref: PR #560
+- 2026-08-18 [configured-but-inert] The SessionStart nudge hook resolved `MISTAKES.md` by bare relative path behind an `[ -f ]` guard, so from any subdirectory it exited 0 with no output — identical to "checked, nothing to report." Caught by testing it from `docs/` before merge. — ref: PR #561
 
 ---
 
