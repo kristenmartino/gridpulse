@@ -94,18 +94,22 @@ def _render_benchmark_claim(payload: dict) -> str:
     rows = _fleet_rows(payload)
     ours_spread = _spread_ratio(rows, "gridpulse")
     theirs_spread = _spread_ratio(rows, "official")
+    # The window/lead parenthetical is not decoration: the hero strip quotes
+    # the 168h-recursive HOLDOUT median a few scrolls up, and two unlabelled
+    # "our error" figures on one page read as a contradiction rather than as
+    # two instruments (the benchmark methodology's own §8 rule).
     if ours < theirs:
         claim = (
             f"Live right now: the closer forecast on the typical operator — "
             f"{_pct(ours)} median error against their {_pct(theirs)}, across "
-            f"{_esc(n)} operators"
+            f"{_esc(n)} operators (30-day live window, ~24h lead)"
         )
     else:
         gap = abs(ours - theirs)
         claim = (
-            f"Live right now: within {gap:.2f} points of the operators' own "
-            f"median error across {_esc(n)} operators — {_pct(ours)} against "
-            f"their {_pct(theirs)}"
+            f"Live right now: within {gap:.2f} points of the operators’ own "
+            f"median error across {_esc(n)} operators (30-day live window, "
+            f"~24h lead) — {_pct(ours)} against their {_pct(theirs)}"
         )
     if ours_spread and theirs_spread and ours_spread < theirs_spread:
         claim += (

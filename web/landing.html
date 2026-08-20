@@ -443,7 +443,7 @@
             <span class="chip"><strong>51</strong> balancing authorities &middot; ~100% of lower-48 demand</span>
             <span class="chip"><strong>3 models + ensemble</strong> &middot; retrained daily, gated before serving</span>
             <span class="chip">Scored <strong>hourly</strong> against live EIA data</span>
-            <span class="chip"><strong>4.35%</strong> median per-BA holdout error (served ensemble, 168&nbsp;h recursive)</span>
+            <span class="chip"><strong>4.35%</strong> median per-BA error on data the models never saw (served ensemble, 168&nbsp;h recursive holdout)</span>
           </div>
         </div>
         <div class="hero-visual">
@@ -546,7 +546,7 @@
           </div>
           <div class="card">
             <h3>Accuracy, measured honestly</h3>
-            <p>Holdout backtests use the recursive multi-step protocol production serves — roughly 2&times; harder on the models than the teacher-forced numbers dashboards usually quote. All 51 BAs, published. Head-to-head against each grid operator&rsquo;s own day-ahead forecast, GridPulse runs within a fraction of a point of the operators&rsquo; median — and holds steady where their forecasts break down. Wins and losses published, per operator.</p>
+            <p>Holdout backtests use the recursive multi-step protocol production serves — each prediction builds on the model&rsquo;s own previous ones, roughly 2&times; harder than the one-step-ahead (&ldquo;teacher-forced&rdquo;) numbers dashboards usually quote. All 51 BAs, published. Head-to-head against each grid operator&rsquo;s own day-ahead forecast, GridPulse runs within a fraction of a point of the operators&rsquo; median — and holds steady where their forecasts break down. Wins and losses published, per operator.</p>
             <!--SSR_BENCHMARK_CLAIM-->
             <a class="card-link" href="/benchmark">See the head-to-head benchmark &rarr;</a>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BACKTEST_RESULTS.md" target="_blank" rel="noopener">Backtest results &rarr;</a>
