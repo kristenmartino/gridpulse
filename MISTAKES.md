@@ -95,16 +95,133 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 |---|---:|---|---|
 | reference-verification (was github-close-keywords) | 3 | graduated | CLAUDE.md → "Verify every `#N` reference" + "The backtick/quote trap" |
 | reliability-timeout-budget | 2 (distinct root causes, same family) | graduated | CLAUDE.md → "Upstream-outage resilience" + "Partial degradation is a DIFFERENT failure class" |
-| single-source-of-truth-drift | 2 | 1 graduated, 1 resolved-by-test | CLAUDE.md → End-of-PR check item 2 (grep rule); `MODEL_DISPLAY_NAMES` + AST sweep test |
+| single-source-of-truth-drift | 3 | graduated (strengthened 2026-08-20) | CLAUDE.md → End-of-PR check item 2 (grep now `web/ docs/`); `MODEL_DISPLAY_NAMES` + AST sweep test |
 | stale-repo-snapshot | 3 | graduated | CLAUDE.md → "Before recommending what's next" (re-derive the premise) |
+| claim-shipped-before-measurement | 4 | graduated (2026-08-20) | CLAUDE.md → "Verify a claim before writing it as fact" |
+| verification-checked-the-wrong-thing | 4 | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
+| reminder-blind-to-same-day | 1 | resolved (2026-08-20) | entries-seen counter (PR #582); already narrated in CLAUDE.md's mechanical-guard section |
+| guard-decision-without-force | 1 | resolved (2026-08-20) | backticked case now `deny` (PR #579); already narrated in CLAUDE.md's mechanical-guard section |
 | worklog-concurrent-deposit | 1 (in Worklog) | open | recurred during the 2026-08-18 audit itself — near the bar |
-| explanation-before-measurement | 1 (in Worklog) | open | none yet — watching for a repeat |
 | guard-coverage-gap | 1 (in Worklog) | open | none yet — watching for a repeat |
 | destructive-step-chained-to-unchecked-outcome | 1 (in Worklog) | open | none yet — watching for a repeat |
 | local-verification-narrower-than-ci | 1 (in Worklog) | open | none yet — watching for a repeat |
 | configured-but-inert | 1 (in Worklog) | open | none yet — watching for a repeat |
+| optimisation-made-it-worse | 1 (in Worklog) | open | none yet — watching for a repeat |
+| instrumentation | 1 (in Worklog) | open | none yet — watching for a repeat |
 
 ### Entries
+
+**2026-08-20 — Four claims shipped as fact before anyone measured them, one nearly justifying an unwarranted retrain [claim-shipped-before-measurement]**
+- **What happened:** Four separate incidents where a causal, quantitative, or
+  attribution claim was written into a committed artifact as established fact
+  before it was checked against real code or data. (1) `#549` asserted SPP is
+  "diffusely sparse" and the claim was repeated in `config.py`, a
+  `benchmark.py` docstring, and a pinned test; the real shape is ONE
+  contiguous 341h outage since 2026-08-04, surfaced only because an unrelated
+  plan happened to require fitting the classifier to real data first. (2)
+  `#559` was filed, and a doc section shipped, arguing the forecast-origin
+  stall came from positional AR lags on gapped series and required a
+  51-BA × 3-model retrain behind the ADR-010 gate; measured hours later,
+  absent rows are 7 of 110,704 fleet-wide (0.0063%), all in one BA — the
+  retrain's justification never existed. (3) An issue body's stated rationale
+  ("the anchor cannot be recovered retrospectively because `lead_hours` is
+  the realized lead") was repeated as fact in `docs/BENCHMARK_METHODOLOGY.md`
+  and a commit message; row 0 is `anchor + 1h` by construction, so the
+  anchor is exact arithmetic and a bounded reconstruction was available all
+  along — corrected pre-merge, but only after a challenge, not by checking.
+  (4) A shipped docstring named `filter_low_actuals` as the mechanism that
+  "closes the defect" before the production measurement ran; the measurement
+  showed that filter dropped 2 records fleet-wide and a different filter did
+  the actual work.
+- **Root cause:** In all four, the claim was plausible, came from a
+  reasonable-sounding source (an issue's own stated rationale, an intuitive
+  read of a bug's shape, a docstring's working theory), and was written down
+  before anyone ran the check that would confirm or refute it. None were
+  caught by a designed verification step — (1) and (2) surfaced only because
+  an unrelated task forced a real-data measurement, (3) only because someone
+  challenged it, (4) only because the measurement happened to run before
+  merge. Writing the claim down first makes it load-bearing before it's true.
+- **Prevention:** Before writing a causal, quantitative, or attribution claim
+  into any committed artifact as established fact, check it against the
+  actual code or data first — run the measurement, read the row, grep the
+  function — rather than inheriting another artifact's stated rationale.
+- **Status:** graduated → CLAUDE.md § "Verify a claim before writing it as
+  fact" (2026-08-20). Promoted on both bars: 4 occurrences in one day, and
+  occurrence (2) alone would justify severity (a doc-endorsed, gate-routed
+  51-BA × 3-model retrain with no real justification, corrected only after
+  shipping).
+- **Related:** #549, #559 (PR #578), #547 (PR #555), PR #543 / #541. Four
+  Worklog lines consumed into this entry (`evidence-verification`,
+  `premise-not-measured-before-filing`, `unverified-premise`,
+  `explanation-before-measurement`).
+
+**2026-08-20 — Four checks reported success without exercising the thing they claimed to check [verification-checked-the-wrong-thing]**
+- **What happened:** Four incidents, all surfaced on 2026-08-18, where a test
+  or harness reported a passing/agreeing result while not actually exercising
+  the real code path under test. (1) A unit assertion checked a value that
+  `_patch_predict_one`'s stub hardcodes — the stub ignored `start_ts` and
+  `_build_future_feature_frame` never ran for real — so the test exercised
+  the stub's constant, not the code under test; caught only because the
+  assertion happened to fail. (2) A per-tick replay reproducing production's
+  forecast origin scored ~100% agreement on a frame that was an hour short
+  throughout: `captured_at` is stamped minutes *into* the tick that records
+  it, and a drift record grades the *previous* tick's payload, so the two
+  bugs canceled each other; caught only because control BAs were designated
+  before any output was inspected. (3) `patch("data.redis_client.redis")`
+  was silently defeated by a function-local `import redis` inside the
+  patched function (a real DNS lookup, 4.5s per call), and
+  `monkeypatch.setattr(cache_mod, "CACHE_DB_PATH", ...)` was defeated by a
+  default bound at def time — 16 threads hit the real repo-root `cache.db`
+  instead. (4) The broader suite made 79 live calls per run to
+  `api.eia.gov`/`archive-api.open-meteo.com` because cache-first clients fell
+  through to the live API on a miss, so "mocked" tests asserted against
+  today's real grid data.
+- **Root cause:** A mock/patch that silently fails to intercept, or a
+  measurement built from two quantities that can drift and cancel, produces
+  output indistinguishable from a genuinely passing/agreeing check. Nothing
+  in the check's own design verified that the substitution took effect or
+  that the two measured quantities were independent — every catch here came
+  from an external signal (an unrelated assertion failing, a pre-designated
+  control group, anomalous timing/DB-write volume noticed during unrelated
+  profiling), never from the check itself.
+- **Prevention:** When a test relies on mocking/monkeypatching, assert the
+  substitution was exercised (call count, absence of real I/O) rather than
+  trusting the final assertion alone. For harnesses computing agreement
+  between two derived measures, include a control case designed to
+  disagree, checked before results are inspected.
+- **Status:** graduated → CLAUDE.md § Testing, "Verify a mock actually
+  intercepted" (2026-08-20).
+- **Related:** #547 (PR #555), PR #558, branch `perf/ci-hermetic-and-parallel`
+  (fixed by PR #586, per `git log`). Four Worklog lines consumed into this
+  entry (`test-validity`, `harness-agrees-for-the-wrong-reason`,
+  `mock-never-applied`, `test-hermeticity`). The specific instances are
+  already fixed in code; the rule generalizes the lesson for future tests.
+
+**2026-08-20 — The audit-staleness nudge's own date bug, and the close-keyword guard's own `ask`-in-permissive-mode gap [resolved, not graduated]**
+- **What happened:** Two Worklog entries documented bugs in this repo's own
+  mistake-logging enforcement, both already fixed and already narrated in
+  CLAUDE.md's text. (1) The SessionStart nudge compared entry dates against
+  the marker date and counted only entries strictly *after* it, so any
+  deposit made the same calendar day as an audit was permanently invisible —
+  fixed by switching the marker to an `entries-seen` count (PR #582). (2) The
+  close-keyword guard correctly returned a PreToolUse `ask` on a live
+  reference, and the command then ran with no prompt, because `ask` gates
+  nothing in permissive/auto-approving sessions — fixed by switching the
+  backticked case to `deny`, the one case decidable with certainty (PR #579).
+- **Root cause:** Both are instances of an enforcement mechanism silently not
+  doing what its own author assumed — one a same-day blind spot in date
+  comparison, the other a permission-mode gap between "the guard fired" and
+  "the guard stopped anything." Each was caught only because per-invocation
+  telemetry (`.claude/hook-activity.log`) distinguished "ran and had no
+  effect" from "never ran."
+- **Prevention:** Both fixes are mechanical and already shipped — the
+  `entries-seen` counter and the `deny`-for-backticked split — and CLAUDE.md
+  already narrates the mechanism and the reasoning in its "Where a rule is
+  fully mechanical" section, so no additional prose rule is needed here.
+- **Status:** resolved — enforced by PR #582 and PR #579; text already
+  present in CLAUDE.md. Archived without a new diff, per the rule that a
+  guard a fix already owns doesn't need a second, weaker prose copy.
+- **Related:** PR #582, PR #579, `.claude/hooks/guard-close-keywords.sh`.
 
 **2026-08-18 — A ref written for a PR that did not exist yet, in a file the close-keyword rule did not cover [reference-verification]**
 - **What happened:** A `MISTAKES.md` Worklog line cited `ref: PR #566` for a PR
@@ -212,6 +329,14 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   fact moves, `grep -rn '<old literal>' web/` in the same PR, because a
   stale published number is worse than a stale internal one.
 - **Related:** `docs/CANONICAL_FACTS.md`, `tests/unit/test_public_copy_traces_to_canonical_facts.py`.
+- **2026-08-20 addendum (3rd occurrence, rule strengthened):**
+  `docs/BACKTEST_RESULTS.md` republished its distribution table on
+  2026-08-07 but left a "~4.8% ensemble headline" restatement ~90 lines
+  below it *in the same file*, so the doc contradicted itself for 11 days
+  while the public pages sourced from it were already correct (PR #404).
+  The item-2 grep was scoped to `web/` only and would never have caught a
+  restatement stranded inside the source doc itself — broadened to
+  `grep -rn '<old literal>' web/ docs/` (CLAUDE.md, 2026-08-20).
 
 **2026-08-04 — Zero hard failures, two SIGKILLs: the circuit breaker was built for the wrong failure shape [reliability-timeout-budget]**
 - **What happened:** The scoring job burned ~800s and hit two SIGKILLs at
