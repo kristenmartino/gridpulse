@@ -135,6 +135,53 @@ class TestLandingContent:
             assert banned not in lowered, f"posture pin violated: {banned!r}"
 
 
+class TestEnsembleTradeIsStatedAndTraces:
+    """The page sells the daily retrain and the serve-path gate, so it must
+    also carry the cost the blend pays — /methodology publishes that the
+    served ensemble trails the best single model in aggregate, and a buyer
+    meeting that only after clicking through has been sold a different
+    product than the one measured.
+
+    Same inversion as test_methodology_page.py: when a retrain moves a
+    value, the assertion fails on the SOURCE side and names this page.
+    """
+
+    _DOCS = Path(__file__).resolve().parents[2] / "docs"
+
+    @pytest.fixture
+    def body(self, client) -> str:
+        return client.get("/about").get_data(as_text=True)
+
+    @pytest.mark.parametrize(
+        ("literal", "source"),
+        [
+            ("4.35%", "CANONICAL_FACTS.md"),  # served ensemble median
+            ("3.69%", "CANONICAL_FACTS.md"),  # best-base / XGBoost-alone median
+            ("21 of 51", "CANONICAL_FACTS.md"),  # BAs where the blend wins
+        ],
+    )
+    def test_figure_is_on_the_page_and_in_its_source(self, body, literal, source) -> None:
+        assert literal in body, f"{literal!r} missing from /about"
+        doc = (self._DOCS / source).read_text(encoding="utf-8")
+        assert literal in doc, (
+            f"{source} no longer contains {literal!r}, but web/landing.html "
+            f"still publishes it. Update the page, then this test."
+        )
+
+    def test_the_cost_is_stated_not_only_the_win(self, body) -> None:
+        """The unflattering half must survive a copy edit. Both numbers in
+        the same sentence is the point — the median alone reads as a win."""
+        assert "hedge, not a free win" in body
+        assert body.index("4.35%") < body.index("Data provenance")
+
+    def test_hero_chip_does_not_sell_the_blend_as_an_advantage(self, body) -> None:
+        """The chip used to read "3 models + ensemble", which a reader takes
+        as "more models, better forecast" — the opposite of what the holdout
+        says. It now claims the serve-path gate, which is measured."""
+        assert "3 models + ensemble" not in body
+        assert "gated on the real serve path" in body
+
+
 class TestAboutBenchmarkClaim:
     """/about carries one live benchmark sentence, server-rendered from the
     same allow-listed payload /benchmark renders from — never hardcoded in
