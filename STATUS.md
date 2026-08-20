@@ -52,7 +52,7 @@ itself is unchanged (20.7 vs 21.2 ms/BA). Six mutations, six kills.
 channels, not two: **A** origin *skip* 436 h (81.0%, unreachable — no
 re-proposal path exists), **B** origin *freeze* **91 h (16.9%, this PR)**, **C**
 unresolved actual 8 h (1.5%). So the prediction is concrete, not conditional:
-**≤ 91 records recovered fleet-wide, coverage 91.14% → 92.64%**, JEA moves ≤ 1
+**≤ 91 records recovered fleet-wide — 5,531 → 5,622 of 6,069, coverage 91.14% → 92.63%**, JEA moves ≤ 1
 hour, **41 BAs do not move at all** (channel B is ten BAs: LGEE 21, SPA 18,
 PSCO 16, LDWP/IID/AZPS 10 each, TIDC 3, PACE/SC/JEA 1). **If the median BA
 improves, that is falsification, not a win.** No target implies `n_7d = 168` —
