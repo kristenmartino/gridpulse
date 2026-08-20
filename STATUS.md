@@ -71,6 +71,41 @@ The line below is left as dated history; do not build on it.
 ---
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+the losing quarter is DIFFUSE. Nothing to carve out, and both pre-specified
+hypotheses were backwards. This line of inquiry is closed.**
+
+Pre-registered as **exploratory** before the cut existed — it re-cuts data that
+already produced a verdict, so nothing in it could turn the flag on. **20 cells
+examined, 0 flagged** against a bar of n ≥ 30, win rate < 50%, and a bootstrap
+interval excluding zero. ~1 false flag was expected by chance; none appeared.
+
+**H1 (long gaps hurt): wrong, and inverted.** On stratum B a 13–24h gap yields
+**+1.02** mean Δ against **+0.51** for a 1h gap — twice the benefit.
+
+**H2 (recent gaps hurt): wrong, and the clearest structure in the data runs the
+other way.** Stratum B falls monotonically as the gap moves away from the origin
+— **+1.143 / win 0.808** at 1–24h lead, down to **+0.488 / 0.702** at 73–168h.
+The fix helps most exactly where the defect bites hardest. Stratum A's 1–24h cell
+is the only sub-50% win rate anywhere (0.444) and has **n = 27**, below the
+pre-registered floor, with an interval spanning zero — and it is the one place
+the strata disagree in direction.
+
+**H3 (hour of day): flat.** B 0.683–0.783, A 0.542–0.649, no ordering.
+
+**PSCO does not rescue it.** Post-hoc, PSCO is genuinely anomalous
+(−0.462, win 0.361) — but stratum A **excluding PSCO** is still only **0.634**
+win rate against the 0.75 the policy requires. Removing the worst BA entirely
+does not ship. The consistency failure is not one bad BA, which closes the
+obvious escape route.
+
+**No confirmatory follow-up is warranted** — §5 reserved that for a coherent
+pattern in the *losing* direction, and the one coherent pattern found describes
+where the fix already works. **Evidence:**
+[`docs/POSITIONAL_LAG_LOSING_QUARTER.md`](docs/POSITIONAL_LAG_LOSING_QUARTER.md).
+
+---
+
+**2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 re-run: the policy fix worked, stratum A's sign flipped, and the hypothesis is
 STILL not confirmed — now for a different reason.**
 
