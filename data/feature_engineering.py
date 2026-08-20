@@ -441,6 +441,42 @@ def compute_temporal_autoregressive_snapshot(
     }
 
 
+def positional_seed_matches_hours(
+    seed_timestamps: Any, origin: pd.Timestamp, *, span: int = 168
+) -> bool:
+    """Whether positional indexing of the seed lands on the hours it intends to.
+
+    This is the exact condition under which the positional and temporal
+    recursions produce **byte-identical** forecasts, not a heuristic proxy for
+    it. Use it to decide whether comparing the two arms can tell you anything.
+
+    The recursion appends its own predictions at contiguous hours, so a lag that
+    reaches into the *predicted* part is always aligned. The only thing that can
+    misalign an index is a hole in the **seed's tail**. Every lag and rolling
+    window reaches at most ``span`` entries back, so it is enough that the last
+    ``span`` seed entries are contiguous hours ending at ``origin - 1h``.
+
+    Returns ``True`` when the arms cannot differ (nothing to compare), ``False``
+    when a hole inside the lookback means they will. Unknown or unusable input
+    returns ``False`` — "assume they differ" costs a redundant comparison, where
+    the opposite would silently drop a real observation.
+    """
+    try:
+        stamps = pd.to_datetime(pd.Series(list(seed_timestamps)), utc=True)
+        origin = pd.Timestamp(origin).tz_convert("UTC")
+    except (TypeError, ValueError):
+        return False
+    if len(stamps) < span:
+        return False
+    tail = stamps.iloc[-span:]
+    # Contiguous and ending where the forecast begins. Distinct sorted hours
+    # spanning exactly ``span - 1`` hours cannot have a hole in them.
+    return bool(
+        tail.iloc[-1] == origin - pd.Timedelta(hours=1)
+        and (tail.iloc[-1] - tail.iloc[0]) == pd.Timedelta(hours=span - 1)
+    )
+
+
 def _temporal_seed_history(
     seed_demand: Any, seed_timestamps: Any, *, extra_hours: int = 0
 ) -> "HourIndexedHistory | None":
@@ -471,6 +507,7 @@ def recursive_autoregressive_forecast(
     future_df: pd.DataFrame,
     predict_fn: Any,
     seed_timestamps: Any = None,
+    force_temporal: bool | None = None,
 ) -> np.ndarray:
     """Multi-step forecast that chains its own predictions as autoregressive lags.
 
@@ -508,9 +545,14 @@ def recursive_autoregressive_forecast(
     # runs unchanged and byte-identical.
     from config import feature_enabled
 
+    # ``force_temporal`` lets a caller pin the arm regardless of the flag — the
+    # #559 shadow needs the treatment arm while production still serves the
+    # control. None means "ask the flag", which is every production path.
+    use_temporal = feature_enabled("temporal_ar_seed") if force_temporal is None else force_temporal
+
     temporal_history: HourIndexedHistory | None = None
     step_stamps: list[pd.Timestamp] | None = None
-    if feature_enabled("temporal_ar_seed"):
+    if use_temporal:
         step_stamps = _future_step_timestamps(future_df)
         temporal_history = _temporal_seed_history(
             seed_demand, seed_timestamps, extra_hours=len(future_df) + 1

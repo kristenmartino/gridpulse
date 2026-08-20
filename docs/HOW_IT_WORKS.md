@@ -236,7 +236,15 @@ origin: the recursion is seeded with that same feature frame, and
 `compute_autoregressive_snapshot` indexes the seed **by position**, so
 `demand_lag_168h` reads 168 *surviving rows* back rather than 168 hours back. On
 LGEE at a live origin that was 34 hours off, with `demand_roll_168h_*` spanning
-201 real hours instead of 167. A timestamp-resolved seed is implemented behind
+201 real hours instead of 167. A second, observation-only arm runs beside the served one behind
+`temporal_ar_seed_shadow` (also default off), writing
+`gridpulse:seed_shadow:{region}` — never into the served payload, since the
+drift primitives treat every numeric key in a forecast row as a model. It is
+gated to the BAs where the two seed conventions can actually differ (3 of 51 on
+2026-08-20) and hard-capped at `SEED_SHADOW_MAX_REGIONS_PER_TICK`, because
+work-shedding is whole-BA and an unbounded enrichment would buy shadow data with
+other regions' forecasts. One region per hour that the gate calls identical is
+shadowed anyway, as a live check that the gate is still deciding. A timestamp-resolved seed is implemented behind
 the `temporal_ar_seed` flag, **default off**: the defect is real, but a replay
 A/B could not show an accuracy benefit to fixing it (inconclusive at 168h and
 48h — `docs/POSITIONAL_LAG_SEED_STUDY.md`), so it ships dark pending a shadow

@@ -1186,6 +1186,19 @@ BENCHMARK_DF_GAP_WARN_HOURS = float(os.getenv("BENCHMARK_DF_GAP_WARN_HOURS", "12
 SCORING_SOFT_DEADLINE_FRACTION = float(os.getenv("SCORING_SOFT_DEADLINE_FRACTION", "0.85"))
 # How long a shedding run waits for BAs already in flight before giving up on
 # them. They are mid-write, so abandoning them is worse than waiting a little.
+#: #559 seed shadow: hard ceiling on how many BAs may run a SECOND XGBoost
+#: recursion in one tick. The gate is data-dependent -- 3 of 51 on 2026-08-20,
+#: but a bad EIA day could admit all 51 (~+380 CPU-s). The shadow runs after the
+#: served payload persists, so it cannot lose the forecast for its own BA; what
+#: it CAN do is push the run past SCORING_SOFT_DEADLINE_FRACTION and get later
+#: BAs shed entirely. Shedding real forecasts to buy shadow data is backwards,
+#: and shedding is whole-BA -- there is no per-enrichment shed. So the cost is
+#: capped rather than merely gated, per CLAUDE.md's "bound what one run can
+#: cost". 12 is ~4x the observed population and ~1/4 of the ungated worst case.
+#: Regions run concurrently in one process, so the counter is module-level and
+#: resets every fresh job process -- the same shape as _EIACircuitBreaker.
+SEED_SHADOW_MAX_REGIONS_PER_TICK: int = int(os.getenv("SEED_SHADOW_MAX_REGIONS_PER_TICK", "12"))
+
 SCORING_DEADLINE_GRACE_S = float(os.getenv("SCORING_DEADLINE_GRACE_S", "120"))
 
 # ---------------------------------------------------------------------------
@@ -1413,6 +1426,21 @@ FEATURE_FLAGS: dict[str, bool] = {
     # rather than moving published numbers on an underpowered result. Fail-open:
     # without seed timestamps the positional path runs unchanged, byte-identical.
     "temporal_ar_seed": False,
+    # #559 shadow: compute the temporal-seed arm alongside the served positional
+    # one and record both for later grading, WITHOUT serving it. Gated per BA
+    # per tick by whether the two can differ at all (a hole inside the 168h
+    # lookback), so cost tracks the real defect -- 3 of 51 BAs on 2026-08-20,
+    # about 3 CPU-seconds -- plus one rotating BA that SHOULD be identical, as a
+    # live check that the gate is still deciding rather than silently skipping
+    # everything. Independent of ``temporal_ar_seed``: this one only observes.
+    #
+    # Exists because the offline A/B could not settle accuracy and cannot be
+    # made to: at the natural gap-accrual rate a decisive verdict is 1.2-6.6
+    # years away (docs/POSITIONAL_LAG_SEED_STUDY.md). So this is a pre-rollout
+    # SAFETY instrument -- does the temporal path run clean in production, what
+    # does it really cost, does divergence match the offline 2.1-2.7% -- not the
+    # thing that decides the flag.
+    "temporal_ar_seed_shadow": False,
     # ADR-011 (#332): NBM-composite forecast weather. Shipped dark in PR A,
     # flipped ON 2026-07-22 after the deploy verified. Measured basis:
     # +0.921 sMAPE pts paired through the real serve path (AZPS +3.70,

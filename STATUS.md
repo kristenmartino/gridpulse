@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-08-18
+# Status — updated 2026-08-20
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,52 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+seed shadow built and shipped DARK. It is a safety instrument, not the thing
+that decides the flag — and that distinction is the finding.**
+
+`temporal_ar_seed` is off because the offline replay was inconclusive at both
+horizons. The natural next step is a production shadow, so it exists now — but
+**it cannot settle accuracy either, and the arithmetic says so up front.** The
+defect only yields an observation when a gap occurs: at the observed accrual a
+verdict is **1.2 years** (48h windows) to **6.6 years** (168h) away. More
+production time does not fix that. `scripts/seed_shadow_eval.py` prints its own
+MDE and the implied wait beside every comparison so it cannot be read as a
+verdict.
+
+**What the shadow does answer**, and no offline replay can: does the temporal
+path run clean against real production frames, what the second recursion costs
+live, and whether live divergence matches the 2.1-2.7% the replay predicted.
+
+**Gated on the exact divergence condition, not a proxy.**
+`positional_seed_matches_hours` asks whether the last 168 seed entries are
+contiguous hours ending at `origin - 1h` — the precise condition under which the
+two arms are byte-identical. **3 of 51 BAs on 2026-08-20** (~3 CPU-seconds);
+ungated it would be ~+380 CPU-s on a job whose worst recent tick used 1155s of
+1800s. Membership is recomputed per tick and moves fast: LGEE alone on 08-18,
+LGEE/SPA/TIDC on 08-20.
+
+**Capped, not just gated** at `SEED_SHADOW_MAX_REGIONS_PER_TICK` (12): shedding
+is whole-BA, so an unbounded enrichment would buy shadow data with later
+regions' forecasts (CLAUDE.md #389, "bound what one run can cost").
+
+**The gate audits itself.** One region per hour that the gate calls identical is
+shadowed anyway, asserting zero divergence — because a gate that silently
+skipped everything would look exactly like a fleet with no gaps, which is the
+failure mode #584 found in the parity fixture. A nonzero audit divergence is an
+alarm about the gate, not a finding about the seed.
+
+Verified end to end on real LGEE data (origin `2026-08-20T12:00Z`): gate said
+diverges, second arm ran, **divergence 2.82%** — consistent with the replay, and
+higher than the 34h-era figure because LGEE was **+50h** out that day.
+
+**Blocked on:** nothing in code. Needs a deploy, then
+`temporal_ar_seed_shadow: True` and a second deploy — flags have no env
+override. **Next:** the accuracy verdict comes from synthetic gap injection
+offline, not from waiting on this.
+
+---
 
 **2026-08-18 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 MEASURED: the positional AR seed reads the wrong hour, and fixing it buys no

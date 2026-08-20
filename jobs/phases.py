@@ -26,6 +26,7 @@ Design:
 from __future__ import annotations
 
 import json
+import threading
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,6 +38,7 @@ import numpy as np
 import pandas as pd
 import structlog
 
+import config
 from config import (
     EIA_API_KEY,
     PRECOMPUTE_MAX_WORKERS,
@@ -1254,6 +1256,7 @@ def _predict_xgboost_with_recursive_autoregressive(
     future_df: pd.DataFrame,
     horizon: int,
     recursive_hours: int = RECURSIVE_AUTOREGRESSIVE_HOURS,
+    force_temporal: bool | None = None,
 ) -> np.ndarray:
     """XGBoost prediction with recursive autoregressive features for hours 1..N.
 
@@ -1292,6 +1295,7 @@ def _predict_xgboost_with_recursive_autoregressive(
         future_df.iloc[:n_recursive],
         predict_xgboost,
         seed_timestamps=featured.get("timestamp"),
+        force_temporal=force_temporal,
     )
 
     if horizon <= n_recursive:
@@ -1876,6 +1880,251 @@ def _write_shadow_weights(
         return False
 
 
+#: #559: how many BAs have already run a second recursion this tick. Regions are
+#: scored concurrently in one process, so this is module-level and guarded; it
+#: resets naturally because every tick is a fresh job process, exactly like
+#: ``data.eia_client._EIACircuitBreaker``. ``reset`` exists for tests.
+_seed_shadow_budget_lock = threading.Lock()
+_seed_shadow_spent = 0
+
+
+def _claim_seed_shadow_budget() -> bool:
+    """Take one slot of this tick's second-recursion budget, or decline.
+
+    Capping rather than only gating, per CLAUDE.md's "bound what ONE RUN can
+    cost". The gate is data-dependent and could admit the whole fleet on a bad
+    EIA day; shedding is whole-BA, so an unbounded enrichment buys shadow data
+    with other regions' forecasts.
+    """
+    global _seed_shadow_spent
+    with _seed_shadow_budget_lock:
+        if _seed_shadow_spent >= config.SEED_SHADOW_MAX_REGIONS_PER_TICK:
+            return False
+        _seed_shadow_spent += 1
+        return True
+
+
+def reset_seed_shadow_budget() -> None:
+    """Reset the per-tick budget. For tests and explicit run boundaries."""
+    global _seed_shadow_spent
+    with _seed_shadow_budget_lock:
+        _seed_shadow_spent = 0
+
+
+def _is_seed_shadow_audit_region(region: str, origin: pd.Timestamp) -> bool:
+    """Pick one region per hour to shadow even though it should be identical.
+
+    The gate below skips any BA whose seed has no hole, on the grounds that the
+    two arms are then byte-identical. That is a *claim*, and a gate that quietly
+    starts skipping everything is indistinguishable from one that is working —
+    the "configured and inert" pattern this project keeps rediscovering, most
+    recently the parity fixture that agreed by construction (#559).
+
+    So one region per tick is shadowed against the prediction that it will NOT
+    diverge, and a nonzero divergence there is an alarm about the gate rather
+    than a finding about the seed. Chosen by clock arithmetic rather than at
+    random so it is reproducible from the log line alone, and so each region
+    comes round about every two days without any cross-region coordination —
+    regions are scored concurrently and cannot see each other's choices.
+    """
+    import config
+
+    regions = sorted(config.REGION_COORDINATES)
+    if region not in regions:
+        return False
+    hours = int(pd.Timestamp(origin).value // 3_600_000_000_000)
+    return regions.index(region) == hours % len(regions)
+
+
+def _write_seed_shadow(
+    *,
+    region: str,
+    model: Any,
+    featured: pd.DataFrame,
+    future_df: pd.DataFrame,
+    horizon: int,
+    forecast_start: pd.Timestamp,
+    served_preds: Any,
+    rows: list[dict],
+    demand_df: pd.DataFrame | None,
+    xgboost_weight: float | None,
+) -> bool:
+    """#559: record the temporal-seed arm beside the served positional one.
+
+    Observation only — the shadow series is written to its own key and **never**
+    into ``redis_payload``, for the reason spelled out at the call site: the
+    drift primitives treat every numeric key in a forecast row as a model, so a
+    shadow series added there would silently acquire drift records and a place
+    in the published rolling MAPE.
+
+    Two arms, one difference: both are XGBoost through the same recursion on the
+    same frame, and only the seed indexing moves. That keeps this commensurable
+    with the offline replay in ``docs/POSITIONAL_LAG_SEED_STUDY.md``, which
+    compared the same two things. The served *headline* is the ensemble, but its
+    delta is exactly ``xgboost_weight × delta_xgboost`` because the blend is a
+    weighted sum, so the weight is recorded rather than a third arm computed.
+
+    **This does not decide the flag and cannot.** At the natural rate gaps
+    occur, a decisive accuracy verdict is 1.2-6.6 years away. It is here to
+    answer the questions that *are* answerable before a rollout: does the
+    temporal path run clean against real production frames, what does it
+    actually cost, and does its divergence match the 2.1-2.7% the offline replay
+    predicted.
+    """
+    from config import feature_enabled
+
+    if not feature_enabled("temporal_ar_seed_shadow"):
+        return False
+
+    try:
+        from data.feature_engineering import positional_seed_matches_hours
+        from data.redis_client import persist, redis_get, redis_key
+        from models.drift import build_records_from_actuals
+        from models.shadow_eval import regrade_records as regrade_shadow_records
+
+        key = redis_key(f"seed_shadow:{region}")
+        previous = redis_get(key)
+        previous = previous if isinstance(previous, dict) else None
+
+        seed_ts = featured.get("timestamp")
+        identical = positional_seed_matches_hours(seed_ts, forecast_start)
+        audit = identical and _is_seed_shadow_audit_region(region, forecast_start)
+
+        shadow_preds: Any = None
+        divergence_pct: float | None = None
+        wanted = (not identical) or audit
+        # Out of this tick's budget is recorded, never silent: a missing
+        # observation that reads as "no gap" would bias the sample toward
+        # quiet ticks.
+        budget_declined = wanted and not _claim_seed_shadow_budget()
+        if budget_declined:
+            log.info("seed_shadow_budget_exhausted", region=region)
+        if wanted and not budget_declined:
+            shadow_preds = _predict_xgboost_with_recursive_autoregressive(
+                model, featured, future_df, horizon, force_temporal=True
+            )
+            served = np.asarray(served_preds, dtype=float)[: len(shadow_preds)]
+            shadow = np.asarray(shadow_preds, dtype=float)[: len(served)]
+            ok = np.isfinite(served) & np.isfinite(shadow)
+            denom = float(np.abs(served[ok]).sum())
+            divergence_pct = (
+                float(100 * np.abs(shadow[ok] - served[ok]).sum() / denom) if denom else None
+            )
+            if audit:
+                # The gate said these arms cannot differ. If they do, the gate is
+                # wrong and every BA it skipped is an unrecorded observation.
+                if divergence_pct:
+                    log.warning(
+                        "seed_shadow_audit_diverged",
+                        region=region,
+                        divergence_pct=round(divergence_pct, 6),
+                        origin=forecast_start.isoformat(),
+                    )
+                else:
+                    log.info("seed_shadow_audit_ok", region=region)
+
+        # Grade the PREVIOUS payload whether or not a new arm was computed —
+        # actuals land continuously, and skipping this on a quiet tick would
+        # leave records permanently unresolved.
+        records = list((previous or {}).get("records") or [])
+        if previous is not None and demand_df is not None and not demand_df.empty:
+            try:
+                df = demand_df.copy()
+                df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+                df = df.dropna(subset=["demand_mw"])
+                actuals = {
+                    r["timestamp"].isoformat(): float(r["demand_mw"])
+                    for _, r in df.iterrows()
+                    if np.isfinite(r["demand_mw"]) and float(r["demand_mw"]) > 0
+                }
+                # Settled-grade the window (#541). A record froze ``actual`` at
+                # the tick that created it — a preliminary EIA value that is
+                # 15-70% wrong on high-revision BAs. IID read +86.49% bias
+                # against drift's +2.8% on byte-identical predictions for
+                # exactly this reason. Re-running is a no-op, so a corrupt
+                # window self-heals rather than needing a migration.
+                records, regrade_stats = regrade_shadow_records(records, actuals)
+                if regrade_stats.get("n_regraded"):
+                    log.info("seed_shadow_regraded", region=region, **regrade_stats)
+
+                graded = build_records_from_actuals(previous, actuals)
+                if graded:
+                    entry: dict[str, Any] = {"lead_hours": None}
+                    for arm in ("served", "shadow"):
+                        rec = graded.get(arm)
+                        if rec is None:
+                            # All arms or none: a record with one side missing
+                            # would bias whichever arm survived.
+                            entry = {}
+                            break
+                        entry["timestamp"] = rec.timestamp
+                        entry["actual"] = rec.actual
+                        entry["lead_hours"] = rec.lead_hours
+                        entry[f"{arm}_predicted"] = rec.predicted
+                    if entry:
+                        records.append(entry)
+            except Exception as exc:  # pragma: no cover — grading is advisory
+                log.warning("seed_shadow_grade_failed", region=region, error=str(exc))
+
+        forecasts: list[dict] = []
+        if shadow_preds is not None:
+            served = np.asarray(served_preds, dtype=float)
+            forecasts = [
+                {
+                    "timestamp": row["timestamp"],
+                    "served": float(served[i]),
+                    "shadow": float(shadow_preds[i]),
+                }
+                for i, row in enumerate(rows)
+                if i < len(shadow_preds)
+                and i < len(served)
+                and np.isfinite(served[i])
+                and np.isfinite(shadow_preds[i])
+            ]
+
+        payload = {
+            "region": region,
+            "scored_at": datetime.now(UTC).isoformat(),
+            "origin": forecast_start.isoformat(),
+            "arms": {"served": "positional_seed", "shadow": "temporal_seed"},
+            # Why this tick did or did not compute a second arm. Without it a
+            # quiet key is ambiguous between "no gaps" and "not running".
+            "gate": "identical" if identical else "diverges",
+            "audited": bool(audit),
+            "computed": shadow_preds is not None,
+            "budget_declined": budget_declined,
+            "divergence_pct": round(divergence_pct, 6) if divergence_pct is not None else None,
+            # The served headline is the ensemble; its delta is this weight
+            # times the XGBoost delta, because the blend is a weighted sum.
+            "xgboost_weight": round(xgboost_weight, 4) if xgboost_weight is not None else None,
+            "forecasts": forecasts,
+            "records": records[-_SHADOW_MAX_RECORDS:],
+        }
+        # Keep the previous forecast rows when this tick computed nothing, so
+        # the next tick still has something to grade against.
+        if not forecasts and previous is not None:
+            payload["forecasts"] = list(previous.get("forecasts") or [])
+
+        persist(key, payload, ttl=REDIS_TTL)
+        # Log the success path, not only the skips: the absence of a warning
+        # across 51 BAs is indistinguishable from the phase never running.
+        log.info(
+            "seed_shadow_written",
+            region=region,
+            gate=payload["gate"],
+            audited=payload["audited"],
+            computed=payload["computed"],
+            budget_declined=budget_declined,
+            divergence_pct=payload["divergence_pct"],
+            n_records=len(payload["records"]),
+            n_forecast_rows=len(payload["forecasts"]),
+        )
+        return True
+    except Exception as exc:  # pragma: no cover — enrichment, never fatal
+        log.warning("seed_shadow_failed", region=region, error=str(exc))
+        return False
+
+
 def predict_and_write_forecast(
     data: RegionData,
     models: dict[str, Any] | None,
@@ -2279,6 +2528,34 @@ def predict_and_write_forecast(
                 )
         except Exception as exc:  # pragma: no cover — belt and braces
             log.warning("shadow_weights_call_failed", region=region, error=str(exc))
+
+        # #559: the seed shadow. Unlike the weights shadow above, this one runs
+        # a SECOND XGBoost recursion, so it is gated to the BAs where the two
+        # seed conventions can actually differ — a hole inside the 168h lookback
+        # — plus one rotating BA that should be identical, as a live check that
+        # the gate is still deciding. On 2026-08-20 that was 3 of 51 BAs, about
+        # 3 CPU-seconds; ungated it would be roughly +380 CPU-s on a job whose
+        # worst recent tick used 1155s of its 1800s budget.
+        #
+        # Same call-site guard as above and for the same reason: the forecast is
+        # already in Redis, and an exception escaping here would report a scored
+        # region as failed (#268 inverted).
+        try:
+            with substep("seed_shadow"):
+                _write_seed_shadow(
+                    region=region,
+                    model=(models or {}).get("xgboost"),
+                    featured=featured,
+                    future_df=future_df,
+                    horizon=FORECAST_HORIZON_HOURS,
+                    forecast_start=forecast_start,
+                    served_preds=predictions_by_model.get("xgboost"),
+                    rows=fl,
+                    demand_df=data.demand_df,
+                    xgboost_weight=(ensemble_weights or {}).get("xgboost"),
+                )
+        except Exception as exc:  # pragma: no cover — belt and braces
+            log.warning("seed_shadow_call_failed", region=region, error=str(exc))
 
         # #127: the what-if grid. Computed HERE rather than as its own phase
         # because it needs `future_df`, and rebuilding that costs ~4.3s/BA —

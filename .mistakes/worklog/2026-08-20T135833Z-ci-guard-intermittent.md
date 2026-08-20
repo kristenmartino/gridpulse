@@ -1,0 +1,1 @@
+2026-08-20 [ci-guard-intermittent] CI's "Confirm the toolchain came from the venv" step fails intermittently on main with sys.prefix pointing at the hosted toolchain instead of .venv — 2 of the last 6 main runs (808bc036, af04d7cf), and once on a PR that passed on rerun with no change. — ref: run 32376604360 / PR #597
