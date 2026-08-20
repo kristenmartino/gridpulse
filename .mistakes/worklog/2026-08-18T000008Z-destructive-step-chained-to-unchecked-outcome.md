@@ -1,1 +1,0 @@
-2026-08-18 [destructive-step-chained-to-unchecked-outcome] Ran `gh pr merge 567` and the head-branch delete in one command without gating the delete on the merge result; the merge failed on a fresh conflict and the delete then closed the PR. Recovered from the intact local branch. — ref: PR #567

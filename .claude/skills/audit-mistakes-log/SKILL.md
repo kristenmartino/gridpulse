@@ -21,24 +21,18 @@ skill.
 
 ## Step 1 — read the whole archive
 
-Two places, and you are the only thing that reads both:
+Read `MISTAKES.md` in full: the `## Worklog (undecided candidates)` section
+and the `## Analyzed` section (its pattern tally + entries). This is the one
+skill that's supposed to load the whole file — everywhere else in this
+system it stays on disk unread.
 
-```bash
-cat .mistakes/worklog/2026-*.md     # pending candidates, one file each
-cat .mistakes/last-audit            # when a pass last ran (may not exist)
-```
-
-plus `MISTAKES.md` in full — the `## Analyzed` section and its pattern
-tally. Everywhere else in this system these stay on disk unread; loading
-them is this skill's job precisely because it is the pass that can afford to.
-
-`.mistakes/last-audit` holds a UTC timestamp. Deposits carry one in their
-filename, so anything lexically greater arrived after the last pass; the
-rest were seen before, whatever was decided about them. Read **all** of
-them regardless — a pattern usually only becomes visible when a new
-deposit joins old ones — but knowing which are new is what keeps you from
-re-litigating decisions someone already made. **You are responsible for
-stamping that file — see Step 7.**
+Note the `<!-- audited-through: YYYY-MM-DD | entries-seen: N -->` marker in
+the Worklog. Its **`entries-seen` count, not its date**, marks the boundary:
+entries are newest-first, so the oldest `N` have been seen by a previous
+pass — whatever it decided about them — and anything beyond that arrived
+since. You still read everything (a pattern often only becomes visible once
+a new entry joins old ones), but `N` is what tells you which candidates are
+genuinely new. **You are responsible for rewriting it — see Step 7.**
 
 ## Step 2 — tally by root cause, not by tag
 
@@ -123,30 +117,33 @@ in what PR if you can find it) that makes it stale. Don't silently remove
 it — that's still a CLAUDE.md edit, subject to the same approval as adding
 one.
 
-## Step 7 — stamp the last-audit file, always
+## Step 7 — rewrite the audited-through marker, always
 
-```bash
-date -u +%Y-%m-%dT%H%M%SZ > .mistakes/last-audit
+Set both fields before you finish:
+
 ```
+<!-- audited-through: YYYY-MM-DD | entries-seen: N -->
+```
+
+`N` is **the number of Worklog entries left standing when you finish** —
+count them after any promotions have removed theirs, not before. The date is
+for humans; `entries-seen` is what the SessionStart nudge actually reads, and
+it treats anything beyond `N` as arrived-since. Getting `N` wrong in either
+direction is the whole failure mode: too high and genuinely new candidates
+stay invisible, too low and the nudge repeats a decision you already made.
 
 Do this on **every** run, including — especially — the run where nothing
 crossed the bar and you promoted nothing. It is not bookkeeping; it is the
-only way "I looked at these and they can wait" gets recorded. Leave it
-stale and the nudge repeats your own decision back at you every session
-until you stop reading it, which is how a reminder system dies.
+only way "I looked at these and they can wait" gets recorded. Leave it stale
+and the nudge repeats your own decision back at you every session until you
+stop reading it, which is how a reminder system dies. Advancing it after
+promoting nothing is safe: the entries stay in the Worklog and a later pass
+reconsiders them the moment a new one joins the pattern.
 
-Delete the deposit files you consumed — anything whose content you moved
-into an Analyzed entry. Deposits are pending items, not the archive;
-`MISTAKES.md` is where things live permanently, which is why entries there
-are never deleted on graduation. Candidates you looked at and deferred stay
-in the directory: the timestamp comparison, not their presence, is what
-keeps them quiet.
-
-Two earlier designs got this wrong and are worth not reinventing. A marker
-holding a **date** ignored every deposit made on the same day as an audit,
-permanently. Replacing it with a hand-maintained **count** worked but had to
-be kept truthful by hand, and nothing could detect a miscount. A timestamp
-compared against timestamps needs neither.
+Count rather than date because entries carry no time of day. The first
+version compared dates, so every deposit made on the same day as an audit
+was invisible to the nudge permanently — and on this repo most deposits land
+the same day as something else.
 
 ## Step 8 — is enforcement actually running?
 
@@ -179,6 +176,6 @@ A short report: tally counts and any category-count changes, zero or more
 drafted promotions (each with its Analyzed entry text and CLAUDE.md diff),
 zero or more flagged-as-possibly-stale existing rules, the enforcement-health
 line from Step 8, and a clear statement of what still needs the human's
-yes/no. `.mistakes/last-audit` should always come out of this freshly
-stamped `.mistakes/last-audit`, and may have updated tally numbers, even if nothing
+yes/no. `MISTAKES.md` should always come out of this with an advanced
+audited-through marker (date AND entries-seen), and may have updated tally numbers, even if nothing
 graduated this pass — that's still useful output.

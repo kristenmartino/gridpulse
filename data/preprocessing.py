@@ -19,6 +19,27 @@ log = structlog.get_logger()
 MAX_INTERPOLATION_GAP_HOURS = 6
 
 
+def frame_region(df: pd.DataFrame) -> str | None:
+    """Best-effort region label off a frame, for log correlation only.
+
+    The demand frame carries a ``region`` column (``data/eia_client.py``), and
+    every frame these two log sites see is derived from it — so the label is
+    available without threading an argument through call sites that never needed
+    one.
+
+    Returns ``None`` rather than raising on an absent column, an empty frame, or
+    the typed-empty frame's ``""`` placeholder. These are log lines: a log line
+    must never be the thing that fails a scoring tick.
+    """
+    if df is None or "region" not in df.columns or df.empty:
+        return None
+    values = df["region"].dropna()
+    if values.empty:
+        return None
+    label = str(values.iloc[0]).strip()
+    return label or None
+
+
 def merge_demand_weather(
     demand_df: pd.DataFrame,
     weather_df: pd.DataFrame,
@@ -56,6 +77,10 @@ def merge_demand_weather(
 
     log.info(
         "data_merged",
+        # #537: this line and ``feature_engineering_complete`` carried no region,
+        # so correlating either to a BA meant routing through the drift log a
+        # tick later. Both frames already know which BA they are.
+        region=frame_region(demand_df),
         demand_rows=len(demand_df),
         weather_rows=len(weather_df),
         merged_rows=len(merged),
