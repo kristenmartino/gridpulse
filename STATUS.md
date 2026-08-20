@@ -20,6 +20,49 @@ follow-up commit.
 ## Active focus + open question
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+the injection study says NOT CONFIRMED, and found a defect in the fix itself.**
+
+Pre-registered, run, and the hypothesis (temporal seed lowers WAPE on gapped
+origins) **fails criterion 1**. Null control exact across six BAs
+(`max|diff| = 0.0000000000`), so the harness is sound.
+
+| stratum | n | mean Δ WAPE | median | MDE | consistency | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| **A** naturally gapped | 249 | **−0.265** | +0.067 | 0.327 | 0.478 | not decisive |
+| **B** never gapped | 432 | **+0.187** | +0.187 | 0.180 | 0.641 | not decisive |
+
+A is outlier-dominated (mean and median disagree in sign) and **fails
+satisficing on bias, −3.14% against ±2.0%**. B clears magnitude and satisfices
+but wins only 64% of windows against 75% required. B's +0.187 replicates the
+observational study's +0.181 from disjoint data — the mechanism is real; the
+decision does not follow.
+
+**The reason A runs backwards is a defect in the treatment arm, not in temporal
+indexing.** `compute_temporal_autoregressive_snapshot` returns NaN for an absent
+hour — correct, and the point of the fix — but the shared `row.fillna(0)` then
+hands the model `demand_lag_24h = 0 MW`, the #129 poison the seed filter exists
+to exclude. The positional arm never does this: its history always has ≥168
+entries, so it feeds a plausible value from the wrong hour. Measured:
+**13.08% of treatment steps zero-fill a lag on stratum B, rising to 22.57% on
+IID** — whose −1.47 WAPE is the worst per-BA regression. So the run compared
+temporal-indexing-**plus-zero-fill** against positional indexing, which is not
+the hypothesis. This is §4.4 of the observational study, recorded as a limit and
+left unmeasured; it is measured now.
+
+**Decisions:** the flag stays **off**. The absent-hour policy must be *decided*
+(carry-forward / interpolate / positional fallback for that lag), not inherited,
+and pinned by a test. Re-running with a changed treatment arm requires a **new
+pre-registration** — the stopping rule here was one run. **Evidence:**
+[`docs/POSITIONAL_LAG_INJECTION_STUDY.md`](docs/POSITIONAL_LAG_INJECTION_STUDY.md).
+
+**Open:** [#597](https://github.com/kristenmartino/gridpulse/pull/597) (seed
+shadow) forces the same treatment arm, so it would record the defect too. Still
+worth landing — gated, capped, off — but its arm needs the policy fix before its
+output reads as evidence about temporal indexing.
+
+---
+
+**2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 seed shadow built and shipped DARK. It is a safety instrument, not the thing
 that decides the flag — and that distinction is the finding.**
 
