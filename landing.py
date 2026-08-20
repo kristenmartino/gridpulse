@@ -296,6 +296,43 @@ def _spread_ratio(rows: list[dict], arm: str) -> float | None:
     return round(max(vals) / min(vals), 1)
 
 
+def _metric_robustness(rows: list[dict], we_lead: bool) -> str:
+    """One derived sentence: does the fleet verdict survive re-scoring on the
+    other two published statistics (median APE, WAPE)?
+
+    Recomputed the same way the headline is — median across operators of each
+    one's per-BA value. "The same" is only claimed when BOTH statistics are
+    computable and agree with the mean-MAPE direction; a flip is named rather
+    than hidden. Empty string when neither can be computed.
+    """
+    import statistics
+
+    same, flips = [], []
+    for name, key in (("median APE", "median_ape"), ("WAPE", "wape")):
+        arm_medians = []
+        for arm in ("gridpulse", "official"):
+            vals = [
+                v
+                for row in rows
+                for v in [(row.get(arm) or {}).get(key)]
+                if isinstance(v, (int, float)) and not isinstance(v, bool)
+            ]
+            arm_medians.append(statistics.median(vals) if len(vals) >= 2 else None)
+        ours, theirs = arm_medians
+        if ours is None or theirs is None or ours == theirs:
+            continue
+        (same if (ours < theirs) == we_lead else flips).append(name)
+    if len(same) == 2:
+        return " Re-scored on median APE or WAPE instead, the verdict is the same."
+    if flips:
+        return (
+            " Re-scored on "
+            + " or ".join(flips)
+            + " the verdict flips — every statistic is published per row."
+        )
+    return ""
+
+
 def _render_benchmark_summary(payload: dict) -> str:
     """Server-rendered summary: fleet tiles, the verdict, and a plain table.
 
@@ -351,7 +388,8 @@ def _render_benchmark_summary(payload: dict) -> str:
                 f"{theirs_spread}× from best operator to worst, against our "
                 f"{ours_spread}×."
             )
-        verdict = f"{shape}{steadier} {tally}"
+        robustness = _metric_robustness(rows, we_lead=ours < theirs)
+        verdict = f"{shape}{steadier} {tally}{robustness}"
     else:
         verdict = "Fleet aggregation is still accumulating."
 

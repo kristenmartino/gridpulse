@@ -1003,6 +1003,27 @@
         );
       }
 
+      /* 4 — metric-robustness, derived like everything else: recompute the
+         fleet-median direction under the other two published statistics.
+         "The same" is only claimed when BOTH are computable and agree; a
+         flip is named rather than hidden. */
+      var same = [], flips = [];
+      [['median APE', 'median_ape'], ['WAPE', 'wape']].forEach(function (pair) {
+        function armMedian(arm) {
+          return median(rows.map(function (r) { return (head(data, r)[arm] || {})[pair[1]]; })
+            .filter(function (v) { return typeof v === 'number' && isFinite(v); }));
+        }
+        var o = armMedian('gridpulse'), t = armMedian('official');
+        if (o === null || t === null || o === t) { return; }
+        ((o < t) === weLead ? same : flips).push(pair[0]);
+      });
+      if (same.length === 2) {
+        parts.push('Re-scored on median APE or WAPE instead, the verdict is the same.');
+      } else if (flips.length) {
+        parts.push('Re-scored on ' + flips.join(' or ') + ' the verdict flips — ' +
+          'every statistic is published per row.');
+      }
+
       el.textContent = parts.join(' ');
       el.hidden = false;
     }
