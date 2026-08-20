@@ -824,6 +824,11 @@ def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
         # measured directly, and gates nothing.
         "df_stale_hours": payload.get("df_stale_hours"),
         "df_last_published_at": payload.get("df_last_published_at"),
+        # #587: the gate compares `df_longest_gap_hours`, not `df_stale_hours`.
+        # They differ exactly when a feed came back and the hole it left is
+        # still inside the window — the case a trailing-edge gate could not see.
+        "df_longest_gap_hours": payload.get("df_longest_gap_hours"),
+        "df_longest_gap_end": payload.get("df_longest_gap_end"),
         "n_absent_hours": payload.get("n_absent_hours"),
         "absent_hours_bias_pct": payload.get("absent_hours_bias_pct"),
         "placeholder_pct": payload.get("placeholder_pct"),

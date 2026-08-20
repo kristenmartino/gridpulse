@@ -90,15 +90,18 @@ import numpy as np
 #: exclusion sentences quote.
 MIN_DF_COVERAGE = 0.80
 
-#: How stale a BA's most recent day-ahead forecast may be before we stop
-#: scoring it. This is the gate that replaced the coverage threshold (#549).
+#: The longest stretch of the window a BA's day-ahead forecast may be missing
+#: for before we stop scoring it. The gate that replaced the coverage
+#: threshold (#549), measured over the whole window rather than only its
+#: trailing edge since #587 — see :func:`_df_gaps`.
 #:
 #: Fitted to the fleet, not chosen: measured 2026-08-18 over the live 719-hour
-#: window, hours since each BA's newest published DF were **SPP 341**, TEC 30,
-#: and **every other BA <= 6**. 168h sits 11x above the live fleet's worst and
-#: 2x below the one dead feed, so neither side is near it. It is also the
-#: repo's existing week unit (``rolling_eval`` windows, the drift 7-day span).
-MAX_DF_STALENESS_HOURS = 168.0
+#: window, the longest DF gap per BA was **SPP 345**, LDWP 48, WALC 48, TEC 30,
+#: and every remaining BA at most 24. 168h sits 3.5x above the live fleet's
+#: worst and 2x below the one dead feed, so neither side is near it. It is also
+#: the repo's existing week unit (``rolling_eval`` windows, the drift 7-day
+#: span).
+MAX_DF_GAP_HOURS = 168.0
 
 #: Below this many absent hours, ``absent_hours_bias_pct`` is noise and is
 #: reported as ``None`` rather than as a number a reader would trust. The same
@@ -124,7 +127,11 @@ EXCLUDE_BROKEN_FEED = "broken-feed"
 #: before that change carry it, and the page groups it as a fairness exclusion.
 #: Nothing emits it any more.
 EXCLUDE_DF_COVERAGE = "df-coverage"
+#: Likewise retired by #587 — it named only half of what the rule catches. A
+#: feed that resumed still carries a hole, and calling that "stopped" is the
+#: same species of false label #549 was about.
 EXCLUDE_DF_FEED_STOPPED = "df-feed-stopped"
+EXCLUDE_DF_FEED_GAP = "df-feed-gap"
 EXCLUDE_INSUFFICIENT = "insufficient-paired-hours"
 
 #: Human-readable exclusion rationale, published verbatim on the benchmark
@@ -140,10 +147,10 @@ EXCLUSION_REASONS: dict[str, str] = {
         f"The BA publishes a day-ahead forecast for under "
         f"{MIN_DF_COVERAGE:.0%} of hours — too sparse to score fairly."
     ),
-    EXCLUDE_DF_FEED_STOPPED: (
-        "The BA has stopped publishing a day-ahead forecast, so the hours we "
-        "could score are confined to the part of the window before it stopped "
-        "and no longer describe the same period as every other row."
+    EXCLUDE_DF_FEED_GAP: (
+        "This BA's day-ahead forecast is missing for a long enough stretch of "
+        "the window that the hours we could score no longer describe the same "
+        "period as every other row."
     ),
     EXCLUDE_INSUFFICIENT: (
         f"Fewer than {MIN_PAIRED_HOURS} comparable hours in the window "
@@ -252,27 +259,75 @@ def _hour(ts: Any) -> datetime | None:
         return None
 
 
-def _df_staleness(vintage_records: list[Any]) -> tuple[float | None, str | None]:
-    """``(hours since the newest published DF, when that DF's hour was)``.
+def _df_gaps(vintage_records: list[Any]) -> dict[str, Any]:
+    """Where, and how long, this BA's day-ahead forecast is missing.
 
-    Measured against the newest record in the window rather than wall-clock, so
-    the function stays pure and a replay of an old window reports what that
-    window saw. ``(None, None)`` when the BA published nothing at all, which the
-    caller treats as maximally stale — a BA with no DF in the window has not
-    stopped publishing *recently*, it has published nothing.
+    Returns ``{"stale_hours", "last_published_at", "longest_gap_hours",
+    "longest_gap_end"}``, all ``None``/0 shaped for a BA that published nothing.
 
-    Takes the max rather than the last element: the callers all pass sorted
-    records today, but a gate that silently depends on caller-side ordering is
-    one refactor away from reading a different number.
+    ## Gaps in TIME, not runs of absent records
+
+    An hour EIA never published a positive metered ``D`` for is not a record at
+    all, so counting runs of absent *records* silently under-measures a hole
+    that contains one. This walks the timestamps of the hours that DO carry a
+    DF and measures the distance between them, which is the same number when no
+    records are missing and the correct one when some are.
+
+    Three kinds of gap, all treated alike:
+
+    * **leading** — window start to the first published DF
+    * **interior** — between two published DFs
+    * **trailing** — last published DF to window end. This one is
+      ``stale_hours``, i.e. "has the feed stopped?"
+
+    ## Why the gate reads the longest and not the trailing one (#587)
+
+    Trailing-only is right on the way out of a feed outage and wrong on the way
+    back in. When a dead feed resumes, the trailing gap collapses to ~0 on the
+    first tick while the hole it left is still sitting in the window — so the
+    BA would be scored over two disjoint clusters of hours separated by that
+    hole, published under a "last 30 days" header. That is precisely the
+    condition ``EXCLUDE_DF_FEED_GAP``'s own text describes, and the
+    trailing-edge version of this gate could only see it in one direction.
+
+    Taking the max costs nothing on the way out — for a feed that is still dark
+    the trailing gap IS the longest — and keeps the BA excluded after it
+    resumes until the hole ages out of the window.
     """
-    newest = max((t for r in vintage_records if (t := _hour(r.timestamp))), default=None)
-    newest_df = max(
-        (t for r in vintage_records if np.isfinite(r.first_seen_df) and (t := _hour(r.timestamp))),
-        default=None,
+    covered = sorted(
+        t for r in vintage_records if np.isfinite(r.first_seen_df) and (t := _hour(r.timestamp))
     )
-    if newest is None or newest_df is None:
-        return None, None
-    return (newest - newest_df).total_seconds() / 3600.0, _normalize_ts(newest_df.isoformat())
+    all_ts = [t for r in vintage_records if (t := _hour(r.timestamp))]
+    if not covered or not all_ts:
+        return {
+            "stale_hours": None,
+            "last_published_at": None,
+            "longest_gap_hours": None,
+            "longest_gap_end": None,
+        }
+
+    start, end = min(all_ts), max(all_ts)
+    hours = lambda a, b: (b - a).total_seconds() / 3600.0  # noqa: E731
+
+    # (length, last absent hour of the gap). The trailing gap's "last absent
+    # hour" is the window edge; a leading gap's is the hour before first cover.
+    gaps: list[tuple[float, Any]] = [
+        (hours(start, covered[0]), covered[0]),  # leading
+        (hours(covered[-1], end), end),  # trailing
+    ]
+    gaps += [
+        (hours(covered[i], covered[i + 1]) - 1.0, covered[i + 1])
+        for i in range(len(covered) - 1)
+        if hours(covered[i], covered[i + 1]) > 1.0
+    ]
+    longest, longest_end = max(gaps, key=lambda g: g[0])
+
+    return {
+        "stale_hours": hours(covered[-1], end),
+        "last_published_at": _normalize_ts(covered[-1].isoformat()),
+        "longest_gap_hours": longest,
+        "longest_gap_end": _normalize_ts(longest_end.isoformat()) if longest > 0 else None,
+    }
 
 
 def _absent_hour_bias_pct(vintage_records: list[Any]) -> float | None:
@@ -406,6 +461,8 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
             "n_absent_hours": 0,
             "df_stale_hours": None,
             "df_last_published_at": None,
+            "df_longest_gap_hours": None,
+            "df_longest_gap_end": None,
             "absent_hours_bias_pct": None,
         }
 
@@ -422,17 +479,19 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
     placeholders = sum(1 for r in vintage_records if r.was_placeholder)
     coverage = has_df / n
 
-    stale_h, last_df_at = _df_staleness(vintage_records)
+    gaps = _df_gaps(vintage_records)
+    stale_h, last_df_at = gaps["stale_hours"], gaps["last_published_at"]
+    longest_gap = gaps["longest_gap_hours"]
 
     reason: str | None = None
     if revision_class in UNSCOREABLE_CLASSES:
         reason = EXCLUDE_BROKEN_FEED
-    # A BA that published nothing at all in the window has `stale_h is None`,
-    # and is excluded here rather than falling through as though its feed were
-    # fresh — "no DF anywhere" is the strongest possible form of the condition
-    # this gate tests, not an absence of evidence about it.
-    elif stale_h is None or stale_h > MAX_DF_STALENESS_HOURS:
-        reason = EXCLUDE_DF_FEED_STOPPED
+    # A BA that published nothing at all in the window has `longest_gap is
+    # None`, and is excluded here rather than falling through as though its
+    # feed were fresh — "no DF anywhere" is the strongest possible form of the
+    # condition this gate tests, not an absence of evidence about it.
+    elif longest_gap is None or longest_gap > MAX_DF_GAP_HOURS:
+        reason = EXCLUDE_DF_FEED_GAP
 
     return {
         "scoreable": reason is None,
@@ -440,7 +499,7 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
         # The measured figures, not just the rule. A reader who sees only
         # "under 80% of hours" cannot tell 79% from 39%, and those are
         # different facts about a BA.
-        "reason_detail": _reason_detail(reason, coverage, as_issued / n, n, last_df_at),
+        "reason_detail": _reason_detail(reason, coverage, as_issued / n, n, gaps),
         "df_coverage": round(coverage, 4),
         "df_asissued_coverage": round(as_issued / n, 4),
         "placeholder_pct": round(placeholders / n * 100, 2),
@@ -451,6 +510,12 @@ def scoreability(vintage_records: list[Any], revision_class: str | None) -> dict
         # verdict on trust.
         "df_stale_hours": None if stale_h is None else round(stale_h, 1),
         "df_last_published_at": last_df_at,
+        # The gate's own figure since #587. `df_stale_hours` is the trailing
+        # gap only; this is the worst gap anywhere in the window, so it stays
+        # high after a dead feed resumes and the hole is still being scored
+        # across.
+        "df_longest_gap_hours": None if longest_gap is None else round(longest_gap, 1),
+        "df_longest_gap_end": gaps["longest_gap_end"],
         "absent_hours_bias_pct": _absent_hour_bias_pct(vintage_records),
     }
 
@@ -460,7 +525,7 @@ def _reason_detail(
     coverage: float,
     as_issued_coverage: float,
     n_hours: int,
-    last_df_at: str | None = None,
+    gaps: dict[str, Any] | None = None,
 ) -> str | None:
     """The published exclusion rationale, carrying THIS BA's measured numbers.
 
@@ -469,27 +534,51 @@ def _reason_detail(
     unable to tell "the BA barely publishes" from "we barely captured it" from
     the sentence that shipped.
 
-    The stopped-feed text names **the hour the feed stopped**, which is the
-    whole point of #549: the sentence that preceded it asserted a *shape*
-    ("too sparse") that had never been measured and was wrong for both BAs it
-    was ever applied to. A date is checkable against EIA in one query; a shape
-    adjective is not.
+    The gap text names **dates**, which is the whole point of #549: the
+    sentence that preceded it asserted a *shape* ("too sparse") that had never
+    been measured and was wrong for both BAs it was ever applied to. A date is
+    checkable against EIA in one query; a shape adjective is not.
+
+    Two cases, because since #587 a BA can be excluded for a hole it has
+    already recovered from, and telling a reader its feed "has stopped" would
+    then be false:
+
+    * **still dark** — the longest gap runs to the window edge. Name when it
+      last published, and how long ago that was.
+    * **resumed, hole still in the window** — name the gap's length and when it
+      ended, and say plainly that it is publishing again.
     """
     if reason is None:
         return None
     base = EXCLUSION_REASONS[reason]
-    if reason != EXCLUDE_DF_FEED_STOPPED:
+    if reason != EXCLUDE_DF_FEED_GAP:
         return base
+    gaps = gaps or {}
+    last_df_at = gaps.get("last_published_at")
     if last_df_at is None:
         return (
             f"{base} Over the {n_hours}-hour window EIA carried no day-ahead "
             "forecast for this BA at all."
         )
-    return (
-        f"{base} Its most recent day-ahead forecast covers {last_df_at}. "
+    measured = (
         f"Measured over {n_hours} hours: EIA published a day-ahead forecast "
         f"for {coverage:.1%} of them, of which we captured "
         f"{as_issued_coverage:.1%} in time to score as-issued."
+    )
+    stale = gaps.get("stale_hours") or 0.0
+    longest = gaps.get("longest_gap_hours") or 0.0
+    # The feed is still down when the worst hole is the one still open at the
+    # window edge; anything else means it came back and the hole is history.
+    if stale >= longest:
+        return (
+            f"{base} It has not published one since {last_df_at}, "
+            f"{longest:.0f} hours ago. {measured}"
+        )
+    return (
+        f"{base} It is publishing again — most recently for {last_df_at} — but "
+        f"went {longest:.0f} hours without a day-ahead forecast, through "
+        f"{gaps.get('longest_gap_end')}, and that gap is still inside the "
+        f"scoring window. {measured}"
     )
 
 
@@ -979,7 +1068,7 @@ def scoreability_alerts(
 
     ## Since #549 this event watches a number that no longer gates
 
-    Coverage stopped deciding the population; ``MAX_DF_STALENESS_HOURS`` does.
+    Coverage stopped deciding the population; ``MAX_DF_GAP_HOURS`` does.
     ``benchmark_coverage_at_risk`` is kept because a BA's publishing rate
     degrading is still worth a look, but it is now purely informational — its
     original "by the time a BA falls out the page is already wrong" argument
@@ -1033,8 +1122,13 @@ def scoreability_alerts(
                 "warn_below": warn,
                 # The real gate since #549, and the distance to it. `gate` used
                 # to be MIN_DF_COVERAGE, which no longer decides anything.
+                # `df_longest_gap_hours` is what the gate compares, not
+                # `df_stale_hours` — both ride along so an on-call reader can
+                # tell "the feed is down now" from "it came back and the hole
+                # is still in the window" (#587).
                 "df_stale_hours": p.get("df_stale_hours"),
-                "gate_stale_hours": MAX_DF_STALENESS_HOURS,
+                "df_longest_gap_hours": p.get("df_longest_gap_hours"),
+                "gate_gap_hours": MAX_DF_GAP_HOURS,
             }
         )
     return out

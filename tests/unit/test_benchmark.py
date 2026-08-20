@@ -22,7 +22,7 @@ import pytest
 from models.benchmark import (
     CONSERVATIVE_LEAD,
     EXCLUDE_BROKEN_FEED,
-    EXCLUDE_DF_FEED_STOPPED,
+    EXCLUDE_DF_FEED_GAP,
     HEADLINE_LEAD,
     MIN_DF_COVERAGE,
     MIN_PAIRED_HOURS,
@@ -214,7 +214,7 @@ class TestExclusions:
 
     def test_a_feed_that_stopped_publishing_is_excluded(self):
         """SPP's shape: complete, then nothing. 200 absent hours at the end of
-        the window is well past MAX_DF_STALENESS_HOURS, so the feed is dead and
+        the window is well past MAX_DF_GAP_HOURS, so the feed is dead and
         every hour we could score predates the stop."""
         recs = _records(200) + [
             _Rec(f"2026-09-{1 + i // 24:02d}T{i % 24:02d}:00:00Z", float("nan"), 1000.0)
@@ -222,7 +222,7 @@ class TestExclusions:
         ]
         s = scoreability(recs, revision_class="clean")
         assert s["scoreable"] is False
-        assert s["reason"] == EXCLUDE_DF_FEED_STOPPED
+        assert s["reason"] == EXCLUDE_DF_FEED_GAP
         assert s["df_coverage"] == pytest.approx(0.5)
 
     def test_a_low_coverage_ba_with_a_live_feed_is_scoreable(self):
@@ -960,7 +960,7 @@ class TestFeedLivenessGate:
         absence of evidence about it — it must not fall through as fresh."""
         out = scoreability([self._rec(h, df=float("nan")) for h in range(300)], "clean")
         assert out["scoreable"] is False
-        assert out["reason"] == EXCLUDE_DF_FEED_STOPPED
+        assert out["reason"] == EXCLUDE_DF_FEED_GAP
         assert out["df_stale_hours"] is None
         assert "no day-ahead forecast for this BA at all" in out["reason_detail"]
 
@@ -971,6 +971,84 @@ class TestFeedLivenessGate:
         out = scoreability(recs, "clean")
         assert out["scoreable"] is True
         assert out["df_stale_hours"] == 0.0
+
+
+class TestTheGateReadsTheWholeWindow:
+    """#587: the gate measures the longest DF gap anywhere, not the trailing one.
+
+    Trailing-only is correct while a feed is down and wrong the moment it comes
+    back: the trailing gap collapses to ~0 on the first tick while the hole it
+    left is still inside the scoring window.
+    """
+
+    @staticmethod
+    def _rec(hour, *, df, d=1000.0):
+        ts = f"2026-07-{1 + hour // 24:02d}T{hour % 24:02d}:00:00Z"
+        return _Rec(ts, df, d, captured_at=ts, df_at=ts)
+
+    def _resumed(self, gap_hours):
+        """Covered, then a hole of `gap_hours`, then publishing again."""
+        recs = [self._rec(h, df=900.0) for h in range(200)]
+        recs += [self._rec(h, df=float("nan")) for h in range(200, 200 + gap_hours)]
+        recs += [self._rec(h, df=900.0) for h in range(200 + gap_hours, 200 + gap_hours + 48)]
+        return recs
+
+    def test_a_resumed_feed_stays_excluded_while_its_hole_is_in_the_window(self):
+        """The SPP case. Before #587 this BA became scoreable on the first tick
+        back, scored across two clusters separated by a fortnight."""
+        out = scoreability(self._resumed(345), "clean")
+        assert out["df_stale_hours"] == 0.0, "it is publishing again"
+        assert out["df_longest_gap_hours"] == 345.0
+        assert out["scoreable"] is False
+        assert out["reason"] == EXCLUDE_DF_FEED_GAP
+
+    def test_the_sentence_does_not_claim_a_live_feed_has_stopped(self):
+        detail = scoreability(self._resumed(345), "clean")["reason_detail"]
+        assert "publishing again" in detail
+        assert "345 hours without a day-ahead forecast" in detail
+        assert "not published one since" not in detail, (
+            "that phrasing is for a feed that is still down"
+        )
+        assert "has stopped publishing" not in detail, (
+            "the base text must not assert a stop for a feed that came back"
+        )
+
+    def test_a_recovered_hole_inside_the_limit_is_scoreable(self):
+        """TEC's shape — whole-day outages, feed alive. Must not be caught."""
+        out = scoreability(self._resumed(30), "clean")
+        assert out["df_longest_gap_hours"] == 30.0
+        assert out["scoreable"] is True
+
+    def test_a_still_dark_feed_reads_the_same_both_ways(self):
+        """Taking the max costs nothing on the way out: trailing IS longest."""
+        recs = [self._rec(h, df=900.0) for h in range(200)]
+        recs += [self._rec(h, df=float("nan")) for h in range(200, 545)]
+        out = scoreability(recs, "clean")
+        assert out["df_stale_hours"] == out["df_longest_gap_hours"] == 345.0
+        assert "not published one since" in out["reason_detail"]
+
+    def test_a_gap_is_measured_in_time_not_in_absent_records(self):
+        """An hour EIA never published a positive D for is not a record at all,
+        so counting runs of absent records under-measures a hole containing
+        one. Both halves here are 100h of wall-clock; only one has records."""
+        dense = [self._rec(h, df=900.0) for h in range(50)]
+        dense += [self._rec(h, df=float("nan")) for h in range(50, 250)]
+        dense += [self._rec(h, df=900.0) for h in range(250, 300)]
+        sparse = [self._rec(h, df=900.0) for h in range(50)]
+        sparse += [self._rec(h, df=900.0) for h in range(250, 300)]  # 200h simply absent
+        assert scoreability(dense, "clean")["df_longest_gap_hours"] == 200.0
+        assert scoreability(sparse, "clean")["df_longest_gap_hours"] == 200.0
+
+    def test_a_leading_gap_counts(self):
+        """A BA that published nothing for the first stretch of the window is
+        in the same position as one that stopped: the hours it can be scored
+        over are not the window."""
+        recs = [self._rec(h, df=float("nan")) for h in range(200)]
+        recs += [self._rec(h, df=900.0) for h in range(200, 400)]
+        out = scoreability(recs, "clean")
+        assert out["df_stale_hours"] == 0.0
+        assert out["df_longest_gap_hours"] == 200.0
+        assert out["scoreable"] is False
 
 
 class TestAbsentHourBias:
@@ -1062,10 +1140,10 @@ class TestTwoCoverages:
         out = scoreability(recs, "bulk")
         assert out["df_coverage"] == 0.5
         assert out["scoreable"] is False
-        assert out["reason"] == "df-feed-stopped"
+        assert out["reason"] == "df-feed-gap"
         assert out["df_stale_hours"] > 168.0
         detail = out["reason_detail"]
-        assert "stopped publishing" in detail
+        assert "not published one since" in detail
         assert "sparse" not in detail, "the false clause must not come back"
 
     def test_the_exclusion_reason_carries_this_bas_measured_numbers(self):

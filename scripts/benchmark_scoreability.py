@@ -112,6 +112,7 @@ def build_rows() -> list[dict]:
                 # The gate itself since #549, published for scored BAs too so
                 # a reader sees the margin rather than trusting the verdict.
                 "df_stale_hours": score["df_stale_hours"],
+                "df_longest_gap_hours": score["df_longest_gap_hours"],
                 "absent_bias_pct": score["absent_hours_bias_pct"],
             }
         )
@@ -161,15 +162,16 @@ def main() -> int:
         "`n_scoreable` can be lower — a BA that publishes a day-ahead forecast "
         "but has too thin a paired sample is reported as "
         "`insufficient-paired-hours`, which is a different fact from "
-        "`df-feed-stopped` and is published as such.\n",
+        "`df-feed-gap` and is published as such.\n",
         "\n`df_coverage_pct` is the **BA's** publication rate — the share of "
         "hours EIA carried a day-ahead forecast for. `df_asissued_pct` is "
         "**ours**: the share we observed early enough to score as-issued. "
         "Before #535 these were one number, and the second was being "
         "published as the first.\n",
-        "\n**Neither one gates (#549).** `df_stale_hours` does — hours since "
-        "the BA's most recent published day-ahead forecast, against a 168h "
-        "ceiling. A rate cannot tell a BA that half-publishes from one that "
+        "\n**Neither one gates (#549).** `df_longest_gap_hours` does — the "
+        "longest stretch of the window with no published day-ahead forecast, "
+        "against a 168h ceiling. `df_stale_hours` is the trailing gap alone "
+        "and gates nothing; the two diverge once a stopped feed resumes (#587). A rate cannot tell a BA that half-publishes from one that "
         "published completely and then stopped, and no BA in this fleet is "
         "diffusely sparse: every one with any absence has 92–100% of those "
         "hours inside runs of ≥3h.\n",
@@ -195,9 +197,9 @@ def main() -> int:
         "before settling, so intraday scoring is not meaningful; and GridPulse "
         "anchors its own forecast on that BA's day-ahead value (ADR-009), which "
         "would make the comparison partly self-referential. "
-        "**`df-feed-stopped`** — the BA has stopped publishing a day-ahead "
-        "forecast, so every hour we could score predates the stop and the row "
-        "would describe a different slice of the window than every other row.\n"
+        "**`df-feed-gap`** — the BA's day-ahead forecast is missing for a long "
+        "enough stretch of the window that the hours we could score no longer "
+        "describe the same period as every other row.\n"
     )
     n_broken = sum(1 for r in excluded if r["reason"] == "broken-feed")
     report.append(

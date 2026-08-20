@@ -1,7 +1,7 @@
 """Why is this balancing authority excluded from the benchmark, and is it improving?
 
 `/api/v1/benchmark` publishes a one-word reason per excluded BA —
-`df-coverage`, `insufficient-paired-hours`, `broken-feed`. That is the right
+`df-feed-gap`, `insufficient-paired-hours`, `broken-feed`. That is the right
 amount of detail for a public page and not enough to act on: it says which gate
 failed, not which of the five drop buckets consumed the hours, nor whether the
 gap is closing on its own.

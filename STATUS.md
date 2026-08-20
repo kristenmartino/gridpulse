@@ -475,7 +475,8 @@ feed. Both confirmed upstream against EIA.
 
 What separates them is **liveness**, cleanly: hours since the newest published
 DF are SPP 341, TEC 30, every other BA ≤6. So coverage stopped gating and
-`MAX_DF_STALENESS_HOURS = 168` gates instead. Replayed over the live window:
+`MAX_DF_GAP_HOURS = 168` gates instead — the longest DF gap anywhere in the
+window, not just the trailing one (#587). Replayed over the live window:
 **46 scoreable before, 46 after, zero newly excluded** — the change is
 population-neutral today and prevents TEC's false exclusion when it crosses.
 `MIN_DF_COVERAGE` is unchanged at 0.80; it just decides nothing.
