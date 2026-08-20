@@ -1977,7 +1977,10 @@ def _write_seed_shadow(
         return False
 
     try:
-        from data.feature_engineering import positional_seed_matches_hours
+        from data.feature_engineering import (
+            positional_seed_matches_hours,
+            seed_divergence_reason,
+        )
         from data.redis_client import persist, redis_get, redis_key
         from models.drift import build_records_from_actuals
         from models.shadow_eval import regrade_records as regrade_shadow_records
@@ -1988,6 +1991,15 @@ def _write_seed_shadow(
 
         seed_ts = featured.get("timestamp")
         identical = positional_seed_matches_hours(seed_ts, forecast_start)
+        # #624: "diverges" collapsed two situations that are not equally
+        # informative. A seed that reaches ``origin - 1h`` but has a hole
+        # further back gives a correctly-sized array and clean evidence about
+        # temporal indexing; a seed that stops SHORT of it under-sizes the
+        # array, so the tail of the horizon is silently discarded and the
+        # observation is partly about that bug. The gate selects for the
+        # second case by construction, so recording which one this was is what
+        # lets the comparison be stratified later instead of thrown away.
+        gate_reason, seed_tail_gap_h = seed_divergence_reason(seed_ts, forecast_start)
         audit = identical and _is_seed_shadow_audit_region(region, forecast_start)
 
         shadow_preds: Any = None
@@ -2089,7 +2101,8 @@ def _write_seed_shadow(
             "arms": {"served": "positional_seed", "shadow": "temporal_seed"},
             # Why this tick did or did not compute a second arm. Without it a
             # quiet key is ambiguous between "no gaps" and "not running".
-            "gate": "identical" if identical else "diverges",
+            "gate": gate_reason,
+            "seed_tail_gap_h": seed_tail_gap_h,
             "audited": bool(audit),
             "computed": shadow_preds is not None,
             "budget_declined": budget_declined,

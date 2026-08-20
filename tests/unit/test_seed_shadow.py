@@ -269,7 +269,12 @@ class TestThePayload:
             spy.return_value = np.full(24, 18500.0)
             _call(_featured(gap_at=HOURS - 60))
         payload = next(c.args[1] for c in mock_set.call_args_list if "seed_shadow:" in c.args[0])
-        assert payload["gate"] == "diverges"
+        # #624: the gate names WHY the arms differ. This fixture holes the
+        # lookback while the seed still reaches origin-1h, so the array is
+        # correctly sized and the observation is clean evidence about
+        # temporal indexing — not the ``seed_tail_short`` stratum.
+        assert payload["gate"] == "hole_in_lookback"
+        assert payload["seed_tail_gap_h"] == 0
         assert payload["computed"] is True
         assert payload["divergence_pct"] == pytest.approx(100 * 500 / 18000, rel=1e-6)
         # The served headline is the ensemble; its delta is this weight times
@@ -307,7 +312,12 @@ class TestThePerRunCap:
         monkeypatch.setattr(config, "SEED_SHADOW_MAX_REGIONS_PER_TICK", 0)
         _call(_featured(gap_at=HOURS - 60))
         payload = next(c.args[1] for c in mock_set.call_args_list if "seed_shadow:" in c.args[0])
-        assert payload["gate"] == "diverges"
+        # #624: the gate names WHY the arms differ. This fixture holes the
+        # lookback while the seed still reaches origin-1h, so the array is
+        # correctly sized and the observation is clean evidence about
+        # temporal indexing — not the ``seed_tail_short`` stratum.
+        assert payload["gate"] == "hole_in_lookback"
+        assert payload["seed_tail_gap_h"] == 0
         assert payload["computed"] is False
         assert payload["budget_declined"] is True
 

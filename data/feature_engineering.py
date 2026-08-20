@@ -304,11 +304,24 @@ class HourIndexedHistory:
     NaN, not the nearest thing 24 entries back — that silent reach is #559.
     """
 
-    __slots__ = ("_base", "_values")
+    __slots__ = ("_base", "_dropped_writes", "_values")
 
     def __init__(self, base: pd.Timestamp, values: np.ndarray) -> None:
         self._base = base
         self._values = values
+        self._dropped_writes = 0
+
+    @property
+    def dropped_writes(self) -> int:
+        """How many writes fell outside the array and were discarded (#624).
+
+        Non-zero means the recursion's own later predictions did not land, so
+        every rolling window that should have read them saw a hole instead.
+        Counted rather than derived: the arithmetic relating this to the seed's
+        tail gap is an off-by-one waiting to happen, and the whole point of the
+        counter is to not have to trust it.
+        """
+        return self._dropped_writes
 
     @classmethod
     def build(
@@ -349,9 +362,19 @@ class HourIndexedHistory:
         return int((pd.Timestamp(ts).tz_convert("UTC") - self._base).total_seconds() // 3600)
 
     def set(self, ts: pd.Timestamp, value: float) -> None:
+        """Record ``value`` at ``ts``, counting the write if it falls outside.
+
+        #624: ``build`` sizes the array from the last *present* seed hour, so a
+        trailing gap leaves the recursion writing past the end. The bounds guard
+        is correct — writing there would corrupt a neighbouring hour — but it
+        used to be indistinguishable from a successful write. A dropped write is
+        a counter, never a no-op.
+        """
         i = self.index_of(ts)
         if 0 <= i < len(self._values):
             self._values[i] = value
+        else:
+            self._dropped_writes += 1
 
     def at(self, index: int) -> float:
         if index < 0 or index >= len(self._values):
@@ -553,6 +576,48 @@ def positional_seed_matches_hours(
     )
 
 
+def seed_divergence_reason(
+    seed_timestamps: Any, origin: pd.Timestamp, *, span: int = 168
+) -> tuple[str, int | None]:
+    """*Why* the two seed arms differ, not just whether — and by how much (#624).
+
+    :func:`positional_seed_matches_hours` collapses two different situations
+    into one ``False``, and they are not equally informative:
+
+    * ``hole_in_lookback`` — the seed reaches ``origin - 1h`` but has a hole
+      further back. The arms differ, ``build`` sizes the array correctly, and
+      the recursion writes every step it takes. **This is clean evidence about
+      temporal indexing.**
+    * ``seed_tail_short`` — the seed stops before ``origin - 1h``. The arms
+      differ *and* the array is under-sized, so the tail of the horizon is
+      silently discarded (#624). An observation here is partly about that bug.
+
+    Both arise from the same upstream cause — production seeds from the
+    post-``dropna`` ``featured`` frame — which is why the second is not rare.
+    Separating them lets a comparison be stratified rather than discarded.
+
+    Returns:
+        ``(reason, tail_gap_hours)``. ``reason`` is one of ``identical``,
+        ``hole_in_lookback``, ``seed_tail_short``, ``unusable``.
+        ``tail_gap_hours`` is how far short of ``origin - 1h`` the seed stops,
+        and is ``None`` when unknown.
+    """
+    try:
+        stamps = pd.to_datetime(pd.Series(list(seed_timestamps)), utc=True)
+        origin = pd.Timestamp(origin).tz_convert("UTC")
+    except (TypeError, ValueError):
+        return "unusable", None
+    if len(stamps) == 0:
+        return "unusable", None
+
+    gap = int((origin - pd.Timedelta(hours=1) - stamps.iloc[-1]).total_seconds() // 3600)
+    if positional_seed_matches_hours(stamps, origin, span=span):
+        return "identical", gap
+    if len(stamps) < span:
+        return "unusable", gap
+    return ("seed_tail_short", gap) if gap > 0 else ("hole_in_lookback", gap)
+
+
 def _temporal_seed_history(
     seed_demand: Any, seed_timestamps: Any, *, extra_hours: int = 0
 ) -> "HourIndexedHistory | None":
@@ -575,6 +640,30 @@ def _future_step_timestamps(future_df: pd.DataFrame) -> list[pd.Timestamp] | Non
         return list(pd.to_datetime(future_df["timestamp"], utc=True))
     except (TypeError, ValueError):
         return None
+
+
+def _warn_dropped_writes(histories: "list[HourIndexedHistory] | None") -> int:
+    """Log once per recursion if the temporal history discarded any write (#624).
+
+    ``HourIndexedHistory.build`` reserves the recursion's room from the last
+    *present* seed hour, so a trailing gap in the seed leaves the tail of the
+    horizon writing past the end of the array. Those predictions are dropped and
+    every rolling window that should have read them sees a hole instead.
+
+    Emitted at WARNING because it is silent corruption of the arm's own state,
+    not a degraded input. Not fixed here — see #624; the sizing fix is a
+    signature change, and this is the half that is correct either way.
+    """
+    if not histories:
+        return 0
+    dropped = sum(h.dropped_writes for h in histories if h is not None)
+    if dropped:
+        log.warning(
+            "temporal_seed_writes_dropped",
+            dropped_writes=dropped,
+            histories=len(histories),
+        )
+    return dropped
 
 
 def recursive_autoregressive_forecast(
@@ -700,6 +789,7 @@ def recursive_autoregressive_forecast(
         history.append(pred)
         if temporal_history is not None and step_stamps is not None:
             temporal_history.set(step_stamps[i], pred)
+    _warn_dropped_writes([temporal_history] if temporal_history is not None else None)
     return np.asarray(preds, dtype=float)
 
 
@@ -825,6 +915,7 @@ def batched_recursive_autoregressive_forecast(
             if temporal_histories is not None and step_stamps is not None:
                 temporal_histories[j].set(step_stamps[i], value)
 
+    _warn_dropped_writes(temporal_histories)
     return [np.asarray(p, dtype=float) for p in preds]
 
 
