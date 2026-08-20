@@ -1,0 +1,22 @@
+{
+  "displayName": "GridPulse \u2014 benchmark BA approaching the DF-gap gate (#587)",
+  "documentation": {
+    "mimeType": "text/markdown",
+    "content": "The `gridpulse-scoring-job` emitted **`benchmark_df_gap_at_risk`**: a balancing authority is still scored on the public benchmark, but its longest stretch with no published day-ahead forecast has entered the warning band below the exclusion gate (`BENCHMARK_DF_GAP_WARN_HOURS`, default 120h, against `MAX_DF_GAP_HOURS` 168h).\n\n**It warns below the gate on purpose.** By the time a BA falls out, `/benchmark` is already publishing a fleet median over a changed population, so a warning at the gate arrives too late to be one.\n\n**Why this replaced `benchmark_coverage_at_risk` ([#587](https://github.com/kristenmartino/gridpulse/issues/587)).** The old warning watched `df_coverage`, a rate, while the gate measures a duration \u2014 so \"warn before exclude\" held only by arithmetic coincidence of two unrelated constants and the window length, and nothing could test it because the two numbers were not comparable. Both are now hours of gap: `warn < gate` is the whole proof and holds for any window. The old alert had also become noise \u2014 it fired on **every tick** after the #580 deploy for TEC (0.822, feed alive, correctly scored, nothing to do).\n\nLower urgency than `benchmark_scoreability_drop`: nothing is wrong on the page yet. Treat it as a lead, not an incident.\n\n**Runbook:**\n1. Read `region`, `df_longest_gap_hours` and `df_stale_hours` off the entry.\n2. **Compare those two first \u2014 they answer different questions.** Equal means the feed is **down right now** and the hole is still opening; the BA is heading for exclusion on its current trajectory. `df_stale_hours` much smaller means the feed **came back** and is being held out by a hole that is now ageing out of the window \u2014 no action, it will clear on its own. `df_last_published_at` dates it either way.\n3. Confirm the gap is theirs, not ours, before anything else. Query EIA for the same BA and window and count hours carrying a `DF` row. Note `curl -g`: EIA's facet syntax uses `[]`, which curl globs away without that flag, returning an empty body and **no error**.\n   ```\n   curl -sg \"https://api.eia.gov/v2/electricity/rto/region-data/data/?api_key=<EIA_API_KEY>&frequency=hourly&data[0]=value&facets[respondent][]=<BA>&facets[type][]=DF&start=<T-30d>&end=<now>&length=5000\" | jq -r '.response.data[]|select(.value!=null)|.period' | awk -F'T' '{print $1}' | sort | uniq -c\n   ```\n   Per-day counts, not a total: a BA publishing 24h on most days and zero on a few is a blocked outage, which is what this alert is about. If EIA shows the hours and we do not, the capture path regressed and that is #535, not this.\n4. `df_coverage` and `df_asissued_coverage` ride along and gate nothing. Both low together means EIA genuinely stopped. Coverage healthy while as-issued collapsed means the problem is ours.\n5. Trend or one-off? `gcloud logging read 'jsonPayload.event=\"benchmark_df_gap_at_risk\"' --limit 20 --format='value(timestamp,jsonPayload.region,jsonPayload.df_longest_gap_hours)'`\n6. No action is required while the BA remains scored. Escalate if the gap keeps growing: the next stop is exclusion as `df-feed-gap`, then `benchmark_scoreability_drop`.\n\n**Known gap, stated rather than implied:** a BA whose publishing decays *diffusely* \u2014 many short holes, never one long one \u2014 trips neither this warning nor the gate. No BA has ever behaved that way here (#549 measured it), so it is an unobserved shape rather than a tolerated one.\n\n**Why a log-match condition and not a metric threshold on `benchmark_fleet_written`:** see `docs/monitoring/README.md`."
+  },
+  "combiner": "OR",
+  "conditions": [
+    {
+      "displayName": "a scored BA's longest DF gap entered the warning band",
+      "conditionMatchedLog": {
+        "filter": "resource.type=\"cloud_run_job\" AND resource.labels.job_name=\"gridpulse-scoring-job\" AND jsonPayload.event=\"benchmark_df_gap_at_risk\""
+      }
+    }
+  ],
+  "alertStrategy": {
+    "notificationRateLimit": {
+      "period": "3600s"
+    },
+    "autoClose": "604800s"
+  }
+}

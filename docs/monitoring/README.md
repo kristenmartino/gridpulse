@@ -19,7 +19,7 @@ billing.
 | `scoring_deadline_shed_alert.json` | **Job tier (2026-08-04).** Log-based (`jsonPayload.event="scoring_deadline_shed"`) — fires when a run hits `SCORING_SOFT_DEADLINE_FRACTION` of its task timeout and stops starting new BAs. This is the guard *working*: the run completes, writes an honest `last_scored` (`deadline_hit`, `regions_deadline_skipped`) and exits 0, instead of being SIGKILLed having recorded nothing — which is what happened to two ticks on 2026-08-04 after they had already scored ~49/51. Still means runtime is at the ceiling and BAs are going unscored. |
 | `backtest_recompute_alert.json` | **Job tier (2026-08-10).** Metric-threshold on a **logs-based counter** (`jsonPayload.event="job_backtest_recomputed"`) — fires when backtests recompute on more than one day in three, i.e. the `BACKTEST_REFRESH_DAYS` gate stopped holding. Backtests are **56.9% of the training job** (12,886s measured 2026-08-08); a silent regression here roughly triples the training bill while the job still succeeds and exits 0. Detection is in code (`check_backtest_recompute_cadence`) because Cloud Monitoring caps alignment windows at 25h — see the section below. |
 | `benchmark_scoreability_drop_alert.json` | **Job tier (2026-08-18, #535).** Log-based (`jsonPayload.event="benchmark_scoreability_drop"`) — fires when the public `/benchmark` scorecard scores fewer than `BENCHMARK_MIN_SCOREABLE` BAs. It published **25 of 51** for ~3 weeks with five of seven large ISOs missing from its fleet medians while the job succeeded and exited 0 — the headline changed the population it described and nothing said so. Counts the *failing* direction: a threshold-below on the existing `benchmark_fleet_written` count would go quiet exactly when the phase stopped emitting. |
-| `benchmark_coverage_at_risk_alert.json` | **Job tier (2026-08-18, #535).** Log-based (`jsonPayload.event="benchmark_coverage_at_risk"`) — the early warning: a still-scoreable BA's `df_coverage` entered the band **above** the 0.80 gate (`BENCHMARK_DF_COVERAGE_WARN`, 0.85). Warning at the gate would arrive too late, since a BA that has already fallen out is a page that is already wrong. **First real firing 2026-08-18T06:18Z: TEC at 80.1%**, a tenth of a point above the gate, and verified upstream — EIA published 576 DF hours over the payload's 719-hour window and we recorded 576, so the gap was TEC's rather than ours (#549 then found that excluding on that number would have been wrong: coverage no longer gates — `MAX_DF_GAP_HOURS` does (longest DF gap in the window, #587) — so this event is now informational and carries `df_stale_hours`). The band was originally argued from CAISO 82.9% / PJM 81.0% — those were the **broken pre-fix** readings and now measure 100.0% / 99.7%. Lower urgency than the drop alert — a lead, not an incident. |
+| `benchmark_df_gap_at_risk_alert.json` | **Job tier (2026-08-20, #587).** Log-based (`jsonPayload.event="benchmark_df_gap_at_risk"`) — the early warning on the gate that actually decides the population: a still-scored BA's **longest DF gap** entered the band below `MAX_DF_GAP_HOURS` (`BENCHMARK_DF_GAP_WARN_HOURS`, 120h against 168h). Warning at the gate would arrive too late, since a BA that has already fallen out is a page that is already wrong. **Replaces `benchmark_coverage_at_risk`**, retired 2026-08-20: it watched a rate while the gate measures a duration, so "warn before exclude" was an arithmetic coincidence of two unrelated constants and the window length — untestable, because the two numbers were not comparable. It had also become noise, firing on every tick after the #580 deploy for a healthy TEC at 0.822. Both are now hours of gap, so `warn < gate` is the whole proof and a unit test asserts it. Lower urgency than the drop alert — a lead, not an incident. Applied 2026-08-20 as `alertPolicies/13946097116379396982`. |
 | `web_service_5xx_alert.json` | **Web tier (#253).** Fires when the `gridpulse` service returns sustained 5xx (`run.googleapis.com/request_count{response_code_class="5xx"}` summed > 25 / 5 min). The request-path equivalent of the job-failure alert. |
 | `web_service_max_instances_alert.json` | **Web tier (#253).** Fires when a **single revision** sits at its `max-instances` ceiling (4) for 15 min — the cost ceiling *and* the traffic-flood signal on the public surface. Per-revision and mean-aligned since 2026-08-18; the original aggregation counted rollout overlap (below). |
 | `web_service_uptime_alert.json` | **Web tier (#253).** Fires when the public `/health` uptime check fails from >1 probe location over 10 min (service down or shallow-degraded). Filter is check-id-specific — see the note in the file. |
@@ -68,7 +68,10 @@ in a single call.
 
 (Moved out of the `benchmark_coverage_at_risk` runbook on 2026-08-20 for the
 same reason as the section above — it is rationale, not an on-call action, and
-the runbook was 187 characters from the cap that silently disarms the alert.)
+the runbook was 187 characters from the cap that silently disarms the alert.
+That runbook and its policy were retired hours later by #587, so this section
+is now the only surviving copy of the rationale — which is the argument for
+having moved it here rather than leaving it in a file that could be deleted.)
 
 ### The max-instances aggregation counted rollovers, not instances (2026-08-18)
 
@@ -240,7 +243,21 @@ noticing (below).
 | Redis fail-soft writes dropped | `redis_write_failures_alert.json` | `alertPolicies/16314898527819427981` |
 | backtests recomputing sooner than the cadence | `backtest_recompute_alert.json` | `alertPolicies/14801909132378911177` |
 | benchmark scorecard below the scoreable floor | `benchmark_scoreability_drop_alert.json` | `alertPolicies/1095567904752750375` |
-| a benchmark BA approaching the df-coverage gate | `benchmark_coverage_at_risk_alert.json` | `alertPolicies/15888827698887105322` |
+| a benchmark BA approaching the DF-gap gate (#587) | `benchmark_df_gap_at_risk_alert.json` | `alertPolicies/13946097116379396982` |
+
+**Applied 2026-08-20 (#587).** `alertPolicies/13946097116379396982`, enabled,
+bound to the same notification channel as the rest of the job tier. Verified by
+reading the policy back from the API rather than trusting the create call: the
+filter matches `jsonPayload.event="benchmark_df_gap_at_risk"`, the runbook
+round-tripped at 3,523 characters, and the rate limit and auto-close match the
+committed file.
+
+The policy it replaced — `15888827698887105322`, the `benchmark_coverage_at_risk`
+rate warning — was **deleted** in the same pass. Leaving it would have been the
+worse of the two options: its event is no longer emitted by any code path, and a
+log-match policy whose event has been renamed away is indistinguishable from a
+healthy one that simply has nothing to report. That is the exact failure mode
+this directory is written against, so it was removed rather than disabled.
 | Uptime check config — public `/health` | — | `uptimeCheckConfigs/gridpulse-health-162OIAwsIpE` |
 | Monthly budget — $150 (billing acct `01D68B-6BF1D9-B54F3B`) | — | `budgets/3363cac4-5a23-46ea-a51f-ddbbadeca827` |
 
