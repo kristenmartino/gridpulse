@@ -159,3 +159,98 @@ confidence intervals, not just p-values; pre-commit to reporting
 - Nothing here identifies intent, and no phrasing in the write-up may imply
   it. The study measures direction and magnitude of error by ownership class.
   Attribution of motive is for litigants, not for this document.
+
+---
+
+## 8. Provenance and verification
+
+*Added 2026-08-20, still before any measurement has run.*
+
+Every claim in this study is produced by one of four routes, and each route
+has a different failure mode and a different check. The routes are listed so
+that a reader can ask, of any number in the final write-up, which one it came
+from.
+
+### 8.1 Computed quantities — the model never states the number
+
+Anything derivable from data is produced by executing code, never by a model
+reporting a figure. An LLM may write the script; the script produces the
+value. This removes fabrication as a failure mode for the quantitative core
+of the study rather than mitigating it.
+
+**Control:** every computation script must first reproduce a figure the
+`/benchmark` payload already publishes for the same BA and window, and print
+that comparison before any study result. A script that cannot reproduce a
+known-good number is not trusted to produce an unknown one.
+
+### 8.2 Extracted quantities — verbatim span, mechanically checked
+
+Any value read out of a document carries `{value, page, exact_quote,
+section_or_table_caption}`. A deterministic post-step confirms the quote
+appears on that page of that source. Failures are rejected, not repaired.
+
+**The checker is never a language model.** String matching, PDF text
+extraction and HTTP status codes only. Using a model to validate a model's
+citation introduces a correlated failure and is prohibited here.
+
+**What this catches and what it does not.** Quote verification catches
+fabrication. It does not catch *misattribution* — a real number lifted from
+the wrong table, winter peak where summer was wanted. That is why the schema
+also captures the table caption, and why human verification (§8.4) is
+directed specifically at misattribution rather than at invented numbers. The
+two error types are estimated and reported separately. A rejection rate from
+the mechanical checker is never presented as a bound on the correctness of
+the records that survived it.
+
+### 8.3 Classifications — two independent votes, adjudicated
+
+Ownership classification is performed twice by independently prompted agents.
+Agreements stand. Disagreements, plus anything either agent self-flagged, go
+to a separate adjudication pass against primary sources, which must state
+both the classification it recommends and the defensible alternative.
+
+**Seeded controls.** The classification set includes entities whose ownership
+is documented and unambiguous, checked by the harness after the fact. An
+agent that misses a control has its remaining output treated as unverified.
+Controls are checked before any result is inspected.
+
+**Known limit:** replication catches idiosyncratic error and is blind to
+systematic error. Two agents sharing a wrong prior will agree and both be
+wrong, which is what the seeded controls and primary-source citations exist
+to catch instead.
+
+### 8.4 Human verification — exhaustive, not sampled
+
+**Phase 4 documents are verified in full, not sampled.** The corpus is
+plausibly 50–80 filings. Defending a document-level error rate below 5% by
+sampling would require checking roughly 60 of them (see the bound below), at
+which point sampling saves almost nothing and forfeits the stronger claim.
+
+Where sampling is nonetheless used, two rules apply.
+
+**Report the bound, not the percentage.** With zero errors found in *n*
+checks, the 95% upper bound on the true rate is approximately 3/n. A
+percentage-of-corpus figure ("we checked 10%") is not a statement about
+reliability and may not appear in the write-up.
+
+| checked, 0 errors | 95% upper bound on error rate |
+|---:|---:|
+| 30 | ~10% |
+| 60 | ~5% |
+| 100 | ~3% |
+| 300 | ~1% |
+
+**Sample documents, not values.** Extraction errors cluster within a
+document: one misread column heading corrupts every number drawn from that
+filing. Effective sample size is therefore the document count, and checking
+many documents shallowly beats checking few exhaustively for the same effort.
+
+**Risk-weight rather than sample uniformly.** Values that drive the headline
+result are verified at 100% regardless of any sampling scheme, as are
+outliers and filings whose layout differs from the majority. Random sampling
+is reserved for establishing the base rate on the remainder.
+
+### 8.5 Interpretive claims
+
+Statements about what the results mean are the researcher's and are not
+delegated to a model. No agent output is quoted as analysis.
