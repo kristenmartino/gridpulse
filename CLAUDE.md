@@ -560,8 +560,11 @@ exact CI command(s), not a subset (`ruff check` alone misses CI's `ruff
 format --check`); real/production-shaped data, not a synthesizable-clean
 fixture (a JSON-escaping bug was invisible against quote-free test text);
 the actual runtime, not an assumed one (macOS ships bash 3.2 — no
-`mapfile`/`declare -A`). Evidence: `MISTAKES.md` →
-`[environment-narrower-than-target]`, three occurrences.
+`mapfile`/`declare -A`). A diagnostic/probe script that re-derives a result
+a real pipeline already computes must apply the same guards/filters that
+pipeline applies — a probe that omits one is a narrower stand-in even when
+its output looks like a genuine measurement. Evidence: `MISTAKES.md` →
+`[environment-narrower-than-target]`, five occurrences.
 
 **A guard needs a fixture that can trigger what it exists to catch.** A test
 suite that only confirms a guard runs and returns is not the same as

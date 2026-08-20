@@ -66,7 +66,7 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 |---|---:|---|---|
 | reference-verification (was github-close-keywords) | 3 | graduated | CLAUDE.md → "Verify every `#N` reference" + "The backtick/quote trap" |
 | reliability-timeout-budget | 2 (distinct root causes, same family) | graduated | CLAUDE.md → "Upstream-outage resilience" + "Partial degradation is a DIFFERENT failure class" |
-| single-source-of-truth-drift | 3 | graduated (strengthened 2026-08-20) | CLAUDE.md → End-of-PR check item 2 (grep now `web/ docs/`); `MODEL_DISPLAY_NAMES` + AST sweep test |
+| single-source-of-truth-drift | 4 (addendum 2026-08-20) | graduated (strengthened 2026-08-20) | CLAUDE.md → End-of-PR check item 2 (grep now `web/ docs/`); `MODEL_DISPLAY_NAMES` + AST sweep test |
 | stale-repo-snapshot | 6 | graduated (strengthened 2026-08-20, twice) | CLAUDE.md → "Before recommending what's next" (re-derive the premise; merge-safety sentence) |
 | claim-shipped-before-measurement | 4 | graduated (2026-08-20) | CLAUDE.md → "Verify a claim before writing it as fact" |
 | verification-checked-the-wrong-thing | 5 | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
@@ -75,18 +75,13 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 | reminder-blind-to-same-day | 1 | resolved (2026-08-20) | entries-seen counter (PR #582); already narrated in CLAUDE.md's mechanical-guard section |
 | guard-decision-without-force | 1 | resolved (2026-08-20) | backticked case now `deny` (PR #579); already narrated in CLAUDE.md's mechanical-guard section |
 | worklog-concurrent-deposit | 1 | resolved (2026-08-20) | one-file-per-deposit design (PR #588) structurally removes the conflict |
-| guard-coverage-gap | 1 (in Worklog) | open | none yet — watching for a repeat |
-| environment-narrower-than-target | 3 | graduated (2026-08-20) | CLAUDE.md → Testing § "Match the real target environment when validating" |
+| environment-narrower-than-target | 5 (addenda 2026-08-20) | graduated (strengthened 2026-08-20) | CLAUDE.md → Testing § "Match the real target environment when validating" |
 | guard-blind-by-construction | 2 | graduated (2026-08-20) | CLAUDE.md → Testing § "A guard needs a fixture that can trigger what it exists to catch" |
-| metric-definition-blind-to-edge-case (was statistic-confounded-by-shape) | 3 | graduated (2026-08-20) | CLAUDE.md → Testing § "Write the domain requirement before the code" |
+| metric-definition-blind-to-edge-case (was statistic-confounded-by-shape) | 5 (addenda 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → Testing § "Write the domain requirement before the code" |
 | unchecked-destructive-git-chaining | 2 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next" § "Gate a destructive git step on its actual outcome" |
-| configured-but-inert | 1 (in Worklog) | open | none yet — watching for a repeat |
-| instrumentation | 1 (in Worklog) | open | none yet — watching for a repeat |
-| ci-guard-intermittent | 1 (in Worklog) | open | none yet — watching for a repeat |
-| scratch-over-tracked-config | 1 (in Worklog) | open | none yet — watching for a repeat |
-| inherited-policy-not-decided | 1 (in Worklog) | open | none yet — watching for a repeat |
-| watcher-predicate | 1 (in Worklog) | open | echoes a known personal pattern (verify deploy by SHA via ancestry, not equality) not yet codified in this repo — watching for a repeat before drafting |
-| probe-artifact-read-as-residual | 1 (in Worklog) | open | a diagnostic probe reported a uniform residual rate that was the probe omitting a guard the real study applies, not a real defect — landed on `main` after this pass's fetch, folded into the tally so `last-audit` stays accurate; watching for a repeat |
+| ci-guard-intermittent | 1 (in Worklog) | open | none yet — still actively causing red CI, worth investigating on its own before the next audit pass |
+| scratch-over-tracked-config | 1 (in Worklog) | open | none yet — thematically echoes the assumed-vs-verified-state throughline behind `unchecked-destructive-git-chaining`/`stale-repo-snapshot`, but the mechanism is distinct enough and severity low; watching for a repeat |
+| watcher-predicate | 1 (in Worklog) | open | echoes a known personal pattern (verify deploy by SHA via ancestry, not equality) not yet codified in this repo — a distinct write-side predicate-design mechanism from `stale-repo-snapshot`'s read-side premise-checking; watching for a repeat before drafting |
 
 ### Entries
 
@@ -120,6 +115,24 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   root-cause instances). Three Worklog lines consumed
   (`local-verification-narrower-than-ci`, `synthetic-fixture-narrower-than-real-data`,
   `bash-version-assumption`).
+- **2026-08-20 addendum (4th–5th occurrences, rule strengthened):** (4) A
+  SessionStart hook resolved `MISTAKES.md` by bare relative path, correct
+  only from the repo root; from any other CWD it silently exited 0,
+  indistinguishable from "nothing to report" — caught only by deliberately
+  testing from `docs/` before merge (PR #561). (5) A diagnostic probe
+  verifying an AR-seed fix reported a uniform 8.33% residual rate — nearly
+  written up as a defect — because it omitted the history-length guard the
+  real scored-window study applies; true rate 0.00% (#559 / PR #584). Unlike
+  occurrences 1–3, this is a diagnostic tool reimplementing a subset of the
+  real pipeline rather than an execution environment, which is why the
+  prevention below was broadened rather than just restated. CLAUDE.md's
+  Testing § "Match the real target environment when validating" now also
+  says: *"...and a diagnostic/probe script that re-derives a result a real
+  pipeline already computes must apply the same guards/filters that
+  pipeline applies — a probe that omits one is a narrower stand-in even when
+  its output looks like a genuine measurement."* **Related:** PR #561, #559,
+  PR #584. Two Worklog lines consumed (`configured-but-inert`,
+  `probe-artifact-read-as-residual`).
 
 **2026-08-20 — A guard tested only on inputs that could not trigger the defect shape it exists to catch [guard-blind-by-construction]**
 - **What happened:** Two guards that passed while blind to their own target
@@ -179,6 +192,24 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 - **Related:** PR #580 (all three occurrences). Renamed from
   `statistic-confounded-by-shape`, which named only occurrence (1); the
   broader pattern covers all three. Three Worklog lines consumed.
+- **2026-08-20 addendum (4th–5th occurrences):** Two more metric/policy
+  definitions blind to a domain edge case. (4) The "web service pinned at
+  max instances" alert summed `ALIGN_MAX` across the active/idle `state`
+  label and `revision_name`; a 20-merge, 19-revision deploy-rollover window
+  read as a sustained 7-instance ceiling while true per-revision peak was
+  2.0 against a limit of 4 — a transition state the aggregation
+  dimensionality never considered (PR #583, issue #581). (5) A shared
+  `row.fillna(0)` step, reused in a new AR-seed snapshot, silently turns a
+  genuinely-absent lag hour into `demand_lag = 0 MW` — the #129 poison the
+  seed filter exists to exclude — affecting 13% of forecast steps (22.6%
+  IID) and flagged as the likely reason a pre-registered study came back
+  inconclusive; documented as an unmeasured limitation rather than resolved.
+  The flag defaults off, so not currently live, but unresolved before it can
+  be flipped on. **Worth follow-up attention**: this stays unresolved, not
+  just logged — it could taint the decision to ever enable `temporal_ar_seed`
+  (#559 / PR #584). No new CLAUDE.md text needed; existing prevention already
+  covers this shape. **Related:** PR #583, #581, #559, PR #584. Two Worklog
+  lines consumed (`instrumentation`, `inherited-policy-not-decided`).
 
 **2026-08-20 — A destructive git step ran without inspecting the actual outcome of the step before it [unchecked-destructive-git-chaining]**
 - **What happened:** Two incidents where a destructive git command ran on an
@@ -567,6 +598,13 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   The item-2 grep was scoped to `web/` only and would never have caught a
   restatement stranded inside the source doc itself — broadened to
   `grep -rn '<old literal>' web/ docs/` (CLAUDE.md, 2026-08-20).
+- **2026-08-20 addendum (4th occurrence, resolved mechanically):**
+  `test_benchmark_count_is_not_hardcoded.py`'s surface list omitted
+  `docs/CANONICAL_FACTS.md` — the exact file CLAUDE.md's end-of-PR check
+  routes a moved fact into, and so the likeliest place for one to be added
+  (PR #538). Fixed by PR #551 adding the missing surface. No new CLAUDE.md
+  text needed — the guard's own coverage was the fix. **Related:** PR #538,
+  PR #551. One Worklog line consumed (`guard-coverage-gap`).
 
 **2026-08-04 — Zero hard failures, two SIGKILLs: the circuit breaker was built for the wrong failure shape [reliability-timeout-budget]**
 - **What happened:** The scoring job burned ~800s and hit two SIGKILLs at
