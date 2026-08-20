@@ -1,0 +1,1 @@
+2026-08-20 [stale-repo-state-claim] Reported a frontmatter/body split in `check-past-mistakes` from a read taken minutes earlier; by the time I went to fix it #598 had already restored that half, and the live one was the sibling skill. The claim was never re-checked against `origin/main` before being stated. — ref: PR #602
