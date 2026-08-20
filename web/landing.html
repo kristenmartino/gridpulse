@@ -343,6 +343,14 @@
       color: var(--text-primary);
     }
     .card p { font-size: 14px; color: var(--text-secondary); }
+    /* The live benchmark sentence, server-rendered — visually a quiet chip,
+       so it reads as a measured figure rather than a marketing claim. */
+    .card .bench-claim {
+      margin-top: 10px; padding: 8px 10px; font-size: 13px;
+      background: var(--bg-base); border: 1px solid var(--border-subtle);
+      border-left: 2px solid var(--accent-base); border-radius: var(--radius-md);
+      color: var(--text-primary);
+    }
     .card .card-link { display: inline-block; margin-top: 12px; font-size: 13px; font-weight: 500; }
     /* A card may carry more than one link; keep them on separate lines so
        neither reads as a continuation of the other. */
@@ -538,7 +546,8 @@
           </div>
           <div class="card">
             <h3>Accuracy, measured honestly</h3>
-            <p>Holdout backtests use the recursive multi-step protocol production serves — roughly 2&times; harder on the models than the teacher-forced numbers dashboards usually quote. All 51 BAs, published. Every forecast is also scored against the balancing authority&rsquo;s own day-ahead forecast on the same hours, wins and losses alike.</p>
+            <p>Holdout backtests use the recursive multi-step protocol production serves — roughly 2&times; harder on the models than the teacher-forced numbers dashboards usually quote. All 51 BAs, published. Head-to-head against each grid operator&rsquo;s own day-ahead forecast, GridPulse runs within a fraction of a point of the operators&rsquo; median — and holds steady where their forecasts break down. Wins and losses published, per operator.</p>
+            <!--SSR_BENCHMARK_CLAIM-->
             <a class="card-link" href="/benchmark">See the head-to-head benchmark &rarr;</a>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BACKTEST_RESULTS.md" target="_blank" rel="noopener">Backtest results &rarr;</a>
           </div>

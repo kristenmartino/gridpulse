@@ -69,10 +69,76 @@ def _serve(path: Path, what: str) -> Response:
     return resp
 
 
+#: Replaced on /about with one live benchmark sentence. Left empty when the
+#: benchmark is warming or the render fails — the card's qualitative copy
+#: stands on its own, and no benchmark number is ever hardcoded in static
+#: HTML (the #535 lesson).
+_CLAIM_MARKER = "<!--SSR_BENCHMARK_CLAIM-->"
+
+
+def _render_benchmark_claim(payload: dict) -> str:
+    """One derived sentence for /about's benchmark card.
+
+    Derived per request for the same reason the /benchmark verdict is: a
+    written-in number becomes a lie the first time the payload moves. Both
+    directions handled; the steadiness clause is only claimed when the rows
+    actually support it.
+    """
+    fleet = payload.get("fleet") or {}
+    ours = fleet.get("median_gridpulse_mape")
+    theirs = fleet.get("median_official_mape")
+    n = fleet.get("n")
+    if not isinstance(ours, (int, float)) or not isinstance(theirs, (int, float)):
+        return ""
+
+    rows = _fleet_rows(payload)
+    ours_spread = _spread_ratio(rows, "gridpulse")
+    theirs_spread = _spread_ratio(rows, "official")
+    if ours < theirs:
+        claim = (
+            f"Live right now: the closer forecast on the typical operator — "
+            f"{_pct(ours)} median error against their {_pct(theirs)}, across "
+            f"{_esc(n)} operators"
+        )
+    else:
+        gap = abs(ours - theirs)
+        claim = (
+            f"Live right now: within {gap:.2f} points of the operators' own "
+            f"median error across {_esc(n)} operators — {_pct(ours)} against "
+            f"their {_pct(theirs)}"
+        )
+    if ours_spread and theirs_spread and ours_spread < theirs_spread:
+        claim += (
+            f", with a fraction of their best-to-worst spread "
+            f"(ours {ours_spread}×, theirs {theirs_spread}×)"
+        )
+    return f'<p class="bench-claim">{claim}.</p>'
+
+
 @landing_bp.get("/about")
 def about() -> Response:
-    """Serve the marketing landing page."""
-    return _serve(_LANDING_HTML, "landing page")
+    """Serve the marketing landing page, its benchmark claim rendered live.
+
+    Fails open like the benchmark summary: a render error leaves the marker
+    empty and the card's qualitative copy stands on its own.
+    """
+    resp = _serve(_LANDING_HTML, "landing page")
+    if resp.status_code != 200:
+        return resp
+
+    claim = ""
+    try:
+        from api import build_benchmark_payload
+
+        payload = build_benchmark_payload()
+        if payload:
+            claim = _render_benchmark_claim(payload)
+    except Exception as exc:  # noqa: BLE001 — enrichment must never 500 the page
+        log.warning("about_benchmark_claim_failed", error=str(exc))
+
+    out = Response(resp.get_data(as_text=True).replace(_CLAIM_MARKER, claim), mimetype="text/html")
+    out.headers["Cache-Control"] = _CACHE_CONTROL
+    return out
 
 
 _COVERAGE_MARKER = "<!--SSR_COVERAGE_TABLE-->"
@@ -188,6 +254,48 @@ def _pct(value: object) -> str:
     return f"{value:.2f}%"
 
 
+def _fleet_rows(payload: dict) -> list[dict]:
+    """The fleet population's 24h lead blocks.
+
+    Scored rows minus any BA reported separately (``isolated``) — the same
+    walk the client's ``fleetRows()`` does, so the two renders cannot
+    disagree about the population they describe.
+    """
+    isolated = payload.get("isolated") or {}
+    rows = []
+    for region in payload.get("regions") or []:
+        if region.get("region") in isolated:
+            continue
+        lead = (region.get("leads") or {}).get("24h") or {}
+        if (
+            region.get("scoreable")
+            and lead.get("scoreable")
+            and lead.get("official")
+            and lead.get("gridpulse")
+        ):
+            rows.append(lead)
+    return rows
+
+
+def _spread_ratio(rows: list[dict], arm: str) -> float | None:
+    """Worst ÷ best mean MAPE across the fleet rows, one decimal.
+
+    Derived from the same rows the table renders rather than from the
+    payload's ``fleet`` block — the fleet block can be written a beat apart
+    from the per-BA keys, and quoting both sources let two statements of the
+    same statistic disagree in the third digit on one screen.
+    """
+    vals = [
+        v
+        for row in rows
+        for v in [(row.get(arm) or {}).get("mape")]
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0
+    ]
+    if len(vals) < 2:
+        return None
+    return round(max(vals) / min(vals), 1)
+
+
 def _render_benchmark_summary(payload: dict) -> str:
     """Server-rendered summary: fleet tiles, the verdict, and a plain table.
 
@@ -198,7 +306,9 @@ def _render_benchmark_summary(payload: dict) -> str:
 
     The verdict is derived here for the same reason it is derived in the
     browser: a written-in conclusion becomes a lie the first time the numbers
-    move. Both directions are handled.
+    move. Both directions are handled, and the order mirrors the client's —
+    the shape of the result first (how close, how steady), the median tally
+    as the last word rather than the first.
     """
     fleet = payload.get("fleet") or {}
     ours = fleet.get("median_gridpulse_mape")
@@ -208,28 +318,73 @@ def _render_benchmark_summary(payload: dict) -> str:
     if isinstance(ours, (int, float)) and isinstance(theirs, (int, float)):
         gap = abs(ours - theirs)
         if ours < theirs:
-            verdict = (
-                f"Across the scoreable fleet GridPulse's median error is "
-                f"{_pct(ours)} against the operators' {_pct(theirs)} — closer by "
-                f"{gap:.1f} points, and closer on {_esc(wins)} of {_esc(n)} BAs."
+            shape = (
+                f"On the typical grid operator GridPulse is the closer forecast "
+                f"— {_pct(ours)} average error against their {_pct(theirs)} — "
+                f"built from public data alone."
+            )
+            tally = (
+                f"At the median GridPulse is the closer of the two, closer on "
+                f"{_esc(wins)} of {_esc(n)} operators."
             )
         else:
-            verdict = (
-                f"Across the scoreable fleet the operators' median error is "
-                f"{_pct(theirs)} against GridPulse's {_pct(ours)} — they are "
-                f"closer by {gap:.1f} points, and closer on {_esc(losses)} of "
-                f"{_esc(n)} BAs."
+            shape = (
+                f"GridPulse runs within {gap:.2f} points of the operators' own "
+                f"forecasts on the typical grid — {_pct(ours)} average error "
+                f"against their {_pct(theirs)} — built from public data alone."
             )
+            tally = (
+                f"At the median the operator's own forecast is the closer of "
+                f"the two, closer on {_esc(losses)} of {_esc(n)} operators."
+            )
+        rows = _fleet_rows(payload)
+        ours_spread = _spread_ratio(rows, "gridpulse")
+        theirs_spread = _spread_ratio(rows, "official")
+        steadier = ""
+        if ours_spread and theirs_spread:
+            steadier = (
+                f" It is also the steadier of the two: our error spans "
+                f"{ours_spread}× from best operator to worst, theirs "
+                f"{theirs_spread}×."
+                if ours_spread < theirs_spread
+                else f" Theirs is also the steadier of the two — "
+                f"{theirs_spread}× from best operator to worst, against our "
+                f"{ours_spread}×."
+            )
+        verdict = f"{shape}{steadier} {tally}"
     else:
         verdict = "Fleet aggregation is still accumulating."
 
+    # Total from config, the same source the coverage table renders from —
+    # a bare N gives a reader no way to see the denominator move, which is
+    # exactly how #535 hid.
+    from config import REGION_COORDINATES
+
+    excluded_entries = payload.get("excluded") or []
+    fairness = [e for e in excluded_entries if e.get("reason") != "insufficient-paired-hours"]
+    accumulating = [e for e in excluded_entries if e.get("reason") == "insufficient-paired-hours"]
+    if payload.get("n_excluded") is None:
+        exclusion_sub = "exclusion count unavailable this tick — see the page tables"
+    elif accumulating:
+        exclusion_sub = (
+            f"{len(fairness)} excluded for fairness, {len(accumulating)} still "
+            f"accumulating — each with a published reason"
+        )
+    else:
+        exclusion_sub = f"{_esc(payload.get('n_excluded'))} excluded, each with a published reason"
+
+    n_scoreable = payload.get("n_scoreable")
     tiles = [
         (
-            "Scoreable",
-            _esc(payload.get("n_scoreable")),
-            f"{_esc(payload.get('n_excluded'))} excluded, each with a published reason",
+            "Operators scored",
+            "—" if n_scoreable is None else f"{_esc(n_scoreable)} / {len(REGION_COORDINATES)}",
+            exclusion_sub,
         ),
-        ("Their median error", _pct(theirs), "median across BAs of each BA's mean MAPE"),
+        (
+            "Their median error",
+            _pct(theirs),
+            "median across operators of each one's average error (mean MAPE)",
+        ),
         ("Our median error", _pct(ours), "same statistic, same hours, same window"),
     ]
     tile_html = "".join(
@@ -257,7 +412,7 @@ def _render_benchmark_summary(payload: dict) -> str:
         )
 
     table = (
-        "<table><caption>GridPulse vs each balancing authority&rsquo;s own "
+        "<table><caption>GridPulse vs each grid operator&rsquo;s own "
         "day-ahead forecast, 24-hour lead, 30-day window. Mean MAPE on paired "
         "hours against settled actuals.</caption><thead><tr>"
         '<th scope="col">BA</th><th scope="col">Their error</th>'

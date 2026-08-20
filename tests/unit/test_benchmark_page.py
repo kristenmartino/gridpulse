@@ -467,7 +467,12 @@ class TestBenchmarkServerRender:
         losing = dict(_FLEET, fleet=dict(_FLEET["fleet"], median_official_mape=2.0))
         mock_get.side_effect = _redis([_payload()], losing)
         body = client.get("/benchmark").get_data(as_text=True)
-        assert "the operators' median error is" in body
+        assert "the operator's own forecast is the closer" in body
+        # Winning: ours median below theirs.
+        winning = dict(_FLEET, fleet=dict(_FLEET["fleet"], median_gridpulse_mape=2.0))
+        mock_get.side_effect = _redis([_payload()], winning)
+        body = client.get("/benchmark").get_data(as_text=True)
+        assert "GridPulse is the closer" in body
 
     @patch("api.redis_get")
     def test_rows_without_a_verdict_are_omitted(self, mock_get, client) -> None:
@@ -631,7 +636,7 @@ class TestBenchmarkPagePosture:
     def test_spread_tile_names_its_statistic_and_population(self, body) -> None:
         """A bare ratio invites confusion with the median-APE spread in the
         scoreability report — a different statistic over different hours."""
-        assert "worst ÷ best BA mean MAPE" in body
+        assert "worst ÷ best operator mean MAPE" in body
         assert "excl. ERCOT" in body
 
     def test_the_result_is_stated_before_the_tables(self, body) -> None:
