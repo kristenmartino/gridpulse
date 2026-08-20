@@ -1,0 +1,1 @@
+2026-08-18 [instrumentation] the max-instances alert summed ALIGN_MAX across the active/idle state label and revision_name, so deploy rollover read as a sustained ceiling and reported 7 against a ceiling of 4, while no revision exceeded 2 — ref: #581 / PR #583

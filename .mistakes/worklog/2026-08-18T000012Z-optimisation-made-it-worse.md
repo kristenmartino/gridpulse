@@ -1,0 +1,1 @@
+2026-08-18 [optimisation-made-it-worse] Added Docker buildx `cache-to: type=gha,mode=max` to CI on the assumption a layer cache beats a rebuild; it took the image build 83s -> 371s (mode=max exports every intermediate layer, and the image carries prophet/xgboost/shap/scipy) and made docker the new critical path. Caught on the first CI run and reverted before merge. — ref: PR #586
