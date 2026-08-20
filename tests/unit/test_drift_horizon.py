@@ -8,12 +8,14 @@ being condemned by a 1h metric.
 
 from __future__ import annotations
 
+import copy
 from datetime import UTC, datetime, timedelta
 
 from models.drift import (
     HORIZON_DRIFT_HORIZONS,
     _expire_pending,
     compute_horizon_drift_payload,
+    extract_one_hour_ahead_predictions,
     resolve_horizon_snapshots,
     snapshot_horizon_predictions,
 )
@@ -110,13 +112,31 @@ class TestExpirePending:
     def test_drops_stale_keeps_fresh(self):
         stale = {"target_ts": (T0 - timedelta(hours=200)).isoformat(), "horizon": "24h"}
         fresh = {"target_ts": (T0 + timedelta(hours=24)).isoformat(), "horizon": "24h"}
-        out = _expire_pending([stale, fresh], now_iso=T0.isoformat())
+        out, expired_by_horizon, malformed_by_horizon = _expire_pending(
+            [stale, fresh], now_iso=T0.isoformat()
+        )
         assert out == [fresh]
+        # #537 channel 2: the stale drop is counted, keyed by its horizon.
+        assert expired_by_horizon == {"24h": 1}
+        assert malformed_by_horizon == {}
 
     def test_drops_malformed(self):
-        assert (
-            _expire_pending([{"target_ts": "not-a-date", "horizon": "24h"}], T0.isoformat()) == []
+        out, expired_by_horizon, malformed_by_horizon = _expire_pending(
+            [{"target_ts": "not-a-date", "horizon": "24h"}], T0.isoformat()
         )
+        assert out == []
+        # #537: the malformed exit is counted separately from channel 2 —
+        # it is a different failure ("we could not even read this snapshot's
+        # target hour") wearing the expiry path's clothes.
+        assert expired_by_horizon == {}
+        assert malformed_by_horizon == {"24h": 1}
+
+    def test_malformed_without_horizon_bucketed_unknown(self):
+        out, expired_by_horizon, malformed_by_horizon = _expire_pending(
+            [{"target_ts": "not-a-date"}], T0.isoformat()
+        )
+        assert out == []
+        assert malformed_by_horizon == {"unknown": 1}
 
 
 class TestComputeHorizonDriftPayload:
@@ -174,3 +194,147 @@ class TestComputeHorizonDriftPayload:
         p1 = compute_horizon_drift_payload("ERCOT", None, _forecast(T0), {}, now_iso=T0.isoformat())
         p2 = compute_horizon_drift_payload("ERCOT", p1, _forecast(T0), {}, now_iso=T0.isoformat())
         assert len(p2["pending"]) == len(p1["pending"]) == 3
+
+
+class TestLossChannelDiagnostics:
+    """#537: separate the two silent ways an hour drops out of n_7d.
+
+    Channel 1 — the forecast origin repeats a (target_ts, horizon) already
+    pending, so the ``seen`` dedup in ``compute_horizon_drift_payload``
+    correctly drops it, but silently. Channel 2 — ``_expire_pending`` drops a
+    snapshot whose actual never arrived before ``PENDING_STALE_HOURS``.
+    Malformed ``target_ts`` used to exit on channel 2's silent path; it is now
+    counted separately since it means something different (a snapshot we
+    could not even read, not one that waited and lost).
+    """
+
+    def test_dedup_skip_is_counted_not_silent(self):
+        # Re-running the identical tick reuses every (target_ts, horizon) key
+        # — the exact channel-1 symptom (a repeated forecast origin).
+        p1 = compute_horizon_drift_payload("ERCOT", None, _forecast(T0), {}, now_iso=T0.isoformat())
+        p2 = compute_horizon_drift_payload("ERCOT", p1, _forecast(T0), {}, now_iso=T0.isoformat())
+        assert len(p2["pending"]) == 3  # unchanged — existing coverage
+        by_horizon = {
+            e["horizon"]: e for e in p2["diag_events"] if e["logged_at"] == T0.isoformat()
+        }
+        assert by_horizon["24h"]["n_dedup_skipped"] == 1
+        assert by_horizon["48h"]["n_dedup_skipped"] == 1
+        assert by_horizon["72h"]["n_dedup_skipped"] == 1
+
+    def test_expired_unresolved_is_counted(self):
+        stale_snap = {
+            "target_ts": (T0 - timedelta(hours=200)).isoformat(),
+            "made_at": (T0 - timedelta(hours=224)).isoformat(),
+            "horizon": "24h",
+            "preds": {"xgboost": 40_000.0},
+        }
+        existing = {"pending": [stale_snap], "models": {}}
+        p = compute_horizon_drift_payload("ERCOT", existing, None, {}, now_iso=T0.isoformat())
+        assert p["pending"] == []
+        events = [e for e in p["diag_events"] if e["horizon"] == "24h"]
+        assert sum(e["n_expired_unresolved"] for e in events) == 1
+        assert sum(e["n_malformed"] for e in events) == 0
+
+    def test_malformed_target_ts_counted_separately_from_expired(self):
+        malformed_snap = {"target_ts": "not-a-date", "horizon": "48h", "preds": {}}
+        existing = {"pending": [malformed_snap], "models": {}}
+        p = compute_horizon_drift_payload("ERCOT", existing, None, {}, now_iso=T0.isoformat())
+        events = [e for e in p["diag_events"] if e["horizon"] == "48h"]
+        assert sum(e["n_malformed"] for e in events) == 1
+        assert sum(e["n_expired_unresolved"] for e in events) == 0
+
+    def test_diagnostics_surface_in_published_model_blocks(self):
+        # Seed a diag log directly, as if accumulated over prior ticks, plus
+        # one existing model with all three horizons already present. The
+        # next tick's rollup must echo the windowed 7d totals into every
+        # model's per-horizon block, scoped to the RIGHT horizon only.
+        existing = {
+            "pending": [],
+            "diag_events": [
+                {
+                    "logged_at": T0.isoformat(),
+                    "horizon": "24h",
+                    "n_dedup_skipped": 2,
+                    "n_expired_unresolved": 3,
+                    "n_malformed": 0,
+                }
+            ],
+            "models": {
+                "xgboost": {
+                    "24h": {"records": []},
+                    "48h": {"records": []},
+                    "72h": {"records": []},
+                }
+            },
+        }
+        now2 = T0 + timedelta(hours=1)
+        p = compute_horizon_drift_payload("ERCOT", existing, None, {}, now_iso=now2.isoformat())
+        block_24h = p["models"]["xgboost"]["24h"]
+        assert block_24h["n_dedup_skipped_7d"] == 2
+        assert block_24h["n_expired_unresolved_7d"] == 3
+        assert block_24h["n_malformed_7d"] == 0
+        # A horizon the diag entry did NOT touch stays at zero — no bleed
+        # across horizons.
+        assert p["models"]["xgboost"]["48h"]["n_dedup_skipped_7d"] == 0
+
+    def test_diagnostics_log_ages_out_past_7d(self):
+        old_entry = {
+            "logged_at": (T0 - timedelta(hours=200)).isoformat(),  # > 7d ago
+            "horizon": "24h",
+            "n_dedup_skipped": 9,
+            "n_expired_unresolved": 0,
+            "n_malformed": 0,
+        }
+        existing = {
+            "pending": [],
+            "diag_events": [old_entry],
+            "models": {"xgboost": {"24h": {"records": []}, "48h": {}, "72h": {}}},
+        }
+        p = compute_horizon_drift_payload("ERCOT", existing, None, {}, now_iso=T0.isoformat())
+        assert p["models"]["xgboost"]["24h"]["n_dedup_skipped_7d"] == 0
+        assert old_entry not in p["diag_events"]
+
+    def test_diagnostics_never_become_model_keys(self):
+        """Pins the #537 no-leak constraint from the caller's-eye view: after
+        two ticks that produce real dedup counts, none of the counter names
+        appear as a key of ``models`` — they must never be readable as if
+        they were a model."""
+        p1 = compute_horizon_drift_payload("ERCOT", None, _forecast(T0), {}, now_iso=T0.isoformat())
+        p2 = compute_horizon_drift_payload("ERCOT", p1, _forecast(T0), {}, now_iso=T0.isoformat())
+        forbidden = {
+            "n_dedup_skipped",
+            "n_expired_unresolved",
+            "n_malformed",
+            "n_dedup_skipped_7d",
+            "n_expired_unresolved_7d",
+            "n_malformed_7d",
+        }
+        assert set(p2["models"].keys()).isdisjoint(forbidden)
+
+    def test_extract_one_hour_ahead_would_treat_counter_key_as_model(self):
+        """Documents the landmine #537 warns about:
+        ``extract_one_hour_ahead_predictions`` treats EVERY numeric key on a
+        forecast row as a model name. This is why the diag counters live only
+        in ``drift_horizon:{region}``'s own structure and are never merged
+        into a forecast payload's row dict — if they ever were, they would
+        silently become a 5th "model" with its own drift records and a place
+        in the published rolling MAPE."""
+        row = {
+            "timestamp": T0.isoformat(),
+            "predicted_demand_mw": 40_000.0,
+            "xgboost": 40_000.0,
+            "n_dedup_skipped": 3.0,  # hypothetical accidental leak
+        }
+        preds = extract_one_hour_ahead_predictions({"forecasts": [row]}, T0.isoformat())
+        assert "n_dedup_skipped" in preds  # confirms the landmine is real
+
+    def test_compute_horizon_drift_payload_never_mutates_forecast_payload(self):
+        """The actual safeguard against the landmine above: the diag counters
+        are computed and stored ONLY in the returned drift_horizon payload —
+        the caller's forecast_payload (which later feeds
+        extract_one_hour_ahead_predictions again next tick) must come back
+        byte-for-byte unchanged."""
+        forecast = _forecast(T0)
+        before = copy.deepcopy(forecast)
+        compute_horizon_drift_payload("ERCOT", None, forecast, {}, now_iso=T0.isoformat())
+        assert forecast == before

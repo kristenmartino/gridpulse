@@ -965,6 +965,13 @@ _HORIZON_HOURS: dict[str, int] = {"24h": 24, "48h": 48, "72h": 72}
 # pending buffer can't grow unbounded.
 PENDING_STALE_HOURS = 72 + 48
 
+# #537: retention for the horizon-diagnostics event log (below) — trimmed to
+# the SAME 7-day window the published ``*_7d`` counters cover, so nothing
+# past it is ever summed. Keeps growth on ``drift_horizon:{region}`` bounded:
+# at most one entry per horizon per tick, and only written when a channel
+# actually lost something that tick, so a healthy region logs almost nothing.
+DIAGNOSTICS_LOG_WINDOW_HOURS = WINDOW_7D_HOURS
+
 
 def snapshot_horizon_predictions(
     forecast_payload: dict[str, Any] | None,
@@ -1070,32 +1077,111 @@ def resolve_horizon_snapshots(
     return resolved, still
 
 
-def _expire_pending(pending: list[dict[str, Any]], now_iso: str | None) -> list[dict[str, Any]]:
+def _expire_pending(
+    pending: list[dict[str, Any]], now_iso: str | None
+) -> tuple[list[dict[str, Any]], dict[str, int], dict[str, int]]:
     """Drop snapshots whose target hour is older than ``PENDING_STALE_HOURS`` and
-    still unresolved — the never-published-actual tail that would otherwise leak."""
+    still unresolved — the never-published-actual tail that would otherwise leak.
+
+    Returns ``(kept, expired_by_horizon, malformed_by_horizon)``. The two count
+    dicts are THIS TICK's drops only, keyed by horizon (#537's channel 2, and
+    the malformed-``target_ts`` exit that used to share its silence — see
+    ``compute_horizon_drift_payload``). A snapshot missing even its ``horizon``
+    field is counted under ``"unknown"`` rather than dropped uncounted.
+    """
     try:
         now = datetime.fromisoformat(now_iso) if now_iso else datetime.now(UTC)
     except (ValueError, TypeError):
         now = datetime.now(UTC)
     cutoff = now - timedelta(hours=PENDING_STALE_HOURS)
     out: list[dict[str, Any]] = []
+    expired_by_horizon: dict[str, int] = {}
+    malformed_by_horizon: dict[str, int] = {}
     for snap in pending:
+        horizon_key = snap.get("horizon") or "unknown"
         try:
             target = datetime.fromisoformat(_normalize_ts(snap.get("target_ts", "")))
         except (ValueError, TypeError):
+            malformed_by_horizon[horizon_key] = malformed_by_horizon.get(horizon_key, 0) + 1
             continue  # malformed → drop
         if target >= cutoff:
             out.append(snap)
+        else:
+            expired_by_horizon[horizon_key] = expired_by_horizon.get(horizon_key, 0) + 1
+    return out, expired_by_horizon, malformed_by_horizon
+
+
+def _trim_diagnostics_log(
+    entries: list[dict[str, Any]], now_iso: str | None
+) -> list[dict[str, Any]]:
+    """Drop horizon-diagnostics log entries older than
+    ``DIAGNOSTICS_LOG_WINDOW_HOURS``. An entry with an unparseable
+    ``logged_at`` is dropped rather than kept — it can't be windowed
+    correctly, and it's own history, not a live signal, so silently losing
+    it costs nothing a real outage would notice.
+    """
+    if not entries:
+        return []
+    try:
+        now = datetime.fromisoformat(now_iso) if now_iso else datetime.now(UTC)
+    except (ValueError, TypeError):
+        now = datetime.now(UTC)
+    cutoff = now - timedelta(hours=DIAGNOSTICS_LOG_WINDOW_HOURS)
+    out: list[dict[str, Any]] = []
+    for entry in entries:
+        try:
+            logged_at = datetime.fromisoformat(entry.get("logged_at", ""))
+        except (ValueError, TypeError):
+            continue
+        if logged_at >= cutoff:
+            out.append(entry)
     return out
 
 
+def _diagnostics_7d_totals(entries: list[dict[str, Any]], horizon: str) -> dict[str, int]:
+    """Sum one horizon's already-windowed diagnostics-log entries (#537).
+
+    ``entries`` is expected to already be trimmed to the 7d window by
+    :func:`_trim_diagnostics_log` — this just filters to ``horizon`` and adds.
+    """
+    totals = {
+        "n_dedup_skipped_7d": 0,
+        "n_expired_unresolved_7d": 0,
+        "n_malformed_7d": 0,
+    }
+    for entry in entries:
+        if entry.get("horizon") != horizon:
+            continue
+        totals["n_dedup_skipped_7d"] += int(entry.get("n_dedup_skipped", 0) or 0)
+        totals["n_expired_unresolved_7d"] += int(entry.get("n_expired_unresolved", 0) or 0)
+        totals["n_malformed_7d"] += int(entry.get("n_malformed", 0) or 0)
+    return totals
+
+
 def _horizon_rollup_block(
-    merged: list[DriftRecord], now_iso: str | None, grade_horizon: str
+    merged: list[DriftRecord],
+    now_iso: str | None,
+    grade_horizon: str,
+    diagnostics_7d: dict[str, int],
 ) -> dict[str, Any]:
     """One (model, horizon) rollup block. Mirrors ``compute_drift_payload``'s
     per-model block (windowed sMAPE/MAPE + the region-relative low-actual filter)
     and adds a horizon-matched ``grade`` from ``config.mape_grade`` — the point of
-    #227: judge each horizon against its OWN band, not the 1h band."""
+    #227: judge each horizon against its OWN band, not the 1h band.
+
+    ``diagnostics_7d`` is the #537 loss-channel counters
+    (``n_dedup_skipped_7d`` / ``n_expired_unresolved_7d`` / ``n_malformed_7d``),
+    computed ONCE per horizon by the caller and echoed unchanged into every
+    model's block here. That is deliberate, not a bug: the underlying events
+    happen to the shared pending buffer BEFORE per-model resolution splits it
+    (see ``resolve_horizon_snapshots``), so the count is a property of the
+    horizon, not of any one model — every model present for a horizon sees
+    the identical number, same as if it had been published once and looked
+    up by horizon. It's threaded through here rather than published
+    separately so the existing per-model/per-horizon export allow-list
+    (``api._EXPORTED_HORIZON_DRIFT_FIELDS``) can publish it without a new
+    export path.
+    """
     from config import mape_grade
 
     kept_7d, n_low_excl_7d = filter_low_actuals(
@@ -1120,6 +1206,9 @@ def _horizon_rollup_block(
         "n_low_actual_excluded_7d": n_low_excl_7d,
         "grade": mape_grade(mape_7d, horizon=grade_horizon) if mape_7d is not None else None,
         "records": serialize_records(merged),
+        # #537: the two silent channels an hour can go missing from n_7d by,
+        # plus the malformed exit that used to share channel 2's silence.
+        **diagnostics_7d,
     }
 
 
@@ -1136,32 +1225,70 @@ def compute_horizon_drift_payload(
     """Build the ``gridpulse:drift_horizon:{region}`` payload for one tick.
 
     Pipeline: (1) resolve pending snapshots whose target hour now has an actual,
-    (2) snapshot the current forecast's +H predictions into the pending buffer,
-    (3) expire the never-resolved tail, (4) roll up each (model, horizon) rolling
-    window with a horizon-matched grade. Shape::
+    (2) snapshot the current forecast's +H predictions into the pending buffer
+    (counting channel-1 dedup skips, #537), (3) expire the never-resolved tail
+    (counting channel-2 expiries and the malformed exit that shares its
+    silence, #537), (4) roll up each (model, horizon) rolling window with a
+    horizon-matched grade and this tick's trailing-7d loss-channel counts.
+    Shape::
 
         {"region", "last_updated_at", "horizons": [...],
          "pending": [<snapshot>, ...],
-         "models": {"xgboost": {"24h": <block>, "48h": ..., "72h": ...}, ...}}
+         "models": {"xgboost": {"24h": <block>, "48h": ..., "72h": ...}, ...},
+         "diag_events": [<log entry>, ...]}
+
+    ``diag_events`` is internal state (not exported by the API) — a compact,
+    7d-trimmed log the loss-channel counters are summed from tick to tick;
+    see ``_trim_diagnostics_log`` / ``_diagnostics_7d_totals``.
     """
     existing = existing_payload or {}
     pending = list(existing.get("pending") or [])
     existing_models = existing.get("models") or {}
+    diag_log = list(existing.get("diag_events") or [])
 
     # 1. Resolve pending against the now-known actuals.
     resolved, pending = resolve_horizon_snapshots(pending, actuals)
 
     # 2. Snapshot the current forecast's per-horizon predictions (dedup on
     #    (target_ts, horizon) so a retried tick can't double-count).
+    #    #537 channel 1: when the forecast origin repeats a (target_ts,
+    #    horizon) already pending, this target hour is snapshotted by
+    #    NOTHING this tick — the ``seen`` dedup below is correct, but was
+    #    silent about how often it fires. Count it instead of just dropping.
     seen = {(s.get("target_ts"), s.get("horizon")) for s in pending}
+    dedup_skipped_by_horizon: dict[str, int] = {}
     for snap in snapshot_horizon_predictions(forecast_payload, horizons):
         key = (snap["target_ts"], snap["horizon"])
         if key not in seen:
             pending.append(snap)
             seen.add(key)
+        else:
+            h = snap["horizon"]
+            dedup_skipped_by_horizon[h] = dedup_skipped_by_horizon.get(h, 0) + 1
 
-    # 3. Expire the never-resolved tail.
-    pending = _expire_pending(pending, now_iso)
+    # 3. Expire the never-resolved tail (#537 channel 2: the actual never
+    #    published before the stale cutoff) and the malformed-target_ts exit
+    #    that used to wear channel 2's clothes.
+    pending, expired_by_horizon, malformed_by_horizon = _expire_pending(pending, now_iso)
+
+    # Append this tick's per-horizon drop counts to the diagnostics log (only
+    # when something actually dropped — a healthy tick adds nothing), then
+    # trim to the 7d window the published counters cover.
+    for h in horizons:
+        n_dedup = dedup_skipped_by_horizon.get(h, 0)
+        n_expired = expired_by_horizon.get(h, 0)
+        n_malformed = malformed_by_horizon.get(h, 0)
+        if n_dedup or n_expired or n_malformed:
+            diag_log.append(
+                {
+                    "logged_at": now_iso or datetime.now(UTC).isoformat(),
+                    "horizon": h,
+                    "n_dedup_skipped": n_dedup,
+                    "n_expired_unresolved": n_expired,
+                    "n_malformed": n_malformed,
+                }
+            )
+    diag_log = _trim_diagnostics_log(diag_log, now_iso)
 
     # 4. Roll up per (model, horizon).
     resolved_by_key: dict[tuple[str, str], list[DriftRecord]] = {}
@@ -1182,7 +1309,10 @@ def compute_horizon_drift_payload(
             merged = prior
             for record in resolved_by_key.get((model_name, horizon), []):
                 merged = merge_and_trim(merged, record, max_records=max_records)
-            block_by_horizon[horizon] = _horizon_rollup_block(merged, now_iso, horizon)
+            diagnostics_7d = _diagnostics_7d_totals(diag_log, horizon)
+            block_by_horizon[horizon] = _horizon_rollup_block(
+                merged, now_iso, horizon, diagnostics_7d
+            )
         models_out[model_name] = block_by_horizon
 
     return {
@@ -1191,4 +1321,5 @@ def compute_horizon_drift_payload(
         "horizons": list(horizons),
         "pending": pending,
         "models": models_out,
+        "diag_events": diag_log,
     }
