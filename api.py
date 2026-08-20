@@ -65,7 +65,29 @@ _EXPORTED_MODELS = ("prophet", "arima", "xgboost", "ensemble")
 # retained history, which can be dominated by records older than either
 # window). Exported so API consumers can gate exactly like the UI does.
 _EXPORTED_LIVE_DRIFT_FIELDS = ("rolling_mape_7d", "rolling_mape_30d", "n_records", "n_7d", "n_30d")
-_EXPORTED_HORIZON_DRIFT_FIELDS = ("rolling_mape_7d", "grade", "n_records", "n_7d")
+# #537: n_7d (168 theoretical hourly slots) runs short fleet-wide and, for
+# some BAs, dramatically — this splits the shortfall into the two silent ways
+# an hour goes missing, rather than leaving readers to infer which one they're
+# looking at. n_dedup_skipped_7d = the forecast origin repeated a
+# (target_ts, horizon) already pending, so nothing snapshotted that hour
+# (channel 1). n_expired_unresolved_7d = a snapshot was taken but its actual
+# never published before the buffer's stale cutoff (channel 2).
+# n_malformed_7d = a pending snapshot's target_ts could not even be parsed —
+# kept distinct from channel 2 because it means something different ("we
+# could not read this snapshot") even though it used to exit on the same
+# silent path. All three are rolling 7d counts, identical across every model
+# published for a horizon (the underlying event happens to the shared
+# pending buffer before per-model resolution splits it) — see
+# models.drift._horizon_rollup_block.
+_EXPORTED_HORIZON_DRIFT_FIELDS = (
+    "rolling_mape_7d",
+    "grade",
+    "n_records",
+    "n_7d",
+    "n_dedup_skipped_7d",
+    "n_expired_unresolved_7d",
+    "n_malformed_7d",
+)
 
 #: Data-source attribution that must travel with redistributed values so
 #: downstream API consumers can meet the upstream license terms. Open-Meteo

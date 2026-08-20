@@ -348,7 +348,7 @@ class TestHorizonRollupWindowCounts:
         from models.drift import _horizon_rollup_block
 
         recs = [_rec(h) for h in range(24)] + [_rec(30, actual=1.0)] + [_rec(24 * 10)]
-        block = _horizon_rollup_block(recs, NOW.isoformat(), "24h")
+        block = _horizon_rollup_block(recs, NOW.isoformat(), "24h", {})
         assert block["n_records"] == 26
         assert block["n_7d"] == 24  # near-zero artifact excluded
         assert block["n_30d"] == 25  # mid-age record in, artifact out
@@ -359,7 +359,7 @@ class TestHorizonRollupWindowCounts:
         from models.drift import _horizon_rollup_block
 
         recs = [_rec(h) for h in range(24)] + [_rec(24 * 12 + i, actual=1.0) for i in range(3)]
-        block = _horizon_rollup_block(recs, NOW.isoformat(), "24h")
+        block = _horizon_rollup_block(recs, NOW.isoformat(), "24h", {})
         assert block["n_30d"] == 24
 
 

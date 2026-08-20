@@ -3220,17 +3220,49 @@ def write_horizon_drift_metrics(
             for model in payload["models"].values()
             for block in model.values()
         )
+        # #537: the two silent channels an hour can drop out of n_7d by,
+        # logged the same way #542 taught this module to log a counter —
+        # where the post-deploy check actually looks, not only published and
+        # left for nobody to read. Same headline-model convention as
+        # write_drift_metrics (#170): prefer ensemble, else the alphabetical
+        # first model with any block, since the count is identical across
+        # every model present for a horizon (see _horizon_rollup_block).
+        models_present = sorted(payload["models"].keys())
+        headline_model = (
+            "ensemble"
+            if "ensemble" in payload["models"]
+            else (models_present[0] if models_present else None)
+        )
+        headline_by_horizon = payload["models"].get(headline_model, {}) if headline_model else {}
+        horizons = payload.get("horizons", [])
+        n_dedup_skipped_7d = {
+            h: headline_by_horizon.get(h, {}).get("n_dedup_skipped_7d") for h in horizons
+        }
+        n_expired_unresolved_7d = {
+            h: headline_by_horizon.get(h, {}).get("n_expired_unresolved_7d") for h in horizons
+        }
+        n_malformed_7d = {h: headline_by_horizon.get(h, {}).get("n_malformed_7d") for h in horizons}
         log.info(
             "horizon_drift_updated",
             region=region,
-            models=sorted(payload["models"].keys()),
+            models=models_present,
             pending=n_pending,
             total_records=n_records,
+            headline_model=headline_model,
+            n_dedup_skipped_7d=n_dedup_skipped_7d,
+            n_expired_unresolved_7d=n_expired_unresolved_7d,
+            n_malformed_7d=n_malformed_7d,
         )
         return PhaseResult(
             region=region,
             ok=True,
-            details={"pending": n_pending, "total_records": n_records},
+            details={
+                "pending": n_pending,
+                "total_records": n_records,
+                "n_dedup_skipped_7d": n_dedup_skipped_7d,
+                "n_expired_unresolved_7d": n_expired_unresolved_7d,
+                "n_malformed_7d": n_malformed_7d,
+            },
         )
     except Exception as exc:
         log.warning("horizon_drift_write_failed", region=region, error=str(exc))
