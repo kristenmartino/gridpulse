@@ -422,3 +422,29 @@ class TestTheBridgeClosesTheTrailingGapItWouldOtherwiseOpen:
         assert seed is None
         assert resolved == featured["timestamp"].max() + HOUR
         assert self._room_for_every_step(featured, resolved, self.HORIZON)
+
+
+class TestAnchorProvenanceStillNamesTheSeededValue:
+    """#547 records `anchor_mw` from `featured` first, falling back to the
+    anchor frame. A bridged origin anchors on an hour `dropna` deleted, so it
+    takes the fallback — and the fallback is exactly where the bridge read the
+    value, which is what keeps the recorded anchor and the seeded anchor the
+    same number rather than merely adjacent ones."""
+
+    def test_a_bridged_origin_records_the_hour_the_seed_used(self, temporal_on):
+        demand_df = _demand("2026-08-14 05:00", n=2171)
+        featured = _featured_truncated_at(demand_df, "2026-08-13 13:00")
+        origin = phases._resolve_forecast_start(featured, demand_df)
+        _, seed = phases._ar_seed_for_origin(featured, demand_df, origin)
+
+        data = phases.RegionData(
+            region="LGEE", demand_df=demand_df, weather_df=pd.DataFrame(), featured_df=featured
+        )
+        prov = phases._anchor_provenance(data, featured, origin)
+
+        assert prov["anchor_ts"] == (origin - HOUR).isoformat()
+        # `featured` does not hold this hour — that is the defect — so the
+        # value has to come from the same frame the bridge read.
+        assert phases._demand_at(featured, origin - HOUR) is None
+        seeded = float(seed.loc[seed["timestamp"] == origin - HOUR, "demand_mw"].iloc[0])
+        assert prov["anchor_mw"] == pytest.approx(round(seeded, 2))

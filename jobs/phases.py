@@ -1214,11 +1214,15 @@ def _anchor_provenance(
 
     anchor_ts = forecast_start - pd.Timedelta(hours=1)
 
-    # The seed of ``demand_lag_1h`` comes from the FEATURED frame
+    # The seed of ``demand_lag_1h`` normally comes from the FEATURED frame
     # (data/feature_engineering.py filters it to positive non-NaN and takes
     # history[-1]), so that is the authoritative source for the value. The
-    # anchor frame is the fallback for the degenerate branches where the hour
-    # survived selection but not feature engineering.
+    # anchor frame is the fallback for the branches where the hour survived
+    # selection but not feature engineering — which since #559 includes the
+    # ordinary bridged case: an origin advanced across ``_ar_seed_bridge``
+    # anchors on an hour ``dropna`` deleted, and the bridge took that hour's
+    # value from this same anchor frame. So the fallback is not a degenerate
+    # path there; it is the one that names the value actually seeded.
     anchor_mw = _demand_at(featured, anchor_ts)
     if anchor_mw is None:
         anchor_mw = _demand_at(data.anchor_frame, anchor_ts)
