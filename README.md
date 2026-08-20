@@ -32,11 +32,11 @@
 | data/demo\_data.py                    |       89 |        0 |    100% |           |
 | data/eia\_client.py                   |      248 |        2 |     99% |  380, 382 |
 | data/explainability.py                |       44 |        3 |     93% |   204-206 |
-| data/feature\_engineering.py          |      344 |       27 |     92% |60-61, 185, 310-311, 329-331, 343, 390, 457, 460-461, 641-650, 654, 686, 704, 759, 958-959, 1117, 1122 |
+| data/feature\_engineering.py          |      345 |       27 |     92% |61-62, 189, 314-315, 333-335, 347, 394, 461, 464-465, 645-654, 658, 690, 708, 763, 962-963, 1121, 1126 |
 | data/forecast\_history.py             |      137 |       11 |     92% |54-55, 116-117, 149, 157, 181-183, 420-421 |
 | data/gcs\_store.py                    |       71 |        3 |     96% |31, 52, 99 |
 | data/noaa\_client.py                  |      129 |        6 |     95% |212-215, 230-231 |
-| data/preprocessing.py                 |      120 |        2 |     98% |   288-289 |
+| data/preprocessing.py                 |      128 |        2 |     98% |   313-314 |
 | data/quality.py                       |       60 |        4 |     93% |90-91, 126, 130 |
 | data/redis\_client.py                 |      101 |        0 |    100% |           |
 | data/session\_diff.py                 |      152 |        5 |     97% |98, 120, 125, 179-180 |
@@ -67,7 +67,7 @@
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
-| **TOTAL**                             | **8631** |  **754** | **91%** |           |
+| **TOTAL**                             | **8640** |  **754** | **91%** |           |
 
 
 ## Setup coverage badge
