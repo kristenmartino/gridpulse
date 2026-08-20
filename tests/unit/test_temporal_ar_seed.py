@@ -24,7 +24,9 @@ from data.feature_engineering import (
     add_autoregressive_demand_features,
     compute_autoregressive_snapshot,
     compute_temporal_autoregressive_snapshot,
+    positional_seed_matches_hours,
     recursive_autoregressive_forecast,
+    seed_divergence_reason,
 )
 
 GAP_LEN = 16  # matches LGEE's real 2026-08-12 hole
@@ -378,3 +380,74 @@ class TestParityProperty:
                 if train != pytest.approx(infer, rel=1e-9, abs=1e-9):
                     mismatches += 1
         assert mismatches > 0, "positional path agreed everywhere — fuzz lost its gaps"
+
+
+class TestDroppedWriteAccounting:
+    """#624: a write that falls outside the array is counted, never a no-op."""
+
+    def _origin(self):
+        return pd.Timestamp("2026-01-08T00:00:00Z")
+
+    def test_a_write_past_the_end_is_counted_not_silently_dropped(self):
+        h = HourIndexedHistory.build([pd.Timestamp("2026-01-01T00:00:00Z")], [900.0])
+        assert h.dropped_writes == 0
+        h.set(pd.Timestamp("2026-01-05T00:00:00Z"), 950.0)  # no room reserved
+        assert h.dropped_writes == 1, "an out-of-bounds write must be counted"
+
+    def test_a_write_inside_the_array_is_not_counted(self):
+        h = HourIndexedHistory.build(
+            [pd.Timestamp("2026-01-01T00:00:00Z")], [900.0], extra_hours=48
+        )
+        h.set(pd.Timestamp("2026-01-01T05:00:00Z"), 950.0)
+        assert h.dropped_writes == 0
+        assert h.at(h.index_of(pd.Timestamp("2026-01-01T05:00:00Z"))) == 950.0
+
+    def test_a_trailing_seed_gap_under_sizes_the_array(self):
+        """The #624 mechanism itself: room is reserved from the last PRESENT hour."""
+        origin = self._origin()
+        seed = pd.date_range(end=origin - pd.Timedelta(hours=5), periods=200, freq="h")
+        h = HourIndexedHistory.build(seed, [900.0] * len(seed), extra_hours=49)
+        for step in range(48):  # the recursion writes origin .. origin+47h
+            h.set(origin + pd.Timedelta(hours=step), 1000.0)
+        assert h.dropped_writes > 0, (
+            "a seed stopping short of origin-1h must leave writes falling off the end"
+        )
+
+
+class TestSeedDivergenceReason:
+    """#624: *why* the arms differ, so observations can be stratified not discarded."""
+
+    ORIGIN = pd.Timestamp("2026-01-08T00:00:00Z")
+
+    def _dense(self, periods=200, end_offset_h=1):
+        return pd.date_range(
+            end=self.ORIGIN - pd.Timedelta(hours=end_offset_h), periods=periods, freq="h"
+        )
+
+    def test_contiguous_seed_is_identical(self):
+        assert seed_divergence_reason(self._dense(), self.ORIGIN) == ("identical", 0)
+
+    def test_hole_inside_lookback_is_clean_evidence(self):
+        holed = self._dense().delete(150)
+        reason, gap = seed_divergence_reason(holed, self.ORIGIN)
+        assert (reason, gap) == ("hole_in_lookback", 0)
+
+    def test_seed_stopping_short_is_flagged_with_its_gap(self):
+        reason, gap = seed_divergence_reason(self._dense(end_offset_h=5), self.ORIGIN)
+        assert reason == "seed_tail_short"
+        assert gap == 4, "the gap must be the hours short of origin-1h"
+
+    def test_the_two_divergent_reasons_are_distinguishable(self):
+        """The whole point: 'diverges' used to collapse these into one label."""
+        holed = seed_divergence_reason(self._dense().delete(150), self.ORIGIN)[0]
+        short = seed_divergence_reason(self._dense(end_offset_h=5), self.ORIGIN)[0]
+        assert holed != short
+
+    def test_unusable_input_does_not_raise(self):
+        assert seed_divergence_reason(None, self.ORIGIN) == ("unusable", None)
+
+    def test_reason_agrees_with_the_existing_predicate(self):
+        """`identical` must mean exactly what positional_seed_matches_hours means."""
+        for seed in (self._dense(), self._dense().delete(150), self._dense(end_offset_h=5)):
+            reason, _ = seed_divergence_reason(seed, self.ORIGIN)
+            assert (reason == "identical") is positional_seed_matches_hours(seed, self.ORIGIN)

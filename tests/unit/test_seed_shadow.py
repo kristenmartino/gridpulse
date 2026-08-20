@@ -284,7 +284,12 @@ class TestThePayload:
             spy.return_value = np.full(24, 18500.0)
             _call(_featured(gap_at=HOURS - 60))
         payload = next(c.args[1] for c in mock_set.call_args_list if "seed_shadow:" in c.args[0])
-        assert payload["gate"] == "diverges"
+        # #624: the gate names WHY the arms differ. This fixture holes the
+        # lookback while the seed still reaches origin-1h, so the array is
+        # correctly sized and the observation is clean evidence about
+        # temporal indexing — not the ``seed_tail_short`` stratum.
+        assert payload["gate"] == "hole_in_lookback"
+        assert payload["seed_tail_gap_h"] == 0
         assert payload["computed"] is True
         assert payload["divergence_pct"] == pytest.approx(100 * 500 / 18000, rel=1e-6)
         # The served headline is the ensemble; its delta is this weight times
@@ -325,9 +330,11 @@ class TestThePerRunCap:
         written = next(
             c for c in log.info.call_args_list if c.args and c.args[0] == "seed_shadow_written"
         )
-        # The distinction that matters: this BA WOULD have diverged, and the
-        # observation was dropped for budget — not because there was no gap.
-        assert written.kwargs["gate"] == "diverges"
+        # #624: the gate names WHY the arms differ. This fixture holes the
+        # lookback while the seed still reaches origin-1h, so the array is
+        # correctly sized — the clean stratum, not ``seed_tail_short``.
+        assert written.kwargs["gate"] == "hole_in_lookback"
+        assert written.kwargs["seed_tail_gap_h"] == 0
         assert written.kwargs["computed"] is False
         assert written.kwargs["budget_declined"] is True
 
