@@ -186,7 +186,74 @@ Forecasts are unchanged by the swap: the array implementation reproduces this
 study's independent treatment arm to **0.0000000000** on TIDC, PSCO and IID, so
 every number in §3 still describes what ships.
 
-## 7. Why #186 is not "unify the implementations"
+## 7. The shadow run — what it is, and what it cannot be
+
+The flag is off because §3 was inconclusive. The obvious next move is a
+production shadow: compute both arms live, serve the control, grade later.
+**That will not settle the accuracy question, and it is worth being precise
+about why before anyone waits on it.**
+
+The defect only produces an observation when a gap occurs, and gaps are rare.
+Extrapolating §3's own accrual:
+
+| unit | observed | accrual | needed for a verdict | wait |
+|---|---:|---:|---:|---:|
+| 168h windows | 24 in 90 days | ~1.9/wk | ~643 | **6.6 years** |
+| 48h windows | 85 in 90 days | ~6.6/wk | ~428 | **1.2 years** |
+
+More production time does not fix this; the effect is small relative to
+window-to-window variance and the sampling rate is set by how often EIA drops an
+hour. So the shadow is built as a **pre-rollout safety instrument**, and
+`scripts/seed_shadow_eval.py` prints its own MDE and the implied wait next to
+every comparison so it cannot be mistaken for a verdict.
+
+What it does answer, and what no offline replay can:
+
+- does the temporal path run clean against **real production frames**, not
+  mirrors;
+- what the second recursion actually costs in the live job;
+- whether live divergence matches the 2.1-2.7% §3 predicted — a large gap would
+  mean production frames differ from the mirrors the replay used;
+- whether the gate is still deciding.
+
+**Gating.** A second XGBoost recursion is not free, so it runs only where the
+arms *can* differ. `positional_seed_matches_hours` is the exact condition, not a
+proxy: every lag and rolling window reaches at most 168 entries back, and the
+recursion appends its own predictions contiguously, so the arms are identical
+whenever the last 168 seed entries are contiguous hours ending at `origin - 1h`.
+On 2026-08-20 that gated in **3 of 51** BAs (~3 CPU-seconds); ungated it would
+be roughly +380 CPU-s on a job whose worst recent tick used 1155s of 1800s.
+
+Membership is recomputed every tick and moves quickly — LGEE alone on 08-18,
+LGEE/SPA/TIDC on 08-20 — so a static allowlist would already be stale.
+
+**Gated is not bounded.** The gate is data-dependent, so a bad EIA day could
+admit the whole fleet. `_write_seed_shadow` runs after the served payload
+persists and cannot lose its own BA's forecast — but work-shedding is whole-BA,
+so an unbounded enrichment would push the run past the soft deadline and buy
+shadow data with *later* regions' real forecasts. Hard-capped at
+`SEED_SHADOW_MAX_REGIONS_PER_TICK` (12, about 4x the observed population),
+counted per process exactly like `_EIACircuitBreaker`, with a declined tick
+recorded rather than silent — a dropped observation that read as "no gap" would
+bias the sample toward quiet ticks.
+
+**The gate audits itself.** One region per hour that the gate says is identical
+is shadowed anyway, asserting zero divergence. Without it a gate that quietly
+started skipping everything would be indistinguishable from a fleet with no
+gaps — the failure mode this very PR found in the parity fixture. A nonzero
+audit divergence is an alarm about the *gate*, not a finding about the seed.
+
+Verified end to end on real LGEE data (origin `2026-08-20T12:00Z`): the gate
+said diverges, the second arm ran, and divergence was **2.82%** — consistent
+with §3, and slightly higher because LGEE was +50h out that day against +34h at
+study time.
+
+**Where the accuracy verdict comes from instead:** injecting synthetic gaps that
+match the observed length distribution, offline, through the same serve path.
+The corruption is deterministic — a hole is a hole — so an injected one produces
+the same class of error, and `n` stops being set by EIA's outage schedule.
+
+## 8. Why #186 is not "unify the implementations"
 
 [#186](https://github.com/kristenmartino/gridpulse/issues/186) asks for a single
 shared core, on the reasoning that the training and inference paths "match today
