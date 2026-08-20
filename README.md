@@ -47,7 +47,7 @@
 | data/weather\_normals.py              |      120 |        7 |     94% |94, 130-132, 257, 259-260 |
 | models/\_\_init\_\_.py                |        0 |        0 |    100% |           |
 | models/arima\_model.py                |      187 |       28 |     85% |95-99, 123-127, 165-218, 371-373, 442, 444 |
-| models/benchmark.py                   |      228 |       10 |     96% |202, 221, 331, 620, 625-626, 664, 667-668, 922 |
+| models/benchmark.py                   |      243 |       10 |     96% |209, 228, 386, 709, 714-715, 753, 756-757, 1011 |
 | models/drift.py                       |      341 |       15 |     96% |220, 235, 278, 281, 464, 560, 686-687, 950, 1005-1006, 1012, 1056, 1078-1079 |
 | models/ensemble.py                    |       90 |        1 |     99% |        91 |
 | models/evaluation.py                  |       92 |        0 |    100% |           |
@@ -67,7 +67,7 @@
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
-| **TOTAL**                             | **8640** |  **754** | **91%** |           |
+| **TOTAL**                             | **8655** |  **754** | **91%** |           |
 
 
 ## Setup coverage badge
