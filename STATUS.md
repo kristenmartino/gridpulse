@@ -20,6 +20,45 @@ follow-up commit.
 ## Active focus + open question
 
 **2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+re-run: the policy fix worked, stratum A's sign flipped, and the hypothesis is
+STILL not confirmed — now for a different reason.**
+
+| stratum | n | mean Δ WAPE | median | MDE | consistency | verdict |
+|---|---:|---:|---:|---:|---:|---|
+| **A** naturally gapped | 249 | **+0.268** | +0.132 | 0.172 | **0.594** | not decisive |
+| **B** never gapped | 432 | **+0.614** | +0.309 | 0.107 | **0.729** | not decisive |
+
+Both positive, mean and median agreeing, magnitude clearing MDE — B by **5.7×**.
+Both fail on **one** rule: sign consistency, and B misses 75% by **2.1 points**.
+`verdict()`: *"real on average but not reliable enough to ship."* That is the
+case the rule exists to catch, and it is not a threshold to argue down after
+seeing the number.
+
+**The diagnosis is confirmed.** Runs are paired and the **control arm is
+byte-identical across them** (`0.0000000000`), so only the treatment moved:
+A **−0.265 → +0.268** (swing +0.533), B **+0.187 → +0.614** (+0.427). The worst
+first-run regressions are gone — IID **−1.47 → −0.01**, NEVP −0.51 → −0.005.
+PSCO is the one BA still consistently worse (−0.46), and it is the BA whose real
+gaps are clock-aligned rather than random.
+
+**Criterion 4 met**: 0 NaN lags and 0 non-positive lags across **32,832 scored
+steps**, against 13.08–22.57% before. Criterion 2 (null control) exact.
+
+**Pre-registration gap, recorded rather than papered over:** §6's reading for
+"both inconclusive" assumed inconclusive would mean *small*. It does not here —
+the effect is large and fails on consistency. Applying that pre-committed reading
+anyway would have been dishonest, so it is marked wrong instead.
+
+**Flag stays off. The stopping rule is spent** — no third attempt on this
+question. **The live question is now different and better:** *where* does the
+losing quarter of windows sit? Gap length, gap hour and gap lead are recorded per
+window so it can be asked without re-running — as a **new** pre-registration.
+**Evidence:**
+[`docs/POSITIONAL_LAG_INJECTION_RERUN_STUDY.md`](docs/POSITIONAL_LAG_INJECTION_RERUN_STUDY.md).
+
+---
+
+**2026-08-20 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 the absent-hour policy is decided rather than inherited, and the re-run is
 pre-registered.**
 
