@@ -160,10 +160,10 @@
       display: grid; grid-template-columns: minmax(0, 1fr) 20rem;
       gap: 40px; align-items: start; padding: 40px 0 8px;
     }
-    /* Grid items default to min-width:auto, so the min-width:60rem table
-       would push the whole page wider than the viewport instead of
-       scrolling inside its own container. The body must never scroll
-       horizontally. */
+    /* Grid items default to min-width:auto, so a table wider than the
+       column (its min-content width on narrow screens) would push the whole
+       page wider than the viewport instead of scrolling inside its own
+       container. The body must never scroll horizontally. */
     .cols > * { min-width: 0; }
 
     section { padding: 28px 0; }
@@ -216,12 +216,17 @@
        head only bites inside a height-bounded box. Only the long table gets
        one — capping the short exclusion tables would scroll them for nothing. */
     .table-scroll.tall { max-height: 78vh; overflow-y: auto; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 60rem; }
+    /* No width floor: the columns' own min-content decides. A 60rem floor
+       forced even the 3-column exclusion table to scroll sideways inside a
+       narrower desktop column. Headers wrap instead of propping the table
+       open; phones still scroll the main table (six columns have a real
+       minimum), with the sticky BA column keeping rows labeled. */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
     thead th {
-      background: var(--bg-raised); text-align: right; padding: 10px 12px;
+      background: var(--bg-raised); text-align: right; padding: 10px 10px;
       font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
       text-transform: uppercase; color: var(--text-tertiary);
-      border-bottom: 1px solid var(--border-default); white-space: nowrap;
+      border-bottom: 1px solid var(--border-default); vertical-align: bottom;
       position: sticky; top: 0; z-index: 1;
     }
     thead th:first-child, tbody td:first-child, tbody th { text-align: left; }
@@ -352,7 +357,7 @@
     <div class="hero">
       <div class="wrap">
         <p class="eyebrow">Forecast Benchmark</p>
-        <h1>Measured against the forecast you already have.</h1>
+        <h1>How accurate is GridPulse?</h1>
         <p class="subhead">
           Every US balancing authority — the regional operators that run the
           grid — publishes its own day-ahead demand forecast through EIA-930,
@@ -420,7 +425,6 @@
                       <th scope="col" aria-sort="none"><button type="button" data-sort="official_revised">Same forecast, after revisions<span class="unit">as-revised &middot; mean MAPE %</span></button></th>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="gridpulse">GridPulse forecast<span class="unit">mean MAPE %</span></button></th>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="delta">Difference<span class="unit">points, + = GridPulse closer</span></button></th>
-                      <th scope="col">Same winner either way?<span class="unit">as-published vs revised</span></th>
                     </tr>
                   </thead>
                   <tbody></tbody>
@@ -567,7 +571,7 @@
               <li>The operator's column is the <em>earliest day-ahead forecast we observed</em>, not necessarily the first they issued: a revision landing before we first saw the hour is invisible to us.</li>
               <li>Only settled actuals count. First-published values run up to ~70% wrong on high-revision feeds.</li>
               <li>Hours we first saw <em>after</em> they had already passed are excluded: their earliest-observed forecast is already a post-revision value, so scoring it as &ldquo;as-issued&rdquo; would erase the distinction the two operator columns exist to draw.</li>
-              <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight.</li>
+              <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight. A row where the two scorings disagree about the winner is marked on its Difference cell; everywhere else they agree.</li>
               <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
               <li>A row marked <span class="flag">rollback</span> is one our own drift monitor already grades as failing at that horizon &mdash; the number stands, but we would not defend the forecast behind it.</li>
               <li>A row marked <span class="flag substituted">not served</span> scores our ensemble for a BA we serve a seasonal-naive baseline instead, so its published number is <em>worse</em> than what that BA actually receives. The arm is not re-based onto the fallback, because that would stop it measuring the forecaster.</li>
@@ -1027,21 +1031,28 @@
         cell(tr, num((h.official_revised || {}).mape), 'theirs');
         cell(tr, num((h.gridpulse || {}).mape), 'ours');
         var delta = num(h.delta_mape);
-        cell(tr, delta === null ? null : (h.delta_mape > 0 ? '+' + delta : delta));
+        var deltaTd = cell(tr, delta === null ? null : (h.delta_mape > 0 ? '+' + delta : delta));
 
+        /* The as-issued/as-revised winner check used to be its own column
+           reading "yes" on nearly every row. The exception is the
+           information — mark only the rows where re-scoring against the
+           revised forecast flips the verdict. */
         var agree = h.winner && h.winner_vs_revised && h.winner === h.winner_vs_revised;
-        var td = tr.insertCell();
-        var pill = document.createElement('span');
-        pill.className = 'pill' + (agree ? '' : ' split');
-        pill.textContent = agree ? 'yes' : 'no — revision changes it';
-        td.appendChild(pill);
+        if (h.winner && h.winner_vs_revised && !agree) {
+          var pill = document.createElement('span');
+          pill.className = 'pill split';
+          pill.textContent = 'revision flips it';
+          pill.title = 'Scored against the as-revised forecast instead, the winner changes.';
+          deltaTd.appendChild(document.createTextNode(' '));
+          deltaTd.appendChild(pill);
+        }
 
         /* The drop counts are not a footnote: they are how a reader sees that
            exclusions are uneven across BAs. */
         var detailRow = rowsBody.insertRow();
         detailRow.className = 'detail';
         var dc = detailRow.insertCell();
-        dc.colSpan = 7;
+        dc.colSpan = 6;
         dc.style.textAlign = 'left';
         var det = document.createElement('details');
         det.className = 'row-detail';
