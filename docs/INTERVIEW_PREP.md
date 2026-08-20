@@ -1399,3 +1399,29 @@ I reported the pre-registered result as it stood — not confirmed — rather th
 **Result**: The flag is still off, and now for a reason I trust. The re-run has all four possible outcomes' readings fixed in advance — including "still negative", which would mean my diagnosis was wrong and the feature should be removed rather than merely left dark.
 
 **Lesson to convey**: *A study that contradicts you is doing its job, and the first thing to check is your own treatment arm, not the study's fairness. The failure here wasn't the zero-fill — it was that I'd identified it as an open question in writing and shipped anyway, on the grounds that it was rare. "Rare" was 13%. And once a study has told you something, you don't get to re-run it into agreeing; you write a new pre-registration and let it be a new question.*
+
+---
+
+### 36. "Tell me about a time the data was missing for a completely different reason than everyone assumed."
+
+**Situation**: A rolling 7-day accuracy window that should hold 168 hourly records per balancing authority was short across all 51 of them — median 161, worst 94. The open issue had one BA pegged as the outlier and wrote the rest off as ordinary missed ticks. A second BA sat at 102, second-worst, and appeared in no table anywhere.
+
+**Task**: Explain that BA, and size the loss channel fleet-wide so two downstream pieces of work — a public coverage disclosure and a pre-deploy prediction for a pending fix — had a real number instead of an assumption.
+
+**Action**: The standing hypothesis was that the predictions were being made and filed correctly, and the *actual* never arrived, so a staleness sweep dropped them after five days. It had appealing arithmetic behind it: 168 − 102 = 66, against 62 hours with no record written.
+
+Before reading any data I wrote down the windows and four controls, including one deliberately designed to *fail* — re-running the reproduction check against a knowingly-wrong window, because this investigation had twice before had a harness agree with production for the wrong reason.
+
+Then I stopped inferring. The payload itself carries both the resolved records and the pending queue, so if I picked a window sitting entirely inside the five-day expiry horizon, every hour classifies exactly: resolved, pending, or absent — and "absent" can only mean no prediction was ever filed, because nothing in that window is old enough to have been swept.
+
+The hypothesis was wrong by a factor of about eighty. The pending channel was **8 hours out of 6069**. And every single one of the 530 absent hours had a settled actual sitting in our own archive — the data had arrived, we'd just never asked about it.
+
+What actually happened is that the forecast's starting hour is derived from the newest hour the upstream has published. When the feed publishes two hours at once, no tick ever sees the first of them as "newest", so that starting hour is **skipped** — and the record keyed to it is never created. There's no retry, because nothing knows it was missed. The BA in question had gone dark for two days and then back-filled 24 hours in a single batch, which skipped 62 starting hours at once. Everyone had been counting *repeated* starting hours. These ones jump.
+
+I tested that against its own control: 82.7% of absent hours showed the skip signature, against 0.16% of resolved ones.
+
+**Result**: 81% origin skip, 17% a separate freeze that a pending fix does address, 1.5% the hypothesis. So I published the pre-deploy prediction as an upper bound — the fix can reach at most 91 records on six named BAs, and should move the second-worst BA by at most one hour. If the median BA improves after deploy, it's measuring something else.
+
+And I recommended **not** fixing the big one. The skipped hour does have a prediction in the next payload — but at a 23-hour lead, not 24. Filing it in a window labelled 24-hour would be exactly the mislabelling a previous piece of work had gone to some trouble to eliminate. So a full window is unreachable by design, and what that earns is a permanent disclosure on the public benchmark page, not a patch.
+
+**Lesson to convey**: *"The data is missing" and "the data never arrived" are different claims, and the gap between them is where I nearly lost a week. The thing that saved it wasn't cleverness — it was picking a measurement window narrow enough that the answer was read rather than inferred, and writing down a control designed to fail before I looked at anything. Also: the suggestive arithmetic was a coincidence across two different buffers. It was the most persuasive thing in the whole issue and it was worth nothing.*
