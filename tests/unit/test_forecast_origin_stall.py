@@ -367,3 +367,58 @@ class TestAgainstRealEngineerFeatures:
             # The control: without the bridge the same lag is materially wrong,
             # so this assertion is discriminating rather than trivially true.
             assert abs(_lag(featured, k) - want) > 100.0
+
+
+class TestTheBridgeClosesTheTrailingGapItWouldOtherwiseOpen:
+    """#624: `HourIndexedHistory.build` sizes its array from the last seed hour
+    and reserves `extra_hours` past *that*, so a seed ending short of the origin
+    leaves the recursion writing its own predictions past the end of the array,
+    where `set()` silently drops them.
+
+    Nothing in production opens that gap today, because the origin is always
+    `last_featured_ts + 1h`. Advancing the origin is exactly what would open it
+    — so the coupling in `_ar_seed_for_origin` is what keeps #624 unreachable
+    through this path, and that is asserted here rather than assumed. #624 is
+    NOT fixed by this PR; it is merely not reached.
+    """
+
+    HORIZON = 384
+
+    @staticmethod
+    def _room_for_every_step(seed_frame, origin, horizon):
+        from data.feature_engineering import HourIndexedHistory
+
+        hist = HourIndexedHistory.build(
+            seed_frame["timestamp"], seed_frame["demand_mw"], extra_hours=horizon + 1
+        )
+        last = origin + pd.Timedelta(hours=horizon - 1)
+        before = hist.at(hist.index_of(last))
+        hist.set(last, 12_345.0)
+        return hist.at(hist.index_of(last)) == 12_345.0 and np.isnan(before)
+
+    def test_the_bridged_seed_has_room_for_the_last_step(self, temporal_on):
+        demand_df = _demand("2026-08-14 05:00", n=2171)
+        featured = _featured_truncated_at(demand_df, "2026-08-13 13:00")
+        origin = phases._resolve_forecast_start(featured, demand_df)
+        _, seed = phases._ar_seed_for_origin(featured, demand_df, origin)
+        assert seed is not None
+
+        assert self._room_for_every_step(seed, origin, self.HORIZON)
+        # The control designed to disagree: the same origin on the UNBRIDGED
+        # seed loses its last 16 write-backs — #624's condition, present on the
+        # fixture, so the assertion above is not vacuous.
+        assert not self._room_for_every_step(featured, origin, self.HORIZON)
+
+    def test_a_clamped_origin_also_has_room(self, temporal_on):
+        """The other exit: no bridge, origin clamped, seed is ``featured``."""
+        demand_df = _demand("2026-08-14 05:00", n=2171)
+        demand_df.loc[
+            demand_df["timestamp"] == pd.Timestamp("2026-08-13 14:00", tz="UTC"), "demand_mw"
+        ] = np.nan
+        featured = _featured_truncated_at(demand_df, "2026-08-13 13:00")
+        origin = phases._resolve_forecast_start(featured, demand_df)
+        resolved, seed = phases._ar_seed_for_origin(featured, demand_df, origin)
+
+        assert seed is None
+        assert resolved == featured["timestamp"].max() + HOUR
+        assert self._room_for_every_step(featured, resolved, self.HORIZON)
