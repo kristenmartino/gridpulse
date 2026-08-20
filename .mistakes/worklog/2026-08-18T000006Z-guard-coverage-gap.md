@@ -1,0 +1,1 @@
+2026-08-18 [guard-coverage-gap] Shipped a guard test against stale published counts whose surface list omitted `docs/CANONICAL_FACTS.md` — the file CLAUDE.md's end-of-PR check routes a moved cited fact to, and so the likeliest place for one to be added. — ref: PR #538, fixed in #551

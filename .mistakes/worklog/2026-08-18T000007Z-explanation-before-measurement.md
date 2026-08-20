@@ -1,0 +1,1 @@
+2026-08-18 [explanation-before-measurement] Wrote the causal claim into a shipped docstring ("this closes the defect", naming `filter_low_actuals` as the mechanism) before running the production measurement that would test it; the measurement showed that filter dropped 2 records fleet-wide and a different one did the work. Caught and corrected pre-merge. — ref: PR #543 / #541

@@ -1,0 +1,1 @@
+2026-08-18 [test-hermeticity] The suite made 79 live calls per run to api.eia.gov and archive-api.open-meteo.com — cache-first clients fell through to the live API on a miss, so mocked tests asserted against today's grid, and CI inherited third-party latency and 429s (~50s/run; worst two tests 30.8s and 29.3s). — ref: branch perf/ci-hermetic-and-parallel
