@@ -1440,7 +1440,17 @@ FEATURE_FLAGS: dict[str, bool] = {
     # SAFETY instrument -- does the temporal path run clean in production, what
     # does it really cost, does divergence match the offline 2.1-2.7% -- not the
     # thing that decides the flag.
-    "temporal_ar_seed_shadow": False,
+    #
+    # Flipped ON 2026-08-20, after the treatment arm stopped carrying a defect of
+    # its own. While the shadow was dark, an absent lag hour returned NaN and the
+    # shared ``row.fillna(0)`` turned it into ``demand_lag_24h = 0 MW`` on 13% of
+    # forecast steps (22.6% on IID) -- so anything it recorded would have been
+    # evidence about that bug, not about temporal indexing. With the absent-hour
+    # policy decided (``HourIndexedHistory.lag``) the rate is 0 across 32,832
+    # scored steps, and the arm is finally the thing we mean to observe.
+    # Rollback = flip back; it writes its own key and never touches the served
+    # payload, so off is byte-identical.
+    "temporal_ar_seed_shadow": True,
     # ADR-011 (#332): NBM-composite forecast weather. Shipped dark in PR A,
     # flipped ON 2026-07-22 after the deploy verified. Measured basis:
     # +0.921 sMAPE pts paired through the real serve path (AZPS +3.70,

@@ -2105,7 +2105,14 @@ def _write_seed_shadow(
         if not forecasts and previous is not None:
             payload["forecasts"] = list(previous.get("forecasts") or [])
 
-        persist(key, payload, ttl=REDIS_TTL)
+        # Nothing computed and nothing graded means nothing to store. Skipping
+        # the write keeps 44-of-51 never-gapping BAs from re-persisting an empty
+        # payload every hour. The LOG below still fires on every invocation, so
+        # "ran, nothing to do" stays distinguishable from "never ran" — which is
+        # the property that matters and the reason this is safe to skip.
+        wrote = bool(payload["forecasts"] or payload["records"])
+        if wrote:
+            persist(key, payload, ttl=REDIS_TTL)
         # Log the success path, not only the skips: the absence of a warning
         # across 51 BAs is indistinguishable from the phase never running.
         log.info(
@@ -2118,6 +2125,7 @@ def _write_seed_shadow(
             divergence_pct=payload["divergence_pct"],
             n_records=len(payload["records"]),
             n_forecast_rows=len(payload["forecasts"]),
+            persisted=wrote,
         )
         return True
     except Exception as exc:  # pragma: no cover — enrichment, never fatal

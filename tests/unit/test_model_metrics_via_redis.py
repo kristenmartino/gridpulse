@@ -324,12 +324,15 @@ class TestPredictAndWriteForecastIncludesMetrics:
                 },
             )
 
-        # Inspect the payload that was written
-        assert mock_redis_set.call_count == 1
-        write_args = mock_redis_set.call_args
-        key = write_args.args[0]
-        payload = write_args.args[1]
-        assert key == "gridpulse:forecast:FPL:1h"
+        # Inspect the FORECAST payload specifically. Selecting by key rather
+        # than assuming it is the only write: the phase also persists
+        # enrichments (shadow weights, seed shadow, scenario grid) whose
+        # presence depends on feature flags, and a count assertion here fails
+        # whenever one of those is switched on — which is a fact about the
+        # flags, not about model metrics.
+        writes = {c.args[0]: c.args[1] for c in mock_redis_set.call_args_list}
+        assert "gridpulse:forecast:FPL:1h" in writes
+        payload = writes["gridpulse:forecast:FPL:1h"]
         assert "model_metrics" in payload
         # Sanitized — values preserved
         assert payload["model_metrics"]["xgboost"]["mape"] == 4.21
