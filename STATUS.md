@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-08-20
+# Status — updated 2026-08-21
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,64 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-08-21 — [#600](https://github.com/kristenmartino/gridpulse/issues/600)
+`/api/v1/benchmark` could serve a fleet aggregate computed from rows it was not
+shipping. Fixed by an atomic export, and verified in production — after the
+first verification passed for the wrong reason.**
+
+Per-BA rows and the fleet rollup were separate Redis keys written at different
+points in the same tick, and `build_benchmark_payload` assembled the response
+from them at request time. A request landing mid-write paired one tick's
+aggregate with another's rows, and `updated_at` came from the fleet meta, so
+**nothing in the payload could distinguish the two states**. Live capture:
+45 of 51 rows carrying `scored_at` from the 01:0x tick under an `updated_at`
+of `00:09:56`.
+
+**Shipped** ([#637](https://github.com/kristenmartino/gridpulse/pull/637)): the
+scoring job writes `gridpulse:meta:benchmark_export` — the rollup and the rows
+it was computed from, as one value — and the API reads that one key. Mixing is
+impossible by construction rather than unlikely. The request path drops from
+**52 Redis reads to 1**; the document is 130,889 B and costs 0.71 ms to
+serialise, built from the list the rollup already holds, so **zero extra
+reads**. Rows are stored unfiltered and the public allow-list stays on the read
+path, so the new key never becomes a second trust boundary. Absent or malformed
+document falls back to the old assembly; `updated_at` now stamps the export
+document itself.
+
+### The verification passed before it should have, and that is the entry
+
+The first live check after deploy reported **CONSISTENT** — and it was
+meaningless. The Cloud Run *service* picked up the image at 01:38 while the
+*scoring job* stayed on the previous one until after its 01:09 tick, so for
+about an hour production ran a **new reader against an old writer**. No export
+document existed; the API was on its fail-open path and the check was measuring
+the old code.
+
+What settled it was not the recompute assertion but
+**`benchmark_export_absent_split_read`** — the fallback's own log line.
+Zero occurrences after the 02:09:41 write (51 regions, no failures) is what
+makes the passing recompute mean anything. Verified end to end at 02:10Z:
+fleet recomputes from rows at delta `0.000000` on all four statistics, and two
+fetches 35 s apart held `updated_at` at `02:09:41.306320` with **0 of 51**
+per-BA `scored_at` values differing — the #600 symptom, absent.
+
+**A second false reading, corrected earlier in the same chain.** The checker
+first reported four mismatches including a 26 % relative error, and two of them
+were not this bug: `fleet_rollup` isolates ERCOT by design
+(`isolate=("ERCOT",)`), and ERCOT is both the min official and min gridpulse
+MAPE. The real deltas were the two maximums, 0.016 and 0.036 — roughly what
+#600 estimated, not larger. The payload had declared its own population twice
+(`isolated`, and `fleet.n=44` against 45 scoreable rows) and the checker had
+consulted neither; it now asserts `fleet.n` matches the population it compares.
+
+**The transferable part:** an intermittent race passes its own check most of
+the time, so "the assertion is green" is not evidence a fix landed. The
+evidence was the fallback going silent. A deploy that rolls a service and its
+jobs at different times will always produce a window where the new reader meets
+the old writer — and that window looks exactly like success.
+
+---
 
 **2026-08-20 — where the #537 / #559 batch landed, and the one decision it
 did not make.** *Roundup. The entries below are the record; this is the state.*
