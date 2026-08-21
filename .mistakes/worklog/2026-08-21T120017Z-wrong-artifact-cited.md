@@ -1,0 +1,1 @@
+2026-08-21 [wrong-artifact-cited] Asserted the TRAINING job's 90-day fetch window as the premise of a study's control arm while citing a fetch_demand call site that belongs to the SCORING job; the premise happened to hold when traced properly, but the evidence offered never supported it — ref: #231 follow-up study.

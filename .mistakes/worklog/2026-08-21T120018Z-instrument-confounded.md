@@ -1,0 +1,1 @@
+2026-08-21 [instrument-confounded] Used a train-vs-holdout MAE gap as an overfitting check across two arms whose training-set memorization differed by construction (6000 trees, no early stopping: train MAE 0.1 MW at 90d vs 17.6 MW at 730d), so the two gaps were never comparable quantities — ref: #231 follow-up study.

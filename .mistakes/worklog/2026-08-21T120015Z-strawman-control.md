@@ -1,0 +1,1 @@
+2026-08-21 [strawman-control] The 730d-vs-90d training-window A/B used rolling_origin_splits' default expanding train slice, so the 90d control trained on as little as 35 days in older windows and 21/28 reported wins were measuring a crippled control; a fixed trailing window flipped all four re-tested wins to inconclusive or control-wins — ref: #231 follow-up study.
