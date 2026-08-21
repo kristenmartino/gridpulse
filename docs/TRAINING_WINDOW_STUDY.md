@@ -469,3 +469,62 @@ whether the current stack beats a pretrained model that required no training.
 Sequencing note: CPU is the binding constraint, not context. Studies must run
 serially on one machine — concurrent runs slow each other *and* corrupt the
 timing measurements that half of this analysis depends on.
+
+---
+
+## 7. Phase 1 RESULT (2026-08-21): reconciliation does not help this fleet
+
+`scripts/reconciliation_study.py`, two complete sub-hierarchies, base
+forecasts through the production recursive path, `W` estimated only from
+strictly-earlier windows.
+
+| | Northeast (3 BAs) | Southeast (16 BAs) |
+|---|---|---|
+| independent aggregate model | 11.38% WAPE | 24.14% WAPE |
+| sum-of-parts at top | 4.18% | **3.35%** |
+| bottom-level base | 5.53% | 5.96% |
+| `mint_shrink` vs base | −0.042 (noise) | −0.163 (wins 51% of windows) |
+| `ols` vs base | −12.2 pts | **−246.7 pts** |
+
+**The hypothesis is refuted where it should have been strongest.** The
+published mechanism is small, noisy series borrowing strength from a more
+reliable aggregate (Brégère & Huard's bottom level was individual
+households). Southeast's small half — 8 BAs averaging 991 MW — got **worse**
+under MinT (6.90% → 7.08%), as did the large half (5.02% → 5.15%). The size
+split was pre-declared precisely so a real small-BA gain could not be
+averaged away; there was none to hide.
+
+**Why, and it is structural rather than a modelling failure.** Sum-of-parts
+(3.35%) beats the bottom-level mean (5.96%), so aggregation genuinely
+denoises — 16 independent recursive trajectories have partially cancelling
+errors. A single 168-step recursive trajectory of the aggregate drifts
+freely and lands at 24.14%. The gap widened from 2.7x (Northeast) to 7x
+(Southeast): more series means more cancellation for bottom-up and no help
+for the direct model. So the top-down forecast carries no information worth
+reconciling toward. MinT correctly discounts it; OLS trusts it and produces
+252% WAPE.
+
+A better aggregate model might reach 5–6%, but it cannot capture error
+cancellation across independent trajectories — that advantage exists only in
+the bottom-up direction.
+
+**Scope of this negative result.** It tests the **168h recursive** regime,
+where drift dominates. At short horizons recursive drift is far smaller and
+a direct aggregate model could be competitive — and the `drift_horizon`
+benchmark scores **24h/48h leads**. Reconciliation is not dead in general;
+it is dead for the long-horizon recursive product, which is the main one
+GridPulse serves. A short-horizon retest is the one avenue this result does
+not close.
+
+**Two harness bugs found on the way, both by the cheap Northeast validation
+rather than by review:**
+1. The aggregate forecast was first built as `F.sum(axis=0)` — coherent by
+   construction, making every arm a mathematical no-op with byte-identical
+   WAPE across four methods.
+2. `wx_cols` selected every numeric column of the *featured* frame, so demand
+   lags and rolling means were being load-weighted across BAs. The lag of a
+   sum is not the weighted sum of lags.
+
+A third fix — per-BA unaveraged weather, replacing a spatial mean — was
+applied and **did not help** (11.31% → 11.38%), which is what redirected the
+diagnosis from "my features are wrong" to the structural explanation above.
