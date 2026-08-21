@@ -1170,3 +1170,80 @@ class TestTwoCoverages:
         assert out["df_asissued_coverage"] == 0.0
         assert out["df_coverage"] == 1.0
         assert out["scoreable"] is True
+
+
+class TestDfScopeComparability:
+    """EIA-930 does not require DF to be on the same basis as D.
+
+    The form tells respondents: "If you do not produce a day-ahead demand
+    forecast in the normal course of business that is directly comparable to
+    actual demand as defined for this collection ... you are not required to
+    produce a consistent demand forecast." D is defined physically (inside
+    the tie-line boundary, ownership irrelevant); a utility forecasts
+    commercially. Where the footprints differ, the gap is not forecast error.
+
+    These tests pin what the measurement claims AND what it refuses to claim.
+    """
+
+    def test_a_comparable_feed_is_not_flagged(self):
+        from models.benchmark import df_scope
+
+        recs = _records(300, df=1020.0, actual=1000.0)
+        pairs, _ = pair_hours(recs, _gp(recs, 1010.0))
+        scope = df_scope(pairs)
+        assert scope["comparable"] is True
+        assert scope["ratio"] == pytest.approx(1.02, abs=0.01)
+
+    def test_a_persistent_scope_gap_is_flagged(self):
+        """PSEI's live signature: DF at ~0.67x D on every single hour."""
+        from models.benchmark import df_scope
+
+        recs = _records(300, df=670.0, actual=1000.0)
+        pairs, _ = pair_hours(recs, _gp(recs, 990.0))
+        scope = df_scope(pairs)
+        assert scope["comparable"] is False
+        assert scope["ratio"] == pytest.approx(0.67, abs=0.01)
+        assert "scope difference" in scope["basis"]
+
+    def test_too_few_hours_makes_no_claim(self):
+        """Silence, not a verdict, when the sample cannot support one."""
+        from models.benchmark import df_scope
+
+        recs = _records(20, df=670.0, actual=1000.0)
+        pairs, _ = pair_hours(recs, _gp(recs, 990.0))
+        scope = df_scope(pairs)
+        assert scope["comparable"] is True
+        assert scope["basis"] == "too few hours"
+
+    def test_the_flag_does_not_change_any_fleet_figure(self):
+        """The load-bearing guarantee.
+
+        The screen cannot separate a differently-scoped DF from a very bad
+        one — a large error is one-sided either way. Acting on it would drop
+        badly-forecasting operators out of the fleet median and flatter us,
+        so the flag is advisory and every aggregate must be identical with
+        and without it.
+        """
+        flagged_recs = _records(300, df=670.0, actual=1000.0)
+        normal_recs = _records(300, df=1020.0, actual=1000.0)
+        flagged = compute_benchmark_payload(
+            "FLAGGED", flagged_recs, _horizon(flagged_recs, 990.0), "clean"
+        )
+        normal = compute_benchmark_payload(
+            "NORMAL", normal_recs, _horizon(normal_recs, 1010.0), "clean"
+        )
+        roll = fleet_rollup([flagged, normal])
+
+        assert roll["fleet"]["n"] == 2, "a flagged region must stay in the fleet"
+        assert "FLAGGED" in roll["scope_flagged"]
+        off = sorted(p["leads"][HEADLINE_LEAD]["official"]["mape"] for p in (flagged, normal))
+        assert roll["fleet"]["median_official_mape"] == pytest.approx(
+            float(np.median(off)), abs=0.01
+        )
+
+    def test_the_flag_is_published_per_row(self):
+        recs = _records(300, df=670.0, actual=1000.0)
+        payload = compute_benchmark_payload("TEST", recs, _horizon(recs, 990.0), "clean")
+        scope = payload["leads"][HEADLINE_LEAD]["df_scope"]
+        assert scope["comparable"] is False
+        assert scope["ratio"] is not None

@@ -119,6 +119,27 @@ MIN_ABSENT_HOURS_FOR_BIAS = 20
 #: the per-lead ``n`` in the payload.
 MIN_PAIRED_HOURS = 200
 
+#: DF is not guaranteed to be measured on the same basis as D, and this is
+#: EIA's own instruction rather than a respondent error. Form EIA-930 tells a
+#: BA: "If you do not produce a day-ahead demand forecast in the normal course
+#: of business that is directly comparable to actual demand as defined for this
+#: collection ... you are not required to produce a consistent demand forecast
+#: for the purposes of EIA-930 reporting. Please report the day-ahead demand
+#: forecast generated in the normal course of business."
+#:
+#: The mechanism is the form's physical-vs-commercial split. D is defined
+#: PHYSICALLY — everything inside the tie-line boundary, with "ownership and
+#: dispatch ... irrelevant" and pseudo-ties and dynamic schedules excluded from
+#: adjustment. A utility forecasts COMMERCIALLY: its own load obligation. Where
+#: those two footprints differ, DF and D are different quantities and the gap
+#: between them is not forecast error.
+#:
+#: Screen: a forecast off by more than the tolerance in the SAME direction on
+#: essentially every hour is a definitional gap, not a miss. Both conditions
+#: are required — a genuinely bad forecast is large but two-sided.
+DF_SCOPE_RATIO_TOLERANCE = 0.10
+DF_SCOPE_ONE_SIDED_MIN = 0.90
+
 #: Feed classes that cannot be scored fairly (see module docstring).
 UNSCOREABLE_CLASSES = frozenset({"broken"})
 
@@ -208,6 +229,47 @@ def wape(actual: np.ndarray, predicted: np.ndarray) -> float:
     if denom <= 0:
         return float("nan")
     return float(np.sum(np.abs(a - p)) / denom * 100.0)
+
+
+def df_scope(pairs: list[PairedHour]) -> dict[str, Any]:
+    """Is the operator's DF measured on the same basis as its D?
+
+    Returns the median DF/D ratio, the share of hours falling on one side of
+    parity, and whether the pair passes as comparable. See
+    ``DF_SCOPE_RATIO_TOLERANCE`` for why this is a scope question rather than
+    an accuracy one.
+
+    A failing row is still scored and still published — hiding it would be
+    the opposite of the point. It is flagged, and kept out of the fleet
+    aggregate, because a scope gap averaged into a fleet median silently
+    becomes an accuracy claim about operators generally.
+    """
+    actual = np.array([p.actual for p in pairs], dtype=float)
+    official = np.array([p.official for p in pairs], dtype=float)
+    ok = np.isfinite(actual) & np.isfinite(official) & (actual > 0)
+    actual, official = actual[ok], official[ok]
+    if actual.size < 50:
+        return {"ratio": None, "one_sided": None, "comparable": True, "basis": "too few hours"}
+
+    ratio = float(np.median(official / actual))
+    one_sided = float(max(np.mean(official > actual), np.mean(official < actual)))
+    off_parity = abs(ratio - 1.0) > DF_SCOPE_RATIO_TOLERANCE
+    persistent = one_sided > DF_SCOPE_ONE_SIDED_MIN
+    comparable = not (off_parity and persistent)
+    return {
+        "ratio": round(ratio, 3),
+        "one_sided": round(one_sided, 4),
+        "comparable": comparable,
+        "basis": (
+            "comparable"
+            if comparable
+            else (
+                f"DF runs at {ratio:.2f}x D on {one_sided:.0%} of hours in one direction — "
+                f"a scope difference, not forecast error (EIA-930 does not require DF to be "
+                f"comparable to D)"
+            )
+        ),
+    }
 
 
 def score_arm(pairs: list[PairedHour], arm: str) -> dict[str, float]:
@@ -941,6 +1003,9 @@ def compute_benchmark_payload(
             # comparison — the one unflattering fact on the page that wasn't
             # disclosed deliberately.
             "serve_grade": serve_grade(horizon_payload, model, lead),
+            # Whether the operator's arm is even the same quantity as the
+            # truth it is graded against. EIA does not require that it is.
+            "df_scope": df_scope(pairs),
         }
         # The conservative label is EARNED, not assumed: it holds only while
         # our realized lead exceeds the operators' documented maximum.
@@ -978,6 +1043,17 @@ def fleet_rollup(
     excluded = [p for p in region_payloads if not p.get("scoreable")]
     fleet = [p for p in scored if p["region"] not in isolate]
 
+    def _flagged(p: dict[str, Any]) -> bool:
+        block = (p.get("leads") or {}).get(HEADLINE_LEAD) or {}
+        return not bool((block.get("df_scope") or {}).get("comparable", True))
+
+    # Reported, NOT acted on. The screen cannot separate "DF is a different
+    # quantity" from "DF is a very bad forecast" — a large error is one-sided
+    # either way — and dropping the second from the fleet median would
+    # flatter us. So these rows stay in every aggregate and the reader is
+    # told which ones carry the question.
+    scope_flagged = [p["region"] for p in scored if _flagged(p)]
+
     def _headline(p: dict[str, Any]) -> dict[str, Any]:
         return p["leads"][HEADLINE_LEAD]
 
@@ -1003,6 +1079,8 @@ def fleet_rollup(
             "official_spread": _spread(off_mapes),
         },
         "isolated": {p["region"]: _headline(p) for p in scored if p["region"] in isolate},
+        # Advisory only — these regions ARE in the fleet figures above.
+        "scope_flagged": sorted(scope_flagged),
     }
 
 

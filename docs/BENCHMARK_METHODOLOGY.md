@@ -569,6 +569,56 @@ number per BA is not a supportable format.
    value *as actually seeded*, which diverges from the vintage `first_seen_d`
    exactly when the quality guard or the conditioning fork has touched it.
 
+12. **`DF` is not required to be the same quantity as `D`, and for some BAs
+    it demonstrably is not.** This is the most load-bearing limit on the
+    page, because the whole comparison assumes the two are commensurable.
+    EIA does not require that. Form EIA-930's respondent instructions say:
+
+    > **Demand forecast:** If you do not produce a day-ahead demand forecast
+    > in the normal course of business that is directly comparable to actual
+    > demand as defined for this collection (see discussion of physical vs.
+    > commercial operations below), you are not required to produce a
+    > consistent demand forecast for the purposes of EIA-930 reporting.
+    > Please report the day-ahead demand forecast generated in the normal
+    > course of business.
+
+    The mechanism is the same instructions' physical-vs-commercial split.
+    `D` is defined **physically** — "EIA is attempting to represent electric
+    system operations in as purely a physical way as possible. Ownership and
+    dispatch are irrelevant" — covering everything inside the tie-line
+    boundary, with pseudo-ties and dynamic schedules excluded from
+    adjustment. A utility forecasts **commercially**: its own load
+    obligation. Where those footprints differ, `DF` and `D` are different
+    quantities and the gap between them is not forecast error.
+
+    **Measured, 2026-08-20.** Four BAs publish a `DF` that sits far below
+    their `D` on essentially every hour: PSEI 0.67×, PSCO 0.74×, FPC 0.76×,
+    GVL 0.90×, each one-sided on 90–100% of hours. `D` was ruled out as the
+    culprit first: it reconciles with net generation minus net interchange to
+    **0.0%** for those BAs, identically to the controls, so the demand series
+    is internally consistent and the forecast is the series on a different
+    basis. PSCO is the clearest case — its `DF` peaks at 7,004 MW against
+    Xcel Colorado's IRP-implied retail peak near 7.2 GW, while `D` peaks at
+    10,099 MW for the whole BA footprint.
+
+    **What this costs the page.** Those operators' published error is
+    overstated by an amount this benchmark cannot separate from genuine
+    forecast error. PSEI's 31.8% is the extreme case. The payload therefore
+    carries `df_scope` per BA — the median `DF/D` ratio, the one-sided share,
+    and a `comparable` verdict — so a reader can see which rows carry the
+    question.
+
+    **Why it is not an exclusion.** The screen cannot distinguish a
+    differently-scoped `DF` from a very bad one: a large error is one-sided
+    in both cases. Dropping flagged BAs from the fleet median would
+    therefore remove *badly forecasting operators* along with
+    *differently-scoped* ones, which would flatter GridPulse. The flag is
+    advisory, every flagged BA remains in every aggregate, and
+    `tests/unit/test_benchmark.py::TestDfScopeComparability` pins that the
+    fleet figures are identical with and without it. Resolving a specific BA
+    needs the respondent's own statement of what its `DF` covers, not a
+    threshold.
+
 ## 13. Reproducing it
 
 ```bash

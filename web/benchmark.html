@@ -444,6 +444,9 @@
                 <span class="flag substituted">not in medians</span> &mdash;
                 reported separately; not folded into the fleet medians or
                 spread.
+                <span class="flag substituted">scope differs</span> &mdash;
+                this operator&rsquo;s forecast is not measured on the same
+                basis as its demand, so the error shown is overstated.
               </p>
             </section>
 
@@ -572,6 +575,7 @@
               <li>Only settled actuals count. First-published values run up to ~70% wrong on high-revision feeds.</li>
               <li>Hours we first saw <em>after</em> they had already passed are excluded: their earliest-observed forecast is already a post-revision value, so scoring it as &ldquo;as-issued&rdquo; would erase the distinction the two operator columns exist to draw.</li>
               <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight. A row where the two scorings disagree about the winner is marked on its Difference cell; everywhere else they agree.</li>
+              <li>A row marked <span class="flag substituted">scope differs</span> publishes a forecast EIA-930 never required to match the demand it is graded against &mdash; demand is defined physically, across the whole tie-line boundary, while a utility forecasts what it is commercially responsible for. Its error is overstated. It still counts everywhere, because the test cannot tell a differently-scoped forecast from a poor one and dropping it would flatter us.</li>
               <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
               <li>A row marked <span class="flag">rollback</span> is one our own drift monitor already grades as failing at that horizon &mdash; the number stands, but we would not defend the forecast behind it.</li>
               <li>A row marked <span class="flag substituted">not served</span> scores our ensemble for a BA we serve a seasonal-naive baseline instead, so its published number is <em>worse</em> than what that BA actually receives. The arm is not re-based onto the fallback, because that would stop it measuring the forecaster.</li>
@@ -737,6 +741,30 @@
           ' series instead. The benchmark always grades the model, because re-basing ' +
           'it onto a fallback would stop it measuring the forecaster. So this number ' +
           'is worse than what a user of this BA actually receives.');
+      }
+
+      /* EIA-930 does not require a BA's day-ahead forecast to be measured on
+         the same basis as its demand — the form says so outright. Where it
+         plainly is not, the operator's published error is overstated by an
+         amount we cannot separate from real forecast error, and saying
+         nothing would let this page keep making them look worse than they
+         are. */
+      var scope = h.df_scope || {};
+      if (scope.comparable === false) {
+        badge('substituted', 'scope differs',
+          'This BA\u2019s day-ahead forecast is not measured on the same basis as its ' +
+          'demand, so its error here is overstated.');
+        note('This operator\u2019s forecast runs at about ',
+          strong(num(scope.ratio) + '\u00d7'),
+          ' its reported demand on ' + Math.round((scope.one_sided || 0) * 100) +
+          '% of hours, in one direction. EIA-930 does not require the two to be ' +
+          'comparable: demand is defined physically, across everything inside the ' +
+          'tie-line boundary, while a utility forecasts the load it is commercially ' +
+          'responsible for. Its published error below is therefore overstated by an ' +
+          'amount this benchmark cannot separate from genuine forecast error. The row ' +
+          'still counts in every fleet figure, because the same test cannot tell a ' +
+          'differently-scoped forecast from a simply poor one, and excluding it would ' +
+          'flatter us.');
       }
 
       /* The fleet lede says this BA is "reported separately"; without a mark
