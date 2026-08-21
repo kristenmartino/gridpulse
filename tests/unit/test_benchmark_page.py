@@ -746,6 +746,14 @@ class TestDriftWindowCoverageIsPublished:
         assert "coverageNote" in script
         note = script[script.index("function coverageNote") : script.index("function flagRow")]
         assert "rollback" not in note, "the per-row count is gated on the grade"
+        # The call site, not only the function. Gating there survived the
+        # assertion above and would have removed the disclosure from LGEE —
+        # the row the whole change exists for — so the call is pinned whole.
+        code = _code_of(script)
+        rows = code[code.index("function renderRows") :]
+        assert "var coverage = coverageNote(region);" in rows, (
+            "the per-row count is no longer called unconditionally for every row"
+        )
         assert "notes.push" not in note, "the per-row count is routed through the flag list"
 
     def test_the_ceiling_is_stated_as_structural_not_as_a_backlog(self, body) -> None:
