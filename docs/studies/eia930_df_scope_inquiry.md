@@ -197,3 +197,117 @@ work — and the reason the offer to correct has to be genuine.
   is what it says today, and the hypothesis is retired in the methodology.
 - **No reply** → change nothing. The current wording is already correct in
   claiming no cause, and silence is not evidence for either reading.
+
+---
+
+# Draft inquiry to Xcel Energy Colorado (PSCO)
+
+**Status: DRAFT, not sent. No verified recipient address** — routing notes
+below.
+
+**This one is more sensitive than the Duke letter, for two reasons.** PSCO's
+ratio did not hold steady — it slid from 0.936 to 0.717 over eighteen months,
+so the question is about something that *changed*, which is closer to
+"your numbers moved" than "your reporting has always worked this way." And
+Xcel Colorado is mid-proceeding on data-centre-driven load growth and capital
+spend, where intervenors argue the company over-forecasts. An email that
+looks like it is gathering ammunition will not get answered and should not be
+sent.
+
+Two things defuse that, and both are true. The observed effect is
+**under**-forecasting on the day-ahead value, which cuts against the
+over-forecasting critique rather than supporting it. And this concerns the
+operational day-ahead submission, not the resource planning forecasts at
+issue in the proceeding. The draft says both explicitly.
+
+---
+
+**Subject:** Question about the PSCO day-ahead demand forecast reported on EIA Form 930
+
+Hello,
+
+I run a public dashboard that publishes hourly electricity demand forecasts
+for US balancing authorities and compares them against the day-ahead
+forecasts balancing authorities report to EIA on Form 930. PSCO appears on
+it, and I would like to check my interpretation of the data before I describe
+it publicly.
+
+Two clarifications up front, because I do not want this misread. This is
+about the **operational day-ahead value** submitted on Form 930, not about
+Xcel's resource planning forecasts or anything before the Colorado PUC. And
+the pattern I am asking about is the day-ahead forecast coming in **below**
+reported demand — the opposite direction from the over-forecasting question
+raised in the planning context. I am not writing about that.
+
+What I observe, comparing the same month across years:
+
+| July | reported demand | day-ahead forecast | ratio |
+|---|---|---|---|
+| 2024 | 5,888 MW mean | 5,596 MW mean | 0.950 |
+| 2025 | 6,031 MW mean | 5,665 MW mean | 0.939 |
+| 2026 | 6,593 MW mean | 4,853 MW mean | 0.736 |
+
+The part I cannot explain from outside is that the forecast fell about 13% in
+absolute terms between July 2024 and July 2026 while reported demand rose
+about 12%. A forecast model that had simply not kept pace with load growth
+would flatten out; it would not decline. That makes me think something
+changed in what is being submitted rather than in forecast accuracy, but I
+cannot tell which from public data.
+
+So my question is: **did what the PSCO day-ahead demand forecast covers
+change during this period** — for example a change in which load is included
+relative to the demand value reported for the same balancing authority?
+
+I ask because EIA's Form 930 instructions note that a respondent's day-ahead
+forecast is not required to be directly comparable to the reported demand
+value; respondents are asked to submit the forecast they produce in the
+normal course of business. If the two series cover different load, presenting
+the gap as forecast error would be wrong, and that is what my page currently
+does.
+
+If you can tell me what the forecast covers, I will label it correctly. If
+the answer is that nothing changed and this is genuinely forecast
+performance, I would rather know that too — I am trying to describe the data
+accurately, not to characterize it either way.
+
+Happy to share the full series and methodology.
+
+Thank you for your time.
+
+Kristen Martino
+https://gridpulse.kristenmartino.ai/benchmark
+
+---
+
+## Routing — find a real recipient, do not guess
+
+1. **The Colorado Electric Resource Plan filings** with the Colorado PUC
+   (e.g. proceeding 24A-0442E). Public, and they name preparers and a
+   regulatory contact. Whoever owns load forecasting there can answer this.
+2. **Xcel Energy regulatory affairs, Colorado.**
+3. **Colorado PUC docket staff** — a pointer only, they will not answer for
+   Xcel.
+4. **LinkedIn** as a fallback, targeting resource planning or system
+   operations rather than communications.
+
+Prefer a named practitioner over a general inbox. A media or general-inquiry
+address is likely to route this to communications, who will read a question
+about forecast numbers during a live proceeding as a press inquiry and
+decline it.
+
+## Send Duke first
+
+Duke's letter asks about stable, long-standing practice and carries no
+proceeding context. If it comes back confirming the scope reading, that
+result makes this letter easier to write and easier to answer, because the
+question becomes "does the same thing explain PSCO?" rather than an open
+inquiry into why a utility's numbers moved.
+
+## What to do with the answer
+
+- **Confirms a scope or reporting change** → label the row, and note the date
+  the change took effect so the earlier comparable period is not mislabelled.
+- **Says nothing changed** → the divergence is real forecast behaviour, the
+  page still may not assert a cause beyond that, and the finding gets more
+  interesting rather than less.
+- **No reply** → change nothing. Current wording claims no cause.
