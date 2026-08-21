@@ -1,0 +1,970 @@
+[
+  {
+    "region": "AECI",
+    "operator_arm": {
+      "n": 590,
+      "bias_pct_mean": 2.151,
+      "bias_pct_median": 1.969,
+      "share_over_forecast": 0.7339,
+      "mape": 3.215
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 3,
+      "first_seen_placeholder": 14,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 590,
+      "stale_capture": 112
+    }
+  },
+  {
+    "region": "AVA",
+    "operator_arm": {
+      "n": 610,
+      "bias_pct_mean": 0.088,
+      "bias_pct_median": 0.088,
+      "share_over_forecast": 0.5164,
+      "mape": 1.514
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 8,
+      "first_seen_placeholder": 2,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 610,
+      "stale_capture": 75
+    }
+  },
+  {
+    "region": "AZPS",
+    "operator_arm": {
+      "n": 572,
+      "bias_pct_mean": 0.953,
+      "bias_pct_median": 0.86,
+      "share_over_forecast": 0.5315,
+      "mape": 8.579
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 24,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 572,
+      "stale_capture": 99
+    }
+  },
+  {
+    "region": "BANC",
+    "operator_arm": {
+      "n": 682,
+      "bias_pct_mean": 0.01,
+      "bias_pct_median": 0.099,
+      "share_over_forecast": 0.5235,
+      "mape": 2.454
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 6,
+      "first_seen_placeholder": 10,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 682,
+      "stale_capture": 21
+    }
+  },
+  {
+    "region": "BPAT",
+    "operator_arm": {
+      "n": 536,
+      "bias_pct_mean": 0.904,
+      "bias_pct_median": 0.748,
+      "share_over_forecast": 0.6474,
+      "mape": 1.782
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 4,
+      "first_seen_placeholder": 23,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 536,
+      "stale_capture": 132
+    }
+  },
+  {
+    "region": "CHPD",
+    "operator_arm": {
+      "n": 647,
+      "bias_pct_mean": -0.084,
+      "bias_pct_median": -0.617,
+      "share_over_forecast": 0.4312,
+      "mape": 2.92
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 48,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 647,
+      "stale_capture": 21
+    }
+  },
+  {
+    "region": "CPLE",
+    "operator_arm": {
+      "n": 535,
+      "bias_pct_mean": -0.151,
+      "bias_pct_median": -0.535,
+      "share_over_forecast": 0.4467,
+      "mape": 3.995
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 20,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 535,
+      "stale_capture": 164
+    }
+  },
+  {
+    "region": "CPLW",
+    "operator_arm": {
+      "n": 510,
+      "bias_pct_mean": -1.284,
+      "bias_pct_median": -1.562,
+      "share_over_forecast": 0.3569,
+      "mape": 3.875
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 12,
+      "first_seen_placeholder": 34,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 510,
+      "stale_capture": 163
+    }
+  },
+  {
+    "region": "DOPD",
+    "operator_arm": {
+      "n": 525,
+      "bias_pct_mean": 2.173,
+      "bias_pct_median": 2.011,
+      "share_over_forecast": 0.6629,
+      "mape": 3.795
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 16,
+      "first_seen_placeholder": 4,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 525,
+      "stale_capture": 150
+    }
+  },
+  {
+    "region": "DUK",
+    "operator_arm": {
+      "n": 513,
+      "bias_pct_mean": 3.352,
+      "bias_pct_median": 2.422,
+      "share_over_forecast": 0.8148,
+      "mape": 3.903
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 39,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 513,
+      "stale_capture": 166
+    }
+  },
+  {
+    "region": "EPE",
+    "operator_arm": {
+      "n": 625,
+      "bias_pct_mean": -1.879,
+      "bias_pct_median": -2.244,
+      "share_over_forecast": 0.2384,
+      "mape": 3.329
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 4,
+      "first_seen_placeholder": 43,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 625,
+      "stale_capture": 47
+    }
+  },
+  {
+    "region": "FMPP",
+    "operator_arm": {
+      "n": 649,
+      "bias_pct_mean": -21.133,
+      "bias_pct_median": -27.944,
+      "share_over_forecast": 0.1757,
+      "mape": 23.891
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 16,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 649,
+      "stale_capture": 54
+    }
+  },
+  {
+    "region": "FPC",
+    "operator_arm": {
+      "n": 554,
+      "bias_pct_mean": -23.379,
+      "bias_pct_median": -24.237,
+      "share_over_forecast": 0.0,
+      "mape": 23.379
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 0,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 554,
+      "stale_capture": 165
+    }
+  },
+  {
+    "region": "FPL",
+    "operator_arm": {
+      "n": 544,
+      "bias_pct_mean": 0.492,
+      "bias_pct_median": 0.92,
+      "share_over_forecast": 0.6029,
+      "mape": 3.027
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 544,
+      "stale_capture": 171
+    }
+  },
+  {
+    "region": "GCPD",
+    "operator_arm": {
+      "n": 696,
+      "bias_pct_mean": -3.788,
+      "bias_pct_median": -3.859,
+      "share_over_forecast": 0.0072,
+      "mape": 3.791
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 2,
+      "first_seen_placeholder": 0,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 696,
+      "stale_capture": 21
+    }
+  },
+  {
+    "region": "GVL",
+    "operator_arm": {
+      "n": 667,
+      "bias_pct_mean": -9.925,
+      "bias_pct_median": -10.298,
+      "share_over_forecast": 0.0975,
+      "mape": 10.896
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 5,
+      "first_seen_placeholder": 0,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 667,
+      "stale_capture": 47
+    }
+  },
+  {
+    "region": "HST",
+    "operator_arm": {
+      "n": 524,
+      "bias_pct_mean": 2.853,
+      "bias_pct_median": 1.639,
+      "share_over_forecast": 0.5897,
+      "mape": 6.783
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 31,
+      "first_seen_placeholder": 1,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 524,
+      "stale_capture": 163
+    }
+  },
+  {
+    "region": "IID",
+    "operator_arm": {
+      "n": 618,
+      "bias_pct_mean": 3.342,
+      "bias_pct_median": 0.76,
+      "share_over_forecast": 0.5534,
+      "mape": 5.844
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 14,
+      "first_seen_placeholder": 6,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 618,
+      "stale_capture": 81
+    }
+  },
+  {
+    "region": "IPCO",
+    "operator_arm": {
+      "n": 565,
+      "bias_pct_mean": -0.692,
+      "bias_pct_median": -0.964,
+      "share_over_forecast": 0.4106,
+      "mape": 4.336
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 27,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 565,
+      "stale_capture": 126
+    }
+  },
+  {
+    "region": "JEA",
+    "operator_arm": {
+      "n": 419,
+      "bias_pct_mean": 4.293,
+      "bias_pct_median": 2.886,
+      "share_over_forecast": 0.7733,
+      "mape": 5.638
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 4,
+      "first_seen_placeholder": 37,
+      "unsettled": 0,
+      "no_df": 18,
+      "no_gridpulse": 419,
+      "stale_capture": 241
+    }
+  },
+  {
+    "region": "LDWP",
+    "operator_arm": {
+      "n": 352,
+      "bias_pct_mean": -5.506,
+      "bias_pct_median": -6.888,
+      "share_over_forecast": 0.0597,
+      "mape": 8.853
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 48,
+      "no_gridpulse": 352,
+      "stale_capture": 316
+    }
+  },
+  {
+    "region": "LGEE",
+    "operator_arm": {
+      "n": 518,
+      "bias_pct_mean": -7.319,
+      "bias_pct_median": -8.182,
+      "share_over_forecast": 0.0637,
+      "mape": 7.807
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 19,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 518,
+      "stale_capture": 164
+    }
+  },
+  {
+    "region": "NEVP",
+    "operator_arm": {
+      "n": 534,
+      "bias_pct_mean": -5.32,
+      "bias_pct_median": -5.216,
+      "share_over_forecast": 0.2022,
+      "mape": 6.92
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 118,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 534,
+      "stale_capture": 66
+    }
+  },
+  {
+    "region": "NWMT",
+    "operator_arm": {
+      "n": 579,
+      "bias_pct_mean": -1.783,
+      "bias_pct_median": -1.717,
+      "share_over_forecast": 0.3005,
+      "mape": 2.758
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 5,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 579,
+      "stale_capture": 132
+    }
+  },
+  {
+    "region": "PACE",
+    "operator_arm": {
+      "n": 559,
+      "bias_pct_mean": 8.701,
+      "bias_pct_median": 8.23,
+      "share_over_forecast": 0.8408,
+      "mape": 9.677
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 5,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 559,
+      "stale_capture": 154
+    }
+  },
+  {
+    "region": "PACW",
+    "operator_arm": {
+      "n": 599,
+      "bias_pct_mean": 0.615,
+      "bias_pct_median": 0.238,
+      "share_over_forecast": 0.5342,
+      "mape": 1.976
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 4,
+      "first_seen_placeholder": 4,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 599,
+      "stale_capture": 112
+    }
+  },
+  {
+    "region": "PGE",
+    "operator_arm": {
+      "n": 636,
+      "bias_pct_mean": 0.708,
+      "bias_pct_median": 0.334,
+      "share_over_forecast": 0.577,
+      "mape": 2.116
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 4,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 636,
+      "stale_capture": 76
+    }
+  },
+  {
+    "region": "PNM",
+    "operator_arm": {
+      "n": 633,
+      "bias_pct_mean": -3.996,
+      "bias_pct_median": -4.208,
+      "share_over_forecast": 0.079,
+      "mape": 4.473
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 2,
+      "first_seen_placeholder": 7,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 633,
+      "stale_capture": 77
+    }
+  },
+  {
+    "region": "PSCO",
+    "operator_arm": {
+      "n": 532,
+      "bias_pct_mean": -26.143,
+      "bias_pct_median": -26.336,
+      "share_over_forecast": 0.0,
+      "mape": 26.143
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 0,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 532,
+      "stale_capture": 162
+    }
+  },
+  {
+    "region": "PSEI",
+    "operator_arm": {
+      "n": 543,
+      "bias_pct_mean": -32.016,
+      "bias_pct_median": -32.673,
+      "share_over_forecast": 0.0018,
+      "mape": 32.054
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 1,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 543,
+      "stale_capture": 175
+    }
+  },
+  {
+    "region": "SC",
+    "operator_arm": {
+      "n": 466,
+      "bias_pct_mean": 2.554,
+      "bias_pct_median": 1.566,
+      "share_over_forecast": 0.6738,
+      "mape": 4.085
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 43,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 466,
+      "stale_capture": 185
+    }
+  },
+  {
+    "region": "SCEG",
+    "operator_arm": {
+      "n": 462,
+      "bias_pct_mean": -1.423,
+      "bias_pct_median": -1.5,
+      "share_over_forecast": 0.3355,
+      "mape": 3.443
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 74,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 462,
+      "stale_capture": 182
+    }
+  },
+  {
+    "region": "SCL",
+    "operator_arm": {
+      "n": 522,
+      "bias_pct_mean": -1.402,
+      "bias_pct_median": -1.545,
+      "share_over_forecast": 0.3008,
+      "mape": 2.699
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 7,
+      "first_seen_placeholder": 13,
+      "unsettled": 0,
+      "no_df": 39,
+      "no_gridpulse": 522,
+      "stale_capture": 138
+    }
+  },
+  {
+    "region": "SEC",
+    "operator_arm": {
+      "n": 627,
+      "bias_pct_mean": -3.286,
+      "bias_pct_median": -4.392,
+      "share_over_forecast": 0.2727,
+      "mape": 8.136
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 15,
+      "first_seen_placeholder": 0,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 627,
+      "stale_capture": 53
+    }
+  },
+  {
+    "region": "SOCO",
+    "operator_arm": {
+      "n": 459,
+      "bias_pct_mean": 1.44,
+      "bias_pct_median": 0.824,
+      "share_over_forecast": 0.6318,
+      "mape": 3.144
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 1,
+      "first_seen_placeholder": 5,
+      "unsettled": 0,
+      "no_df": 17,
+      "no_gridpulse": 459,
+      "stale_capture": 237
+    }
+  },
+  {
+    "region": "SPA",
+    "operator_arm": {
+      "n": 78,
+      "bias_pct_mean": 18.885,
+      "bias_pct_median": 12.576,
+      "share_over_forecast": 0.6538,
+      "mape": 30.542
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 5,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 186,
+      "no_gridpulse": 78,
+      "stale_capture": 445
+    }
+  },
+  {
+    "region": "SRP",
+    "operator_arm": {
+      "n": 639,
+      "bias_pct_mean": 8.175,
+      "bias_pct_median": 5.203,
+      "share_over_forecast": 0.7637,
+      "mape": 9.411
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 4,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 639,
+      "stale_capture": 76
+    }
+  },
+  {
+    "region": "TAL",
+    "operator_arm": {
+      "n": 517,
+      "bias_pct_mean": 1.648,
+      "bias_pct_median": 0.752,
+      "share_over_forecast": 0.5416,
+      "mape": 4.663
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 13,
+      "first_seen_placeholder": 26,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 517,
+      "stale_capture": 163
+    }
+  },
+  {
+    "region": "TEC",
+    "operator_arm": {
+      "n": 358,
+      "bias_pct_mean": 2.433,
+      "bias_pct_median": 1.475,
+      "share_over_forecast": 0.6034,
+      "mape": 5.567
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 8,
+      "unsettled": 0,
+      "no_df": 120,
+      "no_gridpulse": 358,
+      "stale_capture": 233
+    }
+  },
+  {
+    "region": "TEPC",
+    "operator_arm": {
+      "n": 665,
+      "bias_pct_mean": 0.237,
+      "bias_pct_median": -0.061,
+      "share_over_forecast": 0.4962,
+      "mape": 3.371
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 4,
+      "first_seen_placeholder": 0,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 665,
+      "stale_capture": 50
+    }
+  },
+  {
+    "region": "TIDC",
+    "operator_arm": {
+      "n": 561,
+      "bias_pct_mean": 0.306,
+      "bias_pct_median": 0.229,
+      "share_over_forecast": 0.5134,
+      "mape": 3.032
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 18,
+      "first_seen_placeholder": 2,
+      "unsettled": 0,
+      "no_df": 24,
+      "no_gridpulse": 561,
+      "stale_capture": 113
+    }
+  },
+  {
+    "region": "TPWR",
+    "operator_arm": {
+      "n": 650,
+      "bias_pct_mean": 1.834,
+      "bias_pct_median": 1.983,
+      "share_over_forecast": 0.8292,
+      "mape": 2.346
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 18,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 650,
+      "stale_capture": 48
+    }
+  },
+  {
+    "region": "TVA",
+    "operator_arm": {
+      "n": 581,
+      "bias_pct_mean": 1.407,
+      "bias_pct_median": 0.891,
+      "share_over_forecast": 0.6592,
+      "mape": 2.365
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 0,
+      "first_seen_placeholder": 3,
+      "unsettled": 0,
+      "no_df": 0,
+      "no_gridpulse": 581,
+      "stale_capture": 135
+    }
+  },
+  {
+    "region": "WALC",
+    "operator_arm": {
+      "n": 577,
+      "bias_pct_mean": 1.445,
+      "bias_pct_median": -0.577,
+      "share_over_forecast": 0.4783,
+      "mape": 12.949
+    },
+    "benchmark_arm": {
+      "n": 0
+    },
+    "benchmark_arm_note": "no_gridpulse applied; comparable to /benchmark",
+    "drops": {
+      "unresolved_stub": 5,
+      "first_seen_placeholder": 16,
+      "unsettled": 0,
+      "no_df": 49,
+      "no_gridpulse": 577,
+      "stale_capture": 72
+    }
+  }
+]
