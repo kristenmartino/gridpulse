@@ -19,6 +19,47 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-21 — [#231](https://github.com/kristenmartino/gridpulse/issues/231)
+more training history and hierarchical reconciliation both measured. #231 is
+answered no as written; reconciliation is dead for the long-horizon recursive
+product. A "21/28 BAs win" result from this same investigation is WITHDRAWN.**
+
+Full write-up: [`docs/TRAINING_WINDOW_STUDY.md`](docs/TRAINING_WINDOW_STUDY.md),
+which separates what was measured from what was relayed from what was inferred
+because three conclusions here were stated confidently and later overturned.
+
+**#231 cannot work as written.** It proposes 365 days to re-enable Prophet's
+yearly seasonality, but `prophet_model.YEARLY_SEASONALITY_MIN_DAYS = 730` —
+365 never clears the gate. Steelmanned (800d fetch, yearly confirmed ON in
+every window), Prophet *lost* decisively on CAISO and ERCOT. What does help is
+a different mechanism: XGBoost with recency weighting at a ~180–365d
+half-life, decisive on 2 of 5 valid BAs, and it needs an outlier guard first.
+
+**The withdrawn result is the important part.** A first pass reported 21/28 BAs
+winning on a 730-day window. Its control trained on as little as 35 days
+(expanding slice), and it scored one-shot against holdout rows carrying real
+`demand_lag_1h` — a regime production never runs (ADR-010). Corrected: **0 of 6
+decisive wins.** A later null was itself measured entirely in Jun–Aug, so it
+never tested the seasonal-turn regime the argument is about; widening to all 12
+months reversed the sign on 2 of 6 BAs.
+
+**Reconciliation (MinT/OLS) does not help.** Measured on two complete
+sub-hierarchies. MinT is a no-op (−0.163 pts, 51% of windows); OLS is
+catastrophic (−246.7 pts). The pre-declared small-vs-large split shows the
+small BAs — where the published mechanism predicts the gain — got *worse*
+(6.90% → 7.08%). Cause is structural: summing 16 independent recursive
+trajectories cancels error (3.35% at top vs 5.96% bottom-level mean) while one
+168-step aggregate trajectory drifts to 24.14%. **Scope: this is the 168h
+recursive regime only** — short horizons (the `drift_horizon` benchmark scores
+24h/48h) are not closed by it.
+
+**Incidental findings worth keeping:** the 51 BA demands sum to 99.25% of EIA's
+US48 with no double-counting (so the hierarchy is real); SARIMAX's fit scales
+~linearly, not the `O(n³)` its comment claims; `auto_arima`'s order is unstable
+across rolling windows (5 distinct orders in 8 CAISO windows); TVA's EIA history
+carries two ~9.9M MW records that void its long-window arms — 0.011% of rows
+took it from 4.65% to 18.48% WAPE.
+
 **2026-08-21 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 the seed shadow had a blind spot correlated with what it observes. Fixed by
 making the absence typed, not by inventing an observation.**
