@@ -6,13 +6,24 @@ Don't rely on memory, the system prompt, or `docs/internal/NEXT_UP.md`.
 Always run a state check at session start before suggesting work:
 
 ```bash
-cat STATUS.md                # active focus + recent decisions + open question
+sed -n '1,120p' STATUS.md    # active focus + open question (NOT `cat` — see below)
 gh pr list --state open      # in-flight work
 gh issue list --state open   # committed queue
 ```
 
+**Read the head of `STATUS.md`, not the whole file.** `cat STATUS.md` was the
+instruction until 2026-08-20 and it could not execute: the file had reached
+378,894 bytes (~95k tokens), so the command returned `Output too large` and
+was truncated to a preview — the ritual silently did not run, while looking
+like it had. The active focus a session needs is ~1,750 tokens of that. The
+file has since been split (older entries in
+[`docs/internal/JOURNAL_ARCHIVE.md`](docs/internal/JOURNAL_ARCHIVE.md)), and
+the bounded read is still the right default — it grows again by design.
+
 If `STATUS.md` contradicts what `gh` reports, **GitHub wins** — patch
-STATUS.md in the same session. `docs/internal/NEXT_UP.md` is the
+STATUS.md in the same session. **`STATUS.md` holds no current state of its
+own**: it is a dated, append-only decision log, and an entry describes what
+was true on its date rather than now. The queue is `gh issue list`. `docs/internal/NEXT_UP.md` is the
 historical roadmap with acceptance criteria, **not** the operational
 queue.
 
