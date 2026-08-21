@@ -69,7 +69,6 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 | single-source-of-truth-drift | 4 (addendum 2026-08-20) | graduated (strengthened 2026-08-20) | CLAUDE.md → End-of-PR check item 2 (grep now `web/ docs/`); `MODEL_DISPLAY_NAMES` + AST sweep test |
 | stale-repo-snapshot | 6 | graduated (strengthened 2026-08-20, twice) | CLAUDE.md → "Before recommending what's next" (re-derive the premise; merge-safety sentence) |
 | claim-shipped-before-measurement | 5 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → "Verify a claim before writing it as fact" |
-| verification-checked-the-wrong-thing | 6 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
 | unmeasured-performance-impact | 2 | graduated (2026-08-20) | CLAUDE.md → Required working style, "Validate after meaningful changes" |
 | verification-instrument | 2 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next", "Verify a production state by its terminal write" |
 | reminder-blind-to-same-day | 1 | resolved (2026-08-20) | entries-seen counter (PR #582); already narrated in CLAUDE.md's mechanical-guard section |
@@ -77,17 +76,52 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 | worklog-concurrent-deposit | 1 | resolved (2026-08-20) | one-file-per-deposit design (PR #588) structurally removes the conflict |
 | ci-guard-intermittent | 1 | resolved (2026-08-20) | root cause (venv cache key pinned only the minor Python version) fixed by PR #599, ~20min after deposit; every run since is green |
 | environment-narrower-than-target | 5 (addenda 2026-08-20) | graduated (strengthened 2026-08-20) | CLAUDE.md → Testing § "Match the real target environment when validating" |
-| guard-blind-by-construction | 2 | graduated (2026-08-20) | CLAUDE.md → Testing § "A guard needs a fixture that can trigger what it exists to catch" |
-| metric-definition-blind-to-edge-case (was statistic-confounded-by-shape) | 5 (addenda 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → Testing § "Write the domain requirement before the code" |
-| unchecked-destructive-git-chaining | 2 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next" § "Gate a destructive git step on its actual outcome" |
+| guard-blind-by-construction | 3 (addendum 2026-08-21) | graduated (2026-08-20) | CLAUDE.md → Testing § "A guard needs a fixture that can trigger what it exists to catch" |
+| metric-definition-blind-to-edge-case (was statistic-confounded-by-shape) | 6 (addenda 2026-08-20, 2026-08-21) | graduated (2026-08-20) | CLAUDE.md → Testing § "Write the domain requirement before the code" |
+| verification-checked-the-wrong-thing | 9 (addenda 2026-08-20, 2026-08-21) | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
+| unchecked-destructive-git-chaining | 4 (addendum 2026-08-21) | graduated (strengthened 2026-08-21) | CLAUDE.md → "Before recommending what's next" § "Gate a destructive git step on its actual outcome" |
 | watcher-predicate | 2 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next" § "Use the existing ancestry-aware deploy checkers, don't hand-roll a new watcher" |
 | flag-flip-surfaced-hidden-coupling | 1 | resolved (2026-08-20) | both issues (a test asserting an incidental fact, silent write amplification on 44/51 BAs) fixed inside PR #629 itself before merge; no rule needed |
+| shadow-blind-where-guard-fires | 1 | resolved (2026-08-21) | PR #639 (`seed_shadow_skipped` typed trace + tests asserting the guard fired); single occurrence, caught and fixed same day before the sample was relied on; watching for a repeat |
 | scratch-over-tracked-config | 1 (in Worklog) | open | none yet — thematically echoes the assumed-vs-verified-state throughline behind `unchecked-destructive-git-chaining`/`stale-repo-snapshot`, but the mechanism is distinct enough and severity low; watching for a repeat |
 | preregistered-reading-mismatched-outcome | 1 (in Worklog) | open | a research-methodology lesson (a pre-committed reading didn't anticipate the actual outcome shape), not a code defect; watching for a repeat |
-| silent-bounds-drop | 1 (in Worklog) | open | tracked live by GitHub issue #624 (open); PR #631 added counting/logging (`temporal_seed_writes_dropped`) but explicitly deferred the sizing fix; not currently live (`temporal_ar_seed`/`_shadow` default off); watching for a repeat or for #624 to close |
-| mutation-reverted-uncommitted-work | 1 (in Worklog) | open | echoes `unchecked-destructive-git-chaining` thematically (a destructive step ran without verifying actual tree state) but distinct mechanism — a mutation-testing precondition, not a merge/reset outcome check; fully recovered same-PR, no shipped harm; watching for a repeat |
+| silent-bounds-drop | 1 (in Worklog) | open | tracked live by GitHub issue #624 (open); PR #631 added counting/logging (`temporal_seed_writes_dropped`) but explicitly deferred the sizing fix. **Correction (2026-08-21 audit):** `temporal_ar_seed_shadow` now defaults **True** as of PR #629 (2026-08-20 23:22 UTC) — the shadow is live and exercises the same `HourIndexedHistory`/`set()` path #624 describes, so this is no longer dormant; `temporal_ar_seed` itself (the serving path) remains default False. The shadow's own measurements could be silently undercounted by this exact bug while informing the #559 decision — worth attention. Watching for a repeat or for #624 to close. |
 
 ### Entries
+
+**2026-08-21 — The seed shadow recorded nothing on any tick where the #558 monotonic-origin guard fired, and the missing ticks were exactly the correlated ones [shadow-blind-where-guard-fires, resolved]**
+- **What happened:** `#558`'s monotonic-origin guard returns from
+  `predict_and_write_forecast` (~line 2435) before the seed-shadow call site
+  (~line 2760), so on any tick where the guard fires — an origin-regressed
+  tick, where EIA has withdrawn hours it had already published — the shadow
+  never runs and the region silently vanishes from the sample, with no
+  error or warning. Found by tracing one BA (IID) absent from a single
+  tick, not by design review.
+- **Root cause:** The guard fires precisely when a feed is gap-adjacent,
+  which is the exact condition the shadow exists to observe — so its blind
+  spot is missing-not-at-random, correlated with the phenomenon under study
+  rather than random noise. During `#537`, LGEE regressed for 24
+  consecutive ticks; that entire episode would have been an unexplained,
+  uncounted hole in any aggregate computed from the shadow.
+- **Prevention:** Already applied (PR #639, same day) — a regressed tick now
+  emits a typed `seed_shadow_skipped` event (region, reason,
+  regression_hours) instead of silently recording nothing, and
+  `scripts/seed_shadow_eval.py` states in its own output that
+  origin-regressed ticks are absent from every figure it prints, so the
+  denominator is never read as complete. Two tests assert the guard
+  actually fired, not merely that a log line appeared.
+- **Status:** resolved — enforced by PR #639 (`seed_shadow_skipped` + tests,
+  verified merged 2026-08-21T02:15:55Z). Thematically close to
+  `guard-blind-by-construction` and `verification-instrument` (an
+  observational device has a coverage gap correlated with what it
+  measures) but mechanistically distinct — a live production instrument's
+  coverage, not a test fixture or a wrong-field check — so logged as its
+  own category rather than folded into either. No CLAUDE.md text drafted:
+  single occurrence, caught and fixed same-day before the sample was ever
+  relied on (2 ticks old at the time). Watching for a repeat before
+  considering graduation.
+- **Related:** #559, #558, #537, PR #639. One Worklog line consumed
+  (`shadow-blind-where-guard-fires`).
 
 **2026-08-20 — A candidate fix's own PR body documents catching an unsound approach by measuring before writing it [claim-shipped-before-measurement, resolved]**
 - **What happened:** Investigating the #559 forecast-origin stall, the
@@ -110,6 +144,17 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   (`fix-would-have-been-unsound`, filed under the tag
   `fix-scope-underestimated` in its own body — a minor filename/tag mismatch,
   noted for the record).
+- **2026-08-21 addendum (2nd positive instance):** Drafting the `#628`
+  disclosure fix, "measured across 51 BAs the ensemble 24h `n_7d` ran 94 to
+  165" was nearly committed to the page/test copy — the author's own sweep
+  covered only the 45 BAs whose benchmark row carries a grade, not the full
+  fleet. Caught in the pre-PR check; the shipped text (PR #633) attributes
+  the 51-BA figure to `docs/DRIFT_COVERAGE_CHANNELS.md`, which measured it
+  directly via a Redis read across all 51 BAs, instead of claiming it as
+  this sweep's own scope. Verified: that doc's own Redis-read methodology
+  section confirms the full-fleet measurement. **Related:** #628, PR #633,
+  `docs/DRIFT_COVERAGE_CHANNELS.md`. One Worklog line consumed
+  (`claim-shipped-before-measurement`, the 2026-08-20T235923Z deposit).
 
 **2026-08-20 — CI's toolchain-confirmation step failed intermittently on main, fixed within 20 minutes of deposit [ci-guard-intermittent, resolved]**
 - **What happened:** CI's "Confirm the toolchain came from the venv" step
@@ -272,6 +317,19 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   can trigger what it exists to catch" (2026-08-20).
 - **Related:** #559, #186, PR #609, PR #610. Two Worklog lines consumed
   (`guard-blind-by-construction` ×2, same tag, distinct incidents).
+- **2026-08-21 addendum (3rd occurrence, resolved same-PR):** A new "no
+  hard-coded coverage figure on /benchmark" assertion (`#628`) and its
+  sibling ran over the whole data script including JS comments — the
+  comments legitimately quote the figures the code must not contain, so
+  both guards read the rationale prose instead of the code that ships; the
+  first failed on comment text and the second could have passed on it.
+  Fixed within the same PR (#633) before merge by a `_code_of` helper that
+  strips `/* */` and `//` comments before the sweep runs, the same
+  principle `_prose_of` already applies elsewhere. **Status:** resolved —
+  enforced by PR #633 (`tests/unit/test_benchmark_page.py::_code_of`). No
+  new CLAUDE.md text needed — the guard's own scope was the fix, same shape
+  as the existing prevention. **Related:** #628, PR #633. One Worklog line
+  consumed (`guard-blind-by-construction`, the 2026-08-20T235933Z deposit).
 
 **2026-08-20 — A statistic's own test encoded the same narrow assumption as its implementation, so only manual adversarial reasoning caught the edge cases [metric-definition-blind-to-edge-case]**
 - **What happened:** Three incidents in the benchmark-gating work around
@@ -323,6 +381,25 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   (#559 / PR #584). No new CLAUDE.md text needed; existing prevention already
   covers this shape. **Related:** PR #583, #581, #559, PR #584. Two Worklog
   lines consumed (`instrumentation`, `inherited-policy-not-decided`).
+- **2026-08-21 addendum (6th occurrence, resolved — prevention applied
+  correctly):** A live "fleet must recompute from rows" checker built to
+  verify the `#600` atomic-export fix reported 4 mismatches on
+  `/api/v1/benchmark`, including a headline "0.498, 26% relative" figure —
+  but 2 of the 4 were `fleet_rollup`'s deliberate ERCOT isolation, not the
+  tick-mixing bug the checker was meant to catch. Building the acceptance
+  test to that raw predicate would have shipped a check that could never
+  pass, because it could never distinguish a legitimate design choice from
+  the defect. Caught by recomputing both definitions (isolated vs.
+  full-fleet) against a production capture before writing the claim down —
+  the payload had declared its own population twice (`isolated`,
+  `fleet.n=44` against 45 scoreable rows) and the checker had consulted
+  neither. Documented in `STATUS.md` via PR #640. **Status:** resolved — no
+  defect shipped; this is the existing prevention ("adversarially probe the
+  boundary... values read back through an intermediate store") working as
+  intended on a new boundary shape (a deliberate exclusion vs. a real
+  defect). No new CLAUDE.md text needed. **Related:** #600, PR #637, PR
+  #640. One Worklog line consumed (`metric-definition-blind-to-edge-case`,
+  the 2026-08-21T011314Z deposit).
 
 **2026-08-20 — A destructive git step ran without inspecting the actual outcome of the step before it [unchecked-destructive-git-chaining]**
 - **What happened:** Two incidents where a destructive git command ran on an
@@ -351,6 +428,38 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   severity — it would have silently reverted shipped work from two other
   sessions in a now-heavily-concurrent repo.
 - **Related:** PR #567, PR #603. Two Worklog lines consumed.
+- **2026-08-21 addendum (3rd–4th occurrences, rule strengthened):** Two
+  more destructive-git incidents, both caught before landing on `main`. (3)
+  A mutation-testing assert-mutation was applied to a file whose real
+  changes were still uncommitted; the `git checkout --` that reverted the
+  mutation silently discarded three real edits along with it, and the next
+  test run failed at import instead of reporting the mutation's result —
+  recovered via the editor's own history, not via git. (4) A heredoc Python
+  conflict-resolver's regex expected a SHA on the `>>>>>>>` line and got
+  `origin/main` instead, so its own internal assertion raised in a separate
+  process — but the chained `git add -A && git commit && git push` ran
+  regardless, because a shell chain only gates on its own commands' exit
+  codes, not on an assertion failing inside a script one of those commands
+  invoked. `STATUS.md` was pushed to a feature branch with all three
+  conflict markers still in it; caught and fixed by a follow-up commit
+  (`e267ba34`) before the branch merged via PR #640, so `main` itself was
+  never affected.
+  - **Root cause (broadened):** the existing pattern — a destructive step's
+    actual outcome unchecked before the next irreversible action — also
+    covers (a) not checking working-tree state (uncommitted work) before a
+    destructive command like `checkout --`, not just the outcome of a merge
+    or reset, and (b) a shell `&&`/`;` chain proceeding past a script's own
+    internal failure when that failure is raised in a subprocess rather than
+    surfaced as the invoking command's exit code.
+  - **Status:** graduated → CLAUDE.md § "Before recommending what's next" /
+    "Gate a destructive git step on its actual outcome" (strengthened
+    2026-08-21). Now 4 occurrences total (2 original + these 2), all the
+    same root cause — comfortably past the repeat bar.
+  - **Related:** #624 / #629 (mutation incident), #600 / PR #640 (chained
+    STATUS.md commit incident). Two Worklog lines consumed
+    (`mutation-reverted-uncommitted-work`, the 2026-08-20T192436Z deposit;
+    `chained-commit-past-failed-resolution`, the 2026-08-21T021907Z
+    deposit).
 
 **2026-08-20 — A fix shipped 79x costlier than what it replaced, and a CI cache change made builds 4.5x slower, both unmeasured before landing [unmeasured-performance-impact]**
 - **What happened:** Two incidents where a change's own resource cost was
@@ -566,6 +675,29 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   bugs. No new CLAUDE.md text needed. **Related:** PR for
   `docs/DRIFT_COVERAGE_CHANNELS.md`. One Worklog line consumed
   (`verification-checked-the-wrong-thing`, the 2026-08-20T185450Z deposit).
+- **2026-08-21 addendum (7th–9th occurrences):** Three more checks in one
+  session each reported a clean/passing result without actually exercising
+  what they claimed. (7) A grep guarding for a hard-coded literal used an
+  unquoted `--include=*.py`, which zsh's globbing consumed before the
+  command ran; the command errored, and a `||` fallback printed "ZERO HITS
+  ✓" — a blanket fallback that cannot distinguish "the check ran and found
+  nothing" from "the check itself never ran." (8) A JSON probe read a field
+  at the wrong nesting level and reported 0 of 51 rows carrying it, when the
+  same payload carried it 91 times at the correct level. (9) A
+  mutation-testing run executed against a test file that did not contain
+  the test it was meant to kill, which briefly read as "the change is
+  unverified" on a PR that was in fact correct. **Root cause (broadened):**
+  the existing pattern — a check's own design never confirms it actually
+  reached/exercised its real target — also covers a blanket error-handling
+  fallback that treats "the tool crashed" the same as "the tool ran and
+  found nothing," and a check pointed at the wrong file/JSON-path/nesting
+  level entirely, not only a defeated mock or a canceling pair of drifting
+  quantities. **Prevention:** already covers this (verify the check itself
+  executed correctly — a sentinel, a designed-to-fail control — before
+  trusting its silence or agreement); no new CLAUDE.md text needed.
+  **Related:** #600, PR #637. Three sub-incidents in one Worklog line
+  consumed (`verification-scoped-to-wrong-target`, the
+  2026-08-21T013410Z deposit).
 
 **2026-08-20 — The audit-staleness nudge's own date bug, and the close-keyword guard's own `ask`-in-permissive-mode gap [resolved, not graduated]**
 - **What happened:** Two Worklog entries documented bugs in this repo's own
