@@ -1,5 +1,13 @@
 # Training-window study (#231 follow-up) — working brief
 
+> ## ⚠ SUPERSEDED IN PART — read §8 first
+>
+> Every accuracy number in §2–§7 below is **pooled across all 168 holdout
+> hours**. 144 of those (86%) sit beyond day-ahead, while
+> `models/benchmark.py` sets `HEADLINE_LEAD = "24h"`. Re-reporting per lead
+> (§8) **reversed the XGBoost conclusion** and removed every satisficing veto.
+> Treat the pooled figures below as a days-2-to-7 view, not as the answer.
+
 **Status:** in progress. Written 2026-08-21 as a durable handoff so the
 findings below — several of them corrections to earlier findings in the same
 investigation — do not have to be re-derived or re-broken by a later session.
@@ -528,3 +536,70 @@ rather than by review:**
 A third fix — per-BA unaveraged weather, replacing a spatial mean — was
 applied and **did not help** (11.31% → 11.38%), which is what redirected the
 diagnosis from "my features are wrong" to the structural explanation above.
+
+---
+
+## 8. Per-lead re-analysis (2026-08-21) — the pooled numbers above measured the wrong horizon
+
+Every accuracy result in §2–§7 collapsed the 168-hour holdout into ONE number.
+But **144 of those 168 hours (86%) are beyond day-ahead**, and
+`models/benchmark.py` sets `HEADLINE_LEAD = "24h"` (conservative: 48h).
+So the studies optimised days 2–7 and reported it against a product that
+headlines on day-ahead.
+
+This was not a subtle miss: a step-wise diagnostic run **earlier in the same
+session** already showed error swinging from −0.75% at h1 to −6.68% at h24 to
++1.79% at h168 on CAISO. The evidence that pooling destroys the signal was in
+our own output before most of these studies ran.
+
+### XGBoost — conclusion REVERSED at the lead that matters
+
+| BA | ctl @24h | best @24h | Δrel | decisive arms | SAT-fails @24h | SAT-fails @168h |
+|---|---|---|---|---|---|---|
+| DUK | 4.47% | 2.43% | **+45.6%** | 8/8 | 0 | 0 |
+| CPLW | 4.70% | 2.79% | **+40.6%** | 4/8 | 0 | 0 |
+| SCEG | 4.48% | 3.12% | **+30.4%** | 5/8 | **0** | 6 |
+| CAISO | 3.47% | 2.72% | **+21.6%** | 3/8 | **0** | 3 |
+| ERCOT | 1.76% | 1.63% | +7.4% | 0/8 | **0** | 7 |
+
+**Sixteen satisficing failures at 168h become ZERO at 24h.** The systematic
+under-forecast used to veto these arms is **recursive drift accumulating over
+days 2–7**, not a consequence of training on more data. §2's "0 of 6 decisive
+wins" and the later "2 wins / 1 vetoed / 1 weak / 1 negative" are both
+artifacts of the wrong horizon.
+
+Corrected: **4 of 5 valid BAs improve materially at day-ahead, the fifth is
+neutral, nothing fails satisficing anywhere.** Best arms cluster on long
+half-lives (180–730d) and the top three per BA sit within ~0.1 pts of each
+other, so a single fleet default near a **365-day half-life** is defensible
+without per-BA tuning.
+
+### Prophet — conclusion CONFIRMED, and a prediction of mine failed
+
+I expected Prophet to flip too, reasoning that #281's phantom decline appears
+"a few weeks past the training end" and so might be harmless at 24h. **Wrong.**
+
+| BA | 24h | 168h |
+|---|---|---|
+| CAISO | 3.81% → 6.20%, **−2.391 pts**, control wins 100% (5.0× stderr) | −1.447 pts |
+| DUK | 3.94% → 5.78%, −1.836, control wins 86% | −1.391 |
+| ERCOT | 2.57% → 3.93%, −1.357, inconclusive | −1.185, decisive |
+| SCEG | 5.31% → 5.31%, no effect | no effect |
+| CPLW | 4.71% → **16.80%**, bias −10.81% | 17.23% |
+
+Prophet's `yearly_seasonality` is **worse at day-ahead than at a week out** on
+CAISO and DUK, and **4 of 6 BAs fail satisficing at 24h**.
+
+**The contrast is the finding.** XGBoost's bias failures were accumulated
+recursive drift — they vanish at 24h. Prophet's are an *immediate level error*
+from the yearly Fourier term — present from hour one. Same pooled symptom,
+different causes; only the per-lead split separates them.
+
+### Still outstanding
+
+- **SARIMAX per-lead** — patched, not yet run (~110 min/BA). Its bias vetoes
+  (5 of 6 BAs at 168h) are the remaining conclusion that could move.
+- **Reconciliation at 24h** — §7's null rests on recursive drift dominating at
+  168h. At 24h drift is far smaller, the aggregate model would not be 7× worse
+  than sum-of-parts, and MinT would have real information. Given
+  `HEADLINE_LEAD = "24h"`, this is now the most attractive open retest.

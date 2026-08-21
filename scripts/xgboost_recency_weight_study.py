@@ -112,6 +112,16 @@ CONTROL_ARM = "control_hard_90d"
 TURN_MONTHS = {3, 4, 5, 9, 10, 11}
 PEAK_MONTHS = {6, 7, 8, 12, 1, 2}
 
+#: Report accuracy CUMULATIVE TO each lead, not pooled over the whole holdout.
+#: An earlier version reported one number pooled across all 168 hours -- but 144
+#: of those 168 (86%) are beyond day-ahead, so the headline was dominated by
+#: days 2-7 while ``models/benchmark.py`` HEADLINES ON 24h. Error is not flat
+#: across the horizon either (CAISO step-wise: -0.75% at h1, -6.68% at h24,
+#: +1.79% at h168), so a pooled mean can hide an effect that exists at one lead
+#: and not another. 24h is the benchmark's headline lead, 48h its conservative
+#: one, 168h the full holdout for continuity with the earlier runs.
+LEADS = (24, 48, 168)
+
 #: Rows whose weight falls below this contribute nothing measurable; dropping
 #: them makes short half-lives cheap without changing the fit.
 WEIGHT_EPS = 1e-3
@@ -199,7 +209,9 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
         f"months {sorted({ts.iloc[t.start].strftime('%b') for _, t in splits})}"
     )
 
-    scores = {name: {"wape": [], "mape": [], "bias": []} for name, _ in ARMS}
+    scores = {
+        name: {f"{k}_{L}": [] for k in ("wape", "mape", "bias") for L in LEADS} for name, _ in ARMS
+    }
     t0 = time.time()
     for _train_slice, test in splits:
         test_df = engineer_exogenous_features(df.iloc[test].copy())
@@ -220,9 +232,11 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
                 for k in scores[name]:
                     scores[name][k].append(np.nan)
                 continue
-            scores[name]["wape"].append(wape(y, fc))
-            scores[name]["mape"].append(compute_mape(y, fc))
-            scores[name]["bias"].append(bias_pct(y, fc))
+            for lead in LEADS:
+                n = min(lead, len(y))
+                scores[name][f"wape_{lead}"].append(wape(y[:n], fc[:n]))
+                scores[name][f"mape_{lead}"].append(compute_mape(y[:n], fc[:n]))
+                scores[name][f"bias_{lead}"].append(bias_pct(y[:n], fc[:n]))
     print(f"  {time.time() - t0:.0f}s for {len(splits)} windows x {len(ARMS)} arms")
 
     seg = {
@@ -231,40 +245,39 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
         "peak": [i for i, m in enumerate(months) if m in PEAK_MONTHS],
     }
     ctl = scores[CONTROL_ARM]
-    print(f"\n  {'arm':18s} {'WAPE':>7s} {'bias':>7s} | {'all':>22s} {'turn':>10s} {'peak':>10s}")
-    out = {}
-    for name, _ in ARMS:
-        s = scores[name]
-        row = f"  {name:18s} {np.nanmean(s['wape']):>6.2f}% {np.nanmean(s['bias']):>+6.2f}% |"
-        if name == CONTROL_ARM:
-            print(row + f" {'(control)':>22s}")
-            continue
-        cell, vs = "", {}
-        for lbl in ("all", "turn", "peak"):
-            idx = seg[lbl]
-            d = np.array([ctl["wape"][i] - s["wape"][i] for i in idx])
-            v = verdict(d)
-            vs[lbl] = v
-            mark = (
-                "WIN"
-                if (v["decisive"] and v["winner"] == "treatment")
-                else "LOSS"
-                if v["decisive"]
-                else "~"
+    for lead in LEADS:
+        tag = " <-- benchmark HEADLINE_LEAD" if lead == 24 else ""
+        print(f"\n  === cumulative to {lead}h{tag} ===")
+        print(f"  {'arm':18s} {'WAPE':>7s} {'bias':>7s} | {'all':>20s} {'turn':>10s} {'peak':>10s}")
+        for name, _ in ARMS:
+            s_ = scores[name]
+            row = (
+                f"  {name:18s} {np.nanmean(s_[f'wape_{lead}']):>6.2f}% "
+                f"{np.nanmean(s_[f'bias_{lead}']):>+6.2f}% |"
             )
-            cell += (
-                f" {np.nanmean(d):>+6.2f}{mark:<4s}"
-                if lbl == "all"
-                else f" {np.nanmean(d):>+5.2f}{mark:<4s}"
+            if name == CONTROL_ARM:
+                print(row + f" {'(control)':>20s}")
+                continue
+            cell = ""
+            for lbl in ("all", "turn", "peak"):
+                idx = seg[lbl]
+                d = np.array([ctl[f"wape_{lead}"][i] - s_[f"wape_{lead}"][i] for i in idx])
+                v = verdict(d)
+                mark = (
+                    "WIN"
+                    if (v["decisive"] and v["winner"] == "treatment")
+                    else "LOSS"
+                    if v["decisive"]
+                    else "~"
+                )
+                cell += f" {np.nanmean(d):>+6.2f}{mark:<4s}"
+            sat = satisficing_check(
+                treatment_bias_pct=float(np.nanmean(s_[f"bias_{lead}"])),
+                control_mape=float(np.nanmean(ctl[f"mape_{lead}"])),
+                treatment_mape=float(np.nanmean(s_[f"mape_{lead}"])),
             )
-        sat = satisficing_check(
-            treatment_bias_pct=float(np.nanmean(s["bias"])),
-            control_mape=float(np.nanmean(ctl["mape"])),
-            treatment_mape=float(np.nanmean(s["mape"])),
-        )
-        print(row + cell + ("" if sat["passed"] else "  SAT-FAIL"))
-        out[name] = {"verdicts": vs, "sat": sat}
-    return {"region": region, "arms": out}
+            print(row + cell + ("" if sat["passed"] else "  SAT-FAIL"))
+    return None
 
 
 def main():

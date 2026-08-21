@@ -95,6 +95,17 @@ FETCH_WINDOWS_DAYS = {"baseline_90d": 90, "treatment_800d": 800}
 TRAINING_JOB_TIMEOUT_S = 18000  # deploy-prod.yml gridpulse-training-job --task-timeout
 N_WINDOWS = 8  # docs/EVALUATION_POLICY.md default
 HOLDOUT_H = 168  # matches models/training.py validation_hours default
+
+#: Report cumulative-to-lead, not pooled over the whole holdout. An earlier
+#: version of this study reported ONE number averaged across all 168 hours --
+#: but 144 of those (86%) sit beyond day-ahead while models/benchmark.py sets
+#: HEADLINE_LEAD = "24h". Re-reporting the XGBoost study per lead removed EVERY
+#: satisficing veto (SCEG 6/8 and ERCOT 7/8 bias failures at 168h -> 0 at 24h),
+#: because the systematic under-forecast was recursive drift over days 2-7, not
+#: a property of the training window. The same collapse may be hiding the same
+#: thing here -- especially for Prophet, whose #281 failure mode is explicitly
+#: long-horizon extrapolation.
+LEADS = (24, 48, 168)
 MIN_TRAIN_H = 720  # matches train_all_models' "need at least 30 days" floor
 
 
@@ -127,7 +138,9 @@ def _rolling_score(df: pd.DataFrame) -> dict:
     splits = rolling_origin_splits(
         len(df), n_windows=N_WINDOWS, holdout_h=HOLDOUT_H, min_train_h=MIN_TRAIN_H
     )
-    out = {"wape": [], "mape": [], "bias": [], "yearly_on": [], "train_s": []}
+    out = {f"{k}_{L}": [] for k in ("wape", "mape", "bias") for L in LEADS}
+    out["yearly_on"] = []
+    out["train_s"] = []
     for train_slice, test_slice in splits:
         train_df = df.iloc[train_slice]
         test_df = df.iloc[test_slice]
@@ -144,9 +157,11 @@ def _rolling_score(df: pd.DataFrame) -> dict:
         out["yearly_on"].append(yearly_on)
         y_test = test_df["demand_mw"].to_numpy()
         pred_test = pred["forecast"]
-        out["wape"].append(wape(y_test, pred_test))
-        out["mape"].append(compute_mape(y_test, pred_test))
-        out["bias"].append(bias_pct(y_test, pred_test))
+        for lead in LEADS:
+            k = min(lead, len(y_test))
+            out[f"wape_{lead}"].append(wape(y_test[:k], pred_test[:k]))
+            out[f"mape_{lead}"].append(compute_mape(y_test[:k], pred_test[:k]))
+            out[f"bias_{lead}"].append(bias_pct(y_test[:k], pred_test[:k]))
     return out
 
 
@@ -170,7 +185,7 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
     treatment = _rolling_score(datasets["treatment_800d"])
     treatment_wall = time.time() - t0
 
-    n = min(len(control["wape"]), len(treatment["wape"]))
+    n = min(len(control["wape_168"]), len(treatment["wape_168"]))
     if n == 0:
         print("  no comparable windows — skipping")
         return None
@@ -184,17 +199,22 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
     else:
         print(f"  yearly_seasonality confirmed ON in all {n} treatment windows")
 
-    deltas = np.array(control["wape"][:n]) - np.array(treatment["wape"][:n])
-    v = verdict(deltas)
-    sat = satisficing_check(
-        treatment_bias_pct=float(np.mean(treatment["bias"][:n])),
-        control_mape=float(np.mean(control["mape"][:n])),
-        treatment_mape=float(np.mean(treatment["mape"][:n])),
-    )
-
+    for lead in LEADS:
+        deltas = np.array(control[f"wape_{lead}"][:n]) - np.array(treatment[f"wape_{lead}"][:n])
+        v = verdict(deltas)
+        sat = satisficing_check(
+            treatment_bias_pct=float(np.mean(treatment[f"bias_{lead}"][:n])),
+            control_mape=float(np.mean(control[f"mape_{lead}"][:n])),
+            treatment_mape=float(np.mean(treatment[f"mape_{lead}"][:n])),
+        )
+        tag = "  <-- benchmark HEADLINE_LEAD" if lead == 24 else ""
+        print(
+            f"  [{lead:>3d}h] ctl {np.mean(control[f'wape_{lead}'][:n]):.2f}% -> "
+            f"trt {np.mean(treatment[f'wape_{lead}'][:n]):.2f}%  "
+            f"bias {np.mean(treatment[f'bias_{lead}'][:n]):+.2f}%  "
+            f"{'PASS' if sat['passed'] else 'SAT-FAIL'}  |  {v['reason']}{tag}"
+        )
     print(f"  windows compared: {n}")
-    print(f"  verdict: {v['reason']}")
-    print(f"  satisficing: {'PASS' if sat['passed'] else 'FAIL - ' + '; '.join(sat['failures'])}")
     print(
         f"  wall-clock: 90d={control_wall:.0f}s ({n} windows), 800d={treatment_wall:.0f}s ({n} windows)"
     )
@@ -203,8 +223,6 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
         "region": region,
         "n_windows": n,
         "yearly_on_count": yearly_on_count,
-        "verdict": v,
-        "satisficing": sat,
         "fetch_times": fetch_times,
         "control_wall": control_wall,
         "treatment_wall": treatment_wall,
@@ -234,23 +252,7 @@ def main():
             results.append(r)
 
     print("\n" + "=" * 70)
-    print("SUMMARY")
-    for r in results:
-        v, sat = r["verdict"], r["satisficing"]
-        if v["decisive"] and v["winner"] == "treatment" and sat["passed"]:
-            tag = "REAL WIN"
-        elif v["decisive"] and v["winner"] == "treatment":
-            tag = "WAPE-WIN-BUT-VETOED"
-        elif v["decisive"]:
-            tag = "NO WIN"
-        else:
-            tag = "INCONCLUSIVE"
-        yearly_flag = (
-            ""
-            if r["yearly_on_count"] == r["n_windows"]
-            else f" [yearly ON only {r['yearly_on_count']}/{r['n_windows']}]"
-        )
-        print(f"  {r['region']:8s} {tag:20s} n={r['n_windows']}  {v['reason']}{yearly_flag}")
+    print("Per-lead results are reported per BA above; 24h is the benchmark headline lead.")
 
     fetch_90 = [r["fetch_times"]["baseline_90d"] for r in results]
     fetch_800 = [r["fetch_times"]["treatment_800d"] for r in results]
