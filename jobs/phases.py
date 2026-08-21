@@ -2432,6 +2432,29 @@ def predict_and_write_forecast(
                 served_origin=prior_origin.isoformat(),
                 regression_hours=int((prior_origin - forecast_start).total_seconds() // 3600),
             )
+            # #559: the seed shadow lives ~300 lines below and is unreachable
+            # from here, so an origin-regressed tick used to leave NO trace in
+            # the shadow's record at all — the region was simply absent, with
+            # no error and no warning. That is missing-not-at-random: the guard
+            # fires when EIA withdraws published hours, which is gap-adjacent,
+            # so the absences correlate with the very condition the shadow
+            # exists to observe. LGEE regressed for 24 consecutive ticks during
+            # #537; that whole episode would have been an unexplained hole.
+            #
+            # It records the SKIP rather than computing an arm. Production did
+            # not forecast on this tick, so there is no served prediction to
+            # compare against, and manufacturing one would put "what production
+            # would have done" in the same sample as "what production did".
+            # Coverage you can measure beats a counterfactual you cannot.
+            from config import feature_enabled
+
+            if feature_enabled("temporal_ar_seed_shadow"):
+                log.info(
+                    "seed_shadow_skipped",
+                    region=region,
+                    reason="origin_regressed",
+                    regression_hours=int((prior_origin - forecast_start).total_seconds() // 3600),
+                )
             return PhaseResult(
                 region=region,
                 ok=True,

@@ -19,6 +19,37 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-21 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
+the seed shadow had a blind spot correlated with what it observes. Fixed by
+making the absence typed, not by inventing an observation.**
+
+Found by tracing one region (IID) absent from the 00:00 tick. It had not failed
+— it logged `forecast_origin_regressed`, and #558's monotonic-origin guard
+returns from `predict_and_write_forecast` ~300 lines above the shadow call, so
+the shadow never ran. No error, no warning, just a missing region.
+
+**That is missing-not-at-random.** The guard fires when EIA withdraws published
+hours, which is gap-adjacent — so the absences correlate with the exact
+condition the shadow exists to observe. LGEE regressed for **24 consecutive
+ticks** during #537; that entire episode would have been an unexplained hole.
+
+**The fix records the skip rather than computing an arm.** On a regressed tick
+production does not forecast at all, so there is no served prediction to compare
+against; manufacturing one would put "what production would have done" in the
+same sample as "what production did". `seed_shadow_skipped` carries the region,
+the reason and the regression size, so coverage becomes measurable.
+`scripts/seed_shadow_eval.py` now says so in its output rather than reporting
+counts as if the denominator were complete.
+
+**Why now rather than after the sample completed:** the "don't change an
+instrument mid-collection" rule guards against changes motivated by *results*.
+This one was found by tracing a missing region and would have been made
+identically whatever the divergence numbers said. The sample was two ticks old,
+and every further tick collected under a biased instrument is a tick that has to
+be caveated later.
+
+---
+
 **2026-08-20 — where the #537 / #559 batch landed, and the one decision it
 did not make.** *Roundup. The entries below are the record; this is the state.*
 
