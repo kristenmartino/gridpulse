@@ -585,6 +585,87 @@ number per BA is not a supportable format.
    value *as actually seeded*, which diverges from the vintage `first_seen_d`
    exactly when the quality guard or the conditioning fork has touched it.
 
+12. **`DF` is not required to be the same quantity as `D`, and for some BAs
+    it demonstrably is not.** This is the most load-bearing limit on the
+    page, because the whole comparison assumes the two are commensurable.
+    EIA does not require that. Form EIA-930's respondent instructions say:
+
+    > **Demand forecast:** If you do not produce a day-ahead demand forecast
+    > in the normal course of business that is directly comparable to actual
+    > demand as defined for this collection (see discussion of physical vs.
+    > commercial operations below), you are not required to produce a
+    > consistent demand forecast for the purposes of EIA-930 reporting.
+    > Please report the day-ahead demand forecast generated in the normal
+    > course of business.
+
+    The mechanism is the same instructions' physical-vs-commercial split.
+    `D` is defined **physically** — "EIA is attempting to represent electric
+    system operations in as purely a physical way as possible. Ownership and
+    dispatch are irrelevant" — covering everything inside the tie-line
+    boundary, with pseudo-ties and dynamic schedules excluded from
+    adjustment. A utility forecasts **commercially**: its own load
+    obligation. Where those footprints differ, `DF` and `D` are different
+    quantities and the gap between them is not forecast error.
+
+    **Measured, 2026-08-20 — and the cause is NOT established for any of
+    them.** Four BAs publish a `DF` far from their `D` in one direction on
+    nearly every hour: PSEI 0.67×, PSCO 0.74×, FPC 0.76×, GVL 0.90×.
+
+    What is settled:
+
+    - **`D` is not the defective series.** It reconciles with net generation
+      minus net interchange to **0.0%** for exactly these BAs, identically to
+      the controls. The demand figure is corroborated by two independent
+      series.
+    - **No form-wide definitional change explains it.** The 2026 Federal
+      Register notice extending this collection (2026-05643) enumerates its
+      changes, and all of them land on Form EIA-930A Schedule 5 (target
+      spinning reserve). `D`, `DF`, net generation and interchange are
+      untouched. Empirically the controls hold flat across twenty months
+      (FPL 0.99–1.02, AECI 0.99–1.01, TEC 1.00–1.05) while the affected BAs
+      break in three *different* months, which a shared redefinition cannot
+      produce.
+    - **The four are not one phenomenon.** FPC holds 0.748–0.783 across
+      twenty months — persistent and structural. FMPP steps once, 1.000 →
+      0.710 between 2026-01 and 2026-02, then holds. PSCO slides gradually
+      from 0.936 to 0.717 over eighteen months while its demand rose 12%
+      July-over-July and its forecast fell 13%. PSEI was already low and
+      volatile through 2025 before dropping further, and is now partly
+      recovering.
+
+    What is **not** settled: why, for any of them. A persistent ratio is
+    consistent with `DF` and `D` being different quantities, and a moving one
+    with a forecast drifting from its load — but a forecast covering load
+    that has since grown outside its scope produces the same signature as
+    both, and nothing here separates them. Rolling EIA-861 retail sales up by
+    BA code was tried and is **not** decisive: that column tracks which BA
+    *supplies* a utility rather than whose footprint physically contains it,
+    which Seminole demonstrates (twelve member co-ops, 16,627 GWh coded to
+    `SEC`, whose own BA reports 2,055 GWh of demand). Any figure derived that
+    way inherits the same defect.
+
+    Resolving a specific BA requires the respondent's own statement of what
+    its `DF` covers — from EIA's survey staff or the operator. Until then no
+    cause is claimed, on this page or in the payload.
+
+    **What this costs the page.** Those operators' published error may be
+    overstated by an amount this benchmark cannot quantify. PSEI's 31.8% is
+    the extreme case. The payload carries `df_scope` per BA — the median
+    `DF/D` ratio, the one-sided share, and a `comparable` verdict — so a
+    reader can see which rows carry the question. The field records the
+    measurement, never a cause.
+
+    **Why it is not an exclusion.** The screen cannot distinguish a
+    differently-scoped `DF` from a very bad one: a large error is one-sided
+    in both cases. Dropping flagged BAs from the fleet median would
+    therefore remove *badly forecasting operators* along with
+    *differently-scoped* ones, which would flatter GridPulse. The flag is
+    advisory, every flagged BA remains in every aggregate, and
+    `tests/unit/test_benchmark.py::TestDfScopeComparability` pins that the
+    fleet figures are identical with and without it. Resolving a specific BA
+    needs the respondent's own statement of what its `DF` covers, not a
+    threshold.
+
 ## 13. Reproducing it
 
 ```bash

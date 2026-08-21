@@ -448,6 +448,10 @@
                 <span class="flag substituted">not in medians</span> &mdash;
                 reported separately; not folded into the fleet medians or
                 spread.
+                <span class="flag substituted">not comparable</span> &mdash;
+                this operator&rsquo;s published forecast sits far from its
+                reported demand in one direction on nearly every hour. The
+                error shown may be overstated; the cause is not established.
               </p>
             </section>
 
@@ -598,6 +602,7 @@
               <li>Only settled actuals count. First-published values run up to ~70% wrong on high-revision feeds.</li>
               <li>Hours we first saw <em>after</em> they had already passed are excluded: their earliest-observed forecast is already a post-revision value, so scoring it as &ldquo;as-issued&rdquo; would erase the distinction the two operator columns exist to draw.</li>
               <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight. A row where the two scorings disagree about the winner is marked on its Difference cell; everywhere else they agree.</li>
+              <li>A row marked <span class="flag substituted">not comparable</span> publishes a day-ahead forecast that sits far from its own reported demand, in one direction, on nearly every hour. EIA-930 never required the two to match: respondents are told to submit the forecast they already produce, so it may be a different quantity rather than a poor forecast. We have not established which, for any row. It still counts everywhere, because this test cannot tell the two apart and dropping the rows would flatter us.</li>
               <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
               <li>A row marked <span class="flag">rollback</span> is one our own drift monitor already grades as failing at that horizon &mdash; the number stands, but we would not defend the forecast behind it.</li>
               <li>A row marked <span class="flag substituted">not served</span> scores our ensemble for a BA we serve a seasonal-naive baseline instead, so its published number is <em>worse</em> than what that BA actually receives. The arm is not re-based onto the fallback, because that would stop it measuring the forecaster.</li>
@@ -810,6 +815,32 @@
           ' series instead. The benchmark always grades the model, because re-basing ' +
           'it onto a fallback would stop it measuring the forecaster. So this number ' +
           'is worse than what a user of this BA actually receives.');
+      }
+
+      /* EIA-930 does not require a BA's day-ahead forecast to be measured on
+         the same basis as its demand — the form says so outright. Where it
+         plainly is not, the operator's published error is overstated by an
+         amount we cannot separate from real forecast error, and saying
+         nothing would let this page keep making them look worse than they
+         are. */
+      var scope = h.df_scope || {};
+      if (scope.comparable === false) {
+        badge('substituted', 'not comparable',
+          'This BA\u2019s published forecast sits far from its reported demand in one ' +
+          'direction on nearly every hour. Cause not established.');
+        note('This operator\u2019s published forecast runs at about ',
+          strong(num(scope.ratio) + '\u00d7'),
+          ' its reported demand, in the same direction on ' +
+          Math.round((scope.one_sided || 0) * 100) + '% of hours. ',
+          strong('We do not know why.'),
+          ' EIA-930 does not require a day-ahead forecast to be measured on the same ' +
+          'basis as demand \u2014 the form tells respondents to submit whatever ' +
+          'forecast they already produce \u2014 so this may be two different ' +
+          'quantities rather than a bad forecast. It may equally be a forecast that ' +
+          'has drifted from its own load. Those look identical here, and separating ' +
+          'them needs the operator\u2019s own statement of what its forecast covers. ' +
+          'Until then the error shown for this row may be overstated by an unknown ' +
+          'amount, it still counts in every fleet figure, and no cause is claimed.');
       }
 
       /* The fleet lede says this BA is "reported separately"; without a mark

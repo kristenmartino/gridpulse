@@ -728,6 +728,10 @@ _EXPORTED_BENCHMARK_LEAD_FIELDS = (
     # because the direction is not uniform across the fleet, so a single
     # methodology sentence would be wrong for roughly half of it.
     "stale_capture_impact",
+    # Whether the operator's DF is even on the same basis as the D it is
+    # graded against. EIA-930 does not require that it is, so a reader
+    # cannot assume it without being told, per BA.
+    "df_scope",
 )
 
 #: Every metric block travels with the statistic that produced it. §8 of the
@@ -913,6 +917,11 @@ def build_benchmark_payload() -> dict[str, Any] | None:
         # Same allow-list as every other lead block — an isolated region is
         # not a back door for internal fields.
         "isolated": _export_isolated(fleet),
+        # Regions whose DF may not be on the same basis as their D. ADVISORY:
+        # they remain in every fleet figure. Published because a reader
+        # comparing our number to theirs deserves to know which rows carry
+        # the question, and because acting on it silently would flatter us.
+        "scope_flagged": (fleet.get("scope_flagged") if isinstance(fleet, dict) else None),
         "statistics": _BENCHMARK_STATISTICS,
         "regions": regions_out,
         "notes": _BENCHMARK_NOTES,
