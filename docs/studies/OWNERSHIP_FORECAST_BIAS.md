@@ -291,3 +291,57 @@ Both are therefore computed, and which is primary is fixed now:
 
 If the two disagree about the ownership conclusion, the study reports that
 disagreement as its headline finding rather than picking the friendlier one.
+
+---
+
+## 10. Amendment — a registered limitation was wrong
+
+*2026-08-20, after Phase 1 scoping and before any grouped result.*
+
+§7 stated: "many municipals do not file public IRPs at all, so the
+public-power sample will be self-selected toward larger, more formal
+utilities. That bias runs *against* H1." The scoping pass falsified the first
+half. **18 of the 22 public-power entities in the BA set publish a
+long-horizon load forecast.** Three are established non-publishers (HST, SPA,
+WALC) and one is genuinely unresolved (AECI).
+
+The reason matters more than the count. Three states impose long-horizon
+forecast filing on utilities **regardless of ownership**, keyed to size:
+
+- **Washington RCW 19.280** — consumer-owned utilities above 25,000
+  customers. Catches CHPD, DOPD, GCPD, SCL, TPWR.
+- **California SB 350** — publicly owned utilities above 700 GWh. Catches
+  LDWP, IID, TIDC, and BANC through SMUD.
+- **Florida Stat. 186.801** (Ten-Year Site Plan) — any utility above a
+  250 MW threshold. Catches JEA, GVL, TAL, SEC and FMPP's members, and
+  correctly excludes Homestead, which is genuinely below it.
+
+SPA and WALC do not publish because they are wholesale hydropower marketers
+with no retail load obligation. In WAPA's case the requirement runs the other
+way: its customers file IRPs *with* it.
+
+**The corrected limitation.** Selection is by *size threshold*, not by
+ownership. That is a materially different bias and it partly cuts the other
+way: the public-power entities in the sample are the large ones, which makes
+them more comparable to IOUs on the confounder this design is most worried
+about. The remaining exposure is that small public power is absent from the
+long-horizon arm entirely, so H1 and H2 speak only to large utilities. Stated
+that way rather than the way §7 stated it.
+
+## 11. A note on classifying by fan-out
+
+Pass B distributed its 51 entities across five sub-batches. Passes A and B
+agree on 49 of 51 (96.1%), and both score 11/11 on the seeded controls. The
+two disagreements are CHPD and DOPD.
+
+Those two matter beyond their count. CHPD, DOPD and GCPD are the same legal
+form — Washington public utility districts under RCW 54.04.020, which
+statutorily labels them "municipal corporations" while making them
+county-wide special districts rather than city departments. Pass B called
+CHPD and DOPD `state-authority` and GCPD `municipal`, in different batches.
+The inconsistency is not between the raters; it is *within* pass B, and it
+exists because the batches could not see each other.
+
+Recorded because it argues against fanning out a classification task purely
+for speed. Cross-entity consistency is part of the output, and a fan-out
+discards it.
