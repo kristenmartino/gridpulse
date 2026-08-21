@@ -244,6 +244,11 @@ class TestBenchmarkEndpoint:
         row = client.get("/api/v1/benchmark").get_json()["regions"][0]
         assert row["leads"]["24h"]["serve_grade"]["grade"] == "rollback"
         assert row["leads"]["24h"]["serve_grade"]["rolling_mape_7d"] == 12.215
+        # #628: the window the rolling figure was scored over crosses too.
+        # The page's coverage disclosure has no other source, so dropping
+        # this field would silently return the claim to "trailing 7 days"
+        # with nothing qualifying it.
+        assert row["leads"]["24h"]["serve_grade"]["n_7d"] == 160
         # An ungraded lead must not inherit the flagged one's verdict.
         assert "serve_grade" not in row["leads"]["48h"]
 
@@ -671,3 +676,109 @@ class TestBenchmarkPagePosture:
         script = _data_script(body)
         for stale in ("28 of 43", "4.82", "3.80", "8.3\u00d7", "PSEI", "SEC"):
             assert stale not in script, f"hard-coded result in the page: {stale!r}"
+
+
+def _code_of(script: str) -> str:
+    """The data script with its comments stripped.
+
+    The comments legitimately quote the figures the code must not contain —
+    #628's own rationale names 168 — so a raw substring search over the
+    script would either fail on the explanation or force the explanation out.
+    Strip them, the way _prose_of strips HTML comments before the percentage
+    sweep, and check the code that actually runs.
+    """
+    script = re.sub(r"/\*.*?\*/", " ", script, flags=re.S)
+    return re.sub(r"(?m)^\s*//.*$", " ", script)
+
+
+class TestDriftWindowCoverageIsPublished:
+    """#628 — the trailing-7-day claim gets the count that qualifies it.
+
+    ``serve_grade`` has carried ``n_7d`` since #273 and this page read the
+    block without ever using it, so "over the trailing 7 days" invited a
+    reader to hear 168 hourly observations. Measured live across all 51 BAs
+    on 2026-08-20 the real range was 94 (LGEE) to 165 (seven BAs), and 168 is
+    unreachable by construction: a 24h-lead score needs an origin that
+    occurred, and EIA's publication timing skips some outright
+    (``docs/DRIFT_COVERAGE_CHANNELS.md`` §4, §7).
+
+    There is deliberately no coverage literal on the page to go stale, so
+    what these pin is the opposite of the CANONICAL_FACTS registry: that the
+    page keeps *deriving* the figure, and that the wording keeps saying the
+    ceiling is structural. A later edit that types a number in, drops the
+    qualifier, or reframes the shortfall as a queue fails here, naming this
+    page.
+    """
+
+    def test_the_seven_day_claim_never_stands_bare(self, body) -> None:
+        """The count travels inside the sentence that makes the claim.
+
+        Publishing it only in the expandable detail would leave the flagged
+        row's own headline saying "trailing 7 days" with nothing beside it —
+        which is the sentence #628 was filed about.
+        """
+        code = _code_of(_data_script(body))
+        assert "over the trailing 7 days" in code
+        claim = code[code.index("over the trailing 7 days") :][:200]
+        assert "scoredOn" in claim, "the trailing-7-day claim no longer carries its coverage count"
+
+    def test_the_count_comes_from_the_payload_field(self, body) -> None:
+        assert "n_7d" in _code_of(_data_script(body))
+
+    def test_no_coverage_figure_or_region_is_written_into_the_page(self, body) -> None:
+        """The ceiling is per BA, set by how that feed's publication timing
+        falls against an hourly clock — so any literal is an observation of
+        one tick published as a standing fact. 168 included: it is the
+        window's definition and is written as ``7 * 24``."""
+        code = _code_of(_data_script(body))
+        for stale in ("168", "165", "94", "LGEE", "JEA", "PSCO"):
+            assert stale not in code, f"hard-coded drift coverage in the page: {stale!r}"
+
+    def test_the_count_is_published_on_every_row_not_only_flagged_ones(self, body) -> None:
+        """LGEE is the worst-covered BA on the page and grades `acceptable`.
+
+        A disclosure hung off the rollback branch would never reach the row
+        that most needs it, and routing it through flagRow instead would mark
+        every row on the page — a short window is the normal state, not an
+        exception, and a flag that fires on everything says nothing.
+        """
+        script = _data_script(body)
+        assert "coverageNote" in script
+        note = script[script.index("function coverageNote") : script.index("function flagRow")]
+        assert "rollback" not in note, "the per-row count is gated on the grade"
+        # The call site, not only the function. Gating there survived the
+        # assertion above and would have removed the disclosure from LGEE —
+        # the row the whole change exists for — so the call is pinned whole.
+        code = _code_of(script)
+        rows = code[code.index("function renderRows") :]
+        assert "var coverage = coverageNote(region);" in rows, (
+            "the per-row count is no longer called unconditionally for every row"
+        )
+        assert "notes.push" not in note, "the per-row count is routed through the flag list"
+
+    def test_the_ceiling_is_stated_as_structural_not_as_a_backlog(self, body) -> None:
+        """The wording is the whole point of the change. ~81% of the gap is
+        an origin skip with no re-proposal path, so copy that reads as a
+        defect awaiting a fix would be an overclaim in the other direction —
+        and the ~17% that IS fixable must not be denied either."""
+        assert "The drift grade never scores a full week" in body
+        assert "never gets all of them" in body
+        assert "rather than a gap being closed" in body
+        assert "causes we can fix" in body, (
+            "the fixable share of the shortfall is no longer acknowledged"
+        )
+
+    def test_the_observed_ceiling_is_derived_and_rendered(self, body) -> None:
+        """Same rule as the realized lead: read off the rows every render, so
+        it moves on its own when the feeds' timing does."""
+        assert 'id="drift-coverage-observed"' in body
+        script = _data_script(body)
+        assert "renderCoverage();" in script, "the derived line is never rendered"
+        assert "getElementById('drift-coverage-observed')" in script
+
+    def test_a_row_without_a_count_says_nothing_rather_than_guessing(self, body) -> None:
+        """A warming BA carries no serve_grade. Rendering it as full coverage
+        would be exactly the fabrication the rest of this page refuses."""
+        script = _data_script(body)
+        helper = script[script.index("function coverageOf") : script.index("function coverageNote")]
+        assert "return null" in helper

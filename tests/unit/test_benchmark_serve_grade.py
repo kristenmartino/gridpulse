@@ -36,6 +36,10 @@ class TestServeGrade:
         assert g["model"] == "ensemble"
         assert g["horizon"] == "24h"
         assert g["rolling_mape_7d"] == 12.215
+        # #628: the sample the rolling figure was computed over. /benchmark
+        # publishes it beside the claim, so it is part of this contract
+        # rather than an incidental passenger.
+        assert g["n_7d"] == 160
 
     def test_an_acceptable_row_reports_its_grade_not_nothing(self):
         """`acceptable` must round-trip, so the page can distinguish
