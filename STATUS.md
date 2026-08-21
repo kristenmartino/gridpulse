@@ -19,6 +19,60 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-20 — where the #537 / #559 batch landed, and the one decision it
+did not make.** *Roundup. The entries below are the record; this is the state.*
+
+Seven changes shipped and deployed together at `7ef1610e` (service, scoring job
+and training job all on it, checked by ancestry):
+
+| | what | result |
+|---|---|---|
+| [#621](https://github.com/kristenmartino/gridpulse/pull/621) | counters for the two silent drift-buffer loss channels | published on `/api/v1/drift/{BA}` |
+| [#625](https://github.com/kristenmartino/gridpulse/pull/625) | the fleet-wide channel split | `docs/DRIFT_COVERAGE_CHANNELS.md` |
+| [#620](https://github.com/kristenmartino/gridpulse/pull/620) + [#630](https://github.com/kristenmartino/gridpulse/pull/630) | the #559 re-run, and an independent replication of it | not confirmed; both strata inconclusive |
+| [#627](https://github.com/kristenmartino/gridpulse/pull/627) | the origin stall fix (#559 candidate 1) | merged, **inert** — see below |
+| [#631](https://github.com/kristenmartino/gridpulse/pull/631) | the shadow gate names *why* the arms differ; `set()` stops dropping writes silently | live |
+| [#633](https://github.com/kristenmartino/gridpulse/pull/633) | `/benchmark` publishes the drift window's real coverage | live |
+| [#629](https://github.com/kristenmartino/gridpulse/pull/629) | `temporal_ar_seed_shadow` on | recording |
+
+**The headline number is now published rather than implied.** `/benchmark` said
+a flagged row was scored "over the trailing 7 days"; it is scored on 94 of 168
+hours for LGEE, 102 for JEA, 165 at the fleet ceiling. Every scored row now
+carries its own count, and the page states that **168 is not reachable** —
+81 % of the gap is a skipped origin, which is EIA's publication lag beating
+against an hourly tick clock, not a backlog. [#628](https://github.com/kristenmartino/gridpulse/issues/628)
+closed on that.
+
+**Two framings were refuted by their own measurements, and both are recorded
+rather than quietly dropped:** the unresolved-actual channel (proposed as JEA's
+explanation) is 1.5 % of the shortfall with zero expiries; and the absent-hour
+policy fix moved stratum A's sign from −0.265 to +0.27 without making it
+decisive.
+
+### The one decision this batch did not make
+
+**`temporal_ar_seed` is still off, so [#627](https://github.com/kristenmartino/gridpulse/pull/627)
+is in place and inert.** Channel B — the 16.9 % of the shortfall that is
+actually ours to fix — is not being recovered. The flag is the gate because
+under the positional seed `demand_lag_1h` means "the last surviving entry", so
+no positional advance is provably safe; advancing without the temporal path
+would trade a visible stall for invisible wrong values.
+
+What is new is that the evidence for that decision is finally clean. The shadow
+is live and every divergent observation so far lands in the `hole_in_lookback`
+stratum — the one that is genuinely about temporal indexing — with
+`seed_tail_gap_h` at 0 throughout. That is structural, not luck: with the flag
+off the origin cap holds the gap at 0, and with it on #627's bridge does.
+
+**Also open:** [#624](https://github.com/kristenmartino/gridpulse/issues/624) —
+`HourIndexedHistory` sizes its array from the last *present* seed hour. Its
+silent half is fixed (a dropped write is now counted and logged); the sizing
+fix is a signature change and is not made. Measured live, it **cannot fire in
+the current regime** — both paths that could open the trailing gap close it —
+so it is latent correctness, not an active defect.
+
+---
+
 **2026-08-20 — [#537](https://github.com/kristenmartino/gridpulse/issues/537)
 the fleet-wide drift shortfall is measured and split. The hypothesis it was
 measured to test is refuted, and JEA is not the case anyone thought.**
@@ -2078,6 +2132,14 @@ theatrical and should be partially reverted:
 
 ## Next 3 (priority order)
 
+*(Re-verified 2026-08-20 against `gh issue list`. **This block is stale and is
+not the queue.** [#273](https://github.com/kristenmartino/gridpulse/issues/273)
+(slot 1) and [#171](https://github.com/kristenmartino/gridpulse/issues/171) are
+both **closed**; only [#275](https://github.com/kristenmartino/gridpulse/issues/275)
+(slot 3) is still open. The 2026-08-05 end-of-day notes below are kept as the
+record of that day, not as current priority. Rebuild this block from
+`gh issue list` before using it to choose work.)*
+
 *(Refreshed 2026-07-11 against `gh issue list` — the pre-#296 version of this
 block still centered the long-completed 2026-07-03 re-measure keystone; the
 2026-07 critical-review remediation and the buried-ledger critical tier
@@ -2249,14 +2311,15 @@ decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnos
   (`alertPolicies/8524477981812373740`) preceded it.
   `tests/unit/test_monitoring_policies_applied.py` guards the next one.
 
-- **Forecast tab chart 1–4h gap between actual end and forecast start**
-  ([#129](https://github.com/kristenmartino/gridpulse/issues/129)) —
-  EIA publishing lag visualized as empty. Fix is in
-  `jobs/phases.predict_and_write_forecast`: backfill predictions for
-  trailing NaN-demand rows so the forecast trace starts at
-  `last_actual_demand_hour + 1h` instead of `featured.timestamp.max() + 1h`.
-  Different code path than the audit fixes; ~3-4 hours when picked up.
-  Surfaced in Next-3 above (#2).
+- ✅ **Forecast tab chart 1–4h gap — not blocked; the issue is closed and the
+  mechanism has since shipped.** [#129](https://github.com/kristenmartino/gridpulse/issues/129)
+  closed 2026-05-21; this block still described it as pending work as of
+  2026-08-20. Its stated fix — *"so the forecast trace starts at
+  `last_actual_demand_hour + 1h` instead of `featured.timestamp.max() + 1h`"* —
+  is what [#627](https://github.com/kristenmartino/gridpulse/pull/627) built, by
+  advancing the anchor across the contiguous run of real demand after
+  `featured`'s tail. It is gated on `temporal_ar_seed` and therefore inert
+  today, so the chart gap persists until that flag flips.
 
 - **Cross-link this Project to portfolio-v2 / sift / future repos**
   ([#124](https://github.com/kristenmartino/gridpulse/issues/124)) —
