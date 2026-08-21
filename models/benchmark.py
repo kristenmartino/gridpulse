@@ -1017,6 +1017,46 @@ def _spread(values: list[float]) -> dict[str, float] | None:
     }
 
 
+def benchmark_export(
+    region_payloads: list[dict[str, Any]], rollup: dict[str, Any]
+) -> dict[str, Any]:
+    """One tick's whole benchmark as a single self-contained document (#600).
+
+    The rollup and the per-BA rows used to reach the API as 52 separate Redis
+    keys read at request time, and the scoring job writes them at different
+    points in the same tick — so a request landing mid-write could pair a
+    fleet aggregate from tick N with rows from tick N+1, with no field able
+    to tell the reader that had happened. Production served exactly that on
+    2026-08-20: ``fleet.official_spread.max`` 31.791 against a maximum row
+    value of 31.784.
+
+    Folding both halves into one value makes the mix impossible rather than
+    unlikely: a single ``SET`` is atomic, so whatever a reader gets is one
+    tick's rollup over one tick's rows. The invariant that follows — every
+    ``fleet`` figure recomputes exactly from ``regions`` — is what
+    ``tests/unit/test_benchmark_page.py`` pins.
+
+    Rows are stored **unfiltered**, exactly as the per-BA keys hold them: the
+    public allow-list stays on the read path (``_export_benchmark_payload``),
+    so this document cannot become a second, wider trust boundary.
+
+    Args:
+        region_payloads: Per-BA benchmark payloads as read back from Redis.
+        rollup: The matching ``fleet_rollup`` over those same payloads.
+
+    Returns:
+        ``rollup`` plus a ``regions`` list, sorted by region code so the
+        served order does not depend on the job's iteration order.
+    """
+    return {
+        **rollup,
+        "regions": sorted(
+            (p for p in region_payloads if isinstance(p, dict) and p.get("region")),
+            key=lambda p: p["region"],
+        ),
+    }
+
+
 # ── scoreability regression detection (#535) ─────────────────
 
 

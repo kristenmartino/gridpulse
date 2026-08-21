@@ -1544,3 +1544,59 @@ reader comparing two rows is comparing two sample sizes without being told.
 And when a disclosure is available in three forms, check what each one
 actually measures before choosing; the most detailed option was the one that
 would have misled.*
+
+### 39. "Tell me about a bug report whose evidence was right and whose second opinion was wrong."
+
+**Situation**: Our public accuracy scorecard publishes a fleet block — medians,
+win/loss, and the min/max spread of each arm's error — above a table of all 51
+balancing-authority rows. The fleet aggregate and the rows reached the response
+as **52 separate Redis keys, read at request time**, and the hourly scoring job
+writes the per-BA keys during its fan-out and the aggregate afterwards. A
+request landing between those two writes got one tick's aggregate over another
+tick's rows, and the payload's only timestamp came from the aggregate — so
+nothing in the response could say it had happened.
+
+**Task**: Make the mix impossible rather than unlikely, without moving a single
+published number.
+
+**Action**: I reproduced it live before designing anything, and the reproduction
+was sharper than the ticket: two fetches minutes apart returned the **same**
+`updated_at` of 00:09:56 while 45 of the rows in the second carried a
+`scored_at` from the **01:0x** tick. The next tick's fan-out had completed and
+its rollup had not.
+
+Then a second opinion arrived — an independent live checker asserting the fleet
+min/max recompute from the rows, reporting four mismatches, with the headline
+that one of them was a **26% relative error** on our best BA's figure and
+therefore worse than the ticket estimated. It was not. Two of those four were
+the *minimums*, and our rollup deliberately excludes ERCOT from the fleet
+aggregate and reports it separately — a design decision, not a bug. The
+checker's min was ERCOT's row every time. The real deltas were 0.016 and 0.036
+on the maximums, both genuine. Had I built the acceptance test to the predicate
+I was handed, I would have shipped a check that could never pass and read the
+fix as broken.
+
+The fix itself is one Redis document per tick holding the rollup and the rows
+it was computed from, built from payloads the rollup already had in memory — so
+it costs one extra write and no extra read, and the read path drops from 52
+reads to one. Three deliberate restraints. The rows are stored **unfiltered**,
+so the public allow-list stays on the read path and the new key never becomes a
+second trust boundary to keep in step with the first. The read path **falls
+open** to the old assembly, because the key is absent for up to an hour after
+any deploy that precedes a scoring tick and blanking a public scoreboard is
+worse than the bug. And the in-process memo stayed, with its comment rewritten:
+its stated reason — "a crawl burst must not fan out 51 Redis reads" — was now
+false, but it still bounds Redis QPS from an unauthenticated endpoint.
+
+**Result**: Every fleet figure now recomputes exactly from the rows shipped
+beside it. The test that pins this is not the happy path — that one passes
+against the broken code too — but a fixture that stocks the two layouts with
+*different* ticks and asserts the response cannot be assembled from them.
+Reverting to the split reads fails it.
+
+*Lesson: **verify the second opinion against the system, not just the first
+opinion.** The report was right about the disease and the reviewer was right
+that it reproduced; the reviewer's magnitude was an artifact of a predicate
+that didn't know about a deliberate exclusion. An acceptance criterion you
+adopt without re-deriving is a criterion you can satisfy perfectly and still
+be told you failed.*
