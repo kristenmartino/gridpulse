@@ -1,0 +1,1 @@
+2026-08-21 [chained-commit-past-failed-resolution] Chained `git add -A && git commit && git push` after a heredoc python resolver whose regex did not match the conflict markers (`>>>>>>> origin/main`, not a SHA) — the assertion failed in a separate process, the shell chain ran regardless, and STATUS.md was pushed with all three conflict markers still in it. — ref: #600 / PR #640
