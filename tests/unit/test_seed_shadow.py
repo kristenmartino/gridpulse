@@ -349,3 +349,59 @@ class TestThePerRunCap:
                 _call(_featured(), region=f"ZZZ{i}")  # ungapped -> no spend
             _call(_featured(gap_at=HOURS - 60), region="GAPPED")
             assert spy.call_count == 1
+
+
+class TestTheOriginRegressedBlindSpot:
+    """#559: an origin-regressed tick must leave a TYPED trace, not a hole.
+
+    The monotonic-origin guard returns from `predict_and_write_forecast` about
+    300 lines above the seed-shadow call, so such ticks used to vanish from the
+    shadow's record entirely — no error, no warning, just an absent region.
+    That is missing-not-at-random: the guard fires when EIA withdraws published
+    hours, which is gap-adjacent, so the absences correlate with the exact
+    condition the shadow exists to observe. LGEE regressed for 24 consecutive
+    ticks during #537.
+    """
+
+    @staticmethod
+    def _regressed_args(featured):
+        """RegionData whose previous origin is NEWER than the resolvable one."""
+        data = _region_data(featured=featured)
+        data.previous_forecast_origin = _origin(featured) + pd.Timedelta(hours=12)
+        return data
+
+    @patch("data.redis_client.redis_set")
+    @patch("data.redis_client.redis_get", return_value=None)
+    def test_a_regressed_tick_logs_a_typed_skip(self, _get, _set, shadow_on):
+        featured = _featured()
+        with patch("jobs.phases.log") as log, patch("jobs.phases._predict_one") as predict:
+            predict.side_effect = lambda m, *a, **k: np.full(720, 18000.0)
+            result = predict_and_write_forecast(
+                self._regressed_args(featured),
+                models={"xgboost": object()},
+                model_mapes={"xgboost": 3.0},
+            )
+        assert result.details.get("skipped") == "origin_regressed"
+        skips = [
+            c for c in log.info.call_args_list if c.args and c.args[0] == "seed_shadow_skipped"
+        ]
+        assert skips, "an origin-regressed tick must not vanish from the shadow record"
+        assert skips[0].kwargs["reason"] == "origin_regressed"
+        assert skips[0].kwargs["regression_hours"] > 0
+
+    @patch("data.redis_client.redis_set")
+    @patch("data.redis_client.redis_get", return_value=None)
+    def test_the_skip_is_silent_when_the_shadow_is_off(self, _get, _set, monkeypatch):
+        """Flag-off must add nothing at all, including log noise."""
+        monkeypatch.setitem(config.FEATURE_FLAGS, "temporal_ar_seed_shadow", False)
+        featured = _featured()
+        with patch("jobs.phases.log") as log, patch("jobs.phases._predict_one") as predict:
+            predict.side_effect = lambda m, *a, **k: np.full(720, 18000.0)
+            predict_and_write_forecast(
+                self._regressed_args(featured),
+                models={"xgboost": object()},
+                model_mapes={"xgboost": 3.0},
+            )
+        assert not [
+            c for c in log.info.call_args_list if c.args and c.args[0] == "seed_shadow_skipped"
+        ]

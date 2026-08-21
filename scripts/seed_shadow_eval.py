@@ -12,6 +12,17 @@ its own minimum detectable effect and the implied wait alongside every
 comparison, and refuses to emit a verdict before both the coverage bar and the
 control-arm constraint are met.
 
+**Coverage is not complete, by construction.** A tick whose origin regressed
+never reaches the shadow — the monotonic-origin guard returns first — so those
+BA-ticks are absent from every count below. They are absent *for a reason that
+correlates with gaps*, so treat the sample as missing-not-at-random and read
+the `seed_shadow_skipped` count in the scoring-job logs alongside these numbers:
+
+    jsonPayload.event="seed_shadow_skipped"
+
+A rising skip count against a flat record count means the shadow is being
+starved of exactly the ticks worth having.
+
 What it *can* answer today, and what the shadow was built for:
   * does the temporal path run clean against real production frames
   * what does the second recursion actually cost
@@ -124,6 +135,11 @@ def main() -> int:
     print(f"  gate=identical        : {gate_counts.get('identical', 0)}")
     print(f"  second arm computed   : {gate_counts['computed']}")
     print(f"  audited (should be identical): {gate_counts['audited']}")
+    print(
+        "\n  NOTE: origin-regressed ticks never reach the shadow and are absent\n"
+        "  from every figure above. Check `seed_shadow_skipped` in the job logs —\n"
+        "  those absences correlate with gaps, so they are not missing at random."
+    )
     if audit_alarms:
         print(f"  !! AUDIT DIVERGED on {len(audit_alarms)}: {', '.join(audit_alarms)}")
         print("     The gate is skipping BAs whose arms DO differ. Those are lost")
