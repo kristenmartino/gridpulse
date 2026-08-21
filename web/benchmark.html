@@ -277,7 +277,8 @@
     .flag.substituted { border-color: var(--border-default); color: var(--text-secondary); }
     .row-note { font-size: 12px; color: var(--text-tertiary); margin: 6px 0 0; }
     .row-note b { color: var(--warn); font-weight: 600; }
-    .drops { font-size: 12px; color: var(--text-tertiary); }
+    .drops { font-size: 12px; color: var(--text-tertiary); margin: 6px 0 0; }
+    .drops b { color: var(--text-secondary); font-weight: 600; }
     details.row-detail summary { cursor: pointer; color: var(--text-tertiary); font-size: 12px; }
     details.row-detail[open] summary { color: var(--text-secondary); }
 
@@ -311,6 +312,9 @@
     }
     .limit h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
     .limit p { font-size: 13px; color: var(--text-secondary); }
+    /* Only the coverage limit runs to more than one paragraph; without this
+       its three run together as one block of text. */
+    .limit p + p { margin-top: 9px; }
 
     .state { padding: 40px 0; color: var(--text-secondary); font-size: 15px; }
     .state strong { color: var(--text-primary); }
@@ -530,6 +534,28 @@
                   </p>
                 </div>
                 <div class="limit">
+                  <h3>The drift grade never scores a full week</h3>
+                  <p>
+                    The <span class="flag">rollback</span> mark, and the
+                    scored-hours count on every row, come from our own drift
+                    monitor. Its window holds one comparison per hour of the
+                    past week &mdash; and it never gets all of them. A
+                    24-hour-ahead score exists only for a target hour whose
+                    forecast origin actually occurred, and when EIA publishes
+                    two settled hours in the same tick the origin steps over
+                    one; nothing re-proposes that hour at a 24-hour lead.
+                  </p>
+                  <p id="drift-coverage-observed" hidden></p>
+                  <p>
+                    Some rows also lose hours to causes we can fix, and do.
+                    The ceiling is not one of them: it is set per balancing
+                    authority by how that feed's publication timing falls
+                    against an hourly clock, so it is the shape of the
+                    measurement rather than a gap being closed. Read each
+                    row's count as its sample size.
+                  </p>
+                </div>
+                <div class="limit">
                   <h3>Not a claim about market value</h3>
                   <p>
                     Demand error only. Nothing here is scored on prices,
@@ -632,6 +658,12 @@
        to diff the exclusion table against their own mental list — #535 sat
        unnoticed for three weeks with five of these absent from the medians. */
     var LARGE_ISOS = ['ERCOT', 'MISO', 'PJM', 'CAISO', 'ISONE', 'NYISO', 'SPP'];
+    /* Hours in the drift monitor's rolling window — the denominator behind
+       `serve_grade.n_7d`. 7 x 24 is the DEFINITION of that field's window,
+       not a measurement and not a target: no row reaches it, and the limits
+       section says why. Written as the product so it cannot be mistaken for
+       an observed figure. */
+    var DRIFT_WINDOW_HOURS = 7 * 24;
     var data = null;
     var sortKey = 'region';
     var sortAsc = true;
@@ -676,6 +708,39 @@
 
        Every other unflattering fact on this page is published deliberately;
        these were the exceptions. */
+    /* #628. `serve_grade.n_7d` is how many of the window's hours actually
+       carried a scored, lead-matched pair. It is never the full window and
+       it varies widely across the fleet, so a bare "trailing 7 days" told a
+       reader something the payload contradicts. Returns null rather than a
+       guess when the field is absent — a row whose count we do not hold must
+       not read as a row with full coverage. */
+    function coverageOf(sg) {
+      var n = (sg || {}).n_7d;
+      if (typeof n !== 'number' || !isFinite(n)) { return null; }
+      return n + ' of ' + DRIFT_WINDOW_HOURS + ' hours';
+    }
+
+    /* Deliberately NOT routed through flagRow: a short window is the normal
+       state of every row, not an exception, and adding it to the flag list
+       would mark the whole table and empty the flag legend of meaning. */
+    function coverageNote(region) {
+      var sg = head(data, region).serve_grade || {};
+      var scoredOn = coverageOf(sg);
+      if (!scoredOn) { return null; }
+      var p = document.createElement('p');
+      p.className = 'drops';
+      p.appendChild(document.createTextNode('Our own drift grade for this row is scored on '));
+      var b = document.createElement('b');
+      b.textContent = scoredOn;
+      p.appendChild(b);
+      p.appendChild(document.createTextNode(
+        ' — what a 7-day window holds, at ' + (sg.horizon || HEADLINE) + '. That count is the ' +
+        'sample the rolling figure rests on, and it differs row to row, so two ' +
+        'rows’ 7-day numbers are not equally well evidenced. A full ' +
+        DRIFT_WINDOW_HOURS + ' is not reachable; “What this does not show” says why.'));
+      return p;
+    }
+
     function flagRow(th, region) {
       var h = head(data, region);
       var sg = h.serve_grade || {};
@@ -713,15 +778,23 @@
           ? 'a failing level' : num(sg.rolling_mape_7d) + '%';
         var horizon = sg.horizon || HEADLINE;
         var model = sg.model || 'served';
+        /* #628: "over the trailing 7 days" invited a reader to hear 168
+           hourly observations. The count that qualifies it has been on the
+           payload since #273 and was never shown, so it travels with the
+           claim itself \u2014 badge and sentence both \u2014 rather than only in the
+           row's expandable detail. */
+        var scoredOn = coverageOf(sg);
         badge('', 'rollback',
           'Our own drift monitor grades this BA\u2019s ' + model + ' forecast rollback at ' +
-          horizon + ' (' + at + ', 7d rolling).');
+          horizon + ' (' + at + ', 7d rolling' +
+          (scoredOn ? ' on ' + scoredOn : '') + ').');
         var bound = (sg.acceptable_max === null || sg.acceptable_max === undefined)
           ? ' worse than the acceptable band for that horizon'
           : ' against an acceptable band of ' + num(sg.acceptable_max) + '%';
         note('We already grade this row ', strong('rollback'),
           ' \u2014 our drift monitor scores the ' + model + ' forecast at ' + at +
-          ' over the trailing 7 days at ' + horizon + ',' + bound +
+          ' over the trailing 7 days' +
+          (scoredOn ? ' (' + scoredOn + ' scored)' : '') + ' at ' + horizon + ',' + bound +
           '. The comparison stands; it is not a forecast we would defend.');
       }
 
@@ -1097,6 +1170,11 @@
           .map(function (k) { return drops[k] + ' — ' + labels[k]; });
         p.textContent = parts.length ? parts.join(' · ') : 'No hours dropped in this window.';
         det.appendChild(p);
+        /* Sits after the drop counts, which are what the summary promises,
+           and beside the lead note — the other per-row property of how the
+           measurement was taken rather than of the comparison itself. */
+        var coverage = coverageNote(region);
+        if (coverage) { det.appendChild(coverage); }
         /* The realized lead lives in the sidebar: it varies by ~0.15h across
            the fleet, so repeating it on every row says nothing and invites
            the reasonable suspicion that the row is boilerplate. What IS
@@ -1201,10 +1279,33 @@
       }
     }
 
+    /* Derived from the rows, never written in — same rule as renderLead, and
+       for a sharper reason: the ceiling is a property of each feed's
+       publication timing against an hourly clock, so a figure typed into the
+       page would state as a standing fact something that is an observation
+       of one tick. Both ends ship, because the spread IS the disclosure:
+       the best and worst rows on this page are not the same measurement. */
+    function renderCoverage() {
+      var counts = (data.regions || []).filter(scored)
+        .map(function (r) { return (head(data, r).serve_grade || {}).n_7d; })
+        .filter(function (v) { return typeof v === 'number' && isFinite(v); });
+      var el = document.getElementById('drift-coverage-observed');
+      if (!counts.length) { el.hidden = true; return; }
+      var best = Math.max.apply(null, counts);
+      var worst = Math.min.apply(null, counts);
+      el.textContent = best === worst
+        ? 'Every scored row reached ' + best + ' of ' + DRIFT_WINDOW_HOURS +
+          ' hours this tick.'
+        : 'This tick the best any scored row reached was ' + best + ' of ' +
+          DRIFT_WINDOW_HOURS + ' hours, and the worst ' + worst + '.';
+      el.hidden = false;
+    }
+
     function render() {
       renderTiles();
       renderVerdict();
       renderLead();
+      renderCoverage();
       renderRows();
       renderExcluded();
       document.getElementById('updated').textContent =

@@ -487,6 +487,22 @@ number per BA is not a supportable format.
    entry (12.0), which `mape_grade` never uses as a boundary; the applicable
    figure ships as `acceptable_max` so the page cannot overstate how bad a
    flagged row must be.
+
+   **That 7-day window is never full, and 168 is unreachable (#628).** A
+   24h-lead snapshot for target hour `T` is proposed only by a tick whose
+   resolved origin is `T − 24h`; EIA's ~1.02–1.30 h publication lag drifts
+   against an hourly tick clock until two hours land in one tick, the origin
+   skips, and that hour is never proposed. Its only surviving prediction
+   carries a 23-hour lead, which `filter_by_lead` correctly excludes — so the
+   ceiling is set per BA by that feed's publication timing, not by a backlog.
+   Read off the drift keys for all 51 BAs on 2026-08-20, ensemble 24h `n_7d`
+   ran **94 (LGEE) to 165** of 168, seven BAs on the ceiling and none above
+   ([`DRIFT_COVERAGE_CHANNELS.md`](DRIFT_COVERAGE_CHANNELS.md) §5). The same
+   min and max reproduce on the 45 BAs whose benchmark row carries an
+   ensemble 24h grade, which is the population `/benchmark` can show. The
+   count therefore travels with the grade as `serve_grade.n_7d` and is
+   published beside the claim on that page, per §8's rule that no per-BA
+   figure ships without its `n`.
 11. **The anchor can be seeded by the operator's own forecast, on BAs this
    page scores (#539).** For an hour EIA has not metered yet it publishes the
    BA's day-ahead value in the `D` field — `D == DF`, exactly — and

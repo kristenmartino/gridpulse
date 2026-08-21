@@ -1492,3 +1492,56 @@ inert and name what would make it live — not to ship the unsound version
 because it's the one that shows up in the dashboard. And when someone finally
 measures the thing you've been fixing, the right response is to shrink your own
 claim to fit the measurement, in writing, before anyone asks.*
+
+---
+
+### 38. "Tell me about a number you had all along and weren't showing."
+
+**Situation**: Our public benchmark page marks rows our own drift monitor
+already grades as failing, and the sentence explaining the mark said the grade
+was scored "over the trailing 7 days." A reader hears 168 hourly observations.
+Measured live across all 51 balancing authorities, the real range was 94 to
+165. The qualifying number was already on the payload — the field had shipped
+months earlier, crossed the public API's export allow-list, and the page read
+the block it sits in without ever touching it.
+
+**Task**: Publish the coverage without turning a structural property into an
+apology for a defect.
+
+**Action**: The temptation is to write "94 of 168 hours scored — we're working
+on it." A prior investigation had already established why that would be false:
+a 24-hour-ahead score exists only for a target hour whose forecast origin
+actually occurred, and the upstream feed's publication lag drifts against our
+hourly tick clock until two hours land in one tick. The origin skips, and that
+hour's only surviving prediction carries a 23-hour lead — which a lead filter
+we built on purpose correctly excludes. The hour is missing *because the system
+is behaving correctly*, and about four fifths of the shortfall is that. So the
+copy states the ceiling as a property of each feed's timing rather than a gap
+being closed, and still says plainly that the remaining fifth is fixable and
+being fixed — because denying that would be the same failure in the other
+direction.
+
+Two things I refused. First, no literal: the ceiling is per BA and moves, so
+the page derives both ends of the observed range from the payload on every
+render, the way it already derives the realized forecast lead. A number typed
+in would be an observation of one tick published as a standing fact — which is
+exactly how a stale figure sat on our marketing page for four days once.
+Second, per-channel counters for the shortfall *were* available on another
+endpoint, and I checked them before deciding: they sum to **1** of the worst
+BA's 74 missing hours, and **0** of the next one's 66, because they instrument
+a different failure than the one that dominates. Publishing them would have put
+three near-zero numbers next to a large gap and implied we couldn't account for
+it — when the measurement accounts for it fully.
+
+**Result**: Every row publishes its own sample count, the flagged rows carry it
+inside the claim itself, and the limits section states once why a full window
+is unreachable. The tests pin the *absence* of a literal and the presence of
+the structural framing, so a later edit that hard-codes a figure or reframes
+the ceiling as a backlog fails a test naming this page.
+
+*Lesson: **an unpublished denominator is a claim, not an omission** — a
+seven-day average over 94 hours and one over 165 are different objects, and a
+reader comparing two rows is comparing two sample sizes without being told.
+And when a disclosure is available in three forms, check what each one
+actually measures before choosing; the most detailed option was the one that
+would have misled.*

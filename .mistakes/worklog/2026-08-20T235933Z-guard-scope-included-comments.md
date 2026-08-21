@@ -1,0 +1,1 @@
+2026-08-20 [guard-blind-by-construction] A new "no hard-coded coverage figure on /benchmark" assertion and its sibling ran over the whole data script including JS comments, so both read the rationale comment rather than the code that ships — the first failed on comment text and the second could have passed on it — ref: #628, tests/unit/test_benchmark_page.py.

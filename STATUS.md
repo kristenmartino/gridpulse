@@ -55,11 +55,20 @@ channel B only — **at most 91 records, 91.14 % → 92.64 %**, on six BAs
 (LGEE 21, SPA 18, PSCO 16, LDWP/IID/AZPS 10 each). JEA moves ≤ 1. If the median
 BA improves, it is measuring something else.
 
-**Open, and needs its own issue (not filed here):** channel A is not fixable —
-the orphaned hour's only forecast is at a 23 h lead, and filing it in a 24h
-window is the P2-19 mislabelling. So `n_7d = 168` is unreachable by design and
-`/benchmark` owes a standing coverage disclosure. **Evidence:**
+**Filed as [#628](https://github.com/kristenmartino/gridpulse/issues/628), and
+being paid:** channel A is not fixable — the orphaned hour's only forecast is
+at a 23 h lead, and filing it in a 24h window is the P2-19 mislabelling. So
+`n_7d = 168` is unreachable by design and `/benchmark` owed a standing coverage
+disclosure. It now publishes the per-row count beside the trailing-7-day claim,
+derived from `serve_grade.n_7d` with no literal on the page, and states the
+ceiling as structural rather than as a backlog. The per-channel counters
+(`n_dedup_skipped_7d` and siblings, #621) are deliberately **not** on the
+public row: measured live on 2026-08-20 they sum to 1 of LGEE's 74 missing
+hours and 0 of JEA's 66, so publishing them would present three near-zero
+numbers against a large gap the measurement does explain. They stay on
+`/api/v1/drift/{BA}`. **Evidence:**
 [`docs/DRIFT_COVERAGE_CHANNELS.md`](docs/DRIFT_COVERAGE_CHANNELS.md).
+[branch `fix/628-benchmark-drift-coverage`]
 
 **Also refuted while checking it:** this file's 2026-07-16 claim that ten
 regions never revise. Over the 30 days the vintage mirror now holds, all ten do
