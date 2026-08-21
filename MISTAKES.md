@@ -69,21 +69,110 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 | single-source-of-truth-drift | 4 (addendum 2026-08-20) | graduated (strengthened 2026-08-20) | CLAUDE.md → End-of-PR check item 2 (grep now `web/ docs/`); `MODEL_DISPLAY_NAMES` + AST sweep test |
 | stale-repo-snapshot | 6 | graduated (strengthened 2026-08-20, twice) | CLAUDE.md → "Before recommending what's next" (re-derive the premise; merge-safety sentence) |
 | claim-shipped-before-measurement | 4 | graduated (2026-08-20) | CLAUDE.md → "Verify a claim before writing it as fact" |
-| verification-checked-the-wrong-thing | 5 | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
+| verification-checked-the-wrong-thing | 6 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
 | unmeasured-performance-impact | 2 | graduated (2026-08-20) | CLAUDE.md → Required working style, "Validate after meaningful changes" |
-| verification-instrument | 1 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next", "Verify a production state by its terminal write" |
+| verification-instrument | 2 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next", "Verify a production state by its terminal write" |
 | reminder-blind-to-same-day | 1 | resolved (2026-08-20) | entries-seen counter (PR #582); already narrated in CLAUDE.md's mechanical-guard section |
 | guard-decision-without-force | 1 | resolved (2026-08-20) | backticked case now `deny` (PR #579); already narrated in CLAUDE.md's mechanical-guard section |
 | worklog-concurrent-deposit | 1 | resolved (2026-08-20) | one-file-per-deposit design (PR #588) structurally removes the conflict |
+| ci-guard-intermittent | 1 | resolved (2026-08-20) | root cause (venv cache key pinned only the minor Python version) fixed by PR #599, ~20min after deposit; every run since is green |
 | environment-narrower-than-target | 5 (addenda 2026-08-20) | graduated (strengthened 2026-08-20) | CLAUDE.md → Testing § "Match the real target environment when validating" |
 | guard-blind-by-construction | 2 | graduated (2026-08-20) | CLAUDE.md → Testing § "A guard needs a fixture that can trigger what it exists to catch" |
 | metric-definition-blind-to-edge-case (was statistic-confounded-by-shape) | 5 (addenda 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → Testing § "Write the domain requirement before the code" |
 | unchecked-destructive-git-chaining | 2 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next" § "Gate a destructive git step on its actual outcome" |
-| ci-guard-intermittent | 1 (in Worklog) | open | none yet — still actively causing red CI, worth investigating on its own before the next audit pass |
+| watcher-predicate | 2 | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next" § "Use the existing ancestry-aware deploy checkers, don't hand-roll a new watcher" |
+| flag-flip-surfaced-hidden-coupling | 1 | resolved (2026-08-20) | both issues (a test asserting an incidental fact, silent write amplification on 44/51 BAs) fixed inside PR #629 itself before merge; no rule needed |
 | scratch-over-tracked-config | 1 (in Worklog) | open | none yet — thematically echoes the assumed-vs-verified-state throughline behind `unchecked-destructive-git-chaining`/`stale-repo-snapshot`, but the mechanism is distinct enough and severity low; watching for a repeat |
-| watcher-predicate | 1 (in Worklog) | open | echoes a known personal pattern (verify deploy by SHA via ancestry, not equality) not yet codified in this repo — a distinct write-side predicate-design mechanism from `stale-repo-snapshot`'s read-side premise-checking; watching for a repeat before drafting |
+| preregistered-reading-mismatched-outcome | 1 (in Worklog) | open | a research-methodology lesson (a pre-committed reading didn't anticipate the actual outcome shape), not a code defect; watching for a repeat |
 
 ### Entries
+
+**2026-08-20 — CI's toolchain-confirmation step failed intermittently on main, fixed within 20 minutes of deposit [ci-guard-intermittent, resolved]**
+- **What happened:** CI's "Confirm the toolchain came from the venv" step
+  failed intermittently on `main` — 2 of the last 6 runs (`808bc036`,
+  `af04d7cf`), plus once on a PR that passed on rerun with no code change —
+  with `sys.prefix` pointing at the hosted toolchain instead of `.venv`.
+  Deposited at 13:58; PR #599 landed the fix at 10:11 the same morning (the
+  deposit's own timestamp reflects when the *pattern* was noticed and
+  written up, not when the underlying failures happened — both failing runs
+  predate the fix).
+- **Root cause:** The venv cache key pinned only the minor Python version
+  (`py3.11`), not the exact patch version. `.venv/bin/python` is a symlink
+  into the hosted toolchain; a cache built against one `3.11.x` restoring
+  onto a runner shipping a different `3.11.x` leaves the symlink dangling,
+  so PATH silently falls through to the hosted interpreter. Intermittent by
+  construction — it depends on which runner image a given job lands on.
+- **Prevention:** Already applied — the cache key now pins the exact
+  interpreter, verified by re-running the toolchain-confirmation step.
+- **Status:** resolved — enforced by PR #599 (cache-key fix + a check that
+  it actually runs clean). No CLAUDE.md text needed; this was a specific
+  infra bug with a specific fix, not a generalizable judgment call.
+- **Related:** run 32376604360, PR #597, PR #599. One Worklog line consumed
+  (`ci-guard-intermittent`).
+
+**2026-08-20 — An ad-hoc deploy watcher got the same predicate wrong twice in one session; the repo already has the tool that gets it right [watcher-predicate]**
+- **What happened:** Two incidents, same hand-rolled deploy watcher, same
+  session. (1) A watcher grepped the Cloud Run image tag for a literal SHA
+  while knowing the deployed tag moves past a commit's own SHA when
+  concurrent PRs merge — a sibling session's PR #612 deployed first, so
+  PR #613's SHA would never have appeared, and the watcher would have waited
+  out its timeout and read as "never deployed" (the ancestry-vs-equality
+  rule was applied when *reading* the result but not when *writing* the
+  check). (2) The next watcher reported "DEPLOYED" from
+  `spec.template.spec.containers[0].image`, which flips the moment a deploy
+  is *requested*, not when it is serving — the new revision was still
+  failing its health check and 100% of traffic sat on the previous revision,
+  caught only by curl'ing the live page (PR #617; this occurrence is also
+  folded into `[verification-instrument]` above, since it's independently an
+  instance of that pattern too).
+- **Root cause:** Both watchers were written fresh, in-session, rather than
+  using the repo's own existing tooling. `scripts/deploy_guard.py` and
+  `scripts/check_deploy_divergence.py` already implement ancestry-aware,
+  terminal-write-checking deploy verification correctly — `deploy_guard.py`
+  uses `git merge-base --is-ancestor`, not SHA equality. Hand-rolling a new
+  check from scratch re-introduces mistakes the existing tools already
+  solved.
+- **Prevention:** When verifying a deploy, use the repo's existing
+  ancestry-aware checkers (`scripts/deploy_guard.py`,
+  `scripts/check_deploy_divergence.py`) rather than writing a fresh ad-hoc
+  watcher — they already encode both lessons (ancestry over equality,
+  served state over requested state).
+- **Status:** graduated → CLAUDE.md § "Before recommending what's next",
+  "Use the existing ancestry-aware deploy checkers, don't hand-roll a new
+  watcher" (2026-08-20). Promoted on repeat: two occurrences, same session,
+  same root cause, plus this echoes an already-established pattern in
+  cross-session memory outside this file (verify deploys by SHA ancestry,
+  not equality).
+- **Related:** PR #613, PR #614, PR #617, `scripts/deploy_guard.py`,
+  `scripts/check_deploy_divergence.py`. Two Worklog lines consumed
+  (`watcher-predicate`, and the `verification-instrument` 2026-08-20T183806Z
+  deposit is cross-referenced, not double-consumed).
+
+**2026-08-20 — Turning on a dark feature flag surfaced two coupled bugs, both fixed inside the same PR before merge [flag-flip-surfaced-hidden-coupling, resolved]**
+- **What happened:** Flipping `temporal_ar_seed_shadow` on (PR #629)
+  surfaced two things invisible while the flag was off, neither of which
+  would have been caught by running only the tests the PR itself touched.
+  (1) A test asserted `redis_set.call_count == 1` — a fact about which
+  enrichment flags happened to be enabled, not about the model metrics it
+  was meant to test; it would break whenever any enrichment flag flipped.
+  (2) With the flag on, the 44-of-51 BAs that never gap would have
+  re-persisted an empty payload every hour.
+- **Root cause:** Both defects were dormant and unobservable while the flag
+  was off — a test's incidental coupling to unrelated config, and a write
+  path with no early-exit for "nothing to record." A dark flag's own test
+  suite passing is not evidence the code is correct when live; it can only
+  be evidence for the paths that dark state actually exercises.
+- **Prevention:** Already applied within the same PR — the `redis_set`
+  assertion now selects the forecast payload by key instead of asserting a
+  call count; the write is now skipped when nothing was computed and
+  nothing graded, and `seed_shadow_written` fires on every invocation
+  carrying `persisted=`/`gate=`/`computed=`/`budget_declined=` so "no gaps"
+  and "not running" stay distinguishable.
+- **Status:** resolved — fixed inside PR #629 itself before it merged; never
+  shipped as a live problem. No CLAUDE.md rule needed; this is a single,
+  self-contained near-miss rather than a recurring pattern.
+- **Related:** #559, PR #629. One Worklog line consumed
+  (`flag-flip-surfaced-hidden-coupling`).
 
 **2026-08-20 — Three local checks passed while validating against a substitute that didn't match the real target [environment-narrower-than-target]**
 - **What happened:** Three incidents where a local check reported success
@@ -298,6 +387,21 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   (2026-08-20, landed in commit `f67d8893`, backfilled here 2026-08-20).
 - **Related:** #549, PR #580. One Worklog line consumed into this entry
   (`verification-instrument`).
+- **2026-08-20 addendum (2nd occurrence, same session, same ad-hoc watcher):**
+  A deploy watcher reported "DEPLOYED" from
+  `spec.template.spec.containers[0].image`, which flips the moment a deploy
+  is *requested* — but the new revision was still failing its health check
+  and 100% of traffic sat on the previous revision, so the live page kept
+  serving the old copy while the watcher reported success. Caught by
+  curl'ing the page, not by the watcher (PR #617). The image field is an
+  adjacent signal (what was *asked for*), not the terminal write (what is
+  actually *serving traffic*) — the same shape as the two original
+  occurrences, and the second wrong predicate this exact ad-hoc watcher
+  produced in one session (the first was equality-vs-ancestry, folded into
+  `[watcher-predicate]` below). No new CLAUDE.md text needed — existing
+  prevention already covers it; see `[watcher-predicate]` for what actually
+  changed as a result. **Related:** PR #617. One Worklog line consumed
+  (`verification-instrument`, the 2026-08-20T183806Z deposit).
 
 **2026-08-20 — One-file-per-deposit structurally removed the Worklog merge-conflict pattern [worklog-concurrent-deposit, resolved]**
 - **What happened:** Before 2026-08-18, the Worklog was a single inline list
@@ -418,6 +522,18 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   language needed; the existing prevention already generalizes to any
   guard, not just mocks. Related: PR #602. Worklog line
   `guard-missed-its-own-case` consumed into this entry.
+- **2026-08-20 addendum (6th occurrence):** A vintage probe printed a column
+  labelled `placeholder (d==df at first sight)` that actually computed
+  `df.notna().sum()` — a different quantity entirely. It reported "72
+  placeholder hours" for JEA when the real count of `d == df` was 0, and
+  would have handed the #539 placeholder-disclosure work a fabricated
+  instance had the label been trusted instead of the raw rows being
+  re-checked. Same shape as the existing pattern (a tool's output looked
+  like it was measuring the claimed thing but wasn't) — here the failure is
+  a mislabeled column rather than a defeated mock or a canceling pair of
+  bugs. No new CLAUDE.md text needed. **Related:** PR for
+  `docs/DRIFT_COVERAGE_CHANNELS.md`. One Worklog line consumed
+  (`verification-checked-the-wrong-thing`, the 2026-08-20T185450Z deposit).
 
 **2026-08-20 — The audit-staleness nudge's own date bug, and the close-keyword guard's own `ask`-in-permissive-mode gap [resolved, not graduated]**
 - **What happened:** Two Worklog entries documented bugs in this repo's own

@@ -46,9 +46,20 @@ the specific field or artifact that is the actual claim (the last key a job
 writes, the served artifact's own version/tag) and check that directly. A
 field that updates independently — driven by an in-flight tick, or written
 earlier in the same pipeline — can advance without confirming the claim.
-Evidence: `MISTAKES.md` → `[verification-instrument]`: twice confirmed a
-deploy by checking a payload timestamp or a per-BA field that both moved for
-unrelated reasons, not by checking the write that actually mattered.
+Evidence: `MISTAKES.md` → `[verification-instrument]`: three occurrences —
+a payload timestamp or a per-BA field that both moved for unrelated
+reasons, then a Cloud Run image tag that flips on *request* rather than on
+serving traffic — none of them the write that actually mattered.
+
+**Use the existing ancestry-aware deploy checkers, don't hand-roll a new
+watcher.** `scripts/deploy_guard.py` and `scripts/check_deploy_divergence.py`
+already verify deploys correctly — ancestry (`git merge-base
+--is-ancestor`), not SHA equality, and the actual served state, not a
+field that flips on request. A fresh ad-hoc watcher re-introduces mistakes
+these tools already solved. Evidence: `MISTAKES.md` →
+`[watcher-predicate]`: the same hand-rolled watcher got both wrong in one
+session — first equality instead of ancestry, then requested-state instead
+of served-state.
 
 **Gate a destructive git step on its actual outcome, not the assumed one.**
 Before a branch delete, an `add -A` after a `reset`, or any other
