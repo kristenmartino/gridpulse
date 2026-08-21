@@ -13,6 +13,7 @@ would embarrass it, plus the exclusion contract:
 
 from __future__ import annotations
 
+import copy
 import inspect
 
 import numpy as np
@@ -28,6 +29,7 @@ from models.benchmark import (
     MIN_PAIRED_HOURS,
     OFFICIAL_DOCUMENTED_LEAD_H,
     _normalize_ts,
+    benchmark_export,
     compute_benchmark_payload,
     fleet_rollup,
     gridpulse_predictions,
@@ -1170,3 +1172,67 @@ class TestTwoCoverages:
         assert out["df_asissued_coverage"] == 0.0
         assert out["df_coverage"] == 1.0
         assert out["scoreable"] is True
+
+
+class TestBenchmarkExport:
+    """#600 — the whole tick as one value, so a reader cannot straddle two.
+
+    The scoring job writes the per-BA keys during fan-out and the fleet meta
+    afterwards, and a request landing between them assembled one tick's
+    aggregate over another tick's rows. Production served that on 2026-08-21:
+    45 rows stamped ``scored_at`` 01:0x beneath the 00:0x tick's fleet block
+    and its ``updated_at``.
+    """
+
+    @staticmethod
+    def _row(region, mape, scoreable=True):
+        if not scoreable:
+            return {"region": region, "scoreable": False, "reason": "broken-feed", "leads": {}}
+        return {
+            "region": region,
+            "scoreable": True,
+            "_internal_scratch": "not a contract",
+            "leads": {
+                HEADLINE_LEAD: {
+                    "winner": "gridpulse" if mape < 4.0 else "official",
+                    "gridpulse": {"mape": mape},
+                    "official": {"mape": 4.0},
+                }
+            },
+        }
+
+    def test_the_document_carries_the_rollup_and_the_rows_it_came_from(self):
+        rows = [self._row("PJM", 3.5), self._row("MISO", 4.9), self._row("LDWP", 0.0, False)]
+        rollup = fleet_rollup(rows)
+        doc = benchmark_export(rows, rollup)
+
+        assert doc["fleet"] == rollup["fleet"]
+        assert doc["n_scoreable"] == rollup["n_scoreable"]
+        assert doc["n_excluded"] == rollup["n_excluded"]
+        # The invariant the key exists for, checked on the document itself.
+        assert fleet_rollup(doc["regions"])["fleet"] == doc["fleet"]
+
+    def test_rows_are_sorted_so_served_order_does_not_track_job_order(self):
+        rows = [self._row("PJM", 3.5), self._row("AECI", 4.9), self._row("MISO", 2.2)]
+        doc = benchmark_export(rows, fleet_rollup(rows))
+        assert [r["region"] for r in doc["regions"]] == ["AECI", "MISO", "PJM"]
+
+    def test_rows_are_stored_unfiltered_so_the_allow_list_stays_on_the_read_path(self):
+        """Moving the public filter to write time would make this key a second
+        trust boundary that has to be kept in step with the first. It is not
+        one: the document holds the cache schema, and ``api`` allow-lists on
+        the way out."""
+        rows = [self._row("PJM", 3.5)]
+        doc = benchmark_export(rows, fleet_rollup(rows))
+        assert doc["regions"][0]["_internal_scratch"] == "not a contract"
+
+    def test_a_junk_entry_cannot_reach_the_document(self):
+        rows = [self._row("PJM", 3.5), None, {}, {"region": ""}, "nonsense"]
+        doc = benchmark_export(rows, fleet_rollup([self._row("PJM", 3.5)]))
+        assert [r["region"] for r in doc["regions"]] == ["PJM"]
+
+    def test_it_does_not_mutate_the_payloads_it_was_given(self):
+        rows = [self._row("PJM", 3.5), self._row("MISO", 4.9)]
+        before = copy.deepcopy(rows)
+        benchmark_export(rows, fleet_rollup(rows))
+        assert rows == before

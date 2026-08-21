@@ -1254,6 +1254,74 @@ class TestBenchmarkWiring:
         monkeypatch.setattr(bench, "compute_benchmark_payload", _boom)
         assert scoring_job.run() == 0
 
+    def test_the_rollup_also_writes_one_document_holding_both_halves(
+        self, readable_redis, patch_data_sources, patch_single_region, monkeypatch
+    ):
+        """#600. The per-BA keys and ``meta:benchmark_fleet`` land at different
+        points of the tick, so a reader assembling from both can straddle two
+        of them. The job therefore also writes the pair as one value, built
+        from the payloads the rollup already holds — no second read."""
+        from jobs import scoring_job
+        from models.benchmark import fleet_rollup
+
+        readable_redis["gridpulse:benchmark:ERCOT"] = {
+            "region": "ERCOT",
+            "scoreable": True,
+            "leads": {
+                "24h": {
+                    "winner": "gridpulse",
+                    "gridpulse": {"mape": 1.9},
+                    "official": {"mape": 1.2},
+                }
+            },
+        }
+        assert scoring_job.run() == 0
+
+        doc = readable_redis.get("gridpulse:meta:benchmark_export")
+        assert doc is not None, "atomic benchmark export key never written"
+        assert isinstance(doc.get("regions"), list) and doc["regions"]
+        assert doc.get("updated_at")
+        # The property the key exists for: its aggregate is derived from the
+        # rows travelling with it, so no reader can pair one tick's fleet
+        # block with another tick's rows.
+        again = fleet_rollup(doc["regions"])
+        assert doc["fleet"] == again["fleet"]
+        assert doc["n_scoreable"] == again["n_scoreable"]
+        assert doc["n_excluded"] == again["n_excluded"]
+
+    def test_an_export_failure_still_leaves_the_tick_its_fleet_meta(
+        self, readable_redis, patch_data_sources, patch_single_region, monkeypatch
+    ):
+        """The export is additive. It is written after the fleet meta and the
+        scoreability alerts, inside its own guard, so a failure here costs the
+        tick the new key and nothing that already worked."""
+        import models.benchmark as bench
+        from jobs import scoring_job
+
+        readable_redis["gridpulse:benchmark:ERCOT"] = {
+            "region": "ERCOT",
+            "scoreable": True,
+            "leads": {
+                "24h": {
+                    "winner": "gridpulse",
+                    "gridpulse": {"mape": 1.9},
+                    "official": {"mape": 1.2},
+                }
+            },
+        }
+
+        calls: list[int] = []
+
+        def _boom(*args, **kwargs):
+            calls.append(1)
+            raise RuntimeError("export exploded")
+
+        monkeypatch.setattr(bench, "benchmark_export", _boom)
+        assert scoring_job.run() == 0
+        assert calls, "patched benchmark_export was never called"
+        assert readable_redis.get("gridpulse:meta:benchmark_fleet") is not None
+        assert "gridpulse:meta:benchmark_export" not in readable_redis
+
 
 class TestScoringSoftDeadline:
     """The run must record the work it did, even when it runs out of time.

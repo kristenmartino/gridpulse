@@ -873,6 +873,47 @@ BENCHMARK_WARMING_DETAIL = (
 )
 
 
+def _benchmark_snapshot() -> tuple[dict[str, Any], list[Any]]:
+    """One tick's rollup and the rows it was computed from (#600).
+
+    The scoring job writes ``meta:benchmark_export`` as a single value holding
+    both halves, so one ``GET`` cannot straddle two ticks. That is the whole
+    point of the key: the per-BA ``benchmark:{region}`` keys and
+    ``meta:benchmark_fleet`` are written at different moments of the same tick,
+    and a request landing between them used to pair tick N's aggregate with
+    tick N+1's rows. Production served exactly that on 2026-08-20 —
+    ``fleet.official_spread.max`` 31.791 against a maximum row value of
+    31.784, rendered on the page as 31.79 and 31.78 a screen apart.
+
+    **Fails open to the pre-#600 52-key assembly**, deliberately. The export
+    key is absent for up to an hour after any deploy that precedes a scoring
+    tick, and after any Redis flush; rendering the warming state through that
+    window would blank a public scoreboard that has perfectly serviceable —
+    if occasionally mixed — data behind it, which is worse than the bug being
+    fixed. The fallback is exactly today's behaviour, so ``REQUIRE_REDIS``
+    semantics are untouched: ``redis_get`` still does the gating, a genuinely
+    cold Redis still yields no rows, and the caller still returns ``None`` for
+    the route to turn into a 503.
+
+    Returns:
+        ``(rollup, rows)`` where *rows* are UNFILTERED per-BA payloads, exactly
+        as the per-BA keys hold them. The public allow-list is applied by the
+        caller, so neither this key nor this function widens the trust
+        boundary an API consumer sees.
+    """
+    export = redis_get(redis_key("meta:benchmark_export"))
+    # A NON-EMPTY row list, not merely a list. The job only writes the document
+    # when it has payloads, so an empty one means something truncated it — and
+    # taking it would blank a page the per-BA keys could still have served.
+    rows = export.get("regions") if isinstance(export, dict) else None
+    if isinstance(rows, list) and rows:
+        return export, rows
+
+    fleet = redis_get(redis_key("meta:benchmark_fleet"))
+    rows = [redis_get(redis_key(f"benchmark:{code}")) for code in sorted(REGION_NAMES)]
+    return (fleet if isinstance(fleet, dict) else {}), rows
+
+
 def build_benchmark_payload() -> dict[str, Any] | None:
     """The fleet benchmark body, or None when nothing is scoreable yet.
 
@@ -882,31 +923,43 @@ def build_benchmark_payload() -> dict[str, Any] | None:
     (``_export_benchmark_payload``) is applied here, so an SSR consumer
     cannot reach a field an API consumer could not.
 
-    Shares the endpoint's 30-second memo: a crawl burst on the page must not
-    fan out 51 Redis reads per request.
+    Shares the endpoint's 30-second memo. Its original reason — "a crawl burst
+    on the page must not fan out 51 Redis reads per request" — was retired by
+    #600, which made the normal path a single read. The memo stays for the two
+    reasons that outlived it: it still bounds Redis QPS from an
+    unauthenticated endpoint that no cache-busting client can be made to
+    respect, and the one value it now reads is ~130 KB, so a burst that
+    skipped the memo would pay that deserialisation per request on an instance
+    shared with the Dash UI. It cannot reintroduce the mixing #600 fixed
+    either — it caches a whole assembled body, which is always one snapshot.
     """
     memoized = _memo_get("benchmark")
     if memoized is not None:
         return memoized
 
-    fleet = redis_get(redis_key("meta:benchmark_fleet"))
-    regions_out = []
-    for code in sorted(REGION_NAMES):
-        payload = redis_get(redis_key(f"benchmark:{code}"))
-        if isinstance(payload, dict) and payload.get("region"):
-            regions_out.append(_export_benchmark_payload(payload))
+    fleet, rows = _benchmark_snapshot()
+    regions_out = [
+        _export_benchmark_payload(p) for p in rows if isinstance(p, dict) and p.get("region")
+    ]
 
     if not regions_out:
         return None
+
+    if "regions" not in fleet:
+        # Serving the pre-#600 assembly, so this body may mix ticks. Bounded
+        # to roughly twice a minute by the memo below, and expected briefly
+        # after a deploy — a sustained run of these means the scoring job's
+        # export write is failing, not that a crawler is busy.
+        log.warning("benchmark_export_absent_split_read")
 
     body = {
         "comparison": "GridPulse forecast vs the balancing authority's own day-ahead forecast",
         "truth": "EIA's settled demand value for the hour, used for both arms",
         "window_days": 30,
-        "updated_at": fleet.get("updated_at") if isinstance(fleet, dict) else None,
-        "fleet": fleet.get("fleet") if isinstance(fleet, dict) else None,
-        "n_scoreable": fleet.get("n_scoreable") if isinstance(fleet, dict) else None,
-        "n_excluded": fleet.get("n_excluded") if isinstance(fleet, dict) else None,
+        "updated_at": fleet.get("updated_at"),
+        "fleet": fleet.get("fleet"),
+        "n_scoreable": fleet.get("n_scoreable"),
+        "n_excluded": fleet.get("n_excluded"),
         # The rollup's own list, so a consumer can reconcile the count above
         # against named regions instead of trusting it.
         "excluded": _export_excluded_list(fleet),

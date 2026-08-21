@@ -69,6 +69,38 @@ HTML, which made the one page whose value is a published scoreboard invisible
 to every crawler that does not execute JavaScript. Its rules, exclusions and limits are
 [`docs/BENCHMARK_METHODOLOGY.md`](BENCHMARK_METHODOLOGY.md).
 
+**The benchmark is served from one Redis key, not 52 (#600).** The scoring
+job writes the per-BA `gridpulse:benchmark:{region}` keys during fan-out and
+the `gridpulse:meta:benchmark_fleet` rollup after it, so a request landing
+between them assembled tick N's aggregate over tick N+1's rows — and
+`updated_at`, sourced from the fleet key, could not say so. `fleet` itself
+carries no timestamp; every key in it is a statistic. On 2026-08-21 two
+fetches returned the *same* `updated_at` of 00:09:56 while 45 of the rows in
+the second carried `scored_at` from the 01:0x tick, moving
+`gridpulse_spread.max` against SEC's own row by 0.016 and
+`official_spread.max` against PSEI's by 0.036.
+
+The job therefore also writes **`gridpulse:meta:benchmark_export`** — the same
+rollup and the same rows as a single value, built from the payloads the rollup
+already holds, so it costs one write (~128 KiB, ~0.7 ms to serialise) and no
+extra read. `api.build_benchmark_payload()` reads that one key, which makes
+mixing impossible rather than unlikely: every `fleet` figure recomputes exactly
+from `regions`, and `tests/unit/test_benchmark_page.py` pins it against a
+deliberately interleaved fixture. Recomputing that check *outside* the codebase
+has one trap worth naming — **ERCOT is reported in `isolated` and is excluded
+from the fleet aggregate** (`fleet_rollup(..., isolate=("ERCOT",))`), so a
+min/max taken over every scored row is a different statistic and will disagree
+with a perfectly consistent `fleet` block.
+
+The three keys are **additive, not a replacement**: the per-BA keys still back
+`GET /api/v1/benchmark/{region}`, and the read path falls open to the old
+52-key assembly whenever the export key is absent — it is, for up to an hour
+after any deploy that precedes a scoring tick, and after a Redis flush.
+Blanking a public scoreboard through that window would be worse than the
+mixing. The rows are stored unfiltered, exactly as the per-BA keys hold them,
+so the public allow-list stays on the read path and this key never becomes a
+second trust boundary.
+
 **`/methodology` is this document, hand-converted and committed** as
 `web/methodology.html`. It is not rendered from this file at request time:
 `docs/` is in `.dockerignore` and does not exist in the production image, so

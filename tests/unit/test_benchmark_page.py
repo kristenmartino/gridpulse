@@ -398,6 +398,256 @@ class TestBenchmarkEndpoint:
         assert lead["gridpulse"]["mape"] > lead["official"]["mape"]
 
 
+# ── #600: one response, one tick ─────────────────────────────
+
+
+def _tick(gridpulse_mapes: dict[str, float]) -> list[dict]:
+    """A whole tick's per-BA payloads, one scoreable row per given MAPE."""
+    rows = []
+    for region, mape in gridpulse_mapes.items():
+        gp = {"mape": mape, "median_ape": mape - 0.2, "mae": 700.0, "wape": mape - 0.3, "n": 640}
+        off = {"mape": 4.2, "median_ape": 3.1, "mae": 812.0, "wape": 3.9, "n": 640}
+        lead = _lead_block(
+            gridpulse=gp,
+            official=off,
+            official_revised=dict(off, mape=4.0),
+            delta_mape=round(off["mape"] - mape, 3),
+            winner="gridpulse" if mape < off["mape"] else "official",
+        )
+        rows.append(_payload(region=region, leads={"24h": lead, "48h": _lead_block()}))
+    rows.append(_excluded("LDWP"))
+    return rows
+
+
+def _export_doc(rows: list[dict]) -> dict:
+    """The document the scoring job writes, built the way the job builds it.
+
+    Imported from ``models.benchmark`` rather than hand-rolled so a change to
+    the writer's shape breaks these tests instead of silently diverging from
+    what production serves.
+    """
+    from models.benchmark import benchmark_export, fleet_rollup
+
+    doc = benchmark_export(rows, fleet_rollup(rows))
+    doc["updated_at"] = "2026-08-20T12:10:00+00:00"
+    return doc
+
+
+def _redis_with_export(export=None, split_rows=None, split_fleet=None):
+    """Route ``redis_get`` by key across BOTH layouts, so a test can stock
+    them with *different* ticks and see which one the code actually read."""
+    by_key = {}
+    if export is not None:
+        by_key["gridpulse:meta:benchmark_export"] = export
+    if split_rows is not None:
+        by_key.update({f"gridpulse:benchmark:{p['region']}": p for p in split_rows})
+    if split_fleet is not None:
+        by_key["gridpulse:meta:benchmark_fleet"] = split_fleet
+    return lambda key: by_key.get(key)
+
+
+def _recomputed_fleet(body: dict) -> dict:
+    """Re-derive the fleet block from the rows the response itself carries."""
+    from models.benchmark import fleet_rollup
+
+    return fleet_rollup(body["regions"])
+
+
+class TestBenchmarkResponseCannotMixTicks:
+    """#600. The fleet aggregate and the per-BA rows were 52 separate Redis
+    keys read at request time, written at different points of the same tick.
+    A request landing mid-write got tick N's aggregate over tick N+1's rows,
+    and ``updated_at`` — sourced from the fleet key — could not say so.
+    Production served it on 2026-08-20: ``fleet.official_spread.max`` 31.791
+    against a maximum row value of 31.784, one screen apart on the page.
+
+    The fix is one document per tick. The property that buys is asserted
+    directly: **every fleet figure recomputes exactly from ``regions``**.
+    """
+
+    @patch("api.redis_get")
+    def test_fleet_recomputes_exactly_from_the_rows_it_ships_with(self, mock_get, client) -> None:
+        rows = _tick({"PJM": 3.5, "MISO": 4.9, "CAISO": 2.1, "SEC": 14.08})
+        mock_get.side_effect = _redis_with_export(export=_export_doc(rows))
+
+        body = client.get("/api/v1/benchmark").get_json()
+        assert mock_get.called, "patched redis_get was never called"
+
+        again = _recomputed_fleet(body)
+        assert body["fleet"] == again["fleet"]
+        assert body["n_scoreable"] == again["n_scoreable"]
+        assert body["n_excluded"] == again["n_excluded"]
+        assert body["excluded"] == again["excluded"]
+        # The spread endpoints spelled out, because they are the exact fields
+        # that disagreed in production and the pair a live checker watches.
+        # Note the population: ERCOT is reported in `isolated` and is NOT part
+        # of the fleet aggregate, so a min/max taken over every scored row is
+        # a DIFFERENT statistic and will disagree with a correct `fleet` block
+        # for reasons that have nothing to do with tick mixing.
+        fleet_rows = [
+            r for r in body["regions"] if r["scoreable"] and r["region"] not in body["isolated"]
+        ]
+        for arm, key in (("official", "official_spread"), ("gridpulse", "gridpulse_spread")):
+            mapes = [r["leads"]["24h"][arm]["mape"] for r in fleet_rows]
+            assert body["fleet"][key]["min"] == min(mapes)
+            assert body["fleet"][key]["max"] == max(mapes)
+
+    @patch("api.redis_get")
+    def test_an_interleaved_write_cannot_be_served(self, mock_get, client) -> None:
+        """The bug, constructed deliberately.
+
+        Redis is stocked so the two layouts hold DIFFERENT ticks: the export
+        document and the fleet meta carry tick N, while the per-BA keys have
+        already advanced to tick N+1 — exactly the window between the job's
+        fan-out and its rollup write. A reader that assembles from the split
+        keys pairs N's aggregate with N+1's rows and fails here; a reader that
+        takes the single document cannot.
+
+        A happy-path consistency check alone would pass on the broken code
+        too, which is why this test exists beside it.
+        """
+        tick_n = _tick({"PJM": 3.5, "MISO": 4.9, "CAISO": 2.1, "SEC": 14.08})
+        tick_n1 = _tick({"PJM": 3.6, "MISO": 9.9, "CAISO": 2.0, "SEC": 31.784})
+        export_n = _export_doc(tick_n)
+        mock_get.side_effect = _redis_with_export(
+            export=export_n,
+            split_rows=tick_n1,
+            split_fleet={k: v for k, v in export_n.items() if k != "regions"},
+        )
+
+        body = client.get("/api/v1/benchmark").get_json()
+        assert mock_get.called, "patched redis_get was never called"
+        assert body["fleet"] == _recomputed_fleet(body)["fleet"], (
+            "the served body pairs a fleet aggregate with rows it was not computed from"
+        )
+
+    @patch("api.redis_get")
+    def test_updated_at_stamps_the_document_that_was_served(self, mock_get, client) -> None:
+        """``fleet`` carries no timestamp of its own — every key in it is a
+        statistic — so ``updated_at`` at the payload's top level is the only
+        thing dating the aggregate. Sourcing it from one of two independently
+        written keys is what made a mixed response undetectable from outside:
+        on 2026-08-21 a fetch returned 45 rows stamped ``scored_at`` 01:0x
+        beneath ``updated_at`` 00:09:56 and the 00:0x tick's fleet block.
+
+        Taking it from the document keeps the stamp attached to the thing it
+        describes, so both stale keys are stocked here with a different time
+        and the served value must be the document's.
+        """
+        rows = _tick({"PJM": 3.5, "MISO": 4.9})
+        export = _export_doc(rows)
+        export["updated_at"] = "2026-08-21T01:09:56+00:00"
+        stale_fleet = {k: v for k, v in export.items() if k != "regions"}
+        stale_fleet["updated_at"] = "2026-08-21T00:09:56+00:00"
+        mock_get.side_effect = _redis_with_export(export=export, split_fleet=stale_fleet)
+
+        body = client.get("/api/v1/benchmark").get_json()
+        assert body["updated_at"] == "2026-08-21T01:09:56+00:00"
+
+    @patch("api.redis_get")
+    def test_the_normal_path_is_one_redis_read_not_fifty_two(self, mock_get, client) -> None:
+        """Also the assertion that the mock was actually reached: a defeated
+        patch would leave the count at zero rather than one."""
+        rows = _tick({"PJM": 3.5, "MISO": 4.9})
+        mock_get.side_effect = _redis_with_export(export=_export_doc(rows))
+
+        client.get("/api/v1/benchmark")
+        assert mock_get.call_count == 1
+        assert mock_get.call_args_list[0].args[0] == "gridpulse:meta:benchmark_export"
+
+    @patch("api.redis_get")
+    def test_the_export_document_publishes_exactly_what_the_split_keys_did(
+        self, mock_get, client
+    ) -> None:
+        """This is an atomicity fix, not a content change. Given ONE tick in
+        both layouts, the two paths must produce the identical body — so a
+        value that moves is a second bug, not a side effect of this one."""
+        rows = _tick({"PJM": 3.5, "MISO": 4.9, "CAISO": 2.1})
+        export = _export_doc(rows)
+        fleet_meta = {k: v for k, v in export.items() if k != "regions"}
+
+        mock_get.side_effect = _redis_with_export(export=export)
+        atomic = client.get("/api/v1/benchmark").get_json()
+
+        api_module._memo.clear()
+        mock_get.side_effect = _redis_with_export(split_rows=rows, split_fleet=fleet_meta)
+        split = client.get("/api/v1/benchmark").get_json()
+
+        assert atomic == split
+
+    @patch("api.redis_get")
+    def test_the_export_key_is_not_a_wider_trust_boundary(self, mock_get, client) -> None:
+        """The document stores rows unfiltered, exactly as the per-BA keys do.
+        The allow-list stays on the read path, so an internal field cannot
+        reach a consumer through this key that could not reach it before."""
+        rows = _tick({"PJM": 3.5})
+        export = _export_doc(rows)
+        stored = next(r for r in export["regions"] if r["region"] == "PJM")
+        assert "_debug_scratch" in stored["leads"]["24h"], (
+            "the stored document no longer carries an internal field — this "
+            "test would pass against a writer that had already filtered, and "
+            "so would prove nothing about the read path"
+        )
+        export["isolated"] = {"ERCOT": dict(_lead_block(), _leak="must not publish")}
+        mock_get.side_effect = _redis_with_export(export=export)
+
+        body = client.get("/api/v1/benchmark").get_json()
+        served = next(r for r in body["regions"] if r["region"] == "PJM")
+        assert "_debug_scratch" not in served["leads"]["24h"]
+        assert "_leak" not in body["isolated"]["ERCOT"]
+
+    @patch("api.redis_get")
+    def test_a_missing_export_key_falls_back_rather_than_warming(self, mock_get, client) -> None:
+        """The key is absent for up to an hour after any deploy that precedes
+        a scoring tick, and after a Redis flush. Blanking a public scoreboard
+        through that window would be worse than the mixing being fixed, so the
+        read path degrades to the pre-#600 assembly."""
+        rows = _tick({"PJM": 3.5, "MISO": 4.9})
+        fleet_meta = {k: v for k, v in _export_doc(rows).items() if k != "regions"}
+        mock_get.side_effect = _redis_with_export(split_rows=rows, split_fleet=fleet_meta)
+
+        resp = client.get("/api/v1/benchmark")
+        assert resp.status_code == 200
+        assert {r["region"] for r in resp.get_json()["regions"]} == {"PJM", "MISO", "LDWP"}
+
+    @patch("api.redis_get")
+    def test_a_cold_redis_still_warms_rather_than_fabricating(self, mock_get, client) -> None:
+        """Neither layout present: the route must still 503. Falling open must
+        not mean inventing a body out of an empty document."""
+        mock_get.side_effect = _redis_with_export()
+        resp = client.get("/api/v1/benchmark")
+        assert resp.status_code == 503
+        assert resp.get_json()["status"] == "warming"
+
+    @pytest.mark.parametrize(
+        "broken",
+        [
+            {"updated_at": "2026-08-20T12:10:00+00:00"},
+            {"updated_at": "2026-08-20T12:10:00+00:00", "regions": []},
+            {"updated_at": "2026-08-20T12:10:00+00:00", "regions": "PJM"},
+            "not a document",
+        ],
+        ids=["no-regions-key", "empty-regions", "regions-not-a-list", "not-a-dict"],
+    )
+    @patch("api.redis_get")
+    def test_a_malformed_export_document_falls_back_instead_of_serving_nothing(
+        self, mock_get, client, broken
+    ) -> None:
+        """A truncated or half-written export value must route to the split
+        keys, not short-circuit a public scoreboard into a warming state that
+        the per-BA keys could still have filled. ``regions: []`` is the case
+        worth spelling out: it is a well-formed list and the writer never
+        emits one, so accepting it would trade a mixed page for a blank one.
+        """
+        rows = _tick({"PJM": 3.5})
+        fleet_meta = {k: v for k, v in _export_doc(rows).items() if k != "regions"}
+        mock_get.side_effect = _redis_with_export(
+            export=broken, split_rows=rows, split_fleet=fleet_meta
+        )
+        body = client.get("/api/v1/benchmark").get_json()
+        assert {r["region"] for r in body["regions"]} == {"PJM", "LDWP"}
+
+
 class TestBenchmarkPageRoute:
     def test_serves_html_200(self, client) -> None:
         resp = client.get("/benchmark")

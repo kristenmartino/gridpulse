@@ -802,7 +802,7 @@ def run() -> int:
     # reason). Fire-and-forget — never fail a scoring run for it.
     try:
         from data.redis_client import redis_get, redis_key
-        from models.benchmark import fleet_rollup, scoreability_alerts
+        from models.benchmark import benchmark_export, fleet_rollup, scoreability_alerts
 
         payloads = []
         for r in regions:
@@ -828,6 +828,22 @@ def run() -> int:
             # the FAILING direction, so no-data can never mask them.
             for alert in scoreability_alerts(rollup, payloads):
                 log.error(alert.pop("event"), **alert)
+
+            # #600: the same rollup and the same rows, as ONE key. The two
+            # writes above land at different points in the tick, so a request
+            # that arrives between them pairs a fleet aggregate with rows it
+            # was not computed from — production served that on 2026-08-20.
+            # Built from `payloads`, which the rollup already holds, so this
+            # costs one extra write and no extra read.
+            #
+            # Its own try/except on purpose: the atomic export is additive,
+            # and a failure here must not cost the tick its fleet meta or its
+            # scoreability alerts, both of which have already landed.
+            try:
+                phases.write_meta("benchmark_export", extra=benchmark_export(payloads, rollup))
+                log.info("benchmark_export_written", regions=len(payloads))
+            except Exception as e:
+                log.warning("benchmark_export_failed", error=str(e))
         else:
             log.warning("benchmark_fleet_skipped_no_payloads")
     except Exception as e:
