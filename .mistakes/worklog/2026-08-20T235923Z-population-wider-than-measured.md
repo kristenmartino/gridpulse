@@ -1,1 +1,0 @@
-2026-08-20 [claim-shipped-before-measurement] Nearly committed "measured across 51 BAs the ensemble 24h n_7d ran 94 to 165" into BENCHMARK_METHODOLOGY.md when my own sweep covered only the 45 BAs whose benchmark row carries a grade; caught in the pre-PR check, fixed by attributing the 51-BA figure to the doc that measured it — ref: #628, branch fix/628-benchmark-drift-coverage.

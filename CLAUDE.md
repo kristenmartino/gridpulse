@@ -73,15 +73,24 @@ session — first equality instead of ancestry, then requested-state instead
 of served-state.
 
 **Gate a destructive git step on its actual outcome, not the assumed one.**
-Before a branch delete, an `add -A` after a `reset`, or any other
-irreversible git step, inspect what the step before it actually did (the
-merge's real result, what a reset+`add -A` actually staged) rather than
-assuming it succeeded or targeted what you expected — especially in a
-worktree whose base may be stale relative to `origin/main`. Evidence:
-`MISTAKES.md` → `[unchecked-destructive-git-chaining]`: a chained merge+delete
-deleted a branch after its merge had actually failed on conflict; a
-`reset --soft` + `add -A` in a stale worktree nearly staged ~490 lines of two
-other sessions' already-merged work as a "reversion."
+Before a branch delete, an `add -A` after a `reset`, a `checkout --` on a
+path, or any other irreversible git step — including one chained with
+`&&`/`;` after a script or resolver — inspect what the step before it
+actually did, and whether the working tree held anything not yet
+committed, rather than assuming success or a clean tree. A shell chain
+runs the next command regardless of whether an embedded script's own
+internal check failed in a separate process; only the invoking command's
+own exit code gates it. Especially in a worktree whose base may be stale
+relative to `origin/main`. Evidence: `MISTAKES.md` →
+`[unchecked-destructive-git-chaining]`, 4 occurrences: a chained
+merge+delete deleted a branch after its merge had actually failed on
+conflict; a `reset --soft` + `add -A` in a stale worktree nearly staged
+~490 lines of two other sessions' already-merged work as a "reversion"; a
+`checkout --` meant to revert a test mutation silently discarded three
+uncommitted real edits in the same file; a heredoc conflict-resolver's
+regex mismatch raised inside its own process while a chained `add -A &&
+commit && push` ran anyway, pushing unresolved conflict markers to a
+branch.
 
 ## End-of-PR explanatory-doc check
 

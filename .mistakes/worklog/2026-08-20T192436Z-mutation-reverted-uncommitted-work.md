@@ -1,1 +1,0 @@
-2026-08-20 [mutation-reverted-uncommitted-work] Applied an assert-mutation to a file whose real changes were still uncommitted, so the `git checkout --` that reverted the mutation silently discarded three edits with it, and the next test run failed at import rather than reporting the mutation's result. — ref: #624 / #629
