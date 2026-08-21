@@ -49,7 +49,12 @@ explanation) is 1.5 % of the shortfall with zero expiries; and the absent-hour
 policy fix moved stratum A's sign from −0.265 to +0.27 without making it
 decisive.
 
-### The one decision this batch did not make
+### The one decision this batch did not make — now [#635](https://github.com/kristenmartino/gridpulse/issues/635)
+
+*Filed 2026-08-20. It had been tracked only in this file, so the `gh issue list`
+half of CLAUDE.md's session-start check could not see it while #627 sat merged
+and inert waiting on it. That is the failure mode this file's scope note now
+exists to prevent.*
 
 **`temporal_ar_seed` is still off, so [#627](https://github.com/kristenmartino/gridpulse/pull/627)
 is in place and inert.** Channel B — the 16.9 % of the shortfall that is
@@ -2130,216 +2135,50 @@ theatrical and should be partially reverted:
 
 **2 of 4 criteria satisfied (a + c) — the ≥2 "not theatrical" threshold is cleared. The PM infrastructure built this week is not theatrical.** Criterion (b) takes ~10 min of reading aloud and is yours to do off-keyboard.
 
-## Next 3 (priority order)
+## Next 3 — moved to GitHub
 
-*(Re-verified 2026-08-20 against `gh issue list`. **This block is stale and is
-not the queue.** [#273](https://github.com/kristenmartino/gridpulse/issues/273)
-(slot 1) and [#171](https://github.com/kristenmartino/gridpulse/issues/171) are
-both **closed**; only [#275](https://github.com/kristenmartino/gridpulse/issues/275)
-(slot 3) is still open. The 2026-08-05 end-of-day notes below are kept as the
-record of that day, not as current priority. Rebuild this block from
-`gh issue list` before using it to choose work.)*
+**This section is gone deliberately.** It duplicated `gh issue list` and went
+stale within two weeks: on 2026-08-20 it still presented
+[#273](https://github.com/kristenmartino/gridpulse/issues/273) and
+[#171](https://github.com/kristenmartino/gridpulse/issues/171) as live slots,
+both long closed. CLAUDE.md already declares GitHub the winner of any conflict
+with this file, so a hand-maintained copy here carried no authority — only the
+ability to mislead, which is what it did.
 
-*(Refreshed 2026-07-11 against `gh issue list` — the pre-#296 version of this
-block still centered the long-completed 2026-07-03 re-measure keystone; the
-2026-07 critical-review remediation and the buried-ledger critical tier
-(#267–#272) are both fully shut.)*
+```bash
+gh issue list --state open            # the queue
+gh pr list --state open               # in flight
+```
 
-*(Re-verified 2026-08-05 against `gh issue list`, twice — once before the
-day's work and once at close. All three slots are still open and still
-correctly ordered. End-of-day state:*
+Priority lives on the [project board](https://github.com/users/kristenmartino/projects/1)
+and in issue labels. **This file is a decision log, not a queue** — see the note
+under "Blocked / waiting on".
 
-- *Slot 1, [#273](https://github.com/kristenmartino/gridpulse/issues/273): **12 of 15 done**, up from 8. Today cleared
-  P2-44, P2-29 ([#402](https://github.com/kristenmartino/gridpulse/pull/402)), ledger-23 ([#404](https://github.com/kristenmartino/gridpulse/pull/404)) and
-  P2-19's instrument half ([#407](https://github.com/kristenmartino/gridpulse/pull/407)). **Three remain**, and they are
-  not interchangeable: **P2-17** needs a measured `rolling_eval` experiment
-  plus a training run because it moves served weights and the visibility
-  gate; **P2-15** and **P2-16** are latent — measured, and neither fires in
-  production today.*
-- *Slot 3, [#275](https://github.com/kristenmartino/gridpulse/issues/275): down to **20 of 23** (`ledger-8`/`-9`/`-11`
-  cleared by [#396](https://github.com/kristenmartino/gridpulse/pull/396) + [#398](https://github.com/kristenmartino/gridpulse/pull/398)).*
-- *Two new issues filed and **deliberately not** promoted into this block:
-  [#399](https://github.com/kristenmartino/gridpulse/issues/399) (test pyramid inverted 92/7/1, no e2e coverage on US Grid)
-  and [#401](https://github.com/kristenmartino/gridpulse/issues/401) (per-BA temperature percentiles). Both are invisible to
-  users; slot 1 is user-visible wrong numbers.*
-- *[#171](https://github.com/kristenmartino/gridpulse/issues/171) **reopened** — see the active-focus block above.*
+## Blocked / waiting on — moved to GitHub
 
-*The 2026-08-04 incident ([#389](https://github.com/kristenmartino/gridpulse/issues/389)) remains the active focus, ahead
-of all three slots.)*
+**Also gone deliberately.** It carried
+[#129](https://github.com/kristenmartino/gridpulse/issues/129) as pending work
+for three months after it closed — and the fix it described had since shipped as
+[#627](https://github.com/kristenmartino/gridpulse/pull/627) under a different
+number. Blocked state belongs where the blocking thing lives.
 
-*(Re-verified 2026-08-10 against `gh issue list` / `gh pr list` while
-backfilling the decisions log, then **re-verified again an hour later because
-it had already gone stale** — [#452](https://github.com/kristenmartino/gridpulse/pull/452) merged between the two
-checks. **Slot 1, [#273](https://github.com/kristenmartino/gridpulse/issues/273), is 15 of 15 — every member is now
-done**, all four on 2026-08-10: [#443](https://github.com/kristenmartino/gridpulse/pull/443) (**P2-19**),
-[#444](https://github.com/kristenmartino/gridpulse/pull/444) (**P2-15**, **P2-16**) and
-[#452](https://github.com/kristenmartino/gridpulse/pull/452) (**P2-17**, the one the 08-05 note flagged as not
-interchangeable — it moves served ensemble weights and the visibility gate).
-At the time of writing the issue was still OPEN and this pass deliberately did
-not close it: closing a 15-item tracker is a judgement about all 15, not about
-the four this pass verified, and #452 had explicitly split its own scope with
-the weights half pre-registered as an A/B in
-[#451](https://github.com/kristenmartino/gridpulse/issues/451). It also flagged that slot 1 was no longer
-top-of-block on merit, without re-ordering. **Both of those were resolved
-within the day — see the re-ordering note directly below, which walked the
-checklist, closed the issue and re-verified slot 3's count.** Kept as written
-because it records what was true at that pass; superseded on every forward-
-looking point.)*
+```bash
+gh issue list --state open --label blocked
+```
 
-*(**Re-ordered 2026-08-10** on the close of [#273](https://github.com/kristenmartino/gridpulse/issues/273) — the
-judgement the backfill note above correctly declined to make on its own. Its
-15-item checklist was walked against `origin/main` @ `42d3ed9`: every member
-carries a `#273` marker in shipped code except `ledger-3`, which was docs-only
-by nature. The issue is now CLOSED with a summary comment. Slots 2 and 3 each
-move up one; the new slot 3 is the old slot-3 remnants minus #275. Slot 2's
-count was **re-verified** this pass rather than carried forward — it is
-genuinely unchanged at 20 of 23.)*
+### What this file is for
 
-~~1. #273 — misleading numbers on live surfaces.~~ ✅ **CLOSED 2026-08-10,
-   15 of 15.** See recent-decisions for the arc. Its two deliberate
-   follow-ons are [#451](https://github.com/kristenmartino/gridpulse/issues/451) (the ensemble-weights half of P2-17, as
-   a pre-registered A/B — stability was measured, forecast accuracy was not)
-   and [#401](https://github.com/kristenmartino/gridpulse/issues/401) (per-BA temperature percentiles, so the Risk
-   tab's heat lines can stop being fleet-uniform). Neither is promoted into
-   this block: #451 needs scheduled training runs rather than a session, and
-   #401 is invisible to users.
+The two sections above tried to hold **current state**, which GitHub already
+holds and keeps correct. What has no home in GitHub is the **cross-issue
+record** — *we measured X, it refuted Y, here is why we did not do Z*. That is
+what the entries above are, and it is why they are dated and append-only.
 
-1. **[#274](https://github.com/kristenmartino/gridpulse/issues/274) — backend
-   reliability/correctness cluster (7 items).** Medium-severity failure modes
-   in jobs/data paths, same family as the shipped #267–#272 criticals. Now the
-   top of the block: with #273 shut, this is the largest remaining cluster and
-   the only one whose members can still break a served number rather than
-   mislabel one.
-2. **[#275](https://github.com/kristenmartino/gridpulse/issues/275) — doc/config
-   honesty sweep, 20 of 23 remaining.** Re-verified 2026-08-10: only
-   `ledger-8`, `ledger-9` and `ledger-11` are cleared (by
-   [#396](https://github.com/kristenmartino/gridpulse/pull/396) + [#398](https://github.com/kristenmartino/gridpulse/pull/398)); the other 20 have no
-   trace in the tree. Same discipline as #273 and mostly one-line corrections,
-   so it should move fast once started.
-3. **[#196](https://github.com/kristenmartino/gridpulse/issues/196) remnants +
-   [#299](https://github.com/kristenmartino/gridpulse/issues/299).** The
-   successor to #273's *theme* — user-visible numbers that are wrong rather
-   than merely undocumented. #196 is the "80% empirical prediction interval"
-   calibrated from XGBoost residuals for **every** model selection; #299 is
-   the Prophet seam-step. Historical context for this slot follows.
-
-   **Historical (slot 3 as it read before the 2026-08-10 re-order):**
-   ✅ The #296 follow-through completed 2026-07-14 and the issue is CLOSED on
-   prod evidence: guard flagged the degenerate fleet on every pre-healing run
-   (incl. Prophet collapses on JEA/SEC/LDWP and one flagged SCEG *ensemble*
-   the screenshots never caught), the Jul 12 training run capped all 12
-   doubly-integrated orders (verified in GCS metas: SC (2,0,0), PSCO (2,0,2),
-   BPAT (2,0,1), PJM (0,0,2)…), flags collapsed to zero by Jul 14, and the
-   SC/PSCO/BPAT 30-day ARIMA views verified level on the live site. Remaining
-   in this slot: the #275 doc/config honesty sweep (23 small items), #196's
-   narrowed remnants (per-model backtest prediction vectors; caption
-   pooled-count semantics + legacy-key dedup; Overview hero flat-width), and
-   #299 (Prophet seam bias-correction, filed 2026-07-11). Watch item:
-   weather-normal backfill hits 51/51 ~Jul 15 (spot-check + close the #283
-   tail). Newer follow-up also open: #297 (pmdarima univariate-search fix,
-   needs its own fleet re-validation).
-
-**Blindspot-pass follow-ups (filed 2026-07-07, #253–#256).** Priority order —
-these are the newest tracked gaps and slot ahead of the P2/P3 elegance backlog:
-
-- ✅ **[#254](https://github.com/kristenmartino/gridpulse/issues/254) — SHIPPED
-  2026-07-08 (this PR).** The circular National-Utilization / top-stress bug for
-  the 5 peak-derived-capacity BAs (SOCO/DUK/CPLE/PSCO/FMPP). Fixed via a canonical
-  `config.PEAK_DERIVED_CAPACITY` / `UNRELIABLE_CAPACITY` set excluded from every
-  stress aggregate (KPI + sort + per-card "est." chip + map hover + API
-  `/grid/summary`), the API field renamed `nameplate_capacity_mw → capacity_mw`
-  with a `capacity_source` enum, and the docs desynced by the bug corrected. See
-  recent-decisions.
-- ✅ **[#253](https://github.com/kristenmartino/gridpulse/issues/253) — CLOSED
-  (#263 merged + deployed; noted 2026-07-11).** Original status for history: The now-live unauthenticated
-  `/api/v1` had no request-path guard. Shipped in-app (#261, deployed): per-IP
-  Redis rate limiting on `/api/v1/*` + the Dash callback route (fail-open),
-  `MAX_CONTENT_LENGTH`, and `/health`/`/metrics` gated to liveness-only for the
-  public; the exempt/allowlist matchers now take CIDR prefixes so a rotating
-  IPv6 `/64` stays valid (#263). **Applied live in GCP 2026-07-08:** 5 alert
-  policies (5xx, pinned-at-max, uptime, scoring-creep #171, job-failure), the
-  public-`/health` uptime check, and a $150/mo budget with a forecast-anomaly
-  rule — all bound to the email channel (ids recorded in `docs/monitoring/README`).
-  `METRICS_ALLOWED_IPS` secret set to the operator IPv4 + IPv6 `/64`. **Remaining:**
-  merge **#263** (carries the CIDR matcher, the `deploy-prod.yml`
-  `METRICS_ALLOWED_IPS` wiring, and the `COMPARISON_GT` fix main was missing) →
-  auto-deploy activates the secret. Edge-level (Cloud Armor) rate limiting stays
-  a follow-up. Close #253 after #263 deploys.
-- ✅ **[#255](https://github.com/kristenmartino/gridpulse/issues/255) — SHIPPED
-  2026-07-08 (this PR).** The forecast-quality gate keyed off *XGBoost-alone*
-  while prod serves the ensemble, hiding SEC (XGBoost 38.6%) despite its served
-  ensemble being 13.6%. Now gates on the **best served model** (champion across
-  ensemble + bases) via `get_best_holdout_mape`, Redis-first through
-  `get_model_metrics`. SEC visible again; gating on the ensemble alone would
-  have newly hidden SPA (22.8%), so the champion gate is the right call — **0/51
-  hidden**. See recent-decisions.
-- **[#256](https://github.com/kristenmartino/gridpulse/issues/256) — data-source
-  attribution/licensing.** **Partially shipped** in PR #257 (runtime-sources
-  notice + API `attribution` field + Open-Meteo CC-BY footer link). Remaining: the
-  commercial-use posture decision on the Open-Meteo free-tier host.
-
-**Deferred to #189 / #127:** the review's 52 P2 + 57 P3 findings are folded into
-the #189 tech-debt tracker; P1-9 (Scenarios panel prod-dead) is tracked under #127
-(its **honesty disclosure shipped** 2026-07-08 in PR #257 — the caption; the full
-`scenario_engine` swap remains #127's open work).
-
-**Superseded prod-readiness queue** (was Next-3 pre-review, now behind the above):
-Phase 4 rigor — #151 deps, #152 mypy, #153 typed Redis payloads, #154 callbacks
-decomposition; plus #170 drift logging, #171 scoring runtime, #166 write_diagnostics.
-
-**Queued behind those:**
-
-- **Phase 4 of `prod-readiness`** — engineering rigor ([#151](https://github.com/kristenmartino/gridpulse/issues/151) deps, [#152](https://github.com/kristenmartino/gridpulse/issues/152) mypy, [#153](https://github.com/kristenmartino/gridpulse/issues/153) typed Redis payloads, [#154](https://github.com/kristenmartino/gridpulse/issues/154) callbacks.py decomposition).
-- **[#164](https://github.com/kristenmartino/gridpulse/issues/164)** — drop archive-unstable weather vars (wind_80m/120m, soil_temp) + retrain, IF a feature-importance ablation shows they're deadweight. P0 #161 follow-up, low priority.
-- **[#170](https://github.com/kristenmartino/gridpulse/issues/170)** — observability: `drift_updated` logs only the alphabetical sample model (`arima`), not the `ensemble` headline, so the user-facing drift number can't be verified from logs. Surfaced during PR-G9 deploy verification. Small logging change.
-- **[#171](https://github.com/kristenmartino/gridpulse/issues/171)** — scoring-job runtime (~855s) has no margin under task-timeout; parallelize per-BA fetch/score so runtime *drops* instead of the ceiling rising. Filed from the 2026-06-01 timeout incident (timeout bumped 900→1800s as mitigation). Real fix, not just a higher ceiling. **Promoted ahead of Phase 4 (2026-06-01):** the three post-fix runs measured 1083 / 1262 / 1333s (60–74% of the new cap, one already past the ≤60–70% headroom target), so this is the next substantive engineering fix — not a deferred follow-up.
-- **[#174](https://github.com/kristenmartino/gridpulse/issues/174)** — EIA-outage resilience (circuit breaker + uniform GCS fallback). **Implemented + unit-tested this session** (2026-06-04); kept open only for opportunistic **prod-verification on the next real EIA outage** (the one acceptance criterion not unit-checkable). Not auto-closed by its PR by design.
-- **[#121](https://github.com/kristenmartino/gridpulse/issues/121) part 3 — Ensemble weight integration** (`path-b`, timing-gated).
-- **PR-C2** (`PITCH.md` + expanded STAR stories) — parked unless interview cycle demands it.
-
-**`prod-readiness` Phase 1 + Phase 2 COMPLETE** (2026-05-29). Phase 1: #156/#157/#158. Phase 2: PR-G2 deploy-gating (#146 → PR #159), PR-G3 deep /health (#147 → PR #160), PR-G10 job-failure alerting (#148 → PR #165) — all merged + prod-verified. **P0 #161 fully resolved**: mitigation (A, #162) + proper fix (C, #163, archive ERA5 stitch) both deployed + prod-verified; historical weather coverage ~0 → 14/17 real vars, `/health?deep=1` healthy. Job-failure alerting now live in Cloud Monitoring (no more manual incident discovery). **Phase 3 COMPLETE** (2026-05-30): #149 (PR-G4 → #167) · #155 (PR-G9 → #168, closed #142) · #150 (PR-G11). Remaining campaign: **Phase 4 (#151 / #152 / #153 / #154)** — gated on a checkpoint.
-
-**The production-readiness campaign keeps proving its own value:** PR-G3's deep `/health` (shipped 2026-05-29) caught a total forecast outage on its first production run — invisible to the `curl / → 200` check it replaced. Strongest STAR story in the set.
-
-## Blocked / waiting on
-
-- ✅ **Alert policies: nothing blocked.** All eleven are applied and
-  `_KNOWN_UNAPPLIED` is empty as of 2026-08-18. `redis_write_failures`
-  (`alertPolicies/16314898527819427981`) went live once its event was confirmed
-  in the DEPLOYED image, not merely on main; `scoring_partial_failure`
-  (`alertPolicies/1942403527399204858`) and `scoring_deadline_shed`
-  (`alertPolicies/8524477981812373740`) preceded it.
-  `tests/unit/test_monitoring_policies_applied.py` guards the next one.
-
-- ✅ **Forecast tab chart 1–4h gap — not blocked; the issue is closed and the
-  mechanism has since shipped.** [#129](https://github.com/kristenmartino/gridpulse/issues/129)
-  closed 2026-05-21; this block still described it as pending work as of
-  2026-08-20. Its stated fix — *"so the forecast trace starts at
-  `last_actual_demand_hour + 1h` instead of `featured.timestamp.max() + 1h`"* —
-  is what [#627](https://github.com/kristenmartino/gridpulse/pull/627) built, by
-  advancing the anchor across the contiguous run of real demand after
-  `featured`'s tail. It is gated on `temporal_ar_seed` and therefore inert
-  today, so the chart gap persists until that flag flips.
-
-- **Cross-link this Project to portfolio-v2 / sift / future repos**
-  ([#124](https://github.com/kristenmartino/gridpulse/issues/124)) —
-  trigger condition (≥2 repos with their own state-management setup)
-  is technically met since sift's 3 repos have a parallel framework
-  in place. But cross-linking requires deciding HOW (single user-level
-  mega-board vs federated per-repo boards) and reconciling shape
-  differences between sift's framework and the [`claude-templates`](https://github.com/kristenmartino/claude-templates)
-  quickstart. Defer until that decision is worth making — likely when
-  spanning ≥3 repos starts producing real navigation friction.
-- **Scenario simulator: full-fidelity physics**
-  ([#127](https://github.com/kristenmartino/gridpulse/issues/127)) —
-  replace the analytical heuristic shipped in PR #119 with real
-  `scenario_engine` re-runs (Approach B: pre-computed sensitivity grid
-  in the scoring job, preserves Redis-only web tier). Parked until a
-  real user / interviewer signal demands physics correctness — see
-  issue body for trigger conditions.
-
-**Resolved 2026-05-20:**
-- ✅ [#131](https://github.com/kristenmartino/gridpulse/issues/131) — Overview model card MAPE showing simulated baseline values. Fixed by PR #132 (scoring job writes `model_metrics` into Redis payload; `get_model_metrics` reads them as Layer 0); reinforced by PR-A (#134) which switched Overview's MAPE clause to live drift MAPE.
+The rule that follows: **an entry here describes what was true on its date and
+is never edited to stay current.** The moment this file claims present state it
+starts rotting, and it rotted in both directions at once — holding three closed
+issues as live while the `temporal_ar_seed` decision
+([#635](https://github.com/kristenmartino/gridpulse/issues/635)) existed only
+here and was invisible to `gh`.
 
 ## Recent decisions (last 7 days)
 - **2026-08-18** **CI's test suite was never hermetic — it made 79 live API calls per run, and that was a correctness bug wearing a performance costume.** Chasing an 8m45s PR wall-clock turned up 40% CPU utilization on a suite that should be compute-bound, and per-test cost that grew with position in the run (one test: 4.8s alone, 13.6s after 220 tests, 29.3s in the full run) — the signature of an accumulating rate limiter, not slow code. Tests were reaching `api.eia.gov` and `archive-api.open-meteo.com` for real: every client fetch path is cache-first, so a miss falls through to the live API and a test that believed it asserted on `mock_eia_response` asserted on today's grid. `test_scoring_job.py` claimed "All external I/O is faked" while its interchange endpoint went out on all 13 of its tests. **Two mocks were also silently inert:** `patch("data.redis_client.redis")` was defeated by a function-local `import redis` (real DNS lookup, 4.5s), and a `CACHE_DB_PATH` default bound at def time meant a thread-safety test ran 16 threads against the real repo-root `cache.db`. Sockets are now blocked autouse (not `requests` patched — a raw socket or urllib would route around that), with `tests/unit/test_network_guard.py` pinning that the guard is actually installed. **Suite 135.6s → 77.7s serial, 30.4s on 4 workers; CPU 40% → 78%; coverage unchanged at 91%.** CI's four jobs also ran serially for no reason, making the critical path their sum. **Measured on CI: 8m45s → ~3m40s** (pytest step 266–298s → ~180s; dependency setup 66s → 12s on a cached venv). **One optimisation was rejected on its number, not its idea:** Docker buildx `cache-to: type=gha,mode=max` took the image build 83s → 371s, because mode=max exports every intermediate layer of an image carrying prophet/xgboost/shap/scipy — reverted, with the measurement left in a `ci.yml` comment so it is not retried. [PR #586]
