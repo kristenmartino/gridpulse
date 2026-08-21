@@ -19,6 +19,55 @@ follow-up commit.
 
 ## Active focus + open question
 
+**2026-08-21 — the web tier was reported slow to load. The web tier was fine;
+it was cold. `--min-instances 1` restored, because the warmth it had been
+relying on lived in a monitoring probe.**
+
+Reported symptom: the site loads, but slowly. That is the **cold-start
+signature**, not an outage — and `deploy-prod.yml` had predicted it in a
+comment since 2026-08-05.
+
+**The web tier was cleared before anything was changed**, at `e38dc3b`:
+`ci.yml` run 1303, `deploy-prod.yml` run 644 and `deploy-divergence.yml`
+run 211 all green; the app imports in 2.4s and serves `/` **200 OK** under
+`ENVIRONMENT=production` with Redis absent (it renders the `warming` state
+rather than hanging, so a cold Redis would not produce this symptom); 21 smoke
+and 222 integration tests pass, the latter including real callback dispatch.
+
+**What the green deploy-divergence run does and does not prove.** It asks Cloud
+Run which *image* is deployed. It never fetches the page. So run 211 confirms the
+right code is running and says nothing about whether the site responds — the
+`[verification-instrument]` shape in `MISTAKES.md`, showing up as a checker
+that was green throughout.
+
+**The 2026-08-05 cost cut is what created this.** Dropping `--min-instances 1`
+saved a measured ~$19.44/mo on the reasoning that the `/health` uptime check
+already kept an instance warm (polls every 300s; scale-to-zero is ~15 min).
+That reasoning was correct *and* it made a monitoring resource **load-bearing
+for serving latency** — a dependency recorded only in a YAML comment, with no
+alarm covering the ~10.8s regression it explicitly predicted.
+
+**Open question — deliberately left open rather than guessed.** Whether the
+uptime check was paused, deleted, or merely failing is **not established**;
+that needs Cloud Monitoring, which this session had no access to (egress to
+`gridpulse.kristenmartino.ai` is blocked by policy, and there are no GCP
+credentials here). The latency regression is confirmed by report; its proximate
+cause is not.
+
+**That uncertainty is the argument for pinning rather than repairing the
+probe.** `--min-instances 1` removes cold-start latency whatever drove the
+instance cold. Repairing the probe would fix only the one cause nobody has
+confirmed, and would leave latency depending on a monitoring resource staying
+alive. A serving guarantee belongs in the serving config, not in a probe's side
+effect. Cost ~$19.44/mo, and it stays the *idle* rate rather than the ~$57/mo
+always-allocated rate **only because `--cpu-throttling` is set** — the two flags
+now move together.
+
+**Not done, and worth a follow-up:** nothing in CI fetches the page, so a
+latency regression is still only detectable by a human noticing. An end-to-end
+probe that measures a real `GET /` would have caught this; that is a new
+workflow, not part of this change.
+
 **2026-08-21 — [#559](https://github.com/kristenmartino/gridpulse/issues/559)
 the seed shadow had a blind spot correlated with what it observes. Fixed by
 making the absence typed, not by inventing an observation.**

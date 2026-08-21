@@ -167,10 +167,18 @@ jobs:
           #     already supplied — 86,444 instance-s/day at the min-instance
           #     idle rate, ~$19.44/mo.
           #
-          # THE DEPENDENCY THAT CREATES: the uptime check is now load-bearing
+          # THE DEPENDENCY THAT CREATED: the uptime check became load-bearing
           # for LATENCY, not just alerting. Pause or delete it and the next
-          # visitor pays that 10.8s. Restore --min-instances 1 here first if it
-          # is ever retired.
+          # visitor pays that 10.8s.
+          #
+          # SUPERSEDED 2026-08-21 — --min-instances is back to 1. The dependency
+          # above stopped holding: the site was reported slow-but-loading, the
+          # cold-start signature. The full record, including what was ruled out
+          # and what was NOT established about the probe's state, is in the
+          # --min-instances block above the `gcloud run deploy` command below.
+          # The three bullets above remain accurate as the 2026-08-05 reasoning;
+          # they are kept because the ~10.8s measurement and the
+          # `container/startup_latencies` trap are still the facts that matter.
           #
           # --cpu-throttling, set EXPLICITLY (2026-08-05). This tier does no
           # work between requests: the only background thread (app.py:193) is
@@ -282,14 +290,46 @@ jobs:
           # between requests. Verified empirically before landing this — 12
           # samples of `GET /` over 22 minutes, none above 0.3s.
           #
-          # CONSEQUENCE: the uptime check is now load-bearing for LATENCY, not
-          # just alerting. If it is paused or deleted, this service will scale
-          # to zero and the next visitor waits a real cold start. Measure that
+          # CONSEQUENCE: the uptime check became load-bearing for LATENCY, not
+          # just alerting. If it is paused or deleted, this service scales to
+          # zero and the next visitor waits a real cold start. Measure that
           # cold start before assuming it is small: `container/startup_latencies`
           # reports ~976ms, but that is container-ready, NOT user-visible — an
           # actual first request after a cold revision measured **10.8s**,
-          # because it includes the Dash/Python import. Restore
-          # --min-instances 1 if the uptime check ever goes away.
+          # because it includes the Dash/Python import.
+          #
+          # ---- RESTORED TO 1 on 2026-08-21. That consequence arrived. ----
+          #
+          # Symptom: the site was reported loading slowly but eventually — the
+          # cold-start signature this block predicted, not an outage. Ruled out
+          # first, at `e38dc3b`: `ci.yml` run 1303 green, `deploy-prod.yml` run 644
+          # green, `deploy-divergence.yml` run 211 green (so the right image IS
+          # deployed), and the app boots and serves `/` in 200 OK under
+          # ENVIRONMENT=production with Redis absent, plus 21 smoke and 222
+          # integration tests passing. The web tier is not broken; it is cold.
+          #
+          # WHAT IS *NOT* ESTABLISHED: whether the uptime check was actually
+          # paused, deleted, or merely failing. That needs Cloud Monitoring and
+          # was not checked — so this is deliberately NOT written as "the uptime
+          # check went away". Read the row for what it is: the user-visible
+          # latency regression is confirmed; its proximate cause is not.
+          #
+          # Which is precisely WHY the fix is --min-instances 1 rather than
+          # repairing the probe. Pinning an instance removes cold-start latency
+          # whatever drove the instance cold — a paused probe, a traffic dip
+          # below the ~15min scale-to-zero window, or a Cloud Run scheduling
+          # change. Repairing the probe would restore warmth only for the one
+          # cause we have not confirmed, and would leave latency depending on a
+          # monitoring resource staying alive. A serving guarantee belongs in
+          # the serving config, not in a probe's side effect.
+          #
+          # COST: ~$19.44/mo, the measured min-instance idle rate for 1 vCPU /
+          # 2 GiB (86,444 instance-s/day). This is the IDLE rate and not the
+          # ~$57/mo always-allocated rate ONLY because --cpu-throttling is set
+          # below. The two flags now move together: dropping --cpu-throttling
+          # while min-instances is 1 re-bills this instance at the full rate
+          # 24/7, which is the ~$114/mo mistake described at the top of this
+          # step. Do not change one without the other.
           #
           # Cost/DoS ceiling note (#253): --max-instances 4 is the effective
           # spend cap on this --allow-unauthenticated service (~$228/mo pinned
@@ -311,7 +351,7 @@ jobs:
             --memory 2Gi \
             --cpu 1 \
             --timeout 300 \
-            --min-instances 0 \
+            --min-instances 1 \
             --max-instances 4 \
             --cpu-boost \
             --cpu-throttling \

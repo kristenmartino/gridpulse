@@ -1,0 +1,1 @@
+2026-08-21 [non-issue-number-written-as-issue-ref] wrote GitHub Actions run numbers as `#1303`/`#644`/`#211` in STATUS.md, CANONICAL_FACTS.md and a workflow comment, where `#N` means issue/PR and GitHub auto-links it — caught by check-past-mistakes before commit and rewritten as "run N" — ref: branch claude/gridpulse-loading-issue-stagoh

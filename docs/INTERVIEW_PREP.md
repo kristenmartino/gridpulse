@@ -1600,3 +1600,69 @@ that it reproduced; the reviewer's magnitude was an artifact of a predicate
 that didn't know about a deliberate exclusion. An acceptance criterion you
 adopt without re-deriving is a criterion you can satisfy perfectly and still
 be told you failed.*
+
+---
+
+### 40. "Tell me about a time the cheapest fix was the one you didn't make."
+
+**Situation**: A report came in that GridPulse "wasn't loading." It was, but
+slowly. That distinction is the whole story: slow-but-eventually is the
+**cold-start signature**, and an outage is not.
+
+Before touching anything I cleared the web tier. CI, the production deploy and
+the hourly deploy-divergence check were all green on the same commit; the app
+imported in 2.4s and served `/` **200 OK** under a production configuration with
+Redis deliberately absent; 21 smoke and 222 integration tests passed, the latter
+driving real callback dispatch. Redis being cold could not produce this symptom
+either — the app renders a `warming` state rather than hanging. The code was
+healthy. The instance was cold.
+
+The cause was a cost decision I could read in the deploy file's own comments.
+Three weeks earlier the service had gone to `--min-instances 0`, saving a
+measured ~$19.44/mo, on the reasoning that a `/health` uptime check already kept
+an instance warm: it polls every 300s and Cloud Run only scales to zero after
+~15 minutes. That reasoning was correct, it was measured, and the comment even
+named the hazard it created — *"the uptime check is now load-bearing for
+LATENCY, not just alerting… restore `--min-instances 1` if it ever goes away."*
+
+**Task**: Restore the latency without pretending to know more than I did.
+
+**Action**: The obvious fix was to go find the uptime check and repair it. I
+couldn't — the environment I was working in had no access to Cloud Monitoring
+and no route to the production host. So I could not establish whether the probe
+was paused, deleted, or merely failing.
+
+The temptation is to write the plausible story anyway: "the uptime check was
+removed, I restored it." Instead I made the uncertainty the design input. I set
+`--min-instances 1` and wrote down, in the deploy file and in the canonical
+facts doc, that the *cause was not established* — only the symptom.
+
+That is not a hedge, it's the stronger fix. Pinning an instance removes
+cold-start latency **whatever** drove the instance cold: a paused probe, traffic
+dipping under the scale-to-zero window, or a Cloud Run scheduling change.
+Repairing the probe would have restored warmth for exactly one of those — the
+one I couldn't confirm — and left serving latency depending on a monitoring
+resource staying alive. A serving guarantee belongs in the serving config, not
+in a probe's side effect.
+
+One coupling came with it, so I wrote it beside the flag: the ~$19.44/mo figure
+is the *idle* rate, and it stays idle only because `--cpu-throttling` is set.
+Dropping throttling while min-instances is 1 re-bills the instance at the full
+always-allocated rate 24/7 — which is the ~$114/mo bill this service started
+from. The two flags now move together.
+
+**Result**: One flag changed; every other line in the diff was the reasoning.
+I also flagged what I deliberately did **not** build: nothing in CI fetches the
+page, so a latency regression is still only detectable by a human noticing it.
+An end-to-end probe measuring a real `GET /` would have caught this weeks
+earlier — but that's a new workflow, not part of a one-flag fix, and quietly
+widening the change would have buried the actual decision.
+
+*Lesson: **when you can't confirm the cause, prefer the fix that doesn't depend
+on which cause it was.** The green checks were the other half of this — the
+deploy-divergence job asks Cloud Run which image is deployed and never fetches
+the page, so it was green throughout and was never evidence the site responded.
+A monitoring resource that becomes load-bearing for serving is a dependency
+whether or not anyone wrote it down, and this one was written down — in a
+comment, with no alarm behind it. A hazard you've documented but not enforced is
+still just a hazard.*
