@@ -68,7 +68,7 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 | reliability-timeout-budget | 2 (distinct root causes, same family) | graduated | CLAUDE.md → "Upstream-outage resilience" + "Partial degradation is a DIFFERENT failure class" |
 | single-source-of-truth-drift | 4 (addendum 2026-08-20) | graduated (strengthened 2026-08-20) | CLAUDE.md → End-of-PR check item 2 (grep now `web/ docs/`); `MODEL_DISPLAY_NAMES` + AST sweep test |
 | stale-repo-snapshot | 6 | graduated (strengthened 2026-08-20, twice) | CLAUDE.md → "Before recommending what's next" (re-derive the premise; merge-safety sentence) |
-| claim-shipped-before-measurement | 4 | graduated (2026-08-20) | CLAUDE.md → "Verify a claim before writing it as fact" |
+| claim-shipped-before-measurement | 5 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → "Verify a claim before writing it as fact" |
 | verification-checked-the-wrong-thing | 6 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → Testing § "Verify a mock actually intercepted" |
 | unmeasured-performance-impact | 2 | graduated (2026-08-20) | CLAUDE.md → Required working style, "Validate after meaningful changes" |
 | verification-instrument | 2 (addendum 2026-08-20) | graduated (2026-08-20) | CLAUDE.md → "Before recommending what's next", "Verify a production state by its terminal write" |
@@ -84,8 +84,32 @@ prevention, and whether it graduated into a CLAUDE.md rule.
 | flag-flip-surfaced-hidden-coupling | 1 | resolved (2026-08-20) | both issues (a test asserting an incidental fact, silent write amplification on 44/51 BAs) fixed inside PR #629 itself before merge; no rule needed |
 | scratch-over-tracked-config | 1 (in Worklog) | open | none yet — thematically echoes the assumed-vs-verified-state throughline behind `unchecked-destructive-git-chaining`/`stale-repo-snapshot`, but the mechanism is distinct enough and severity low; watching for a repeat |
 | preregistered-reading-mismatched-outcome | 1 (in Worklog) | open | a research-methodology lesson (a pre-committed reading didn't anticipate the actual outcome shape), not a code defect; watching for a repeat |
+| silent-bounds-drop | 1 (in Worklog) | open | tracked live by GitHub issue #624 (open); PR #631 added counting/logging (`temporal_seed_writes_dropped`) but explicitly deferred the sizing fix; not currently live (`temporal_ar_seed`/`_shadow` default off); watching for a repeat or for #624 to close |
+| mutation-reverted-uncommitted-work | 1 (in Worklog) | open | echoes `unchecked-destructive-git-chaining` thematically (a destructive step ran without verifying actual tree state) but distinct mechanism — a mutation-testing precondition, not a merge/reset outcome check; fully recovered same-PR, no shipped harm; watching for a repeat |
 
 ### Entries
+
+**2026-08-20 — A candidate fix's own PR body documents catching an unsound approach by measuring before writing it [claim-shipped-before-measurement, resolved]**
+- **What happened:** Investigating the #559 forecast-origin stall, the
+  obvious "candidate 1" fix — relax the origin cap alone, using the
+  positional/`featured` seed — was measured before being written up or
+  shipped, and found +691 MW off on `demand_lag_1h` at the new origin: the
+  seed still indexes positionally past the advance point, so relaxing the
+  cap alone would have shipped a wrong number under a plausible-looking fix.
+- **Root cause:** None — this is the discipline working as intended, logged
+  as a positive instance rather than a failure. It is grouped under
+  `claim-shipped-before-measurement` because it is the same claim shape (an
+  obvious-looking fix) checked against real data *before* being written down
+  as the answer, the exact step the four original occurrences skipped.
+- **Prevention:** Already applied. The fix that shipped (PR #627) instead
+  advances only across a contiguous "bridge" of real demand
+  (`_ar_seed_bridge`), gated behind `temporal_ar_seed`.
+- **Status:** resolved — no defect ever shipped. No new CLAUDE.md text; this
+  is evidence the existing rule works, not a new pattern.
+- **Related:** PR #627, #559. One Worklog line consumed
+  (`fix-would-have-been-unsound`, filed under the tag
+  `fix-scope-underestimated` in its own body — a minor filename/tag mismatch,
+  noted for the record).
 
 **2026-08-20 — CI's toolchain-confirmation step failed intermittently on main, fixed within 20 minutes of deposit [ci-guard-intermittent, resolved]**
 - **What happened:** CI's "Confirm the toolchain came from the venv" step
@@ -468,6 +492,14 @@ prevention, and whether it graduated into a CLAUDE.md rule.
   Worklog lines consumed into this entry (`evidence-verification`,
   `premise-not-measured-before-filing`, `unverified-premise`,
   `explanation-before-measurement`).
+- **2026-08-20 addendum (5th occurrence):** A PR predicted "most of LGEE's
+  n_7d gap closes" from the task briefing's two-channel framing; measured 15
+  minutes later (PR #625), the real split is three channels (A 81.0%, B
+  16.9%, C 1.5%), and the reachable share was capped at 16.9%, not "most."
+  Self-corrected same-session, no lasting harm. No new CLAUDE.md text
+  needed — existing prevention already covers this shape. **Related:**
+  PR #625, #627, #537. One Worklog line consumed
+  (`prediction-inherited-briefing-framing`).
 
 **2026-08-20 — Four checks reported success without exercising the thing they claimed to check [verification-checked-the-wrong-thing]**
 - **What happened:** Four incidents, all surfaced on 2026-08-18, where a test
