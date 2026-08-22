@@ -59,6 +59,7 @@ and fits local, throwaway SARIMAX models.
 import sys
 import time
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -72,6 +73,10 @@ from data.preprocessing import merge_demand_weather  # noqa: E402
 from data.weather_client import fetch_historical_weather  # noqa: E402
 from models.arima_model import predict_arima, train_arima  # noqa: E402
 from models.evaluation import compute_mape  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from _study_guards import assert_arms_differ  # noqa: E402
+
 from models.rolling_eval import (  # noqa: E402
     bias_pct,
     rolling_origin_splits,
@@ -183,6 +188,17 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
     if n == 0:
         print("  no comparable windows — skipping")
         return None
+
+    # If the treatment is byte-identical to the control the arms are a no-op
+    # (e.g. a fetch window that never actually clears a feature's gate) and
+    # every verdict below would be meaningless.
+    assert_arms_differ(
+        "wape_168",
+        {
+            "control": np.array(control["wape_168"][:n]),
+            "treatment": np.array(treatment["wape_168"][:n]),
+        },
+    )
 
     for lead in LEADS:
         deltas = np.array(control[f"wape_{lead}"][:n]) - np.array(treatment[f"wape_{lead}"][:n])

@@ -62,12 +62,20 @@ No writes to Redis, GCS, or ``latest.json``.
 import sys
 import time
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import structlog
 
 warnings.filterwarnings("ignore")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from _study_guards import (  # noqa: E402
+    assert_arms_differ,
+    assert_frames_aligned,
+    assert_plausible,
+)
 
 from config import REGION_GROUPS, WEATHER_VARIABLES  # noqa: E402
 from data.eia_client import fetch_demand  # noqa: E402
@@ -96,6 +104,18 @@ N_WINDOWS = 12
 STRIDE_H = 336  # 14d between origins -> ~154d span, several seasons
 HOLDOUT_H = 168
 MIN_COV_WINDOWS = 3  # windows of prior residuals before W is estimable
+
+#: Report cumulative-to-lead. The first pass pooled all 168 holdout hours into
+#: one number, but 144 of those (86%) sit beyond day-ahead while
+#: ``models/benchmark.py`` sets ``HEADLINE_LEAD = "24h"``. That mattered here
+#: more than anywhere: §7's null rested on the aggregate model scoring 24.14%
+#: against 3.35% for sum-of-parts, and the CAUSE was recursive drift — one
+#: 168-step aggregate trajectory drifts freely while 16 independent ones partly
+#: cancel. At 24h that mechanism is far weaker, so the aggregate model should be
+#: competitive and MinT should finally have information to work with. If the
+#: null survives at 24h it is a real property of this hierarchy; if it does not,
+#: the earlier conclusion was another horizon artifact.
+LEADS = (24, 48, 168)
 
 
 def _dataset(region: str, end: pd.Timestamp) -> pd.DataFrame | None:
@@ -267,7 +287,29 @@ def run(group: str, end: pd.Timestamp) -> None:
         return
     print(f"  aggregate series: {len(agg)} rows, mean {agg['demand_mw'].mean():,.0f} MW")
 
-    n = min([len(d) for d in data.values()] + [len(agg)])
+    # ALIGN EVERY FRAME TO A COMMON HOURLY INDEX BEFORE SLICING.
+    # Without this the study is silently invalid: `test` is a POSITIONAL slice
+    # applied to frames of different lengths and start times, so row i means a
+    # different calendar hour in each. Measured on Northeast before the fix, at
+    # slice.start=5404: ISONE 2026-03-02 04:00, NYISO 2026-03-03 00:00, AGG
+    # 2026-03-10 00:00 — the aggregate forecast was being scored against BA
+    # actuals from a DIFFERENT WEEK. `_aggregate_dataset` intersects BA
+    # timestamps and then `engineer_features` drops a further 168-row warmup
+    # from that intersection, so AGG starts 7 days after the BA frames; NYISO's
+    # 3 gaps shift it 20h from ISONE/PJM. That fabricated ~10-24% "incoherence"
+    # and a 13.25% aggregate error where the true figure is 3.65%.
+    common = None
+    for ba in bas:
+        ts = pd.DatetimeIndex(data[ba]["timestamp"])
+        common = ts if common is None else common.intersection(ts)
+    common = common.intersection(pd.DatetimeIndex(agg["timestamp"])).sort_values()
+    data = {ba: data[ba].set_index("timestamp").loc[common].reset_index() for ba in bas}
+    agg = agg.set_index("timestamp").loc[common].reset_index()
+    # The guard, not a bare length check: equal lengths with OFFSET start times
+    # is exactly the shape that got through here before (ISONE 2026-03-02 04:00
+    # vs AGG 2026-03-10 00:00 at the same positional index).
+    n = assert_frames_aligned({**data, "AGG": agg})
+    print(f"  aligned {len(bas) + 1} frames to {n} common hours")
     splits = rolling_origin_splits(
         n, n_windows=N_WINDOWS, holdout_h=HOLDOUT_H, stride_h=STRIDE_H, min_train_h=TRAIN_ROWS
     )
@@ -285,8 +327,8 @@ def run(group: str, end: pd.Timestamp) -> None:
     scored: dict[str, list] = {k: [] for k in METHODS}
     resid_hist: list[np.ndarray] = []  # per-window (m+1,) residuals, oldest first
     incoherence: list[float] = []  # |agg forecast - sum of parts|, as % of truth
-    agg_wape: list[float] = []  # the independent aggregate model's own accuracy
-    bu_wape: list[float] = []  # accuracy of sum-of-parts at the top level
+    agg_wape: dict[int, list] = {L: [] for L in LEADS}  # independent agg model
+    bu_wape: dict[int, list] = {L: [] for L in LEADS}  # sum-of-parts at the top
     t0 = time.time()
 
     for _tr, test in reversed(splits):  # oldest first: W sees only the past
@@ -316,8 +358,10 @@ def run(group: str, end: pd.Timestamp) -> None:
         # bottom-level mean WAPE. If it is worse, reconciliation has nothing
         # informative to reconcile toward and any null result says more about
         # the aggregate model than about the method.
-        agg_wape.append(wape(Yfull[0], Ffull[0]))
-        bu_wape.append(wape(Yfull[0], F.sum(axis=0)))
+        for lead in LEADS:
+            k = min(lead, Yfull.shape[1])
+            agg_wape[lead].append(wape(Yfull[0][:k], Ffull[0][:k]))
+            bu_wape[lead].append(wape(Yfull[0][:k], F.sum(axis=0)[:k]))
 
         W = None  # noqa: N806
         if len(resid_hist) >= MIN_COV_WINDOWS:
@@ -328,9 +372,12 @@ def run(group: str, end: pd.Timestamp) -> None:
             )  # (m, H)
             scored[meth].append(
                 {
-                    "wape": [wape(Y[i], rec[i]) for i in range(m)],
-                    "mape": [compute_mape(Y[i], rec[i]) for i in range(m)],
-                    "bias": [bias_pct(Y[i], rec[i]) for i in range(m)],
+                    f"{stat}_{lead}": [
+                        fn(Y[i][: min(lead, Y.shape[1])], rec[i][: min(lead, Y.shape[1])])
+                        for i in range(m)
+                    ]
+                    for lead in LEADS
+                    for stat, fn in (("wape", wape), ("mape", compute_mape), ("bias", bias_pct))
                 }
             )
         resid_hist.append((Ffull - Yfull).T)  # (H, m+1), strictly past by loop order
@@ -340,62 +387,57 @@ def run(group: str, end: pd.Timestamp) -> None:
         f"  {time.time() - t0:.0f}s | {nw} scored windows "
         f"(W estimable from window {MIN_COV_WINDOWS + 1} on)"
     )
-    if incoherence:
-        print(
-            f"  base incoherence |agg - sum(parts)|: {np.mean(incoherence):.2f}% of truth "
-            f"(0.00% would mean the arms are a no-op — the bug the Northeast run caught)"
-        )
-        print(
-            f"  TOP-level WAPE: independent agg model {np.mean(agg_wape):.2f}%  vs  "
-            f"sum-of-parts {np.mean(bu_wape):.2f}%"
-        )
-        if np.mean(agg_wape) > np.mean(bu_wape):
-            print(
-                "    -> the aggregate model is WORSE than simply summing the parts, so it "
-                "carries no information to reconcile toward; a null here indicts the "
-                "aggregate model, not the method."
-            )
     if nw == 0:
         print("  nothing scored")
         return
+    incoh_mean = float(np.mean(incoherence))
+    print(f"  base incoherence |agg - sum(parts)|: {incoh_mean:.2f}% of truth")
+    # Two forecasts of the same quantity from the same data do not disagree by
+    # tens of percent. A reading like that was reported as a property of the
+    # hierarchy three times before it was recognised as a misalignment bug.
+    assert_plausible("base incoherence %", incoh_mean, 0.0, 10.0)
 
-    print(f"\n  {'method':13s} {'BA-mean WAPE':>13s} {'bias':>8s} | vs base (per-BA, pooled)")
-    base_w = np.array([w for r in scored["base"] for w in r["wape"]])
-    for meth in METHODS:
-        arr = scored[meth]
-        w = np.array([x for r in arr for x in r["wape"]])
-        b = np.array([x for r in arr for x in r["bias"]])
-        line = f"  {meth:13s} {np.nanmean(w):>12.2f}% {np.nanmean(b):>+7.2f}%"
-        if meth == "base":
-            print(line + " | (control)")
-            continue
-        v = verdict(base_w - w)
-        sat = satisficing_check(
-            treatment_bias_pct=float(np.nanmean(b)),
-            control_mape=float(np.nanmean([x for r in scored["base"] for x in r["mape"]])),
-            treatment_mape=float(np.nanmean([x for r in arr for x in r["mape"]])),
-        )
-        tag = "" if sat["passed"] else "  SAT-FAIL"
-        print(line + f" | {np.nanmean(base_w - w):+.3f} pts — {v['reason']}{tag}")
-
-    # THE hypothesis under test: the published mechanism is small, noisy series
-    # borrowing strength from a more reliable aggregate (Brégère & Huard's
-    # bottom level was individual households). If reconciliation helps anywhere
-    # here, it should be the SMALL BAs -- and an all-BA mean would dilute a
-    # real small-BA gain against the large BAs that dominate the average.
     sizes = {ba: float(data[ba]["demand_mw"].mean()) for ba in bas}
     order = sorted(bas, key=lambda b: sizes[b])
     half = max(1, len(order) // 2)
-    groups_by_size = {"small": order[:half], "large": order[half:]}
-    print(f"\n  per-BA breakdown by size (small = bottom {half} of {len(order)}):")
-    for label, members in groups_by_size.items():
-        idxs = [bas.index(b) for b in members]
-        mean_mw = np.mean([sizes[b] for b in members])
-        row = f"    {label:6s} n={len(members):2d} mean {mean_mw:>8,.0f} MW |"
+    small_idx = [bas.index(b) for b in order[:half]]
+
+    for lead in LEADS:
+        tag = "  <-- benchmark HEADLINE_LEAD" if lead == 24 else ""
+        a, b = np.mean(agg_wape[lead]), np.mean(bu_wape[lead])
+        print(f"\n  === cumulative to {lead}h{tag} ===")
+        print(
+            f"  TOP-level: independent agg model {a:.2f}%  vs  sum-of-parts {b:.2f}%"
+            f"  ({'agg competitive' if a <= b * 1.25 else 'agg carries little info'})"
+        )
+        base_w = np.array([w for r in scored["base"] for w in r[f"wape_{lead}"]])
+        assert_arms_differ(
+            f"wape_{lead}",
+            {m_: np.array([x for r in scored[m_] for x in r[f"wape_{lead}"]]) for m_ in METHODS},
+        )
+        print(f"  {'method':13s} {'BA-mean':>8s} {'bias':>7s} {'small-BA':>9s} | vs base")
         for meth in METHODS:
-            w = np.array([r["wape"][i] for r in scored[meth] for i in idxs])
-            row += f"  {meth}={np.nanmean(w):.2f}%"
-        print(row)
+            arr = scored[meth]
+            w = np.array([x for r in arr for x in r[f"wape_{lead}"]])
+            bi = np.array([x for r in arr for x in r[f"bias_{lead}"]])
+            sm = np.array([r[f"wape_{lead}"][i] for r in arr for i in small_idx])
+            line = (
+                f"  {meth:13s} {np.nanmean(w):>7.2f}% {np.nanmean(bi):>+6.2f}% "
+                f"{np.nanmean(sm):>8.2f}%"
+            )
+            if meth == "base":
+                print(line + " | (control)")
+                continue
+            v = verdict(base_w - w)
+            sat = satisficing_check(
+                treatment_bias_pct=float(np.nanmean(bi)),
+                control_mape=float(
+                    np.nanmean([x for r in scored["base"] for x in r[f"mape_{lead}"]])
+                ),
+                treatment_mape=float(np.nanmean([x for r in arr for x in r[f"mape_{lead}"]])),
+            )
+            tagf = "" if sat["passed"] else "  SAT-FAIL"
+            print(line + f" | {np.nanmean(base_w - w):+.3f} — {v['reason']}{tagf}")
 
 
 def main():

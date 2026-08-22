@@ -595,6 +595,61 @@ recursive drift — they vanish at 24h. Prophet's are an *immediate level error*
 from the yearly Fourier term — present from hour one. Same pooled symptom,
 different causes; only the per-lead split separates them.
 
+### §7 RETRACTED AND RE-MEASURED (2026-08-21)
+
+**Every number in §7 was computed on misaligned frames.** The study applied one
+*positional* rolling-origin slice to per-BA frames and an aggregate frame of
+different lengths and start times, so row *i* meant a different calendar hour
+in each. Measured on Northeast at `slice.start=5404`: ISONE 2026-03-02 04:00,
+NYISO 2026-03-03 00:00, AGG **2026-03-10 00:00** — the aggregate forecast was
+scored against BA actuals from a different week. `_aggregate_dataset`
+intersects BA timestamps and `engineer_features` then drops a 168-row warmup
+*from that intersection*, so AGG began 7 days after the BA frames; NYISO's 3
+gaps shifted it 20h from ISONE/PJM.
+
+Fixed by aligning every frame to a common hourly index before slicing, now
+enforced by `assert_frames_aligned` in `scripts/_study_guards.py`.
+
+**What the corrected numbers show (Southeast, 16 BAs):**
+
+| | broken | aligned |
+|---|---|---|
+| incoherence | 24.70% | **1.99%** |
+| agg model @24h | 24.14% | **2.45%** |
+| sum-of-parts @24h | 3.35% | 2.58% |
+| MinT vs base @24h | −0.163 | **+0.090** (inconclusive) |
+
+| @24h | BA-mean | bias | small-BA | vs base |
+|---|---|---|---|---|
+| base | 4.90% | +0.54% | 5.69% | (control) |
+| bottom_up | 4.90% | +0.54% | 5.69% | +0.000 |
+| ols | 20.14% | +1.36% | **36.08%** | −15.249, SAT-FAIL |
+| mint_shrink | 4.81% | +0.37% | 5.70% | +0.090, inconclusive |
+
+**The verdict holds; the reasoning in §7 does not.** Reconciliation still does
+not help — MinT is a no-op at every lead, small BAs gain nothing (5.69% →
+5.70%), OLS is harmful and concentrates its damage on precisely the small
+series the method was meant to help. But:
+
+- **The aggregate model was never bad.** It scores 2.45% at 24h and beats
+  sum-of-parts at *every* lead. §7 reported 24.14% and built two explanations
+  on it (recursive drift, then "structural"); both described an artifact.
+- **MinT's sign flipped**, −0.163 → +0.090 — marginally helpful rather than
+  harmful, still inconclusive.
+- Northeast, same fix: incoherence 12.14% → 2.77%, agg 13.25% → 3.65%
+  (matching 3.65% measured standalone), OLS 21.02% → 5.09%.
+
+*Interpretation, not a tested claim:* incoherence is only 1.99%, so the two
+levels barely disagree, and reconciliation can only redistribute error that
+exists as disagreement.
+
+**How it was found:** by computing the aggregate model's error a second way,
+standalone, and getting 3.65% against the study's 13.25%. Three earlier
+diagnostics had pointed at this and been misread as findings — four arms
+returning identical WAPE, a flat ~13% across all horizons, and a 24%
+incoherence that is not physically sensible between two forecasts of the same
+quantity. Deposited as `positional-slice-across-ragged-frames`.
+
 ### Still outstanding
 
 - **SARIMAX per-lead** — patched, not yet run (~110 min/BA). Its bias vetoes

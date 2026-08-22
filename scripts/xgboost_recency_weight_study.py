@@ -53,6 +53,7 @@ No writes to Redis, GCS, or ``latest.json``.
 import sys
 import time
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -76,6 +77,10 @@ from models.rolling_eval import (  # noqa: E402
     verdict,
     wape,
 )
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from _study_guards import assert_fixed_window  # noqa: E402
+
 from models.xgboost_model import (  # noqa: E402
     DEFAULT_PARAMS,
     _get_feature_cols,
@@ -202,6 +207,13 @@ def run(region: str, end: pd.Timestamp) -> dict | None:
         stride_h=STRIDE_H,
         min_train_h=90 * 24,
     )
+    # Every hard_* arm must be a FIXED trailing window, not an expanding one.
+    for aname, spec in ARMS:
+        if "hard_days" in spec:
+            rows = spec["hard_days"] * 24
+            sl = [_arm_frame(df, t.start, spec) for _, t in splits]
+            assert_fixed_window(aname, [slice(0, len(f)) for f, _w in sl], rows)
+
     ts = df["timestamp"]
     months = [ts.iloc[t.start].month for _, t in splits]
     print(

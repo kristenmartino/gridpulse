@@ -49,6 +49,7 @@ No writes to Redis, GCS, or ``latest.json``.
 import sys
 import time
 import warnings
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -73,6 +74,9 @@ from models.rolling_eval import (  # noqa: E402
     wape,
 )
 from models.xgboost_model import predict_xgboost, train_xgboost  # noqa: E402
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa: E402
+from _study_guards import assert_fixed_window  # noqa: E402
 
 log = structlog.get_logger()
 
@@ -134,6 +138,11 @@ def _paired_splits(n_rows: int) -> list[tuple[slice, slice, slice]]:
                 test_slice,
             )
         )
+    # This study exists BECAUSE the first pass used rolling_origin_splits'
+    # default expanding slice and called it a 90-day control. Assert the fix
+    # rather than trusting the code above to keep being right.
+    assert_fixed_window("control", [c for c, _t, _x in out], CONTROL_ROWS)
+    assert_fixed_window("treatment", [t for _c, t, _x in out], TREATMENT_ROWS)
     return out
 
 
