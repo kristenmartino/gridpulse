@@ -1276,12 +1276,12 @@ def _outlook_tab_from_redis(
     return (
         fig,
         data_through_str,
-        f"{peak_val:,.0f} MW",
+        f"{peak_val:,.0f}",
         peak_time,
-        f"{avg_val:,.0f} MW",
-        f"{min_val:,.0f} MW",
+        f"{avg_val:,.0f}",
+        f"{min_val:,.0f}",
         min_time,
-        f"{range_val:,.0f} MW",
+        f"{range_val:,.0f}",
         insight_card,
     )
 
@@ -1792,11 +1792,15 @@ def register_forecast_callbacks(app):
             )
         )
 
-        # Format KPI strings
-        peak_str = f"{peak_val:,.0f} MW"
-        avg_str = f"{avg_val:,.0f} MW"
-        min_str = f"{min_val:,.0f} MW"
-        range_str = f"{range_val:,.0f} MW"
+        # Format KPI strings. No unit here: the layout renders a separate
+        # `gp-metric-unit` span beside each of these four values
+        # (components/tab_demand_outlook.py), so embedding "MW" printed
+        # "89,952 MW MW" — and on a narrow viewport the hero cell truncated
+        # the doubled string to "89,952 ...", hiding the number itself.
+        peak_str = f"{peak_val:,.0f}"
+        avg_str = f"{avg_val:,.0f}"
+        min_str = f"{min_val:,.0f}"
+        range_str = f"{range_val:,.0f}"
 
         # Generate insights
         from components.insights import build_insight_card, generate_tab2_insights
