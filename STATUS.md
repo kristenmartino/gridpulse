@@ -44,14 +44,22 @@ never tested the seasonal-turn regime the argument is about; widening to all 12
 months reversed the sign on 2 of 6 BAs.
 
 **Reconciliation (MinT/OLS) does not help.** Measured on two complete
-sub-hierarchies. MinT is a no-op (−0.163 pts, 51% of windows); OLS is
-catastrophic (−246.7 pts). The pre-declared small-vs-large split shows the
-small BAs — where the published mechanism predicts the gain — got *worse*
-(6.90% → 7.08%). Cause is structural: summing 16 independent recursive
-trajectories cancels error (3.35% at top vs 5.96% bottom-level mean) while one
-168-step aggregate trajectory drifts to 24.14%. **Scope: this is the 168h
-recursive regime only** — short horizons (the `drift_horizon` benchmark scores
-24h/48h) are not closed by it.
+sub-hierarchies, at 24h/48h/168h. At the benchmark's headline 24h lead
+(Southeast, 16 BAs): MinT is a no-op (+0.090, inconclusive); OLS is harmful
+(20.14% vs a 4.90% base) and concentrates its damage on exactly the small
+series the method was meant to help (36.08%). The pre-declared small-vs-large
+split shows small BAs gaining nothing (5.69% → 5.70%).
+
+**A first version of this result was computed on MISALIGNED FRAMES and its
+numbers are withdrawn** — one positional slice applied to per-BA and aggregate
+frames of different lengths and start times, scoring the aggregate forecast
+against actuals from a different week. Corrected: incoherence 24.70% → 1.99%,
+aggregate model 24.14% → 2.45%, MinT −0.163 → +0.090. The *verdict* survived;
+its stated cause did not. The aggregate model was never bad — it beats
+sum-of-parts at every lead — so the "recursive drift / structural" explanation
+given earlier is withdrawn too. Found by computing the aggregate error a
+second way and getting 3.65% against the study's 13.25%. Now guarded by
+`scripts/_study_guards.py` (`assert_frames_aligned`, `assert_plausible`).
 
 **Incidental findings worth keeping:** the 51 BA demands sum to 99.25% of EIA's
 US48 with no double-counting (so the hierarchy is real); SARIMAX's fit scales
