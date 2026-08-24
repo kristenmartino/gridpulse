@@ -1,0 +1,1 @@
+2026-08-21 [unverified-quantifier] Wrote that demand_lag_1h was the top feature in every fit when the log showed 392 of 420; the substantive point held (419 of 420 were autoregressive) but the quantifier was asserted without counting — ref: #231 follow-up study.

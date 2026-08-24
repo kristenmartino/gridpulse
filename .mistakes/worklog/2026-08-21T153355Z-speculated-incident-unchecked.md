@@ -1,0 +1,1 @@
+2026-08-21 [speculated-incident-unchecked] Flagged a possible past production incident from corrupt Jan-2024 EIA records reaching the trailing 90-day training window, and wrote it into a committed brief, without checking that the project's initial commit is 2026-02-28 or that a 90-day window in 2026 cannot reach 2024 at all — ref: #231 follow-up study.

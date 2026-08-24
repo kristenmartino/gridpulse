@@ -1,0 +1,1 @@
+2026-08-21 [overclaimed-from-pilot] Reported a 2-BA pilot as the seasonality question reversing, then the 4-BA extension came back mixed (2 clean wins, 1 bias-vetoed, 1 weak, 1 negative, 1 void), so the confident framing outran a sample that was always too small to support it — ref: #231 follow-up study.

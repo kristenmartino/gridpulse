@@ -1,0 +1,1 @@
+2026-08-21 [seasonally-blind-holdout] Three studies concluded more training history does not help while every one of their 8 rolling test windows fell in Jun-Aug, so the seasonal-turn regime the whole argument rests on was never tested — ref: #231 follow-up study.
