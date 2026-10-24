@@ -117,7 +117,9 @@ class TestScenarioEndpoint:
         r = client.get("/api/v1/scenario/FPL")
 
         assert r.status_code in (200, 503)
-        assert "scenario grid" in r.get_json().get("detail", "").lower()
+        assert (
+            "weather-scenario forecasts are unavailable" in r.get_json().get("detail", "").lower()
+        )
 
     def test_an_unknown_region_is_rejected(self, client):
         r = client.get("/api/v1/scenario/NOT_A_BA")

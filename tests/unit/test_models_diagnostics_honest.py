@@ -307,7 +307,7 @@ class TestModelsTabHonestRender:
             assert "unavailable" in text
             # #220: the copy states the TRUE self-heal condition (nightly
             # training backtests), not the old false promise about scoring.
-            assert "training job" in text
+            assert "published backtest predictions" in text.replace("<br>", " ")
             assert "scoring job" not in text
         # Real SHAP still renders (real importances present).
         assert (

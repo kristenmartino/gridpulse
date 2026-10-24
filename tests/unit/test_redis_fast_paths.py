@@ -802,7 +802,9 @@ class TestOutlookTabFromRedis:
         assert len(fig.data) == 0  # no forecast line drawn
         annotation_text = fig.layout.annotations[0].text
         assert "withheld" in annotation_text
-        assert "XGBOOST" in annotation_text
+        assert "XGBoost" in annotation_text
+        assert "Passed the demand-range check through 24h" in annotation_text
+        assert "Verified" not in annotation_text
         assert peak_str == avg_str == min_str == range_str == "—"
 
     @patch("components._callbacks_forecast._add_trailing_actuals")
@@ -866,9 +868,9 @@ class TestOutlookTabFromRedis:
         # the SERVED series (the prophet primary), not the requested model —
         # and bridge the gap with a substitution disclosure so the user
         # isn't shown copy about a model they never selected.
-        assert "PROPHET is withheld" in annotation
-        assert "XGBOOST is withheld" not in annotation
-        assert "Requested XGBOOST" in annotation
+        assert "Prophet is withheld" in annotation
+        assert "XGBoost is withheld" not in annotation
+        assert "Requested XGBoost" in annotation
 
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")
@@ -974,8 +976,8 @@ class TestOutlookTabFromRedis:
         assert "PROPHET Demand Forecast" in title
         assert "XGBOOST Demand Forecast" not in title
         # Substitution disclosed on the chart itself.
-        assert "Requested XGBOOST unavailable" in title
-        assert "showing PROPHET" in title
+        assert "Requested XGBoost is unavailable" in title
+        assert "showing the published primary forecast, Prophet" in title
         # Bands calibrate against the model actually plotted, and the
         # caption discloses the cross-model calibration.
         assert mock_bands.call_args.kwargs["model_name"] == "prophet"

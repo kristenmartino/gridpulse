@@ -152,11 +152,11 @@ class TestFormatDriverLine:
 
     def test_global_high(self):
         line = format_driver_line("Temperature", 0.3, mode="global")
-        assert line == "Temperature (high)"
+        assert line == "Temperature: importance 0.300"
 
     def test_global_zero(self):
         line = format_driver_line("Humidity", 0.0, mode="global")
-        assert line == "Humidity"
+        assert line == "Humidity: importance 0.000"
 
 
 # ── build_tooltip_strings ─────────────────────────────────────────
@@ -203,7 +203,7 @@ class TestBuildTooltipStrings:
         assert len(result) == 5
         # Global fallback — all same static tooltip
         assert result[0] == result[4]
-        assert "(high)" in result[0]
+        assert "Model-wide XGBoost importance" in result[0]
 
     def test_prophet_uses_global_fallback(self):
         result = build_tooltip_strings(
@@ -214,7 +214,7 @@ class TestBuildTooltipStrings:
             model_name="prophet",
         )
         assert len(result) == 5
-        assert result[0] == result[4]  # Same static tooltip for all
+        assert result == [""] * 5  # Do not attach XGBoost importance to Prophet
 
     def test_no_model_dict_returns_empty(self):
         result = build_tooltip_strings(
@@ -240,7 +240,7 @@ class TestBuildTooltipStrings:
         )
         # Falls to global since shap has 3 rows but we need 5
         assert len(result) == 5
-        assert "(high)" in result[0]
+        assert "Model-wide XGBoost importance" in result[0]
 
     def test_non_xgboost_ignores_shap(self):
         """Even if SHAP data is provided, non-XGBoost model uses global fallback."""
@@ -254,8 +254,8 @@ class TestBuildTooltipStrings:
             model_name="prophet",
         )
         assert len(result) == 5
-        # Prophet uses global, not SHAP
-        assert result[0] == result[4]
+        # XGBoost attribution cannot explain a Prophet forecast.
+        assert result == [""] * 5
 
     def test_per_point_tooltips_vary(self):
         """SHAP tooltips should differ between points (different feature contributions)."""

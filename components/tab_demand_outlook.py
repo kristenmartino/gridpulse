@@ -149,7 +149,7 @@ def _metrics_bar() -> html.Div:
                 html.Div(
                     "Peak Demand",
                     className="gp-metric-label",
-                    title="Highest forecasted demand over the selected horizon (default 7 days).",
+                    title="Highest forecasted demand over the selected horizon.",
                 ),
                 html.Div(
                     [
@@ -158,7 +158,6 @@ def _metrics_bar() -> html.Div:
                             children="—",
                             className="gp-metric-value gp-metric-value--hero tabular",
                         ),
-                        html.Span("MW", className="gp-metric-unit"),
                     ],
                     className="gp-metric-value-row",
                 ),
@@ -181,7 +180,6 @@ def _metrics_bar() -> html.Div:
                             children="—",
                             className="gp-metric-value gp-metric-value--secondary tabular",
                         ),
-                        html.Span("MW", className="gp-metric-unit"),
                     ],
                     className="gp-metric-value-row",
                 ),
@@ -204,7 +202,6 @@ def _metrics_bar() -> html.Div:
                             children="—",
                             className="gp-metric-value gp-metric-value--secondary tabular",
                         ),
-                        html.Span("MW", className="gp-metric-unit"),
                     ],
                     className="gp-metric-value-row",
                 ),
@@ -227,7 +224,6 @@ def _metrics_bar() -> html.Div:
                             children="—",
                             className="gp-metric-value gp-metric-value--secondary tabular",
                         ),
-                        html.Span("MW", className="gp-metric-unit"),
                     ],
                     className="gp-metric-value-row",
                 ),

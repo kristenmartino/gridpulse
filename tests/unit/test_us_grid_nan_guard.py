@@ -341,5 +341,5 @@ class TestUsGridTitleNaNGuard:
             return out
 
         rendered = " ".join(_all_text(title)).lower()
-        assert "warming up" in rendered
+        assert "demand data unavailable" in rendered
         assert "nan" not in rendered

@@ -148,13 +148,14 @@ def _build_us_grid_title(region_data: dict[str, dict]) -> html.Div:
             f"{total_mw / 1000:.1f} GW total demand"
         )
     else:
-        subtitle = f"{n_visible} balancing authorities · pipeline warming up"
+        subtitle = f"{n_visible} balancing authorities · demand data unavailable"
     tooltip: str | None = None
     if hidden:
         subtitle += f" · {len(hidden)} hidden"
         tooltip = (
-            "Hidden by the forecast quality gate (best served-model MAPE > 22%, "
-            "the 7-day rollback grade): " + ", ".join(sorted(hidden))
+            "Hidden by the configured forecast-quality gate: "
+            + ", ".join(sorted(hidden))
+            + ". Review model error on the Models view."
         )
     return build_page_title(title="US Grid", subtitle=subtitle, subtitle_tooltip=tooltip)
 
@@ -474,7 +475,7 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
             id=card_id,
             n_clicks=0,
             className="gp-region-card gp-region-card--empty",
-            title=f"{name} · pipeline warming up",
+            title=f"{name} · no demand data available",
         )
 
     current_mw = data["current_mw"]
@@ -505,14 +506,14 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
         # mathematically below 100% (PACW added #225).
         if region in IS_IMPORT_DOMINATED or stress_ratio > _STRESS_RELIABLE_CEILING:
             stress_chip = html.Span(
-                "imports",
+                "imports" if region in IS_IMPORT_DOMINATED else "ratio n/a",
                 className="gp-region-card__stress gp-region-card__stress--imports",
                 title=(
-                    f"{name} is an import-dominated balancing authority — "
-                    f"its served demand routinely exceeds in-territory generation "
-                    f"and is supplied via inter-BA transfers. The utilization % "
-                    f"is calculated against an estimated capacity pool, not a "
-                    f"measured plate."
+                    f"{name} receives power from other regions; local installed capacity "
+                    f"does not represent all supply serving its demand. Excluded from demand/nameplate comparisons."
+                    if region in IS_IMPORT_DOMINATED
+                    else f"{name}'s demand/capacity ratio exceeds the display's plausibility limit. "
+                    f"The ratio alone does not establish the cause."
                 ),
             )
         elif region in PEAK_DERIVED_CAPACITY:
@@ -606,7 +607,7 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     if not populated:
         return html.Div(
             html.Div(
-                "All regions warming up — switch to Cards view to see per-region status.",
+                "No regional demand data is available. Switch to Cards to inspect individual regions.",
                 className="gp-region-map__empty-message",
             ),
             className="gp-region-map gp-region-map--empty",
@@ -643,7 +644,7 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     # PACW) and " · est. cap" for peak-derived-capacity BAs (SOCO/DUK/CPLE/PSCO/
     # FMPP, #254) — both are estimates, not measured plate capacity.
     hover_text = [
-        f"<b>{name}{_capacity_hover_suffix(r)}</b><br>Demand: {d:.1f} GW<br>Demand / nameplate: {s:.0f}% (capped at 100%)"
+        f"<b>{name}{_capacity_hover_suffix(r)}</b><br>Demand: {d:.1f} GW<br>Demand / listed capacity: {s:.0f}% (capped at 100%; not available reserves)"
         for r, name, d, s in zip(regions, names, demand_gw, stress_pct, strict=False)
     ]
 
@@ -660,7 +661,7 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
                 "cmax": 100,
                 "colorbar": {
                     "title": {
-                        "text": "Demand /<br>nameplate %",
+                        "text": "Demand /<br>listed capacity %",
                         "font": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
                     },
                     "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
@@ -774,7 +775,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
     if not populated:
         return html.Div(
             html.Div(
-                "All regions warming up — switch to Cards view to see per-region status.",
+                "No regional demand data is available. Switch to Cards to inspect individual regions.",
                 className="gp-region-map__empty-message",
             ),
             className="gp-region-map gp-region-map--empty",
@@ -817,7 +818,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
             marker={"line": {"color": _MAP_BORDER_COLOR, "width": 1.0}},
             colorbar={
                 "title": {
-                    "text": "Demand /<br>nameplate %",
+                    "text": "Demand /<br>listed capacity %",
                     "font": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
                 },
                 "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
@@ -835,7 +836,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
             hovertemplate=(
                 "<b>%{customdata[1]}</b>%{customdata[3]}<br>"
                 "Demand: %{customdata[2]:.1f} GW<br>"
-                "Demand / nameplate: %{z:.0f}% (capped at 100%)<extra></extra>"
+                "Demand / listed capacity: %{z:.0f}% (capped at 100%; not available reserves)<extra></extra>"
             ),
         )
     )

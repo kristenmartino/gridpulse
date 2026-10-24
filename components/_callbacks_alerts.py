@@ -123,7 +123,7 @@ def _build_alert_cards(alerts, alerts_source, alerts_total=None):
             more_note = f" · showing {len(alerts)} of {total}" if total > len(alerts) else ""
             cards.append(
                 html.P(
-                    f"Live severe-weather alerts · NOAA/NWS{more_note}",
+                    f"NOAA/NWS severe-weather alerts · latest update{more_note}",
                     className="gp-alerts-source",
                     style={"color": "#A8B3C7", "fontSize": "0.72rem", "textAlign": "center"},
                 )
@@ -131,13 +131,9 @@ def _build_alert_cards(alerts, alerts_source, alerts_total=None):
         return cards
 
     if alerts_source == "unavailable":
-        message = (
-            "Severe-weather alerts (NOAA/NWS) are temporarily unavailable. "
-            "The temperature and demand-anomaly charts below use live "
-            "weather and demand data and are unaffected."
-        )
+        message = "NOAA/NWS alerts are unavailable, so severe-weather alert status is unknown."
     elif alerts_source == "noaa":
-        message = "No active severe-weather alerts (NOAA/NWS live feed)"
+        message = "NOAA/NWS reported no active severe-weather alerts in the latest update."
     else:
         message = "No active alerts"
     return [html.P(message, style={"color": "#A8B3C7", "textAlign": "center", "padding": "20px"})]
@@ -587,23 +583,21 @@ def register_alerts_callbacks(app):
                 state_card = warming_state(
                     title="Risk data unavailable",
                     message=(
-                        "The scoring pipeline is live, but no alert/anomaly "
-                        "payload exists for this region — its alert phase is "
-                        "not producing data. This won't resolve on its own."
+                        "The latest data update completed without risk results for this region. "
+                        "Alert and anomaly status are unavailable. Try another region or check again later."
                     ),
                 )
                 chip_text = "Unavailable"
             else:
                 log.info("alerts_warming_gate", region=region)
                 state_card = warming_state(
-                    title="Risk data is warming up",
+                    title="Risk data unavailable",
                     message=(
-                        "The scheduled pipeline has not published alert/anomaly "
-                        "data for this region yet. This page will populate after "
-                        "the next scoring run."
+                        "No risk results are available for this region. "
+                        "Try another region or check again later."
                     ),
                 )
-                chip_text = "Warming"
+                chip_text = "Not available"
             return (
                 [state_card],
                 "—",

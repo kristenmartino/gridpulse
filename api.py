@@ -369,10 +369,7 @@ def scenario(raw_region: str):
 
     payload = redis_get(redis_key(f"scenario_grid:{region}"))
     if not isinstance(payload, dict) or not payload.get("factors"):
-        return _warming_response(
-            "No scenario grid in cache for this region — it is written by the "
-            "hourly scoring job behind the `scenario_grid` flag."
-        )
+        return _warming_response("Weather-scenario forecasts are unavailable for this region.")
 
     args = request.args
     if not any(k in args for k in ("temp", "wind", "solar")):
@@ -392,7 +389,7 @@ def scenario(raw_region: str):
 
     curve = interpolate_scenario_factors(payload, temp, wind, solar)
     if curve is None:
-        return _warming_response("Scenario grid present but unusable for this position.")
+        return _warming_response("No scenario estimate is available for these input changes.")
 
     # Say whether this position is inside the model's observed range. A tree
     # ensemble does not extrapolate: past the training envelope the response
@@ -457,10 +454,7 @@ def forecast(raw_region: str):
 
     payload = redis_get(redis_key(f"forecast:{region}:1h"))
     if not isinstance(payload, dict) or not payload.get("forecasts"):
-        return _warming_response(
-            "No forecast in cache for this region yet — the hourly scoring "
-            "job populates it; retry shortly."
-        )
+        return _warming_response("No published forecast is available for this region.")
 
     rows_in = payload["forecasts"][:horizon]
     # The production series is the ensemble when present (ADR-004); fall back
@@ -547,9 +541,7 @@ def grid_summary():
     region_data = _collect_us_grid_region_data()
     populated = {r: d for r, d in region_data.items() if _is_real_positive(d.get("current_mw"))}
     if not populated:
-        return _warming_response(
-            "No regional demand in cache yet — the hourly scoring job populates it; retry shortly."
-        )
+        return _warming_response("No regional demand data is available.")
 
     # Mirror the US Grid KPI bar exactly: artifact readings (a latest value
     # far below the BA's own 24h median — the #225 glitch class) are excluded
@@ -568,8 +560,7 @@ def grid_summary():
     artifact_excluded = sorted((set(populated) - set(plausible)) | stamped)
     if not plausible:
         return _warming_response(
-            "Regional demand in cache looks like publishing artifacts — "
-            "waiting for a clean scoring tick; retry shortly."
+            "All available regional demand readings were excluded by the data-quality checks."
         )
 
     total_mw = sum(d["current_mw"] for d in plausible.values())
@@ -656,8 +647,8 @@ def drift(raw_region: str):
     horizon_ok = isinstance(horizon, dict) and horizon.get("models")
     if not live_ok and not horizon_ok:
         return _warming_response(
-            "No drift records for this region yet — they accumulate over "
-            "the first hours (1h) to days (24-72h) after deploy."
+            "No live error records are available for this region. "
+            "Forecasts can be scored once demand for their target hours is reported."
         )
 
     body: dict[str, Any] = {
@@ -867,9 +858,8 @@ def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 #: Shown when no BA has accumulated enough paired hours yet.
 BENCHMARK_WARMING_DETAIL = (
-    "No benchmark results yet — a BA needs roughly nine days of "
-    "scoring ticks before enough matured forecasts pair with settled "
-    "actuals to publish a verdict."
+    "No benchmark results are available. Comparisons require enough "
+    "paired forecasts and settled demand observations."
 )
 
 
@@ -1000,10 +990,8 @@ def benchmark_region(raw_region: str):
     payload = redis_get(redis_key(f"benchmark:{region}"))
     if not isinstance(payload, dict) or not payload.get("region"):
         return _warming_response(
-            "No benchmark payload cached for this region. The hourly scoring "
-            "job writes it once the region has settled vintage history; a "
-            "region that is scored but still accumulating paired hours "
-            "appears here with its reason instead."
+            "No benchmark results are available for this region. "
+            "Comparisons require enough paired forecasts and settled demand observations."
         )
 
     body = _export_benchmark_payload(payload)

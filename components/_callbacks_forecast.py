@@ -959,9 +959,9 @@ def _guarded_outlook_state(
     label = horizon_labels.get(horizon_hours, f"{horizon_hours}h")
     if max_ok > 0:
         verified = (
-            f"Verified up to {max_ok}h — try a shorter horizon or the Ensemble model."
+            f"Passed the demand-range check through {max_ok}h — try a shorter horizon or the Ensemble model."
             if ensemble_ok
-            else f"Verified up to {max_ok}h — try a shorter horizon."
+            else f"Passed the demand-range check through {max_ok}h — try a shorter horizon."
         )
     else:
         verified = (
@@ -972,15 +972,21 @@ def _guarded_outlook_state(
     substitution_note = ""
     if requested_model and requested_model != model_name:
         substitution_note = (
-            f"<br>Requested {requested_model.upper()} is unavailable this scoring run — "
-            f"{model_name.upper()} (payload primary) is the served series."
+            f"<br>Requested {model_display_name(requested_model)} is unavailable in this update — "
+            f"{model_display_name(model_name)} is the published primary forecast."
         )
     fig = go.Figure()
-    fig.update_layout(**_layout(uirevision=f"{region}:{horizon_hours}"))
+    fig.update_layout(
+        **_layout(
+            uirevision=f"{region}:{horizon_hours}",
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+        )
+    )
     fig.add_annotation(
         text=(
-            f"{model_name.upper()} is withheld at the {label} horizon for {region}"
-            f"<br><sup>The scoring job's long-horizon sanity guard flagged this "
+            f"{model_display_name(model_name)} is withheld at the {label} horizon for {region}"
+            f"<br><sup>The demand-range check flagged this "
             f"forecast — {reason_copy}.{substitution_note}<br>{verified}</sup>"
         ),
         xref="paper",
@@ -1241,8 +1247,8 @@ def _outlook_tab_from_redis(
         )
     elif served_model != model_name:
         substitution_caption = (
-            f"<br><sup>Requested {model_name.upper()} unavailable this scoring run — "
-            f"showing {served_model.upper()} (payload primary)</sup>"
+            f"<br><sup>Requested {model_display_name(model_name)} is unavailable in this update — "
+            f"showing the published primary forecast, {model_display_name(served_model)}.</sup>"
         )
     fig.update_layout(
         **_layout(
@@ -1640,29 +1646,33 @@ def register_forecast_callbacks(app):
             is_unavailable = result["error"] == "unavailable"
             is_selection = result["error"] == "unavailable_selection"
             if is_warming:
-                text = "Pipeline is warming up — forecast will appear shortly"
+                text = "No published forecast is available for this region.<br><sup>Try another region or check again later.</sup>"
             elif is_selection:
                 text = (
-                    f"No {model_name.upper()} data in the current scoring payload"
-                    f" for {region or 'this region'}"
-                    "<br><sup>The pipeline is live; a single-run model failure heals on "
-                    "the next hourly run. If this persists across runs, the model isn't "
-                    "training or its forecast phase is failing.</sup>"
+                    f"No {model_display_name(model_name)} forecast in the latest update"
+                    f" for {region or 'this region'}."
+                    "<br><sup>Select another model or check again later.</sup>"
                 )
             elif is_unavailable:
                 text = (
                     f"Forecast unavailable for {region or 'this region'}"
-                    "<br><sup>The data pipeline is live and a full scoring pass has "
-                    "completed, but no forecast exists for this region — typically its "
-                    "models haven't trained yet or its forecast phase is failing. "
-                    "This won't resolve on its own.</sup>"
+                    "<br><sup>The latest completed data update did not publish a forecast "
+                    "for this region. Try another region or check again later.</sup>"
                 )
             else:
-                text = f"Forecast failed: {result['error']}"
+                log.warning(
+                    "forecast_render_failed",
+                    region=region,
+                    model=model_name,
+                    error=str(result["error"]),
+                )
+                text = "Forecast could not be loaded.<br><sup>Refresh the page to retry, or select another model.</sup>"
             soft = is_warming or is_unavailable or is_selection
             color = "#71717a" if soft else "#f87171"  # tertiary | danger
             fig = go.Figure()
-            fig.update_layout(**_layout(uirevision=uirev))
+            fig.update_layout(
+                **_layout(uirevision=uirev, xaxis=dict(visible=False), yaxis=dict(visible=False))
+            )
             fig.add_annotation(
                 text=text,
                 xref="paper",

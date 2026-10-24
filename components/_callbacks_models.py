@@ -216,9 +216,8 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
     ):
         log.info("diagnostics_unavailable_render", region=region, source=diagnostics_source)
         unavail = _empty_figure(
-            "Residual diagnostics unavailable — no backtest results published "
-            "for this region yet. Populates after the nightly training job "
-            "writes its walk-forward backtest."
+            "Residual diagnostics unavailable for this region. "
+            "Published backtest predictions and matching timestamps are required."
         )
         return (
             table,
@@ -470,7 +469,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
         # enough to be statistically meaningful. Other models in the
         # same panel may have full records — surface mixed state.
         if n_eff < 24 or live_7d is None:
-            status_label = "Warming"
+            status_label = "Not assessed"
             unassessed_names.append(display)
             status_tone = "secondary"
             # Don't print rolling means the chip just declared statistically
@@ -534,10 +533,8 @@ def _build_drift_panel(region: str | None) -> html.Div:
                     status_label = "Off band"
                     status_tone = "negative"
                     chip_title = (
-                        "Above the 5% 1h nowcast band and the horizon-drift "
-                        "feed is not reporting — day-ahead health cannot be "
-                        "verified. Investigate the model AND the horizon-drift "
-                        "pipeline."
+                        "Above the 5% error band at 1h ahead. The 24h error feed is unavailable, "
+                        "so the longer-lead comparison cannot be assessed."
                     )
                     off_band_unverified.append(display)
                 elif day_grade is None:
@@ -599,7 +596,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
             [
                 html.Div("Live error", className="gp-control-eyebrow"),
                 html.Div(
-                    "No models have drift records yet for this region.",
+                    "No live error records are available for this region.",
                     className="gp-panel__placeholder",
                 ),
             ],
@@ -755,7 +752,7 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
                 cells.append(
                     html.Td(
                         html.Span(
-                            "Warming" if n_records else "—",
+                            "More records needed" if n_records else "—",
                             className="gp-status-chip gp-status-chip--secondary",
                         ),
                         className="gp-drift-cell--horizon",
@@ -782,7 +779,7 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
             [
                 html.Div("Live error by forecast lead", className="gp-control-eyebrow"),
                 html.Div(
-                    "No horizon-drift records yet for this region.",
+                    "No live error records are available for these forecast leads.",
                     className="gp-panel__placeholder",
                 ),
             ],
