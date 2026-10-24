@@ -370,7 +370,7 @@ class TestAddConfidenceBands:
         ts = pd.date_range("2024-01-01", periods=5, freq="h")
         preds = np.ones(5) * 5000
         _add_confidence_bands(fig, ts, preds, 24)
-        assert fig.data[1].name == "80% indicative range"
+        assert fig.data[1].name == "Illustrative ±3% range"
 
     def test_wider_bands_at_longer_horizon(self):
         from components.callbacks import _add_confidence_bands
@@ -827,15 +827,14 @@ class TestGetFeatureImportance:
         from components.callbacks import _get_feature_importance
 
         names, vals = _get_feature_importance("ERCOT")
-        assert len(names) == 10
-        assert len(vals) == 10
-        assert "temperature_2m" in names
+        assert names == []
+        assert vals.size == 0
 
     def test_default_values_sum_to_one(self):
         from components.callbacks import _get_feature_importance
 
         _, vals = _get_feature_importance("ERCOT")
-        assert abs(vals.sum() - 1.0) < 1e-6
+        assert vals.size == 0
 
     def test_cached_model_with_importances(self):
         import components.callbacks as cb
@@ -854,7 +853,7 @@ class TestGetFeatureImportance:
         assert len(names) == 3
         assert names[0] == "temperature_2m"  # highest importance first
 
-    def test_cached_model_all_zero_importances_returns_defaults(self):
+    def test_cached_model_all_zero_importances_returns_empty(self):
         import components.callbacks as cb
         from components.callbacks import _get_feature_importance
 
@@ -866,17 +865,17 @@ class TestGetFeatureImportance:
         }
         cb._MODEL_CACHE[("CAISO", "xgboost", 0)] = (model_dict, 0, time.time())
         names, vals = _get_feature_importance("CAISO")
-        # Should return defaults since vals.sum() == 0
-        assert len(names) == 10
+        # Should return no values since vals.sum() == 0
+        assert names == []
 
     def test_cached_model_not_dict(self):
-        """If cached model is not a dict with 'feature_importances', return defaults."""
+        """If cached model is not a dict with 'feature_importances', return no values."""
         import components.callbacks as cb
         from components.callbacks import _get_feature_importance
 
         cb._MODEL_CACHE[("PJM", "xgboost", 0)] = ("not_a_dict", 0, time.time())
         names, vals = _get_feature_importance("PJM")
-        assert len(names) == 10
+        assert names == []
 
     def test_top_n_parameter(self):
         import components.callbacks as cb

@@ -20,7 +20,7 @@ Use GridPulse to inspect reported demand and forecasts, compare model error, rev
 | **US Grid** | How does demand compare across regions? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
 | **Forecast** | What demand is forecast? | Per-model and ensemble demand forecasts; bands use backtest error ranges when available and heuristic envelopes otherwise |
 | **Risk** | Which alerts need review? | Weather alerts, demand anomalies, demand/nameplate comparison |
-| **Models** | How have the models performed? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, SHAP feature importance |
+| **Models** | How have the models performed? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, built-in XGBoost feature importance |
 
 Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) tune the narrative layer: the insight card's framing, and which insights surface and how many. The data, KPI tiles, and forecasts are identical across personas. (Per-persona KPI cards and alert thresholds are declared in `personas/config.py` but not yet wired into the shell — see [#188](https://github.com/kristenmartino/gridpulse/issues/188).)
 

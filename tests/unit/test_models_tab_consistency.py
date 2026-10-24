@@ -374,3 +374,18 @@ class TestLeaderboardTableConsistency:
 
         src = inspect.getsource(cm.register_models_callbacks)
         assert "get_model_metrics(region) or forecasts.get" in src
+
+
+def test_missing_holdout_mape_renders_without_selecting_a_false_best_model():
+    from components._callbacks_models import _build_models_leaderboard
+
+    with patch(
+        "models.model_service.get_model_metrics",
+        return_value={
+            "prophet": {"mape": None},
+            "xgboost": {"mape": 8.6, "mae": 1324},
+        },
+    ):
+        bar = _build_models_leaderboard("PJM")
+    assert "metrics unavailable" in str(bar)
+    assert "8.6%" in str(bar)

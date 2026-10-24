@@ -311,13 +311,15 @@ class TestGenerateTab2Insights:
             insights = generate_tab2_insights(persona, "FPL", predictions, timestamps)
             assert len(insights) > 0
 
-    def test_capacity_risk_for_high_demand(self):
+    def test_nameplate_ratio_does_not_imply_supply_risk(self):
         # FPL capacity is 32,000 MW
         predictions = np.full(24, 30000)  # ~94% utilization
         timestamps = pd.date_range("2024-01-01", periods=24, freq="h")
         insights = generate_tab2_insights("grid_ops", "FPL", predictions, timestamps)
-        categories = [i.category for i in insights]
-        assert "risk" in categories
+        capacity_notes = [i for i in insights if i.metric_name == "capacity_pct"]
+        assert capacity_notes
+        assert all(i.category == "pattern" and i.severity == "info" for i in capacity_notes)
+        assert "nameplate capacity" in capacity_notes[0].text
 
     def test_model_info_included(self):
         predictions = np.full(24, 25000)
