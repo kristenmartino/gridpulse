@@ -2433,3 +2433,150 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     font-weight: 600;
     margin-bottom: 3px;
 }
+
+/* Forecast review: keep source identity and measurement scope beside the curve. */
+.gp-forecast-review {
+    background: var(--bg-raised);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+}
+.gp-forecast-review__grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.gp-forecast-review__cell {
+    min-width: 0;
+    padding: var(--space-5);
+}
+.gp-forecast-review__cell + .gp-forecast-review__cell {
+    border-left: 1px solid var(--border-default);
+}
+.gp-forecast-review__label {
+    margin: 0 0 var(--space-2);
+    color: var(--text-secondary);
+    font-family: var(--font-sans);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    line-height: var(--leading-base);
+}
+.gp-forecast-review__value {
+    margin: 0 0 var(--space-2);
+    color: var(--text-primary);
+    font-size: var(--text-xl);
+    font-weight: 600;
+    line-height: var(--leading-tight);
+    overflow-wrap: anywhere;
+}
+.gp-forecast-review__status {
+    display: inline-block;
+    margin: 0 0 var(--space-2);
+    padding: 2px var(--space-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    font-size: var(--text-sm);
+    font-weight: 500;
+}
+.gp-forecast-review__note,
+.gp-forecast-review__source-note {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-base);
+    line-height: var(--leading-relaxed);
+    overflow-wrap: anywhere;
+}
+.gp-forecast-review__note strong { color: var(--text-primary); font-weight: 500; }
+.gp-forecast-review__source-note {
+    padding: var(--space-3) var(--space-5);
+    border-top: 1px solid var(--border-default);
+}
+.gp-review-workflow {
+    padding-left: var(--space-4);
+    border-left: 2px solid var(--accent-base);
+}
+.gp-review-workflow__audience {
+    margin: 0 0 var(--space-1);
+    color: var(--text-secondary);
+    font-size: var(--text-sm);
+    font-weight: 500;
+}
+.gp-review-workflow__question {
+    margin: 0 0 var(--space-1);
+    color: var(--text-primary);
+    font-size: var(--text-lg);
+    font-weight: 600;
+    line-height: var(--leading-base);
+}
+.gp-review-workflow__note {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: var(--text-base);
+    line-height: var(--leading-relaxed);
+}
+.gp-review-workflow__history {
+    border-top: 1px solid var(--border-default);
+    border-bottom: 1px solid var(--border-default);
+}
+.gp-review-workflow__history summary {
+    padding: var(--space-4) 0;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: var(--text-md);
+    font-weight: 500;
+}
+.gp-review-workflow__history summary:hover { color: var(--text-primary); }
+.gp-review-workflow__history summary:focus-visible {
+    outline: 2px solid var(--accent-base);
+    outline-offset: 4px;
+}
+.gp-review-workflow__history[open] > div { padding-bottom: var(--space-4); }
+@media (max-width: 760px) {
+    .gp-forecast-review__grid { grid-template-columns: 1fr; }
+    .gp-forecast-review__cell + .gp-forecast-review__cell {
+        border-left: none;
+        border-top: 1px solid var(--border-default);
+    }
+}
+
+/* The source selector includes a published default plus four comparisons. */
+@media (max-width: 760px) {
+    #outlook-model { flex-wrap: wrap; max-width: 100%; }
+}
+
+/* Keep the review context reachable without a fixed-height mobile header. */
+@media (max-width: 640px) {
+    .dashboard-header.gp-header {
+        height: auto;
+        padding: var(--space-3) 0;
+        position: relative;
+        top: auto;
+    }
+    .gp-header__inner {
+        height: auto;
+        flex-direction: column;
+        align-items: stretch;
+        gap: var(--space-3);
+    }
+    .gp-header__brand,
+    .gp-header__brand-lockup { min-width: 0; }
+    .gp-brand-tagline { overflow-wrap: anywhere; }
+    .gp-header__controls {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        width: 100%;
+        min-width: 0;
+        margin-left: 0;
+        gap: var(--space-2);
+    }
+    .gp-header__controls .gp-header__select,
+    .gp-header__controls .gp-header__chip {
+        display: block;
+        grid-column: 1 / -1;
+        width: 100%;
+        min-width: 0;
+        max-width: none;
+    }
+    .gp-header__controls .gp-header__link { display: block; }
+    .nav-tabs { top: 0; }
+}

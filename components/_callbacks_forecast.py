@@ -92,11 +92,14 @@ from components._callbacks_shared import (
 )
 from components.accessibility import LINE_STYLES, model_display_name
 from components.cards import build_metrics_bar
+from components.forecast_context import forecast_review_context
+from components.forecast_review import build_forecast_review
 from config import (
     CACHE_TTL_SECONDS,
     OPEN_METEO_FORECAST_HOURS,
     REQUIRE_REDIS,
 )
+from data.forecast_identity import resolve_forecast_identity, selection_values
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -1026,26 +1029,14 @@ def _outlook_tab_from_redis(
     log.info("outlook_redis_hit", region=region, granularity=granularity)
     forecasts = cached["forecasts"]
 
-    # Model availability check: skip Redis if requested model isn't stored.
-    # "xgboost" is exempt for back-compat: it falls back to the payload's
-    # ``predicted_demand_mw`` primary series below. Every other model miss
-    # returns None (warming / inline fallback).
-    if model_name != "xgboost" and model_name not in forecasts[0]:
-        log.info("outlook_redis_model_miss", model=model_name)
+    identity = resolve_forecast_identity(cached, model_name)
+    if identity is None:
         return None
-
-    timestamps = pd.to_datetime([f["timestamp"] for f in forecasts])
-    pred_key = model_name if model_name in forecasts[0] else "predicted_demand_mw"
-
-    # P2-26 (#273): resolve the model whose numbers are ACTUALLY plotted.
-    # When the xgboost exemption above falls back to ``predicted_demand_mw``,
-    # that column mirrors the payload's PRIMARY model — the first model that
-    # succeeded that scoring run, not necessarily XGBoost. Every label on
-    # this chart (trace name, title, band calibration, insights, withheld
-    # state) must name the served model, never the requested one — the old
-    # behavior titled another model's series "XGBOOST Demand Forecast" and
-    # wrapped XGBoost-calibrated bands around it.
-    served_model = _served_model_for_payload(cached, model_name)
+    served_model = (
+        BASELINE_SERIES_LABEL
+        if identity.metric_key == "baseline"
+        else identity.metric_key or "published"
+    )
 
     # #296: honor the scoring job's serve-time horizon guard. When the
     # series about to be drawn is flagged as degenerate at this horizon,
@@ -1057,7 +1048,7 @@ def _outlook_tab_from_redis(
         if guard_map is not None:
             log.warning("outlook_horizon_guard_malformed", region=region, shape="map")
         guard_map = {}
-    guard = guard_map.get(served_model)
+    guard = guard_map.get(identity.metric_key)
     max_ok = _guard_max_ok(guard)
     if guard is not None and max_ok is None:
         log.warning("outlook_horizon_guard_malformed", region=region, model=served_model)
@@ -1101,17 +1092,16 @@ def _outlook_tab_from_redis(
             requested_model=model_name,
         )
 
-    predictions = np.array([f.get(pred_key, f.get("predicted_demand_mw", 0)) for f in forecasts])
-
-    # Sufficiency check: Redis must cover the requested horizon
-    if len(predictions) < horizon_hours:
-        log.warning(
-            "outlook_redis_insufficient",
-            region=region,
-            available=len(predictions),
-            requested=horizon_hours,
-        )
+    selected = selection_values(cached, identity, horizon_hours)
+    if selected is None:
         return None
+    try:
+        timestamps = pd.to_datetime(selected[0], utc=True, errors="raise")
+        if timestamps.isna().any():
+            return None
+    except (TypeError, ValueError):
+        return None
+    predictions = np.array(selected[1])
 
     # Log the substitution only once it will actually render (an
     # insufficient payload above falls through to the degraded states —
@@ -1156,11 +1146,7 @@ def _outlook_tab_from_redis(
             x=timestamps,
             y=predictions,
             mode="lines",
-            name=(
-                BASELINE_SERIES_LABEL.title()
-                if served_model == BASELINE_SERIES_LABEL
-                else f"{served_model.upper()} Forecast"
-            ),
+            name=f"{identity.label} Forecast",
             line=dict(
                 color=COLORS.get(served_model, COLORS["ensemble"]),
                 width=model_style.get("width", 2),
@@ -1194,16 +1180,18 @@ def _outlook_tab_from_redis(
             showlegend=False,
         )
     )
-    interval_meta = _add_confidence_bands(
-        fig, timestamps, predictions, horizon_hours, region=region, model_name=served_model
-    )
+    interval_meta = {}
+    if identity.metric_key not in (None, "baseline"):
+        interval_meta = _add_confidence_bands(
+            fig, timestamps, predictions, horizon_hours, region=region, model_name=served_model
+        )
     _add_trailing_actuals(fig, demand_json)
     # Mark the Open-Meteo / climatology boundary on long-horizon views.
     # Only the 30-day view actually crosses the day-16 boundary; on 24h
     # and 7-day views the helper is a no-op. See ADR-008.
     has_climatology_segment = _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
-    interval_caption = _interval_caption(interval_meta, served_model)
+    interval_caption = _interval_caption(interval_meta, served_model) if interval_meta else ""
     # On the 30-day view, surface in the subtitle that days 17-30 are
     # climatology baseline rather than real forecast. Users browsing
     # the chart shouldn't have to hover the divider line to understand
@@ -1219,45 +1207,14 @@ def _outlook_tab_from_redis(
             "<br><sup>Days 1-16: real Open-Meteo forecast · "
             "Days 17-30: seasonal climatology baseline</sup>"
         )
-    # P2-26 (#273): when the primary substitutes for a missing xgboost
-    # column, say so on the chart — the title alone naming the served model
-    # doesn't explain why the requested model isn't shown.
-    substitution_caption = ""
-    if is_baseline_served(cached):
-        # Disclose the substitution whichever series is plotted. Two distinct
-        # statements, and conflating them is how the first cut of this went
-        # wrong: what this REGION is served (the baseline), and what this
-        # CHART is drawing (whatever the model selector asked for). A chart
-        # titled "baseline" over a model's line is the same class of lie the
-        # substitution exists to correct.
-        reason = str(cached.get("served_reason") or "")
-        plotted_is_baseline = served_model == BASELINE_SERIES_LABEL
-        substitution_caption = (
-            "<br><sup><b>"
-            + (
-                "Not a model forecast."
-                if plotted_is_baseline
-                else f"Shown: {served_model.upper()}, for comparison only."
-            )
-            + "</b> GridPulse serves this region a seasonal-naive baseline — the "
-            "same clock hour from the most recent observed day — because its "
-            f"trained models measurably lose to it{(': ' + reason) if reason else ''}."
-            + ("" if plotted_is_baseline else " That baseline is the served series, not this line.")
-            + "</sup>"
-        )
-    elif served_model != model_name:
-        substitution_caption = (
-            f"<br><sup>Requested {model_display_name(model_name)} is unavailable in this update — "
-            f"showing the published primary forecast, {model_display_name(served_model)}.</sup>"
-        )
     fig.update_layout(
         **_layout(
             uirevision=f"{region}:{horizon_hours}",
             title=(
                 f"{horizon_labels.get(horizon_hours, '')} "
-                f"{BASELINE_SERIES_LABEL.title() if served_model == BASELINE_SERIES_LABEL else served_model.upper()}"
+                f"{identity.label}"
                 f" Demand Forecast — {region}"
-                f"{substitution_caption}{interval_caption}{horizon_caption}"
+                f"{interval_caption}{horizon_caption}"
             ),
             xaxis_title="Date/Time",
             yaxis_title="Demand (MW)",
@@ -1321,7 +1278,7 @@ def register_forecast_callbacks(app):
     always rendered them, so there is no cross-module import left to
     keep one-way.
     """
-    from components.cards import build_model_metrics_card, build_page_title
+    from components.cards import build_page_title
     from config import REGION_NAMES
 
     # ── FORECAST TAB (R4a — v2 linear stack + inline panels) ────
@@ -1478,58 +1435,18 @@ def register_forecast_callbacks(app):
             Input("region-selector", "value"),
             Input("outlook-model", "value"),
             Input("dashboard-tabs", "active_tab"),
+            Input("outlook-horizon", "value"),
         ],
     )
-    def update_outlook_model_card(region, model_name, active_tab):
-        """Render the horizontal MAPE/RMSE/MAE/R² bar for the active model.
-
-        P2-26 (#273): the card must describe the model the chart below it
-        actually plots. When the xgboost selection is substituted by the
-        payload primary (see ``_served_model_for_payload``), showing
-        XGBoost's MAPE above a PROPHET-served chart invites the reader to
-        attribute one model's accuracy to another's line.
-        """
+    def update_outlook_model_card(region, model_name, active_tab, horizon=24):
+        """Match evidence to the selected series and lead, with no metric fallback."""
         if active_tab != "tab-outlook":
             return no_update
-
-        try:
-            from models.model_service import get_model_metrics, is_trained
-        except ImportError:
-            return html.Div()
-
         region = region or "FPL"
-        try:
-            cached = redis_get(redis_key(f"forecast:{region}:1h"))
-            if isinstance(cached, dict):
-                model_name = _served_model_for_payload(cached, model_name)
-        except Exception:  # pragma: no cover — defensive; card keeps dropdown model
-            pass
-        metrics_dict = get_model_metrics(region) or {}
-        if model_name not in metrics_dict:
-            # Fall back to any available model
-            if not metrics_dict:
-                return html.Div()
-            model_name = next(iter(metrics_dict.keys()))
-
-        m = metrics_dict[model_name]
-
-        def _fmt(key: str, spec: str, suffix: str = "") -> str:
-            # An absent metric must render as unavailable, not a perfect 0
-            # (partial metric dicts are a supported prod payload state; #201).
-            value = m.get(key)
-            if value is None:
-                return "—"
-            return f"{value:{spec}}{suffix}"
-
-        formatted = {
-            "MAPE": _fmt("mape", ".1f", "%"),
-            "RMSE": _fmt("rmse", ",.0f", " MW"),
-            "MAE": _fmt("mae", ",.0f", " MW"),
-            "R²": _fmt("r2", ".3f"),
-        }
-        name = model_display_name(model_name)
-        badge = "training holdout · 168h recursive" if is_trained(region) else "simulated metrics"
-        return build_model_metrics_card(model_name=name, metrics=formatted, badge=badge)
+        cached = redis_get(redis_key(f"forecast:{region}:1h"))
+        return build_forecast_review(
+            forecast_review_context(region, cached, model_name or "published", int(horizon or 24))
+        )
 
     @app.callback(
         [
@@ -1631,7 +1548,11 @@ def register_forecast_callbacks(app):
         data_through_str = data_through.strftime("%Y-%m-%d %H:%M UTC")
 
         # Run the forecast
-        result = _run_forecast_outlook(demand_df, weather_df, horizon_hours, model_name, region)
+        result = (
+            {"error": "unavailable_selection"}
+            if model_name == "published"
+            else _run_forecast_outlook(demand_df, weather_df, horizon_hours, model_name, region)
+        )
 
         if "error" in result:
             # Soften the warming case (pipeline still populating Redis after

@@ -415,7 +415,7 @@ class TestNoFabricatedPerfection:
             card = _build_overview_model_card("ERCOT")
         text = _collect_text(card)
         assert "0.0%" not in text
-        assert "—" in text
+        assert "Not available" in text
 
 
 # ---------------------------------------------------------------------------

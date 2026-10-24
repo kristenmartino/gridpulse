@@ -343,8 +343,9 @@ It combines:
 ### Working product framing
 Use this framing unless a human directs otherwise:
 - **Category:** Electricity Demand Forecasting
-- **Positioning:** Reported demand, weather-aware forecasts, and model evaluation
-- **Tagline:** Hourly US electricity demand forecasts
+- **Positioning:** A forecast review analyst checks whether the published demand forecast needs closer examination. This is a proposed workflow; adoption and business impact are unvalidated.
+- **Tagline:** Electricity demand forecast review
+- **Source and accuracy:** Overview and Forecast default to `predicted_demand_mw`, attributed by `primary_model` or `served_series=seasonal-naive`. Named columns are comparisons when a different source is published. Pair observed error only with the same series and lead; show missing scores explicitly. Keep the 168h recursive training holdout separate from live accuracy and never borrow another model's metrics for a baseline.
 
 This framing should guide UI copy, navigation naming, and landing-page work. For prioritization of those changes, follow `docs/internal/EXECUTION_BRIEF.md`.
 

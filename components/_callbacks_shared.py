@@ -797,10 +797,8 @@ def _read_vintage_summary(region: str) -> dict | None:
 
 # ── Ensemble-forecast reader (cross-tab) ─────────────────────────────
 #
-# The Overview hero chart and insight card read the scored ensemble to
-# narrate it; the Forecast tab's scenarios panel reads the same payload
-# for its baseline. Living here lets both import it without either tab
-# module depending on the other (§1c of the GP-P1-04 proposal).
+# Scenarios retains its ensemble reference reader. Overview uses the separate
+# published-default reader below so comparisons cannot replace the served series.
 
 
 def _read_ensemble_forecast_from_redis(
@@ -873,8 +871,33 @@ def _read_ensemble_forecast_from_redis(
     return timestamps, predictions, cached.get("scored_at")
 
 
+_FORECAST_NOT_LOADED = object()
+
+
+def _read_published_forecast_from_redis(region, cached=_FORECAST_NOT_LOADED):
+    """Read the published default strictly, never preferring a comparison column."""
+    from data.forecast_identity import resolve_forecast_identity, selection_values
+
+    if cached is _FORECAST_NOT_LOADED:
+        cached = redis_get(redis_key(f"forecast:{region}:1h"))
+    identity = resolve_forecast_identity(cached)
+    if identity is None:
+        return None
+    selected = selection_values(cached, identity, 24)
+    if selected is None:
+        return None
+    try:
+        timestamps = list(pd.to_datetime(selected[0], utc=True, errors="raise"))
+        if any(pd.isna(ts) for ts in timestamps):
+            return None
+        return timestamps, np.array(selected[1]), cached.get("scored_at")
+    except (TypeError, ValueError):
+        return None
+
+
 __all__ = [
     "_read_ensemble_forecast_from_redis",
+    "_read_published_forecast_from_redis",
     "_read_vintage_summary",
     # Caches + lock
     "_cache_lock",

@@ -119,7 +119,7 @@ def _collect_text(node) -> str:
 
 
 class TestForecastCardNoFabricatedPerfection:
-    def test_partial_metrics_render_em_dash_not_zero(self):
+    def test_partial_metrics_do_not_imply_accuracy_without_a_forecast(self):
         """The real update_outlook_model_card callback: a partial metric dict
         (mape/mae/r2 absent, rmse present) must not render 'MAPE 0.0%'."""
         import dash
@@ -149,5 +149,5 @@ class TestForecastCardNoFabricatedPerfection:
 
         text = _collect_text(card)
         assert "0.0%" not in text
-        assert "—" in text
-        assert "900 MW" in text  # the one real metric still shows
+        assert "Not available" in text
+        assert "900 MW" not in text  # no series exists to attribute metrics to

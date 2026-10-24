@@ -42,7 +42,7 @@ _ALLOWED_LD_TYPES = {"WebSite", "WebPage", "SoftwareApplication", "Person"}
 #: clean failure rather than better.
 _BANNED_LD = (
     "aggregateRating",
-    "review",
+    '"review"',
     "offers",
     "priceCurrency",
     "ratingValue",
