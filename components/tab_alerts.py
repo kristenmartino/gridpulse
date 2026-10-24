@@ -22,8 +22,7 @@ _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
 def _risk_metrics_bar() -> html.Div:
-    """3-up Risk MetricsBar: Grid Stress (hero, = demand/capacity utilization; #265) /
-    Stress Label / Active NWS alerts (context — not what the score is built from).
+    """Demand/nameplate comparison and active weather-alert counts.
 
     Reuses the existing tab5-stress-* IDs as inner spans so the existing
     Risk callback fills these without needing new outputs.
@@ -32,7 +31,11 @@ def _risk_metrics_bar() -> html.Div:
         [
             html.Div(
                 [
-                    html.Div("Grid Stress", className="gp-metric-label"),
+                    html.Div(
+                        "Demand / nameplate",
+                        className="gp-metric-label",
+                        title="Reported demand divided by installed nameplate generation capacity. This ratio does not measure available reserves or account for imports.",
+                    ),
                     html.Div(
                         [
                             html.Span(
@@ -45,7 +48,7 @@ def _risk_metrics_bar() -> html.Div:
                     ),
                     html.Div(
                         id="tab5-stress-label",
-                        children="Normal",
+                        children="Unavailable",
                         className="gp-metric-sub",
                     ),
                 ],

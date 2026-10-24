@@ -128,18 +128,18 @@ _INDEX_TEMPLATE = """<!DOCTYPE html>
          obsolete line is cheaper than a permanent warning nobody reads. -->
     <meta http-equiv="content-language" content="en">
     <link rel="canonical" href="__BASE__/">
-    <meta name="description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
+    <meta name="description" content="Compare reported electricity demand, weather-aware forecasts, and model error across 51 US balancing authorities.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="__BASE__/">
-    <meta property="og:title" content="GridPulse — Energy Intelligence Platform">
-    <meta property="og:description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
+    <meta property="og:title" content="GridPulse — Electricity demand forecasting">
+    <meta property="og:description" content="Compare reported electricity demand, weather-aware forecasts, and model error across 51 US balancing authorities.">
     <meta property="og:image" content="__BASE__/assets/og-image.png">
     <meta property="og:image:width" content="1200">
     <meta property="og:image:height" content="630">
-    <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+    <meta property="og:image:alt" content="GridPulse — Electricity demand forecasting">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="GridPulse — Energy Intelligence Platform">
-    <meta name="twitter:description" content="Forecast demand, monitor grid utilization, and audit model accuracy across U.S. balancing authorities.">
+    <meta name="twitter:title" content="GridPulse — Electricity demand forecasting">
+    <meta name="twitter:description" content="Compare reported electricity demand, weather-aware forecasts, and model error across 51 US balancing authorities.">
     <meta name="twitter:image" content="__BASE__/assets/og-image.png">
     <script type="application/ld+json">
     {

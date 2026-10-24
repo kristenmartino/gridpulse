@@ -33,7 +33,7 @@
   <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+  <meta property="og:image:alt" content="GridPulse — Electricity demand forecasting">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="How GridPulse forecasts US electricity demand">
   <meta name="twitter:description" content="49 weather-derived features, three base models and a sharpened inverse-MAPE ensemble, scored on a recursive 168-hour holdout per balancing authority.">
@@ -222,7 +222,7 @@
         </svg>
         <span>Grid<span class="pulse">Pulse</span></span>
       </a>
-      <a class="header-cta" href="/">Open the live platform &rarr;</a>
+      <a class="header-cta" href="/">Open dashboard &rarr;</a>
     </div>
   </header>
 
@@ -380,16 +380,13 @@
             reading three numbers.
           </p>
           <p>
-            The cubing is not decoration. Plain inverse-MAPE blending kept
-            15&ndash;30% of the weight on models running three to five times
-            worse than the leader. The exponent makes the blend follow the best
-            recent model and mix meaningfully only when its peers are genuinely
-            close.
+            Cubing inverse MAPE concentrates weight on lower-error models.
+            Models with similar measured error receive more similar weights.
           </p>
         </section>
 
         <section id="ensemble-cost">
-          <h2>What the ensemble actually buys &mdash; and where it costs accuracy</h2>
+          <h2>Ensemble accuracy and tradeoffs</h2>
           <div class="counterpoint">
             <span class="label">A claim this project withdrew</span>
             <p>
@@ -408,9 +405,8 @@
             </p>
           </div>
           <p>
-            The honest statement is that blending buys error decorrelation on
-            some authorities and costs accuracy on others. It is a hedge, not a
-            guarantee, and the per-authority table is the only reliable guide.
+            Blending improves accuracy on some balancing authorities and
+            worsens it on others. The per-authority results show the difference.
           </p>
           <p>
             One further correction worth stating plainly: ensemble figures
@@ -568,7 +564,7 @@
   <footer>
     <div class="wrap">
       <nav aria-label="Footer">
-        <a href="/">Live platform</a>
+        <a href="/">Dashboard</a>
         <a href="/about">About GridPulse</a>
         <a href="/coverage">Coverage</a>
         <a href="/benchmark">Forecast benchmark</a>

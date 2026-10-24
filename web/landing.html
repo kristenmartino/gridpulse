@@ -29,15 +29,15 @@
   <meta name="theme-color" content="#0a0a0b">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/about">
-  <meta property="og:title" content="About GridPulse — Energy Intelligence Platform">
-  <meta property="og:description" content="See demand sooner. Decide with confidence. Weather-aware forecasting, model validation, and grid visibility for 51 US balancing authorities — built in the open.">
+  <meta property="og:title" content="About GridPulse — Electricity demand forecasting">
+  <meta property="og:description" content="Compare hourly electricity demand forecasts, reported demand, weather, and model error across 51 US balancing authorities.">
   <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="GridPulse — Energy Intelligence Platform">
+  <meta property="og:image:alt" content="GridPulse electricity demand dashboard">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="About GridPulse — Energy Intelligence Platform">
-  <meta name="twitter:description" content="See demand sooner. Decide with confidence. Weather-aware forecasting, model validation, and grid visibility for 51 US balancing authorities — built in the open.">
+  <meta name="twitter:title" content="About GridPulse — Electricity demand forecasting">
+  <meta name="twitter:description" content="Compare hourly electricity demand forecasts, reported demand, weather, and model error across 51 US balancing authorities.">
   <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
 
   <!-- Structured data. Only types this page's content honestly supports.
@@ -78,7 +78,7 @@
         "applicationCategory": "BusinessApplication",
         "operatingSystem": "Web",
         "url": "https://gridpulse.kristenmartino.ai/",
-        "description": "Energy intelligence platform combining weather-aware demand forecasting, model validation, grid visibility and scenario analysis across 51 US balancing authorities.",
+        "description": "Electricity demand forecasts, reported demand, weather scenarios, and model evaluation across 51 US balancing authorities.",
         "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
       },
       {
@@ -419,7 +419,7 @@
         </svg>
         <span>Grid<span class="pulse">Pulse</span></span>
       </a>
-      <a class="header-cta" href="/">Open the live platform &rarr;</a>
+      <a class="header-cta" href="/">Open dashboard &rarr;</a>
     </div>
   </header>
 
@@ -428,22 +428,21 @@
     <div class="hero">
       <div class="wrap">
         <div>
-          <p class="eyebrow">Energy Intelligence Platform</p>
-          <h1>See demand sooner. Decide with confidence.</h1>
+          <p class="eyebrow">Electricity demand forecasting</p>
+          <h1>Hourly US electricity demand forecasts</h1>
           <p class="subhead">
-            GridPulse forecasts hourly electricity demand for the 51
-            balancing authorities that run the US grid, and compares its
-            forecast error with operators&rsquo; day-ahead forecasts.
+            Compare forecasts with reported demand and operator forecasts
+            across 51 US balancing authorities. Review recent model error,
+            weather conditions, and data-quality notes.
           </p>
           <div class="cta-row">
-            <a class="btn-primary" href="/">Explore the live platform</a>
+            <a class="btn-primary" href="/">Open dashboard</a>
             <a class="btn-secondary" href="/methodology">Read how it works</a>
           </div>
-          <div class="chips" aria-label="Platform facts">
+          <div class="chips" aria-label="Coverage and update schedule">
             <span class="chip"><strong>51</strong> balancing authorities &middot; ~100% of lower-48 demand</span>
-            <span class="chip"><strong>Retrained daily</strong> &middot; gated on the real serve path, not just a holdout</span>
-            <span class="chip">Scored <strong>hourly</strong> against live EIA data</span>
-            <span class="chip"><strong>4.35%</strong> median per-BA error on data the models never saw (served ensemble, 168&nbsp;h recursive holdout)</span>
+            <span class="chip"><strong>Daily</strong> model training</span>
+            <span class="chip"><strong>Hourly</strong> forecast updates</span>
           </div>
         </div>
         <div class="hero-visual">
@@ -460,28 +459,27 @@
     <section aria-labelledby="pillars">
       <div class="wrap">
         <p class="section-eyebrow">Why it exists</p>
-        <h2 id="pillars">Four questions, answered from one place</h2>
+        <h2 id="pillars">What you can inspect</h2>
         <p class="section-lede">
-          Demand data, weather models and forecast accuracy normally live
-          in separate places, and reconciling them is manual. GridPulse puts
-          them on one screen.
+          Reported demand, forecast results, and weather data are grouped
+          by balancing authority, with their sources and update times.
         </p>
         <div class="grid-4">
           <div class="card">
-            <h3>Forecast with context</h3>
-            <p>Hourly demand against the weather driving it, with the recent history the forecast was built from on the same axis.</p>
+            <h3>Demand and weather</h3>
+            <p>Compare reported demand with forecasts and review the weather inputs used by the models.</p>
           </div>
           <div class="card">
-            <h3>Know what the number is worth</h3>
-            <p>Prediction intervals, the model&rsquo;s recent live error and its drift grade are shown beside the forecast itself.</p>
+            <h3>Forecast error</h3>
+            <p>Compare live forecast error with training holdout results and inspect model drift grades.</p>
           </div>
           <div class="card">
-            <h3>See risk before it lands</h3>
-            <p>Severe-weather alerts, demand anomalies and degraded model grades, tracked per balancing authority.</p>
+            <h3>Weather alerts</h3>
+            <p>Review active National Weather Service alerts and flagged demand observations for the selected region.</p>
           </div>
           <div class="card">
-            <h3>Test a what-if</h3>
-            <p>Move temperature, wind or solar and see how demand responds. Every answer comes from a real forecast run for that region, computed in advance.</p>
+            <h3>Weather scenarios</h3>
+            <p>Adjust temperature, wind, or solar assumptions and inspect the resulting demand estimate. Each result labels its calculation method.</p>
           </div>
         </div>
       </div>
@@ -490,7 +488,7 @@
     <!-- ── Modules ── -->
     <section aria-labelledby="modules">
       <div class="wrap">
-        <p class="section-eyebrow">The platform</p>
+        <p class="section-eyebrow">Dashboard views</p>
         <h2 id="modules">What each view is for</h2>
         <p class="section-lede">
           Each view opens on one question. Picking a role &mdash; grid
@@ -506,22 +504,22 @@
           </div>
           <div class="module" role="listitem">
             <span class="module-name">US Grid</span>
-            <span class="module-q">Which balancing authorities are stressed?</span>
-            <span class="module-what">51-BA cards, map, and polygon views with utilization and capacity context.</span>
+            <span class="module-q">How does demand compare across regions?</span>
+            <span class="module-what">Regional demand, interchange, and demand-to-nameplate comparisons in cards and maps.</span>
           </div>
           <div class="module" role="listitem">
             <span class="module-name">Forecast</span>
-            <span class="module-q">What will happen?</span>
-            <span class="module-what">Forward predictions from Prophet, SARIMAX, XGBoost, and the ensemble — with confidence bands.</span>
+            <span class="module-q">What demand is forecast?</span>
+            <span class="module-what">Demand forecasts from Prophet, SARIMAX, XGBoost, and the ensemble, with labeled forecast ranges.</span>
           </div>
           <div class="module" role="listitem">
             <span class="module-name">Risk</span>
-            <span class="module-q">Where is operating risk rising?</span>
-            <span class="module-what">Severe-weather signals, anomalies, stress indicators, degraded conditions.</span>
+            <span class="module-q">Which alerts need review?</span>
+            <span class="module-what">Weather alerts, demand anomalies, and a demand-to-nameplate capacity comparison.</span>
           </div>
           <div class="module" role="listitem">
             <span class="module-name">Models</span>
-            <span class="module-q">How trustworthy is the forecast?</span>
+            <span class="module-q">How have the models performed?</span>
             <span class="module-what">Per-model holdout metrics, live drift, residuals, SHAP feature importance.</span>
           </div>
         </div>
@@ -531,18 +529,16 @@
     <!-- ── Built in the open ── -->
     <section aria-labelledby="open">
       <div class="wrap">
-        <p class="section-eyebrow">Built in the open</p>
-        <h2 id="open">Where the numbers come from</h2>
+        <p class="section-eyebrow">Methods and results</p>
+        <h2 id="open">How results are checked</h2>
         <p class="section-lede">
-          Accuracy is measured the way production actually forecasts.
-          Data-quality exclusions are named on the page that uses them, with
-          the count of dropped hours. The architecture decisions, including
-          the ones that turned out wrong, are written down.
+          Read the model methods, data-quality rules, published evaluations,
+          and failure analysis behind the dashboard.
         </p>
         <div class="grid-2">
           <div class="card">
-            <h3>The decision record</h3>
-            <p>Every architecture decision — including the ones that turned out to be wrong — is written down, from the ensemble weighting to why a freshly retrained model must replay sanely through the real serve path before it may serve.</p>
+            <h3>Design decisions</h3>
+            <p>The design record explains model weighting, data-quality rules, and the validation required before a retrained model can serve forecasts.</p>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/PRD.md" target="_blank" rel="noopener">ADR trail in PRD.md &rarr;</a>
           </div>
           <div class="card">
@@ -551,17 +547,17 @@
             <p>In the published recursive holdout, the served ensemble has a median per-BA error of <strong>4.35%</strong>, compared with <strong>3.69%</strong> for XGBoost alone. The ensemble has lower error on <strong>21 of 51</strong> authorities. Combining models does not consistently improve accuracy; the per-authority results show where it helps and where it does not.</p>
             <!--SSR_BENCHMARK_CLAIM-->
             <a class="card-link" href="/benchmark">See the head-to-head benchmark &rarr;</a>
-            <a class="card-link" href="/methodology#ensemble-cost">What the ensemble costs &rarr;</a>
+            <a class="card-link" href="/methodology#ensemble-cost">Ensemble results &rarr;</a>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/BACKTEST_RESULTS.md" target="_blank" rel="noopener">Backtest results &rarr;</a>
           </div>
           <div class="card">
-            <h3>Data provenance, disclosed</h3>
+            <h3>Data sources and revisions</h3>
             <p>EIA publishes provisional readings that can revise heavily before settling. GridPulse measures each feed's revision behavior, classifies it live, and discloses exclusions in plain language on the dashboard.</p>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/ANCHOR_CONDITIONING_STUDY.md" target="_blank" rel="noopener">The anchor-conditioning study &rarr;</a>
           </div>
           <div class="card">
-            <h3>Failure analysis, published</h3>
-            <p>When a forecast collapsed off provably clean inputs, the diagnosis — an ablation study across 67 model vintages — shipped to the repo, and its fix became a permanent acceptance gate.</p>
+            <h3>Forecast failure analysis</h3>
+            <p>The published failure analysis explains a forecast drop and the validation check added afterward.</p>
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/docs/FORECAST_DIVE_DIAGNOSIS.md" target="_blank" rel="noopener">The forecast-dive diagnosis &rarr;</a>
           </div>
         </div>
@@ -572,7 +568,7 @@
   <footer>
     <div class="wrap">
       <nav aria-label="Footer">
-        <a href="/">Live platform</a>
+        <a href="/">Dashboard</a>
         <a href="/methodology">How it works</a>
         <a href="/coverage">Coverage</a>
         <a href="/benchmark">Forecast benchmark</a>

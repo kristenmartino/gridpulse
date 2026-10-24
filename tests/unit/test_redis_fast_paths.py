@@ -631,8 +631,8 @@ class TestAlertsTabFromRedis:
         assert "No active alerts" in alert_cards[0].children
 
     @patch("components._callbacks_alerts.redis_get")
-    def test_stress_below_70_is_positive(self, mock_rg):
-        """Utilization stress < 70 → 'positive' CSS class (#265 bands)."""
+    def test_low_nameplate_ratio_is_not_an_operating_status(self, mock_rg):
+        """Low demand/nameplate does not establish normal grid conditions."""
         payload = _alerts_payload(with_alerts=False)
         payload["stress_score"] = 40
         mock_rg.return_value = payload
@@ -642,11 +642,13 @@ class TestAlertsTabFromRedis:
         result = _alerts_tab_from_redis("FPL")
         stress_label_span = result[2]
         assert isinstance(stress_label_span, html.Span)
-        assert "positive" in stress_label_span.className
+        assert "neutral" in stress_label_span.className
+        assert result[1] == "40%"
+        assert "Normal" not in stress_label_span.children
 
     @patch("components._callbacks_alerts.redis_get")
-    def test_stress_ge_85_is_negative(self, mock_rg):
-        """Utilization stress >= 85 → 'negative' CSS class (#265 bands)."""
+    def test_high_nameplate_ratio_is_not_an_operating_status(self, mock_rg):
+        """A high demand/nameplate ratio alone does not establish grid risk."""
         payload = _alerts_payload(with_alerts=True)
         payload["stress_score"] = 92
         mock_rg.return_value = payload
@@ -656,7 +658,9 @@ class TestAlertsTabFromRedis:
         result = _alerts_tab_from_redis("FPL")
         stress_label_span = result[2]
         assert isinstance(stress_label_span, html.Span)
-        assert "negative" in stress_label_span.className
+        assert "neutral" in stress_label_span.className
+        assert result[1] == "92%"
+        assert "Elevated" not in stress_label_span.children
 
     @patch("components._callbacks_alerts.redis_get")
     def test_stress_70_to_85_is_neutral(self, mock_rg):

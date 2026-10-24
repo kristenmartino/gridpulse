@@ -191,7 +191,7 @@ def _build_overview_title(region: str) -> html.Div:
     """Page-title block: region name + 1-line subtitle."""
 
     region_name = REGION_NAMES.get(region, region)
-    subtitle = f"Demand forecast and grid intelligence · {region}"
+    subtitle = f"Reported demand and 24h forecast · {region}"
     return build_page_title(region_name, subtitle)
 
 

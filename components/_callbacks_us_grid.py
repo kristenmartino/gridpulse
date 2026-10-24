@@ -222,7 +222,7 @@ def _capacity_hover_suffix(region: str) -> str:
 
 
 def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "cards") -> list[dict]:
-    """4-up MetricsBar items: Total Demand · National Peak · Top-Stress BA · National Utilization.
+    """4-up MetricsBar items: Total Demand · National Peak · Top-Stress BA · Combined demand / nameplate.
 
     Args:
         region_data: Mapping of region codes to their demand and capacity data.
@@ -234,8 +234,8 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         return [
             {"label": "Total Demand", "value": "—", "tone": "primary", "hero": True},
             {"label": "National Peak (24h)", "value": "—"},
-            {"label": "Highest-Stress Region", "value": "—"},
-            {"label": "National Utilization", "value": "—"},
+            {"label": "Highest demand / nameplate", "value": "—"},
+            {"label": "Combined demand / nameplate", "value": "—"},
         ]
 
     # Filter out regions with implausible current demand artifacts before computing stress
@@ -274,7 +274,7 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         # doesn't render as e.g. "PJM · 110%". Matches the map's
         # cap (``_build_us_grid_map`` line ~6821).
         top_stress_pct = min(reliable_stress[top_region], 1.0) * 100
-        top_tone = "negative" if top_stress_pct >= 85 else "secondary"
+        top_tone = "secondary"
         top_value = f"{top_region} · {top_stress_pct:.0f}%"
 
         # National utilization = summed current demand ÷ summed nameplate capacity
@@ -282,13 +282,13 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         # import-dominated or peak-derived, #254 — and any BA above the reliability
         # ceiling are excluded, as they are from Highest-Stress). Nameplate-based,
         # NOT a NERC reserve margin (see #243); reads as the national *average*
-        # complementing Highest-Stress Region (the per-BA *maximum*). ``util_capacity``
+        # complementing Highest demand / nameplate (the per-BA *maximum*). ``util_capacity``
         # is > 0 because every ``reliable_stress`` key has capacity > 0 by construction.
         util_demand = sum(plausible[r]["current_mw"] for r in reliable_stress)
         util_capacity = sum(REGION_CAPACITY_MW[r] for r in reliable_stress)
         util_pct = util_demand / util_capacity * 100
         util_value = f"{util_pct:.0f}%"
-        util_tone = "negative" if util_pct >= 85 else "secondary"
+        util_tone = "secondary"
     else:
         top_value = "—"
         top_tone = "secondary"
@@ -296,10 +296,10 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         util_tone = "secondary"
 
     top_item = {
-        "label": "Highest-Stress Region",
+        "label": "Highest demand / nameplate",
         "value": top_value,
         "tone": top_tone,
-        "help": "BA with the highest utilization = current demand ÷ nameplate capacity (capped 100%). BAs without a measured nameplate — import-dominated or peak-derived-capacity — are excluded, as their ratio isn't a real stress signal.",
+        "help": "Highest current demand divided by installed nameplate capacity, rounded and capped at 100%. Excludes import-dominated authorities and estimated capacities. This comparison does not measure available reserves or account for imports.",
     }
     if reliable_stress and view == "cards":
         # Click → clientside scroll to this BA's card (Phase 2).
@@ -322,10 +322,10 @@ def _build_us_grid_metrics_items(region_data: dict[str, dict], view: str = "card
         },
         top_item,
         {
-            "label": "National Utilization",
+            "label": "Combined demand / nameplate",
             "value": util_value,
             "tone": util_tone,
-            "help": "Current demand ÷ nameplate capacity, aggregated across BAs with a reliable measured plate (import-dominated and peak-derived-capacity BAs are excluded, as they are from Highest-Stress). Nameplate-based, so it is not a NERC reserve margin — it is the national average that complements Highest-Stress Region (the per-BA maximum).",
+            "help": "Combined demand divided by combined installed nameplate capacity for authorities with reliable capacity data. Excludes import-dominated authorities and estimated capacities. Available reserves and imports are not measured by this ratio.",
         },
     ]
 
@@ -525,9 +525,8 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
                 className="gp-region-card__stress gp-region-card__stress--estimated",
                 title=(
                     f"{name}'s capacity figure is a peak-demand × 1.15 estimate, "
-                    f"not a measured nameplate plate, so utilization against it "
-                    f"isn't shown as a stress reading (excluded from Highest-Stress "
-                    f"and National Utilization)."
+                    f"rather than measured nameplate capacity. This authority "
+                    f"is excluded from the demand/nameplate comparisons."
                 ),
             )
         else:
@@ -541,9 +540,11 @@ def _build_us_grid_region_card(region: str, data: dict) -> html.Div:
             else:
                 tone = "low"
             stress_chip = html.Span(
-                [_chip_label("util"), f"{stress_pct:.0f}%"],
+                [_chip_label("ratio"), f"{stress_pct:.0f}%"],
                 className=f"gp-region-card__stress gp-region-card__stress--{tone}",
-                title=(f"Demand vs. capacity: {current_mw:,.0f} / {capacity_mw:,.0f} MW"),
+                title=(
+                    f"Demand / nameplate: {current_mw:,.0f} / {capacity_mw:,.0f} MW (rounded; displayed ratio capped at 100%)"
+                ),
             )
 
     demand_row_children: list = [
@@ -642,7 +643,7 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
     # PACW) and " · est. cap" for peak-derived-capacity BAs (SOCO/DUK/CPLE/PSCO/
     # FMPP, #254) — both are estimates, not measured plate capacity.
     hover_text = [
-        f"<b>{name}{_capacity_hover_suffix(r)}</b><br>Demand: {d:.1f} GW<br>Utilization: {s:.0f}%"
+        f"<b>{name}{_capacity_hover_suffix(r)}</b><br>Demand: {d:.1f} GW<br>Demand / nameplate: {s:.0f}% (capped at 100%)"
         for r, name, d, s in zip(regions, names, demand_gw, stress_pct, strict=False)
     ]
 
@@ -659,7 +660,7 @@ def _build_us_grid_map(region_data: dict) -> html.Div:
                 "cmax": 100,
                 "colorbar": {
                     "title": {
-                        "text": "Utilization %",
+                        "text": "Demand /<br>nameplate %",
                         "font": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
                     },
                     "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
@@ -816,7 +817,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
             marker={"line": {"color": _MAP_BORDER_COLOR, "width": 1.0}},
             colorbar={
                 "title": {
-                    "text": "Utilization %",
+                    "text": "Demand /<br>nameplate %",
                     "font": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
                 },
                 "tickfont": {"color": _MAP_AXIS_FONT_COLOR, "size": 10},
@@ -834,7 +835,7 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
             hovertemplate=(
                 "<b>%{customdata[1]}</b>%{customdata[3]}<br>"
                 "Demand: %{customdata[2]:.1f} GW<br>"
-                "Utilization: %{z:.0f}%<extra></extra>"
+                "Demand / nameplate: %{z:.0f}% (capped at 100%)<extra></extra>"
             ),
         )
     )

@@ -96,7 +96,7 @@ class TestKpiExcludesPeakDerived:
             "PJM": {"current_mw": 70_000.0, "today_mw": [70_000.0] * 24},
         }
         items = _build_us_grid_metrics_items(region_data)
-        top = next(i for i in items if i["label"] == "Highest-Stress Region")
+        top = next(i for i in items if i["label"] == "Highest demand / nameplate")
         assert "PJM" in top["value"]
         assert "SOCO" not in top["value"]
 
@@ -110,7 +110,7 @@ class TestKpiExcludesPeakDerived:
             "PJM": {"current_mw": 70_000.0, "today_mw": [70_000.0] * 24},
         }
         items = _build_us_grid_metrics_items(region_data)
-        util = next(i for i in items if i["label"] == "National Utilization")
+        util = next(i for i in items if i["label"] == "Combined demand / nameplate")
         assert util["value"] == "38%"
 
 

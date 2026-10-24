@@ -1,31 +1,26 @@
-# GridPulse — Energy Intelligence Platform
+# GridPulse — Electricity Demand Forecasting
 
 **[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)** · [About the platform](https://gridpulse.kristenmartino.ai/about)
 
-Weather-aware energy intelligence. GridPulse combines real grid data (EIA), meteorological signals (Open-Meteo), multiple forecasting models, model validation, generation context, and scenario analysis in one decision-ready platform.
+GridPulse compares hourly electricity demand forecasts with reported EIA demand and operator forecasts across 51 US balancing authorities. It also shows weather data, model error, data-quality notes, and weather scenarios.
 
-**Tagline:** _See demand sooner. Decide with confidence._
+**Product description:** _Hourly US electricity demand forecasts_
 
 ---
 
 ## What GridPulse Does
 
-GridPulse helps energy teams move from fragmented monitoring to a unified operating view. The product organizes around four decision pillars:
-
-- **Forecast with context** — unify demand, weather, and time-series patterns in a forecasting experience built for real operating conditions
-- **See confidence, not just output** — understand model reliability, forecast uncertainty, and recent performance before acting on a number
-- **Surface risk earlier** — track anomalies, severe conditions, and forecast instability in one operational view
-- **Plan through scenarios** — test assumptions and understand how changing conditions alter expected demand and decision windows
+Use GridPulse to inspect reported demand and forecasts, compare model error, review weather alerts, and explore weather assumptions.
 
 ### Core questions the dashboard answers
 
 | Tab | Question | What it shows |
 |---|---|---|
-| **Overview** | What changed, and what matters now? | Mission-control summary, key KPIs, role-aware briefing |
-| **US Grid** | Which balancing authorities are stressed? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
-| **Forecast** | What will happen? | Forward-looking predictions (Prophet, SARIMAX, XGBoost, Ensemble) with confidence bands |
-| **Risk** | Where is operating risk rising? | Severe-weather signals, anomalies, stress indicators, degraded conditions |
-| **Models** | How trustworthy is the forecast? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, SHAP feature importance |
+| **Overview** | What changed, and what matters now? | Reported demand, next forecast peak, model error, expandable history |
+| **US Grid** | How does demand compare across regions? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
+| **Forecast** | What demand is forecast? | Forward-looking predictions (Prophet, SARIMAX, XGBoost, Ensemble) with confidence bands |
+| **Risk** | Which alerts need review? | Weather alerts, demand anomalies, demand/nameplate comparison |
+| **Models** | How have the models performed? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, SHAP feature importance |
 
 Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) tune the narrative layer: the insight card's framing, and which insights surface and how many. The data, KPI tiles, and forecasts are identical across personas. (Per-persona KPI cards and alert thresholds are declared in `personas/config.py` but not yet wired into the shell — see [#188](https://github.com/kristenmartino/gridpulse/issues/188).)
 
