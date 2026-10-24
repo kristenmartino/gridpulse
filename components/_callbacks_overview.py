@@ -643,20 +643,18 @@ def _provenance_note(region: str) -> list[str]:
         return []
     if cls == "broken":
         return [
-            f" Data note: this region's EIA feed publishes provisional readings "
-            f"that revise {float(rev):.0f}% on average before settling — intraday "
-            f"figures and live accuracy firm up over the following day."
+            f" Data note: provisional EIA demand readings for this region revise "
+            f"{float(rev):.0f}% on average. Demand and error scores can change with later reports."
         ]
     if cls == "bulk":
         return [
-            f" Data note: same-day EIA values for this region are provisional "
-            f"until the next-morning resubmission (measured revisions "
-            f"{float(rev):.0f}%)."
+            f" Data note: EIA demand readings for this region are revised in batches "
+            f"(measured average revision: {float(rev):.0f}%)."
         ]
     if cls == "churn":
         return [
-            f" Data note: EIA readings here typically revise {float(rev):.0f}% "
-            f"shortly after publication as metering completes."
+            f" Data note: reported EIA demand for this region revises "
+            f"{float(rev):.0f}% on average after publication."
         ]
     return []
 
@@ -672,8 +670,7 @@ def _build_overview_insight(
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
         return build_insight_card(
             "Summary",
-            "Awaiting demand data for this region. The forecast will populate once "
-            "the next pipeline cycle completes.",
+            "No demand data is available for this region. Try another region or check again later.",
         )
 
     df = demand_df.copy()
@@ -871,9 +868,11 @@ def register_overview_callbacks(app):
             )
 
             return (title, metrics_bar, chart, model_card, insight)
-        except Exception as exc:
+        except Exception:
             log.exception("update_overview_tab_failed")
-            err_msg = f"{type(exc).__name__}: {exc}"
+            err_msg = (
+                "Overview could not be loaded. Refresh the page to retry, or select another region."
+            )
             err_div = html.Div(
                 err_msg,
                 style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},

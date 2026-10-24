@@ -108,8 +108,8 @@ def loading_overlay(component_id: str) -> dbc.Spinner:
 
 
 def empty_state(
-    title: str = "No Data Available",
-    message: str = "Select a region to load data.",
+    title: str = "No data available",
+    message: str = "No data is available for this selection.",
     icon: str = "📊",
 ) -> html.Div:
     """
@@ -133,8 +133,8 @@ def empty_state(
 
 
 def error_state(
-    title: str = "Something Went Wrong",
-    message: str = "Try refreshing the page or selecting a different region.",
+    title: str = "Could not load this view",
+    message: str = "Refresh the page to retry, or select another region.",
     error_detail: str | None = None,
 ) -> html.Div:
     """
@@ -146,21 +146,7 @@ def error_state(
         html.P(message, style={"color": "#A8B3C7", "fontSize": "0.85rem"}),
     ]
     if error_detail:
-        children.append(
-            html.Pre(
-                error_detail[:200],
-                style={
-                    "color": "#a1a1aa",
-                    "fontSize": "0.7rem",
-                    "marginTop": "12px",
-                    "padding": "8px",
-                    "background": "#0a0a0b",
-                    "borderRadius": "4px",
-                    "maxWidth": "400px",
-                    "overflow": "hidden",
-                },
-            )
-        )
+        log.warning("error_state_detail", detail=error_detail)
     return html.Div(
         children,
         style={
@@ -174,15 +160,19 @@ def error_state(
     )
 
 
-def api_error_state(api_name: str = "API") -> html.Div:
+def api_error_state(api_name: str = "API", cached_available: bool = False) -> html.Div:
     """
-    Error state specific to API failures (using stale data fallback).
+    Show a source failure; disclose cached data only when the caller confirms it.
     """
     return html.Div(
         [
             html.Div("🔄", style={"fontSize": "1.5rem", "marginBottom": "8px"}),
             html.P(
-                f"{api_name} is currently unavailable. Showing cached data.",
+                (
+                    f"{api_name} is unavailable. Showing cached data."
+                    if cached_available
+                    else f"{api_name} is unavailable. Try again later."
+                ),
                 style={"color": "#ffb74d", "fontSize": "0.8rem", "margin": 0},
             ),
         ],
@@ -259,36 +249,36 @@ def format_last_updated(dt: datetime | None) -> str:
 CONFIDENCE_LEVELS = {
     "high": {
         "icon": "check-circle",
-        "label": "High",
+        "label": "Fresh",
         "color": "#34d399",
-        "description": "Live data from verified source",
+        "description": "Source status is fresh. This does not assess data accuracy.",
     },
     "medium": {
         "icon": "alert-circle",
-        "label": "Medium",
+        "label": "Stale or incomplete",
         "color": "#fbbf24",
         "description": "Data may be stale or partially unavailable",
     },
     "low": {
         "icon": "alert-triangle",
-        "label": "Low",
+        "label": "Unavailable",
         "color": "#f87171",
-        "description": "Using fallback data — verify before decisions",
+        "description": "Data could not be loaded. Check the view for any available fallback data.",
     },
     "demo": {
         "icon": "flask",
         "label": "Demo",
         "color": "#a1a1aa",
-        "description": "Synthetic demo data — not real",
+        "description": "Synthetic data for demonstration.",
     },
     # "warming" is surfaced in Redis-only deployments when the scheduled
     # scoring / training jobs haven't produced results yet (e.g. first
     # deploy, Redis eviction, or a scheduler outage).
     "warming": {
         "icon": "clock",
-        "label": "Warming",
+        "label": "Not available",
         "color": "#60a5fa",
-        "description": "Pipeline is refreshing — data will appear shortly",
+        "description": "No published data is available for this selection.",
     },
 }
 
@@ -324,18 +314,16 @@ def data_confidence_level(
 
 
 def warming_state(
-    title: str = "Data is warming up",
+    title: str = "Data unavailable",
     message: str = (
-        "The scheduled pipeline is refreshing data. "
-        "This page will populate shortly — try refreshing in a minute."
+        "No published data is available for this selection. "
+        "Try another region or check again later."
     ),
 ) -> html.Div:
     """Render a calm degraded-state placeholder for Redis-only deployments.
 
-    Used when ``data-freshness-store`` reports ``warming`` for the primary
-    data source (typically right after a deploy, cache eviction, or
-    scheduler outage). Intentionally low-alarm — this is expected behavior
-    during the first few minutes of a new container, not an error.
+    Used when the primary data source has no published results. The status
+    alone does not establish a cause or a recovery time.
     """
     from components.icons import icon as _icon
 

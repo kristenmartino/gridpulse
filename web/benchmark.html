@@ -363,16 +363,13 @@
         <p class="eyebrow">Forecast Benchmark</p>
         <h1>How accurate is GridPulse?</h1>
         <p class="subhead">
-          Every US balancing authority (the regional operators that run the
-          grid) publishes its own day-ahead demand forecast through EIA-930,
-          free. This page scores GridPulse against that forecast on the same
-          hours, against the same settled actual, under rules written down
-          before the results were read.
+          This page compares GridPulse and operator day-ahead demand forecasts
+          reported through EIA-930. Both are scored against settled demand on
+          the same hours.
         </p>
         <p class="subhead">
-          GridPulse is built from public data alone: an independent second
-          check on the forecast an operator already runs on. Every exclusion,
-          drop count and known limit is published below.
+          Paired-hour counts, exclusions, and measurement limits are listed
+          below. Results depend on the authorities and hours available in the window.
         </p>
         <p class="verdict" id="verdict" hidden></p>
       </div>
@@ -439,12 +436,12 @@
                    path a phone reader actually has. Unhidden by renderRows()
                    only when a flagged row is on the page. -->
               <p class="drops" id="flag-legend" style="margin-top:10px" hidden>
-                <span class="flag">rollback</span> &mdash; our own drift
-                monitor already grades this forecast as failing; the number
-                stands, but we would not defend it.
+                <span class="flag">above band</span> &mdash; rolling MAPE
+                exceeds the configured error band for this forecast lead.
+                This label does not indicate a rollback occurred.
                 <span class="flag substituted">not served</span> &mdash; this
-                BA is served a simpler fallback series, so the model scored
-                here is not what its users receive.
+                row scores a model while the dashboard displays a fallback
+                series for that authority.
                 <span class="flag substituted">not in medians</span> &mdash;
                 reported separately; not folded into the fleet medians or
                 spread.
@@ -599,8 +596,8 @@
               <li>Hours we first saw <em>after</em> they had already passed are excluded: their earliest-observed forecast is already a post-revision value, so scoring it as &ldquo;as-issued&rdquo; would erase the distinction the two operator columns exist to draw.</li>
               <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight. A row where the two scorings disagree about the winner is marked on its Difference cell; everywhere else they agree.</li>
               <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
-              <li>A row marked <span class="flag">rollback</span> is one our own drift monitor already grades as failing at that horizon &mdash; the number stands, but we would not defend the forecast behind it.</li>
-              <li>A row marked <span class="flag substituted">not served</span> scores our ensemble for a BA we serve a seasonal-naive baseline instead, so its published number is <em>worse</em> than what that BA actually receives. The arm is not re-based onto the fallback, because that would stop it measuring the forecaster.</li>
+              <li>A row marked <span class="flag">above band</span> exceeds the configured error band for that forecast lead. This is an error assessment, not a record that a rollback occurred.</li>
+              <li>A row marked <span class="flag substituted">not served</span> scores the ensemble while the dashboard displays a seasonal-naive baseline for that authority. This row does not score the displayed baseline.</li>
             </ul>
           </div>
 
@@ -784,32 +781,30 @@
            claim itself \u2014 badge and sentence both \u2014 rather than only in the
            row's expandable detail. */
         var scoredOn = coverageOf(sg);
-        badge('', 'rollback',
-          'Our own drift monitor grades this BA\u2019s ' + model + ' forecast rollback at ' +
+        badge('', 'above band',
+          'The drift monitor places this authority’s ' + model + ' forecast above its error band at ' +
           horizon + ' (' + at + ', 7d rolling' +
           (scoredOn ? ' on ' + scoredOn : '') + ').');
         var bound = (sg.acceptable_max === null || sg.acceptable_max === undefined)
           ? ' worse than the acceptable band for that horizon'
           : ' against an acceptable band of ' + num(sg.acceptable_max) + '%';
-        note('We already grade this row ', strong('rollback'),
+        note('Above the configured error band: ', strong(model),
           ' \u2014 our drift monitor scores the ' + model + ' forecast at ' + at +
           ' over the trailing 7 days' +
           (scoredOn ? ' (' + scoredOn + ' scored)' : '') + ' at ' + horizon + ',' + bound +
-          '. The comparison stands; it is not a forecast we would defend.');
+          '. This does not indicate that a rollback has occurred.');
       }
 
       if (region.serves_scored_model === false) {
         var scored = region.scored_model || 'model';
         var served = region.served_series || 'baseline';
         badge('substituted', 'not served',
-          'This row scores the ' + scored + ', but GridPulse serves the ' +
-          served + ' series for this BA.');
+          'This row scores the ' + scored + ', but the dashboard displays the ' +
+          served + ' series for this authority.');
         note('This row scores the ', strong(scored),
-          ', which is not what we serve here \u2014 this BA is served the ',
+          ', while the dashboard displays the ',
           strong(served),
-          ' series instead. The benchmark always grades the model, because re-basing ' +
-          'it onto a fallback would stop it measuring the forecaster. So this number ' +
-          'is worse than what a user of this BA actually receives.');
+          ' series. This row does not score the displayed baseline.');
       }
 
       /* The fleet lede says this BA is "reported separately"; without a mark
@@ -985,7 +980,7 @@
       lede += 'Medians, not means: one catastrophic BA should move its own row, ' +
         'not the fleet’s.';
       document.getElementById('fleet-lede').textContent =
-        (wins === undefined || wins === null) ? 'Fleet aggregation is still accumulating.' : lede;
+        (wins === undefined || wins === null) ? 'Fleet results unavailable.' : lede;
     }
 
     /* Written from the payload every load, with both directions handled — a
@@ -1332,10 +1327,10 @@
       .then(function (res) {
         if (res.status === 503) {
           return res.json().then(function (body) {
-            throw new Error(body.detail || 'The benchmark is still warming up.');
+            throw new Error('Benchmark results are unavailable.');
           });
         }
-        if (!res.ok) { throw new Error('The benchmark endpoint returned ' + res.status + '.'); }
+        if (!res.ok) { throw new Error('The benchmark could not be loaded.'); }
         return res.json();
       })
       .then(function (body) { data = body; render(); })
@@ -1343,12 +1338,12 @@
         state.innerHTML = '';
         var p = document.createElement('p');
         p.innerHTML = '<strong>No results to show.</strong> ';
-        p.appendChild(document.createTextNode(err.message));
+        p.appendChild(document.createTextNode('Benchmark results could not be loaded.'));
+        console.warn('benchmark_load_failed', err);
         state.appendChild(p);
         var q = document.createElement('p');
         q.style.marginTop = '10px';
-        q.textContent = 'Nothing is estimated or filled in when the data is not there — ' +
-          'an empty page is the honest state.';
+        q.textContent = 'Refresh the page to retry. A comparison requires paired forecasts and reported demand.';
         state.appendChild(q);
       });
   })();

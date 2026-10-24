@@ -361,7 +361,7 @@ def _render_benchmark_summary(payload: dict) -> str:
         robustness = _metric_robustness(rows, we_lead=ours < theirs)
         verdict = f"{shape}{steadier} {tally}{robustness}"
     else:
-        verdict = "Fleet aggregation is still accumulating."
+        verdict = "Fleet results unavailable."
 
     # Total from config, the same source the coverage table renders from —
     # a bare N gives a reader no way to see the denominator move, which is

@@ -221,7 +221,7 @@ class TestAlertsGateEscalation:
         result = self._render(callbacks, alive=True, pass_completed=True)
         rendered = str(result[0])
         assert "Risk data unavailable" in rendered
-        assert "won't resolve on its own" in rendered
+        assert "latest data update completed without risk results" in rendered
         # The transient claim must be gone (CSS class names still say
         # "warming" — the card builder is shared — so check the copy).
         assert "warming up" not in rendered.lower()
@@ -233,14 +233,14 @@ class TestAlertsGateEscalation:
         actuals without completed-pass evidence must stay warming."""
         result = self._render(callbacks, alive=True, pass_completed=False)
         rendered = str(result[0])
-        assert "Risk data is warming up" in rendered
-        assert str(result[2].children) == "Warming"
+        assert "No risk results are available" in rendered
+        assert str(result[2].children) == "Not available"
 
     def test_cold_pipeline_keeps_warming(self, callbacks):
         result = self._render(callbacks, alive=False)
         rendered = str(result[0])
-        assert "Risk data is warming up" in rendered
-        assert str(result[2].children) == "Warming"
+        assert "No risk results are available" in rendered
+        assert str(result[2].children) == "Not available"
 
 
 class TestOutlookUnavailableRenderCopy:
@@ -265,25 +265,26 @@ class TestOutlookUnavailableRenderCopy:
                 24, "xgboost", "tab-outlook", demand_json, "grid_ops", demand_json, "SEC"
             )
 
-    def test_unavailable_copy_claims_permanence(self, callbacks):
+    def test_unavailable_copy_reports_completed_update(self, callbacks):
         result = self._render(callbacks, "unavailable")
         text = result[0].layout.annotations[0].text
         assert "Forecast unavailable for SEC" in text
-        assert "won't resolve on its own" in text
+        assert "latest completed data update did not publish" in text
         assert "will appear shortly" not in text
 
     def test_selection_copy_does_not_claim_permanence(self, callbacks):
         """A per-run selection miss heals next hour — the copy must hedge."""
         result = self._render(callbacks, "unavailable_selection")
         text = result[0].layout.annotations[0].text
-        assert "No XGBOOST data in the current scoring payload" in text
-        assert "If this persists across runs" in text
+        assert "No XGBoost forecast in the latest update" in text
+        assert "Select another model or check again later" in text
         assert "won't resolve on its own" not in text
 
-    def test_warming_copy_unchanged(self, callbacks):
+    def test_warming_copy_does_not_promise_recovery(self, callbacks):
         result = self._render(callbacks, "warming")
         text = result[0].layout.annotations[0].text
-        assert "will appear shortly" in text
+        assert "No published forecast is available" in text
+        assert "will appear shortly" not in text
 
 
 class TestDriftWindowCounts:
@@ -406,7 +407,7 @@ class TestHorizonPanelWindowGating:
 
         with patch.object(cm, "redis_get", return_value=self._payload(n_7d=2)):
             panel = str(cm._build_horizon_drift_panel("SEC"))
-        assert "Warming" in panel
+        assert "More records needed" in panel
         assert "3.33%" not in panel
 
     def test_healthy_window_cell_shows_value(self):
@@ -509,7 +510,7 @@ class TestModelsTabWindowGating:
             patch("models.model_service.get_model_metrics", return_value={}),
         ):
             panel = str(cm._build_drift_panel("SEC"))
-        assert "Warming" in panel
+        assert "Not assessed" in panel
 
     def test_healthy_window_not_warming(self):
         import components._callbacks_models as cm
@@ -520,3 +521,40 @@ class TestModelsTabWindowGating:
         ):
             panel = str(cm._build_drift_panel("SEC"))
         assert "Warming" not in panel
+
+
+def test_forecast_error_keeps_diagnostics_out_of_the_chart(callbacks):
+    import components._callbacks_forecast as fc
+
+    data = pd.DataFrame({"timestamp": ["2026-10-24T00:00:00Z"], "demand_mw": [20000]}).to_json()
+    detail = "TRACE_ONLY_MARKER: /models/internal.pkl failed to deserialize"
+    with (
+        patch.object(fc, "_outlook_tab_from_redis", return_value=None),
+        patch.object(fc, "_run_forecast_outlook", return_value={"error": detail}),
+        patch.object(fc.log, "warning") as logger,
+    ):
+        result = callbacks["update_demand_outlook"](
+            24, "xgboost", "tab-outlook", data, "grid_ops", data, "FPL"
+        )
+    visible = result[0].layout.annotations[0].text
+    assert "Forecast could not be loaded" in visible
+    assert "Refresh the page" in visible
+    assert "TRACE_ONLY_MARKER" not in visible
+    assert result[0].layout.xaxis.visible is False
+    assert result[0].layout.yaxis.visible is False
+    assert any(c.kwargs.get("error") == detail for c in logger.call_args_list)
+
+
+def test_overview_error_logs_details_without_rendering_them(callbacks):
+    import components._callbacks_overview as ov
+
+    with (
+        patch.object(ov, "_build_overview_title", side_effect=RuntimeError("TRACE_ONLY_MARKER")),
+        patch.object(ov.log, "exception") as logger,
+    ):
+        result = callbacks["update_overview_tab"](
+            None, "tab-overview", "grid_ops", None, "FPL", None
+        )
+    assert "Overview could not be loaded" in str(result)
+    assert "TRACE_ONLY_MARKER" not in str(result)
+    logger.assert_called_once()

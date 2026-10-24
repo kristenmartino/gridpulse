@@ -36,7 +36,7 @@ FEATURE_LABELS: dict[str, str] = {
     "soil_temperature_0cm": "Soil Temp",
     "weather_code": "Weather Code",
     # Derived exogenous (9)
-    "cooling_degree_days": "Cooling Demand",
+    "cooling_degree_days": "Cooling Degree Days",
     # Cooling-response pack (flag-gated, measured and rejected — see
     # docs/COOLING_RESPONSE_STUDY.md). Labelled anyway: the canonical feature
     # list carries them, and a SHAP panel must never show a raw column name.
@@ -45,10 +45,10 @@ FEATURE_LABELS: dict[str, str] = {
     "cdd_squared": "Cooling Demand (Non-Linear)",
     "heat_index": "Heat Index (Feels-Like)",
     "cdd_x_humidity": "Humid-Heat Cooling Load",
-    "heating_degree_days": "Heating Demand",
+    "heating_degree_days": "Heating Degree Days",
     "temperature_deviation": "Temp Anomaly",
-    "wind_power_estimate": "Wind Power",
-    "solar_capacity_factor": "Solar Factor",
+    "wind_power_estimate": "Wind Power Estimate",
+    "solar_capacity_factor": "Estimated Solar Capacity Factor",
     "hour_sin": "Time of Day (sin)",
     "hour_cos": "Time of Day (cos)",
     "dow_sin": "Day of Week (sin)",
@@ -143,12 +143,12 @@ def format_driver_line(label: str, value: float, mode: str = "shap") -> str:
         mode: "shap" for per-point MW values, "global" for importance ranking.
 
     Returns:
-        Formatted string like "Temperature: +1,200 MW" or "Temperature (high)".
+        Formatted string like "Temperature: +1,200 MW" or "Temperature: importance 0.300".
     """
     if mode == "shap":
         sign = "+" if value >= 0 else ""
         return f"{label}: {sign}{value:,.0f} MW"
-    return f"{label} (high)" if value > 0 else label
+    return f"{label}: importance {value:.3f}"
 
 
 def build_tooltip_strings(
@@ -162,7 +162,8 @@ def build_tooltip_strings(
     """Build a list of tooltip strings, one per forecast point.
 
     XGBoost with SHAP data → per-point drivers with MW values.
-    Other models with model_dict → static global importance repeated.
+    XGBoost without SHAP → explicitly labelled model-wide importance.
+    Other models → no XGBoost attribution.
     Fallback → empty strings (no extra tooltip content).
 
     Args:
@@ -189,16 +190,16 @@ def build_tooltip_strings(
         for i in range(n_points):
             drivers = get_top_drivers_shap(shap_values, feature_names, i, top_n)
             lines = [format_driver_line(lbl, val, mode="shap") for lbl, val in drivers]
-            tooltips.append("<br>".join(lines))
+            tooltips.append("SHAP contributions to this prediction<br>" + "<br>".join(lines))
         log.info("tooltips_built", mode="shap", n_points=n_points)
         return tooltips
 
-    # Global importance fallback (any model, if we have an XGBoost model_dict)
-    if model_dict is not None:
+    # A model-wide XGBoost ranking cannot explain a different model’s forecast.
+    if model_name == "xgboost" and model_dict is not None:
         try:
             drivers = get_top_drivers_global(model_dict, top_n)
             lines = [format_driver_line(lbl, val, mode="global") for lbl, val in drivers]
-            static_tip = "<br>".join(lines)
+            static_tip = "Model-wide XGBoost importance<br>" + "<br>".join(lines)
             log.info("tooltips_built", mode="global", n_points=n_points)
             return [static_tip] * n_points
         except Exception:

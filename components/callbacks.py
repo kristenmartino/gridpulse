@@ -602,9 +602,9 @@ def register_callbacks(app):
         freshness = json.loads(freshness_json)
         # Map degraded-source state → (icon name, semantic class, message tail)
         states = {
-            "stale": ("alert-circle", "warning", "serving cached data (API unavailable)"),
-            "error": ("alert-triangle", "critical", "data load failed — using fallback"),
-            "demo": ("flask", "info", "demo data (no API key configured)"),
+            "stale": ("alert-circle", "warning", "data is older than the freshness limit"),
+            "error": ("alert-triangle", "critical", "data could not be loaded"),
+            "demo": ("flask", "info", "synthetic demo data"),
         }
 
         rows: list = []

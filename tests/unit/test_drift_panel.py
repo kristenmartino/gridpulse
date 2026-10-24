@@ -222,7 +222,7 @@ class TestWarmingStates:
 
         result = _build_drift_panel("PJM")
         chips = _find_status_chips(result)
-        assert chips == ["Warming"]
+        assert chips == ["Not assessed"]
 
 
 class TestStatusThresholds:

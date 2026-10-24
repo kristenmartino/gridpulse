@@ -215,19 +215,19 @@ class TestProvenanceDataNote:
         )
         assert "Data note" in text
         assert "70%" in text
-        assert "firm up over the following day" in text
+        assert "can change with later reports" in text
 
     def test_bulk_class_note(self, monkeypatch):
         text = self._insight_text(
             {"revision_class": "bulk", "mean_fresh_revision_pct": 18.0}, monkeypatch
         )
-        assert "next-morning resubmission" in text
+        assert "revised in batches" in text
 
     def test_churn_class_note(self, monkeypatch):
         text = self._insight_text(
             {"revision_class": "churn", "mean_fresh_revision_pct": 15.0}, monkeypatch
         )
-        assert "as metering completes" in text
+        assert "after publication" in text
 
     def test_clean_unknown_and_missing_are_silent(self, monkeypatch):
         for summary in (

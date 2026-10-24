@@ -386,7 +386,7 @@ class TestInsightCardIsRoleAware:
         from components._callbacks_overview import _build_overview_insight
 
         text = _all_text(_build_overview_insight("PJM", None, "grid_ops"))
-        assert "Awaiting demand data" in text
+        assert "No demand data is available" in text
         assert "ramp rate" not in text.lower()
 
     @patch("components._callbacks_overview.redis_get", return_value=None)

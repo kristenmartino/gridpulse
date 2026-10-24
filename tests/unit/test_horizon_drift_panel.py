@@ -154,7 +154,7 @@ class TestHorizonDriftPanel:
             div = _build_horizon_drift_panel("PJM")
         chips = _chips(div)
         assert "≤2% band" in chips  # 24h graded
-        assert "Warming" in chips  # 48h warming
+        assert "More records needed" in chips  # 48h warming
         assert "—" in chips  # 72h no records
 
     def test_rollback_tone_negative(self):

@@ -172,7 +172,7 @@ class TestAlertsTabRedisRendering:
         assert result is not None
         alert_cards, stress_str, stress_span, breakdown = result[0], result[1], result[2], result[3]
         text = _collect_text(alert_cards)
-        assert "temporarily unavailable" in text
+        assert "alert status is unknown" in text
         assert stress_str == "—"
         assert _collect_text(stress_span) == "Unavailable"
         assert "No alert feed" in _collect_text(breakdown)
@@ -380,7 +380,7 @@ class TestAlertsWarmingGate:
             result = callbacks["update_alerts_tab"]("ERCOT", None, None, "tab-alerts")
 
         text = _collect_text(result[0])
-        assert "warming" in text.lower()
+        assert "risk data unavailable" in text.lower()
         assert "Heat Advisory" not in text
         assert result[1] == "—"
 
@@ -557,7 +557,7 @@ class TestLiveNOAAWiring:
         with patch.object(mod, "redis_get", return_value=payload):
             result = mod._alerts_tab_from_redis("ERCOT")
         text = _collect_text(result[0])
-        assert "No active severe-weather alerts" in text
+        assert "no active severe-weather alerts" in text
         assert "NOAA/NWS" in text
 
 
