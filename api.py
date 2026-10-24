@@ -943,7 +943,7 @@ def build_benchmark_payload() -> dict[str, Any] | None:
         log.warning("benchmark_export_absent_split_read")
 
     body = {
-        "comparison": "GridPulse forecast vs the balancing authority's own day-ahead forecast",
+        "comparison": "GridPulse model comparison vs the balancing authority's earliest-observed day-ahead forecast",
         "truth": "EIA's settled demand value for the hour, used for both arms",
         "window_days": 30,
         "updated_at": fleet.get("updated_at"),

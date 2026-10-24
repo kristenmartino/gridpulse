@@ -176,7 +176,20 @@ def layout() -> html.Div:
                     # 1. Title block (callback fills models-title)
                     html.Div(id="models-title"),
                     # 2. Model leaderboard MetricsBar (callback fills 5-up bar)
-                    html.Div("Training holdout · 168h recursive", className="gp-control-eyebrow"),
+                    html.P(
+                        "These are model comparisons, which may differ from the published default. "
+                        "Use Forecast to identify the series shown and its matching observed error.",
+                        className="gp-panel__hint",
+                    ),
+                    html.Div(
+                        "Training holdout error · 168h recursive", className="gp-control-eyebrow"
+                    ),
+                    html.P(
+                        "MAPE is mean absolute percentage error; lower is better. "
+                        "MAE and RMSE measure error in megawatts (MW). "
+                        "These historical results do not predict the accuracy of the next forecast.",
+                        className="gp-panel__hint",
+                    ),
                     html.Div(id="models-leaderboard"),
                     # 2b. Live drift panel — #121 part 2. Per-model rolling
                     # 7d / 30d MAPE compared against training-time holdout.

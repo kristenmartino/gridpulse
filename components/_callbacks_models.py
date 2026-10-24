@@ -191,7 +191,9 @@ def _models_tab_from_redis(region, selected_models: list[str] | None = None):
         )
     table = html.Table(
         [
-            html.Thead(html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])),
+            html.Thead(
+                html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE (MW)", "MAE (MW)", "R²"]])
+            ),
             html.Tbody(rows),
         ],
         className="metrics-table",
@@ -984,7 +986,9 @@ def register_models_callbacks(app):
             )
         table = html.Table(
             [
-                html.Thead(html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE", "MAE", "R²"]])),
+                html.Thead(
+                    html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE (MW)", "MAE (MW)", "R²"]])
+                ),
                 html.Tbody(rows),
             ],
             className="metrics-table",
@@ -1187,7 +1191,7 @@ def _build_models_leaderboard(region: str | None) -> html.Div:
             {
                 "label": display_names.get(key, model_display_name(key)),
                 "value": f"{mape:.1f}%",
-                "unit": f"MAE {float(mae):,.0f}" if mae is not None else "",
+                "unit": f"MAPE · MAE {float(mae):,.0f} MW" if mae is not None else "MAPE",
                 "tone": tone,
                 "hero": key == hero_key,
             }

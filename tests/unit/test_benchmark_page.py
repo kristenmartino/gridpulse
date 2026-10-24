@@ -1039,3 +1039,33 @@ class TestDriftWindowCoverageIsPublished:
         script = _data_script(body)
         helper = script[script.index("function coverageOf") : script.index("function coverageNote")]
         assert "return null" in helper
+
+
+@pytest.mark.parametrize(
+    "model, label",
+    [
+        ("ensemble", "Ensemble"),
+        ("xgboost", "XGBoost"),
+        ("arima", "SARIMAX"),
+        (None, "Model unspecified"),
+        ("<script>untrusted</script>", "Model unspecified"),
+    ],
+)
+def test_server_render_names_only_the_scored_model(model, label):
+    payload = dict(_FLEET, regions=[_payload(scored_model=model, served_series="seasonal-naive")])
+    summary = landing._render_benchmark_summary(payload)
+    assert f"<td>{label}</td>" in summary
+    assert '<th scope="col">Model scored</th>' in summary
+    assert "does not score the published fallback baseline" in summary
+    assert "<script>untrusted</script>" not in summary
+
+
+def test_server_render_separates_available_rows_from_aggregate_population():
+    payload = dict(_FLEET, n_scoreable=47, fleet=dict(_FLEET["fleet"], n=46))
+    summary = landing._render_benchmark_summary(payload)
+    assert "47 / 51" in summary
+    assert "46 in the aggregate group" in summary
+    assert "median per-authority MAPE · 46 authorities" in summary
+    # Supporting ratios stay out of the opening result; the values remain available.
+    verdict = re.search(r'<p class="verdict">(.*?)</p>', summary, re.S).group(1)
+    assert "Best-to-worst" not in verdict

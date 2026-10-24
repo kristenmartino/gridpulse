@@ -75,7 +75,7 @@ class TestNumbersTraceToSource:
             ("9.87%", "CANONICAL_FACTS.md"),  # XGBoost-alone p90
             ("21 of 51", "CANONICAL_FACTS.md"),  # ensemble wins
             ("42 of 51", "CANONICAL_FACTS.md"),  # XGBoost best base
-            ("+1.14 sMAPE", "HOW_IT_WORKS.md"),  # multi-point weather
+            ("1.14 sMAPE", "HOW_IT_WORKS.md"),  # multi-point weather
             ("6.96%", "HOW_IT_WORKS.md"),  # the visibility-gate example
             ("38.63%", "CANONICAL_FACTS.md"),  # the withdrawn tail claim
         ],
@@ -129,7 +129,11 @@ class TestPosture:
         """A methodology page without its limits is marketing — the same
         standard the benchmark page is held to."""
         assert "What this does not do" in body
-        for limit in ("drift between trainings", "Alaska or Hawaii", "not stable"):
+        for limit in (
+            "Monitoring is not proof of future accuracy",
+            "Alaska or Hawaii",
+            "not stable",
+        ):
             assert limit in body, limit
 
     def test_leads_with_the_withdrawn_claim_not_buries_it(self, body) -> None:

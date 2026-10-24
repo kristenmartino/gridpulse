@@ -170,6 +170,11 @@ def layout() -> html.Div:
                     html.Div(id="risk-title"),
                     # 2. Risk MetricsBar (Stress Score hero + Components breakdown)
                     _risk_metrics_bar(),
+                    html.P(
+                        "Demand/nameplate is a context ratio, not a measure of available "
+                        "reserves or outage probability. Capacity estimates are identified in US Grid.",
+                        className="gp-panel__hint",
+                    ),
                     # 3. Active alerts severity timeline
                     _alerts_card(),
                     # 4. Current weather conditions strip

@@ -236,7 +236,7 @@ class TestAboutBenchmarkClaim:
         )
         body = client.get("/about").get_data(as_text=True)
         assert comparison in body
-        assert "30-day live benchmark (~24h lead), across 46 operators" in body
+        assert "30-day model-comparison benchmark (~24h lead), across 46 operators" in body
         assert "fraction of a point" not in body
 
     def test_fails_open_when_the_payload_raises(self, client, monkeypatch) -> None:

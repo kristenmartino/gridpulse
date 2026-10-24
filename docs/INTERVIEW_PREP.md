@@ -1,9 +1,10 @@
 # Interview Prep — GridPulse
 
-> **Status: STAR-story stubs identified, full drafts land in PR-C2
-> (next session).** Each story below is a real event from the project's
-> recent history; PR-C2 expands each into ~90 seconds of spoken
-> narrative + practice notes.
+> Project history includes AI-assisted development. These notes describe
+> project events; first-person drafts are not proof of independent implementation.
+> In an interview, distinguish Kristen's own decisions and actions from work
+> performed with AI tools.
+
 
 ## How to use this file
 
@@ -1600,3 +1601,10 @@ that it reproduced; the reviewer's magnitude was an artifact of a predicate
 that didn't know about a deliberate exclusion. An acceptance criterion you
 adopt without re-deriving is a criterion you can satisfy perfectly and still
 be told you failed.*
+
+
+## Review story: keep benchmark evidence attached to the series it measures
+
+A hiring-manager review found that the benchmark scored named model series while the dashboard could publish a seasonal baseline. Calling both simply “GridPulse accuracy” obscured that distinction. The page now identifies the model in every benchmark row, separates scored-row count from the aggregate population, and keeps supporting statistics below an expandable summary. Models also labels MAPE and MW error units.
+
+The demonstrated judgment is to make scope and limitations part of the result: historical holdout, live model-comparison error, and a published baseline answer different questions. These presentation changes do not establish practitioner adoption or operational value; that validation remains a next step. Development and review were AI-assisted.
