@@ -76,14 +76,8 @@ def _serve(path: Path, what: str) -> Response:
 _CLAIM_MARKER = "<!--SSR_BENCHMARK_CLAIM-->"
 
 
-def _render_benchmark_claim(payload: dict) -> str:
-    """One derived sentence for /about's benchmark card.
-
-    Derived per request for the same reason the /benchmark verdict is: a
-    written-in number becomes a lie the first time the payload moves. Both
-    directions handled; the steadiness clause is only claimed when the rows
-    actually support it.
-    """
+def _benchmark_comparison(payload: dict) -> str:
+    """Report the current fleet medians and their signed gap."""
     fleet = payload.get("fleet") or {}
     ours = fleet.get("median_gridpulse_mape")
     theirs = fleet.get("median_official_mape")
@@ -91,32 +85,25 @@ def _render_benchmark_claim(payload: dict) -> str:
     if not isinstance(ours, (int, float)) or not isinstance(theirs, (int, float)):
         return ""
 
-    rows = _fleet_rows(payload)
-    ours_spread = _spread_ratio(rows, "gridpulse")
-    theirs_spread = _spread_ratio(rows, "official")
-    # The window/lead parenthetical is not decoration: the hero strip quotes
-    # the 168h-recursive HOLDOUT median a few scrolls up, and two unlabelled
-    # "our error" figures on one page read as a contradiction rather than as
-    # two instruments (the benchmark methodology's own §8 rule).
-    if ours < theirs:
-        claim = (
-            f"Live right now: the closer forecast on the typical operator — "
-            f"{_pct(ours)} median error against their {_pct(theirs)}, across "
-            f"{_esc(n)} operators (30-day live window, ~24h lead)"
-        )
+    # Keep the live comparison distinct from the training holdout above it.
+    claim = (
+        f"30-day live benchmark (~24h lead), across {_esc(n)} operators: "
+        f"GridPulse median error {_pct(ours)}; operator forecasts {_pct(theirs)}. "
+    )
+    gap = abs(ours - theirs)
+    if ours == theirs:
+        claim += "The medians are equal."
+    elif round(gap, 2) == 0:
+        claim += "The median error differs by less than 0.01 percentage points."
     else:
-        gap = abs(ours - theirs)
-        claim = (
-            f"Live right now: within {gap:.2f} points of the operators’ own "
-            f"median error across {_esc(n)} operators (30-day live window, "
-            f"~24h lead) — {_pct(ours)} against their {_pct(theirs)}"
-        )
-    if ours_spread and theirs_spread and ours_spread < theirs_spread:
-        claim += (
-            f", with a fraction of their best-to-worst spread "
-            f"(ours {ours_spread}×, theirs {theirs_spread}×)"
-        )
-    return f'<p class="bench-claim">{claim}.</p>'
+        direction = "lower" if ours < theirs else "higher"
+        claim += f"GridPulse’s median error is {gap:.2f} percentage points {direction}."
+    return claim
+
+
+def _render_benchmark_claim(payload: dict) -> str:
+    claim = _benchmark_comparison(payload)
+    return f'<p class="bench-claim">{claim}</p>' if claim else ""
 
 
 @landing_bp.get("/about")
@@ -357,40 +344,19 @@ def _render_benchmark_summary(payload: dict) -> str:
     wins, losses, n = fleet.get("wins"), fleet.get("losses"), fleet.get("n")
 
     if isinstance(ours, (int, float)) and isinstance(theirs, (int, float)):
-        gap = abs(ours - theirs)
-        if ours < theirs:
-            shape = (
-                f"On the typical grid operator GridPulse is the closer forecast "
-                f"— {_pct(ours)} average error against their {_pct(theirs)} — "
-                f"built from public data alone."
-            )
-            tally = (
-                f"At the median GridPulse is the closer of the two, closer on "
-                f"{_esc(wins)} of {_esc(n)} operators."
-            )
-        else:
-            shape = (
-                f"GridPulse runs within {gap:.2f} points of the operators' own "
-                f"forecasts on the typical grid — {_pct(ours)} average error "
-                f"against their {_pct(theirs)} — built from public data alone."
-            )
-            tally = (
-                f"At the median the operator's own forecast is the closer of "
-                f"the two, closer on {_esc(losses)} of {_esc(n)} operators."
-            )
+        shape = _benchmark_comparison(payload)
+        tally = (
+            f"Lower error by operator: GridPulse on {_esc(wins)} of {_esc(n)}; "
+            f"operator forecasts on {_esc(losses)} of {_esc(n)}."
+        )
         rows = _fleet_rows(payload)
         ours_spread = _spread_ratio(rows, "gridpulse")
         theirs_spread = _spread_ratio(rows, "official")
         steadier = ""
         if ours_spread and theirs_spread:
             steadier = (
-                f" It is also the steadier of the two: our error spans "
-                f"{ours_spread}× from best operator to worst, theirs "
-                f"{theirs_spread}×."
-                if ours_spread < theirs_spread
-                else f" Theirs is also the steadier of the two — "
-                f"{theirs_spread}× from best operator to worst, against our "
-                f"{ours_spread}×."
+                f" Best-to-worst per-operator error ratio: GridPulse "
+                f"{ours_spread}×; operator forecasts {theirs_spread}×."
             )
         robustness = _metric_robustness(rows, we_lead=ours < theirs)
         verdict = f"{shape}{steadier} {tally}{robustness}"

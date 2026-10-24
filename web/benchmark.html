@@ -1008,24 +1008,18 @@
       var so = spreadOf(rows, 'gridpulse'), st = spreadOf(rows, 'official');
       var parts = [];
 
-      /* 1 — the shape: proximity and steadiness, in plain terms. */
-      parts.push(
-        weLead
-          ? 'On the typical grid operator GridPulse is the closer forecast — ' +
-            num(ours) + '% average error against their ' + num(theirs) +
-            '% — built from public data alone.'
-          : 'GridPulse runs within ' + gap + ' points of the operators’ own ' +
-            'forecasts on the typical grid — ' + num(ours) + '% average error ' +
-            'against their ' + num(theirs) + '% — built from public data alone.'
-      );
+      parts.push('30-day live benchmark (~24h lead), across ' + fleet.n +
+        ' operators: GridPulse median error ' + num(ours) +
+        '%; operator forecasts ' + num(theirs) + '%.');
+      parts.push(ours === theirs
+        ? 'The medians are equal.'
+        : Number(gap) === 0
+          ? 'The median error differs by less than 0.01 percentage points.'
+          : 'GridPulse’s median error is ' + gap + ' percentage points ' +
+            (weLead ? 'lower.' : 'higher.'));
       if (so.ratio && st.ratio) {
-        parts.push(
-          so.ratio < st.ratio
-            ? 'It is also the steadier of the two: our error spans ' + so.ratio +
-              '× from best operator to worst, theirs ' + st.ratio + '×.'
-            : 'Theirs is also the steadier of the two — ' + st.ratio +
-              '× from best operator to worst, against our ' + so.ratio + '×.'
-        );
+        parts.push('Best-to-worst per-operator error ratio: GridPulse ' + so.ratio +
+          '×; operator forecasts ' + st.ratio + '×.');
       }
 
       /* 2 — how the margins fall, both directions, from the same rows the
@@ -1049,31 +1043,21 @@
         var best = byDelta[0], worst = byDelta[byDelta.length - 1];
         var bh = head(data, best), wh = head(data, worst);
         if (bh.delta_mape > 0) {
-          /* "The largest gaps run our way" is a claim, so it is only made
-             when the widest win actually exceeds the widest loss. */
-          var gapsRunOurWay = wh.delta_mape >= 0 || bh.delta_mape > -wh.delta_mape;
-          parts.push(
-            (gapsRunOurWay
-              ? 'The largest gaps run our way, where an operator forecasts its own load poorly: '
-              : 'The widest gap in our favour is where an operator forecasts its own load poorly: ') +
-            best.region + ' reads ' + num(bh.official.mape) + '% against our ' +
-            num(bh.gridpulse.mape) + '%.');
+          parts.push('Largest GridPulse advantage: ' + best.region + ', with ' +
+            num(bh.gridpulse.mape) + '% error against the operator’s ' +
+            num(bh.official.mape) + '%.');
         }
         if (wh.delta_mape < 0) {
-          parts.push('Our own worst row is ' + worst.region + ', at ' +
+          parts.push('Largest operator advantage: ' + worst.region + ', at ' +
             num(wh.gridpulse.mape) + '% against their ' + num(wh.official.mape) + '%.');
         }
       }
 
       /* 3 — the tally, stated plainly, last. */
       if (fleet.wins !== undefined && fleet.losses !== undefined && fleet.wins !== null) {
-        parts.push(
-          weLead
-            ? 'At the median GridPulse is the closer of the two, closer on ' +
-              fleet.wins + ' of ' + fleet.n + ' operators.'
-            : 'At the median the operator’s own forecast is the closer ' +
-              'of the two, closer on ' + fleet.losses + ' of ' + fleet.n + ' operators.'
-        );
+        parts.push('Lower error by operator: GridPulse on ' + fleet.wins +
+          ' of ' + fleet.n + '; operator forecasts on ' + fleet.losses +
+          ' of ' + fleet.n + '.');
       }
 
       /* 4 — metric-robustness, derived like everything else: recompute the

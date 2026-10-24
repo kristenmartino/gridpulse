@@ -348,7 +348,29 @@ class TestInsightCardIsRoleAware:
             _build_overview_insight("PJM", _demand_df(), "grid_ops", None, self._weather_df())
         )
         assert "Last 24h peak:" in text
+
         assert "Peak demand reached" not in text
+
+    @patch("components._callbacks_overview.redis_get", return_value=None)
+    def test_history_is_collapsed_and_data_warnings_stay_visible(self, _mock_redis):
+        from dash import html
+
+        from components._callbacks_overview import _build_overview_insight
+
+        exclusions = [{"mw": 1200, "ts": "2026-05-20T14:00:00Z", "reason": "partial reading"}]
+        with patch(
+            "components._callbacks_overview._provenance_note", return_value=["Feed is provisional."]
+        ):
+            card = _build_overview_insight("PJM", _demand_df(), "grid_ops", exclusions)
+
+        disclosure = next(c for c in card.children if isinstance(c, html.Details))
+        assert not getattr(disclosure, "open", False)
+        assert "Last 24h peak:" in _all_text(disclosure)
+        visible = " ".join(_all_text(c) for c in card.children if not isinstance(c, html.Details))
+        assert "partial reading" in visible
+        assert "Feed is provisional." in visible
+        assert "Last 24h peak:" not in visible
+        assert "ramp rate" not in visible.lower()
 
     @patch("components._callbacks_overview.redis_get", return_value=None)
     def test_no_weather_still_renders(self, _mock_redis):

@@ -714,20 +714,27 @@ class TestBenchmarkServerRender:
         assert "must not publish" not in body
         assert "_internal" not in body
 
-    @patch("api.redis_get")
-    def test_verdict_is_derived_in_both_directions(self, mock_get, client) -> None:
+    def test_verdict_is_derived_in_both_directions(self, monkeypatch, client) -> None:
         """A written-in conclusion becomes a lie the first time the numbers
         move, so the server derives it the same way the browser does."""
-        # Operators closer: their median below ours.
+        import api
+
+        # Inspect the server-rendered summary, not matching words in its script.
         losing = dict(_FLEET, fleet=dict(_FLEET["fleet"], median_official_mape=2.0))
-        mock_get.side_effect = _redis([_payload()], losing)
+        monkeypatch.setattr(api, "build_benchmark_payload", lambda: losing)
         body = client.get("/benchmark").get_data(as_text=True)
-        assert "the operator's own forecast is the closer" in body
+        assert (
+            "1.50 percentage points higher"
+            in body.split('id="ssr-summary"', 1)[1].split("<script", 1)[0]
+        )
         # Winning: ours median below theirs.
         winning = dict(_FLEET, fleet=dict(_FLEET["fleet"], median_gridpulse_mape=2.0))
-        mock_get.side_effect = _redis([_payload()], winning)
+        monkeypatch.setattr(api, "build_benchmark_payload", lambda: winning)
         body = client.get("/benchmark").get_data(as_text=True)
-        assert "GridPulse is the closer" in body
+        assert (
+            "1.05 percentage points lower"
+            in body.split('id="ssr-summary"', 1)[1].split("<script", 1)[0]
+        )
 
     @patch("api.redis_get")
     def test_rows_without_a_verdict_are_omitted(self, mock_get, client) -> None:
@@ -916,9 +923,9 @@ class TestBenchmarkPagePosture:
         Both directions must be generated, and the unflattering branch must
         name the loss rather than skipping to the consolation."""
         assert "var weLead = ours < theirs;" in body
-        assert "own forecast is the" in body  # the losing branch
-        assert "GridPulse is the closer" in body  # the winning branch
-        assert "Our own worst row is" in body  # names our worst, always
+        assert "higher." in body  # the losing branch
+        assert "weLead ? 'lower.' : 'higher.'" in body  # both directions
+        assert "Largest operator advantage:" in body  # names our worst, always
 
     def test_the_verdict_is_derived_not_written_in(self, body) -> None:
         """No literal from any particular run may appear in the script — the
