@@ -1,0 +1,1 @@
+2026-10-24 — [validation-order]: adding a repository review note after the full local suite left a missing category tag unchecked until PR CI; the focused worklog-format check verifies the corrected note.
