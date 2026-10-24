@@ -357,28 +357,28 @@ _SCENARIO_PRESETS: dict[str, dict] = {
     # weather targets). Translated from simulation/presets.py historical
     # scenarios into "delta from typical conditions".
     "heat_dome": {
-        "label": "Heat Dome",
-        "sub": "+25°F · clear sky",
-        "deltas": {"temp": 25, "wind": -5, "solar": 200},
+        "label": "Warmer",
+        "sub": "+20°F · +200 W/m²",
+        "deltas": {"temp": 20, "wind": -5, "solar": 200},
     },
     "polar_vortex": {
-        "label": "Polar Vortex",
-        "sub": "−30°F · windy",
-        "deltas": {"temp": -30, "wind": 10, "solar": -100},
+        "label": "Colder",
+        "sub": "−20°F · +10 mph",
+        "deltas": {"temp": -20, "wind": 10, "solar": -100},
     },
     "calm_overcast": {
-        "label": "Calm Overcast",
-        "sub": "Δ0°F · still / cloudy",
+        "label": "Less wind + sun",
+        "sub": "−8 mph · −150 W/m²",
         "deltas": {"temp": 0, "wind": -8, "solar": -150},
     },
     "windy_cool": {
-        "label": "Windy Cool",
-        "sub": "−10°F · 20 mph",
+        "label": "Cooler + windier",
+        "sub": "−10°F · +8 mph",
         "deltas": {"temp": -10, "wind": 8, "solar": -50},
     },
     "eclipse": {
-        "label": "Solar Eclipse",
-        "sub": "Δ0°F · solar zero",
+        "label": "Less sun",
+        "sub": "−200 W/m²",
         "deltas": {"temp": 0, "wind": 0, "solar": -200},
     },
 }
@@ -438,7 +438,7 @@ def _panel_scenarios() -> dbc.Collapse:
             [
                 _panel_header(
                     "Scenarios",
-                    "Stress-test demand against weather shifts",
+                    "Compare demand under weather changes",
                 ),
                 # The source line lives in the callback output (below the
                 # KPIs), not here: since #127 this panel may be served either
@@ -447,8 +447,8 @@ def _panel_scenarios() -> dbc.Collapse:
                 # re-forecast" for a fortnight while production served exactly
                 # that.
                 html.P(
-                    "Stress-test demand against weather shifts. "
-                    "How each scenario was computed is noted with the results.",
+                    "Adjust temperature, wind, and solar radiation relative to the baseline. "
+                    "The results identify the calculation used.",
                     className="gp-panel__disclosure",
                 ),
                 html.Div(_scenario_preset_chips(), className="gp-preset-chips"),

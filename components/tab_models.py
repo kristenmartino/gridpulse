@@ -54,9 +54,9 @@ def _metrics_table_card() -> html.Div:
         [
             html.Div(
                 [
-                    html.Span("Model Performance", className="gp-panel__eyebrow"),
+                    html.Span("Training Holdout Metrics", className="gp-panel__eyebrow"),
                     html.Span(
-                        "MAPE / RMSE / MAE / R² across selected models",
+                        "168-hour recursive evaluation · selected models",
                         className="gp-panel__hint",
                     ),
                 ],
@@ -147,7 +147,7 @@ def _error_shap_grid() -> html.Div:
             html.Div(
                 [
                     html.Div(
-                        "SHAP Feature Importance · XGBoost",
+                        "Feature Importance · XGBoost",
                         className="gp-control-eyebrow",
                     ),
                     dcc.Loading(
@@ -176,6 +176,7 @@ def layout() -> html.Div:
                     # 1. Title block (callback fills models-title)
                     html.Div(id="models-title"),
                     # 2. Model leaderboard MetricsBar (callback fills 5-up bar)
+                    html.Div("Training holdout · 168h recursive", className="gp-control-eyebrow"),
                     html.Div(id="models-leaderboard"),
                     # 2b. Live drift panel — #121 part 2. Per-model rolling
                     # 7d / 30d MAPE compared against training-time holdout.
@@ -187,12 +188,12 @@ def layout() -> html.Div:
                     _metrics_table_card(),
                     # 5. Residual analysis 3-up grid
                     _residual_grid(),
-                    # 6. Error + SHAP 2-up grid
+                    # 6. Error + feature-importance 2-up grid
                     _error_shap_grid(),
                     # 7. Footer
                     build_page_footer(
                         sources=["EIA", "Open-Meteo"],
-                        note="Backtests run on the most recent week of holdout data.",
+                        note="Holdout metrics come from each model’s last completed training evaluation.",
                     ),
                 ],
                 className="gp-section-stack",

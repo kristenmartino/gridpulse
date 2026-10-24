@@ -16,7 +16,7 @@ training job's 168h recursive score — context at a different lead, not
 comparable (band fixed to 1h per #217).
 
 **Verdict-confirmation rule (#217 de-alarm):** a model above the 5% 1h
-band only gets the "Rollback" verdict when its own 24h-ahead grade (from
+band only gets the "Above both bands" verdict when its own 24h-ahead grade (from
 ``gridpulse:drift_horizon:{region}``, #227) is also ``rollback``;
 otherwise it gets a descriptive "Off band" chip and the headline stays
 non-alarming — a day-ahead model without a 1-hour anchor is expected to
@@ -195,7 +195,7 @@ class TestWarmingStates:
 
         result = _build_drift_panel("PJM")
         text = _find_all_text(result)
-        assert "Warming up" in text
+        assert "Live error unavailable" in text
         # No status chips because no model rows render in warming state.
         assert _find_status_chips(result) == []
 
@@ -207,7 +207,7 @@ class TestWarmingStates:
 
         result = _build_drift_panel("PJM")
         text = _find_all_text(result)
-        assert "Warming up" in text
+        assert "Live error unavailable" in text
 
     @patch("components._callbacks_models.redis_get")
     @patch("models.model_service.get_model_metrics")
@@ -250,7 +250,7 @@ class TestLeadHonestLabels:
         assert "Holdout (168h recursive)" in text
         assert "Live 1h-ahead (7d avg)" in text
         assert "Live 1h-ahead (30d avg)" in text
-        assert "not directly comparable" in text
+        assert "different forecast leads" in text
         assert "Live ÷ Holdout" not in text
         assert "×" not in text  # no rendered ratio values
 
@@ -278,7 +278,7 @@ class TestLeadHonestLabels:
         mock_metrics.return_value = _holdout_metrics(xgboost=0.5)
 
         result = _build_drift_panel("PJM")
-        assert _find_status_chips(result) == ["Excellent"]
+        assert _find_status_chips(result) == ["≤1% band"]
 
     @patch("components._callbacks_models.redis_get")
     @patch("models.model_service.get_model_metrics")
@@ -290,7 +290,7 @@ class TestLeadHonestLabels:
         mock_metrics.return_value = _holdout_metrics(xgboost=1.0)
 
         result = _build_drift_panel("PJM")
-        assert _find_status_chips(result) == ["Target"]
+        assert _find_status_chips(result) == ["≤2.5% band"]
 
     @patch("components._callbacks_models.redis_get")
     @patch("models.model_service.get_model_metrics")
@@ -303,7 +303,7 @@ class TestLeadHonestLabels:
         mock_metrics.return_value = _holdout_metrics(xgboost=1.0)
 
         result = _build_drift_panel("PJM")
-        assert _find_status_chips(result) == ["Acceptable"]
+        assert _find_status_chips(result) == ["≤5% band"]
         assert "in rollback" not in _find_all_text(result)
 
     @patch("components._callbacks_models.redis_get")
@@ -320,7 +320,7 @@ class TestLeadHonestLabels:
         mock_metrics.return_value = _holdout_metrics(xgboost=2.0)
 
         result = _build_drift_panel("PJM")
-        assert _find_status_chips(result) == ["Rollback"]
+        assert _find_status_chips(result) == ["Above both bands"]
         assert "investigate" in _find_all_text(result).lower()
 
     @patch("components._callbacks_models.redis_get")
@@ -337,12 +337,12 @@ class TestLeadHonestLabels:
         mock_metrics.return_value = _holdout_metrics(xgboost=0.75)
 
         result = _build_drift_panel("PJM")
-        assert _find_status_chips(result) == ["Target"]
+        assert _find_status_chips(result) == ["≤2.5% band"]
         assert "in rollback" not in _find_all_text(result)
 
 
 class TestVerdictConfirmationRule:
-    """#217 de-alarm: >5% at 1h is a *measurement*; "Rollback" is a *verdict*
+    """#217 de-alarm: >5% at 1h is a *measurement*; "Above both bands" is a *verdict*
     that requires the model's own 24h grade to confirm. Prophet/SARIMAX
     lacking a 1h anchor must not be condemned by the 1h band alone."""
 
@@ -363,7 +363,7 @@ class TestVerdictConfirmationRule:
         result = _build_drift_panel("PJM")
         assert _find_status_chips(result) == ["Off band"]
         text = _find_all_text(result)
-        assert "No model in confirmed rollback" in text
+        assert "above the 1h band" in text
         # Copy must be honest about the ≥24h maturation lag — never
         # present-tense "healthy at 24h ahead" from lagged evidence.
         assert "matured 24h-ahead scores" in text
@@ -500,7 +500,7 @@ class TestVerdictConfirmationRule:
                 walk(children)
 
         walk(result)
-        assert titles and "Drift by Horizon" in titles[0]
+        assert titles and "live error by forecast lead" in titles[0]
         assert "target" in titles[0]
 
 
@@ -534,10 +534,10 @@ class TestMixedAndPartialStates:
         result = _build_drift_panel("PJM")
         chips = _find_status_chips(result)
         # Render order matches display_order: prophet, arima, xgboost, ensemble
-        assert chips == ["Off band", "Acceptable", "Excellent", "Target"]
+        assert chips == ["Off band", "≤5% band", "≤1% band", "≤2.5% band"]
         # Headline explains the 1h excursion without alarming.
         text = _find_all_text(result)
-        assert "No model in confirmed rollback" in text
+        assert "above the 1h band" in text
         assert "investigate" not in text.lower()
 
     @patch("components._callbacks_models.redis_get")
@@ -561,7 +561,7 @@ class TestMixedAndPartialStates:
 
         result = _build_drift_panel("PJM")
         text = _find_all_text(result)
-        assert "acceptable or better" in text
+        assert "within the configured 1h band" in text
         assert "in rollback" not in text
 
     @patch("components._callbacks_models.redis_get")
@@ -577,7 +577,7 @@ class TestMixedAndPartialStates:
         result = _build_drift_panel("PJM")
         chips = _find_status_chips(result)
         assert len(chips) == 1
-        assert chips[0] == "Excellent"
+        assert chips[0] == "≤1% band"
 
 
 class TestMissingHoldoutFallback:
@@ -682,42 +682,42 @@ class TestFeedLimitedAttribution:
 
     def test_broken_feed_anchor_fed_model_is_feed_limited(self):
         result = self._panel(vintage_summary=_vintage_summary("broken", 70.0))
-        assert _find_status_chips(result) == ["Feed-limited"]
+        assert _find_status_chips(result) == ["High input revisions"]
         text = _find_all_text(result)
-        assert "feed-limited" in text.lower()
+        assert "high input revisions" in text.lower()
         assert "70" in text  # the measured evidence rides the surface
 
     def test_prophet_is_exempt_from_attribution(self):
         """Same broken feed — Prophet keeps its honest Rollback (#299)."""
         result = self._panel(vintage_summary=_vintage_summary("broken", 70.0), models=("prophet",))
-        assert _find_status_chips(result) == ["Rollback"]
+        assert _find_status_chips(result) == ["Above both bands"]
 
     def test_churn_class_qualifies_at_magnitude(self):
         result = self._panel(vintage_summary=_vintage_summary("churn", 15.0))
-        assert _find_status_chips(result) == ["Feed-limited"]
+        assert _find_status_chips(result) == ["High input revisions"]
 
     def test_low_magnitude_churn_stays_rollback(self):
         """A 1%-hourly-revising BA must not launder a real model failure."""
         result = self._panel(vintage_summary=_vintage_summary("churn", 1.0))
-        assert _find_status_chips(result) == ["Rollback"]
+        assert _find_status_chips(result) == ["Above both bands"]
 
     def test_unknown_class_stays_rollback(self):
         result = self._panel(vintage_summary=_vintage_summary("unknown", 70.0))
-        assert _find_status_chips(result) == ["Rollback"]
+        assert _find_status_chips(result) == ["Above both bands"]
 
     def test_clean_class_stays_rollback(self):
         result = self._panel(vintage_summary=_vintage_summary("clean", 70.0))
-        assert _find_status_chips(result) == ["Rollback"]
+        assert _find_status_chips(result) == ["Above both bands"]
 
     def test_missing_summary_stays_rollback(self):
         """Missing data is not attribution."""
         result = self._panel(vintage_summary=None)
-        assert _find_status_chips(result) == ["Rollback"]
+        assert _find_status_chips(result) == ["Above both bands"]
 
     def test_headline_names_the_feed_not_investigate_when_only_feed_limited(self):
         result = self._panel(vintage_summary=_vintage_summary("broken", 70.0))
         text = _find_all_text(result).lower()
-        assert "feed-limited" in text
+        assert "high input revisions" in text
         assert "investigate" not in text, (
             "an entirely feed-limited panel must read informational, not alarming"
         )
@@ -749,7 +749,49 @@ class TestFeedLimitedAttribution:
 
             result = _build_drift_panel("LDWP")
         chips = _find_status_chips(result)
-        assert "Feed-limited" in chips and "Rollback" in chips
+        assert "High input revisions" in chips and "Above both bands" in chips
         text = _find_all_text(result).lower()
         assert "investigate" in text
-        assert "feed-limited" in text
+        assert "high input revisions" in text
+
+
+class TestAssessmentSummary:
+    def test_thin_window_does_not_become_all_acceptable(self):
+        from components._callbacks_models import _build_drift_panel
+
+        with (
+            patch(
+                "components._callbacks_models.redis_get",
+                side_effect=_redis_router(_drift_payload(xgboost=_drift_model(0.1, n_records=12))),
+            ),
+            patch(
+                "models.model_service.get_model_metrics", return_value=_holdout_metrics(xgboost=2)
+            ),
+        ):
+            result = _build_drift_panel("PJM")
+        text = _find_all_text(result)
+        assert "not assessed" in text
+        assert "within the configured 1h band" not in text
+        assert "All models" not in text
+
+    def test_mixed_assessed_missing_and_live_only_are_named_separately(self):
+        from components._callbacks_models import _build_drift_panel
+
+        with (
+            patch(
+                "components._callbacks_models.redis_get",
+                side_effect=_redis_router(
+                    _drift_payload(xgboost=_drift_model(0.8), prophet=_drift_model(1.0))
+                ),
+            ),
+            patch(
+                "models.model_service.get_model_metrics", return_value=_holdout_metrics(xgboost=2)
+            ),
+        ):
+            result = _build_drift_panel("PJM")
+        text = _find_all_text(result)
+        assert "XGBoost within the configured 1h band" in text
+        assert "Prophet, SARIMAX, Ensemble not assessed" in text
+        assert "Live only" in text
+        assert "All models" not in text
+        assert "gridpulse:" not in text and "meta.json" not in text

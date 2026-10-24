@@ -20,7 +20,7 @@ import pandas as pd
 from dash import html
 
 from components.accessibility import model_display_name
-from config import REGION_CAPACITY_MW, feature_enabled, mape_grade
+from config import REGION_CAPACITY_MW, UNRELIABLE_CAPACITY, feature_enabled, mape_grade
 from personas.config import get_persona
 
 # ---------------------------------------------------------------------------
@@ -483,17 +483,16 @@ def generate_tab2_insights(
         return []
 
     insights: list[Insight] = []
-    capacity = REGION_CAPACITY_MW.get(region, 50_000)
+    capacity = REGION_CAPACITY_MW.get(region)
 
     # Peak demand summary
     peak_str = f"{stats['peak_mw']:,.0f}"
-    day_str = f" on {stats['peak_day_of_week']}" if stats.get("peak_day_of_week") else ""
     time_str = ""
     if stats["peak_time"] is not None:
-        time_str = f" at {pd.Timestamp(stats['peak_time']).strftime('%I %p')}"
+        time_str = f" on {pd.Timestamp(stats['peak_time']).strftime('%b %d %H:%M UTC')}"
     insights.append(
         Insight(
-            text=f"Peak demand of {peak_str} MW forecast{day_str}{time_str}, with {stats['range_mw']:,.0f} MW demand range.",
+            text=f"Peak demand of {peak_str} MW forecast{time_str}, with {stats['range_mw']:,.0f} MW demand range.",
             category="pattern",
             severity="info",
             metric_name="peak_demand",
@@ -507,12 +506,12 @@ def generate_tab2_insights(
         ramp_time_str = ""
         if stats["max_hourly_ramp_time"] is not None:
             ramp_time_str = (
-                f" near {pd.Timestamp(stats['max_hourly_ramp_time']).strftime('%a %I %p')}"
+                f" near {pd.Timestamp(stats['max_hourly_ramp_time']).strftime('%b %d %H:%M UTC')}"
             )
         insights.append(
             Insight(
-                text=f"Maximum hourly ramp of {stats['max_hourly_ramp']:,.0f} MW expected{ramp_time_str}.",
-                category="driver",
+                text=f"Maximum hourly ramp of {stats['max_hourly_ramp']:,.0f} MW forecast{ramp_time_str}.",
+                category="pattern",
                 severity="info",
                 metric_name="ramp_rate",
                 metric_value=stats["max_hourly_ramp"],
@@ -521,15 +520,14 @@ def generate_tab2_insights(
         )
 
     # Capacity proximity
-    if stats["peak_mw"] and capacity > 0:
+    if stats["peak_mw"] and capacity and region not in UNRELIABLE_CAPACITY:
         utilization_pct = stats["peak_mw"] / capacity * 100
         if utilization_pct > 75:
-            sev = "warning" if utilization_pct > 85 else "notable"
             insights.append(
                 Insight(
-                    text=f"Peak forecast reaches {utilization_pct:.0f}% of regional capacity ({capacity:,.0f} MW).",
-                    category="risk",
-                    severity=sev,
+                    text=f"Peak forecast reaches {utilization_pct:.0f}% of regional nameplate capacity ({capacity:,.0f} MW).",
+                    category="pattern",
+                    severity="info",
                     metric_name="capacity_pct",
                     metric_value=utilization_pct,
                     persona_relevance=["grid_ops", "trader", "renewables"],
@@ -554,10 +552,10 @@ def generate_tab2_insights(
 
     # Min demand (overnight trough)
     if stats["min_mw"] and stats["min_time"] is not None:
-        min_time_str = pd.Timestamp(stats["min_time"]).strftime("%a %I %p")
+        min_time_str = pd.Timestamp(stats["min_time"]).strftime("%b %d %H:%M UTC")
         insights.append(
             Insight(
-                text=f"Minimum demand of {stats['min_mw']:,.0f} MW expected {min_time_str}.",
+                text=f"Minimum demand of {stats['min_mw']:,.0f} MW forecast on {min_time_str}.",
                 category="pattern",
                 severity="info",
                 metric_name="min_demand",

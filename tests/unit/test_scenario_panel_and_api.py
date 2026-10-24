@@ -162,3 +162,15 @@ class TestScenarioEndpoint:
 
         assert r.status_code == 400
         assert r.get_json()["error"] == "invalid_delta"
+
+
+def test_forecast_presets_stay_within_controls_and_describe_changes():
+    from components.tab_demand_outlook import _SCENARIO_PRESETS
+
+    for preset in _SCENARIO_PRESETS.values():
+        assert -20 <= preset["deltas"]["temp"] <= 20
+        assert -10 <= preset["deltas"]["wind"] <= 10
+        assert -200 <= preset["deltas"]["solar"] <= 200
+    less_sun = _SCENARIO_PRESETS["eclipse"]
+    assert less_sun["sub"] == "−200 W/m²"
+    assert "zero" not in less_sun["sub"]

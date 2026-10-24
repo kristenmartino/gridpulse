@@ -102,7 +102,7 @@ class TestHorizonDriftPanel:
 
         with patch(PATCH, return_value=None):
             div = _build_horizon_drift_panel("PJM")
-        assert "Warming up" in _text(div)
+        assert "No live error records available" in _text(div)
         assert div.id == "horizon-drift-panel-warming"
 
     def test_renders_grades_and_horizon_columns(self):
@@ -118,7 +118,7 @@ class TestHorizonDriftPanel:
         with patch(PATCH, return_value=_payload(models)):
             div = _build_horizon_drift_panel("PJM")
         chips = _chips(div)
-        assert "Excellent" in chips and "Target" in chips and "Acceptable" in chips
+        assert "≤2% band" in chips and "≤5% band" in chips and "≤12% band" in chips
         txt = _text(div)
         assert "24h ahead" in txt and "48h ahead" in txt and "72h ahead" in txt
         assert "2.00%" in txt  # the 24h MAPE renders
@@ -137,8 +137,8 @@ class TestHorizonDriftPanel:
         with patch(PATCH, return_value=_payload(models)):
             div = _build_horizon_drift_panel("PJM")
         chips = _chips(div)
-        assert "Excellent" in chips
-        assert "Rollback" not in chips  # NOT condemned at these horizons
+        assert "≤2% band" in chips
+        assert not any(c.startswith(">") for c in chips)  # NOT condemned at these horizons
 
     def test_per_horizon_warming_below_min_records(self):
         from components._callbacks_models import _build_horizon_drift_panel
@@ -153,7 +153,7 @@ class TestHorizonDriftPanel:
         with patch(PATCH, return_value=_payload(models)):
             div = _build_horizon_drift_panel("PJM")
         chips = _chips(div)
-        assert "Excellent" in chips  # 24h graded
+        assert "≤2% band" in chips  # 24h graded
         assert "Warming" in chips  # 48h warming
         assert "—" in chips  # 72h no records
 

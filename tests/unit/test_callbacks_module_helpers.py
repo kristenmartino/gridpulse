@@ -224,7 +224,7 @@ class TestAddConfidenceBands:
         ts = pd.date_range("2024-06-01", periods=24, freq="h")
         preds = np.full(24, 30000.0)
         _add_confidence_bands(fig, ts, preds, 24)
-        assert fig.data[1].name == "80% indicative range"
+        assert fig.data[1].name == "Illustrative ±3% range"
 
 
 # ===================================================================
@@ -552,17 +552,15 @@ class TestEmptyFigure:
 class TestGetFeatureImportance:
     """Tests for _get_feature_importance(region, top_n)."""
 
-    def test_returns_defaults_when_no_cache(self):
+    def test_returns_empty_when_no_cache(self):
         import components.callbacks as cb_mod
 
         original = cb_mod._MODEL_CACHE.copy()
         cb_mod._MODEL_CACHE.clear()
         try:
             names, vals = cb_mod._get_feature_importance("ERCOT")
-            assert len(names) == 10
-            assert len(vals) == 10
-            assert names[0] == "temperature_2m"
-            assert vals[0] == 0.25
+            assert names == []
+            assert vals.size == 0
         finally:
             cb_mod._MODEL_CACHE.update(original)
 
@@ -593,7 +591,7 @@ class TestGetFeatureImportance:
             cb_mod._MODEL_CACHE.update(original)
 
     def test_falls_back_when_sum_zero(self):
-        """If all importances are 0, falls back to defaults."""
+        """If all importances are 0, returns no values."""
         import components.callbacks as cb_mod
 
         original = cb_mod._MODEL_CACHE.copy()
@@ -607,24 +605,22 @@ class TestGetFeatureImportance:
 
         try:
             names, vals = cb_mod._get_feature_importance("FPL")
-            # Should fall back to defaults
-            assert len(names) == 10
-            assert names[0] == "temperature_2m"
-            assert vals[0] == 0.25
+            # Should return no values
+            assert names == []
         finally:
             cb_mod._MODEL_CACHE.clear()
             cb_mod._MODEL_CACHE.update(original)
 
     def test_top_n_defaults_return_full_list(self):
-        """Default fallback always returns the full 10-item list regardless of top_n."""
+        """An absent model never supplies an invented ranking."""
         import components.callbacks as cb_mod
 
         original = cb_mod._MODEL_CACHE.copy()
         cb_mod._MODEL_CACHE.clear()
         try:
             names, vals = cb_mod._get_feature_importance("ERCOT", top_n=5)
-            # Default list has 10 items; top_n not applied to defaults
-            assert len(names) == 10
+            # No trained model, regardless of top_n
+            assert names == []
         finally:
             cb_mod._MODEL_CACHE.update(original)
 

@@ -367,5 +367,7 @@ class TestIntervalCaption:
         assert "80% empirical prediction interval" in cap
         assert "840h" in cap
 
-    def test_heuristic_caption_empty(self):
-        assert _interval_caption({"method": "heuristic"}, "xgboost") == ""
+    def test_heuristic_caption_discloses_unknown_coverage(self):
+        assert "coverage has not been estimated" in _interval_caption(
+            {"method": "heuristic"}, "xgboost"
+        )

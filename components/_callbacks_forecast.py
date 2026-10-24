@@ -95,7 +95,6 @@ from components.cards import build_metrics_bar
 from config import (
     CACHE_TTL_SECONDS,
     OPEN_METEO_FORECAST_HOURS,
-    REGION_CAPACITY_MW,
     REQUIRE_REDIS,
 )
 from data.redis_client import redis_get, redis_key
@@ -245,7 +244,7 @@ def _add_confidence_bands(
     """
     from models.evaluation import apply_empirical_interval
 
-    interval_meta = {"method": "heuristic", "target_coverage": 0.80}
+    interval_meta = {"method": "heuristic"}
     lower = upper = None
 
     # #283 Phase 3b: lead-time-resolved P10–P90 band. Anchor error quantiles
@@ -291,6 +290,7 @@ def _add_confidence_bands(
             interval_meta = {"method": "empirical", **empirical}
         else:
             hw = _confidence_half_width(horizon_hours)
+            interval_meta["half_width_pct"] = hw * 100
             upper = predictions * (1 + hw)
             lower = predictions * (1 - hw)
 
@@ -306,7 +306,7 @@ def _add_confidence_bands(
         else:
             band_name = f"80% empirical prediction interval{calib_note}"
     else:
-        band_name = "80% indicative range"
+        band_name = f"Illustrative ±{interval_meta['half_width_pct']:g}% range"
 
     band_fill = _MODEL_BAND_COLORS.get(model_name, COLORS["confidence"])
 
@@ -338,8 +338,7 @@ def _add_confidence_bands(
 def _interval_caption(interval_meta: dict, model_name: str) -> str:
     """Chart-subtitle disclosure for the uncertainty band, shared by the Redis
     fast path and the inline-compute path so the two can't drift (#283 Phase
-    3b verification). Returns "" for the heuristic envelope (its band legend
-    already labels it "indicative").
+    3b verification). The heuristic envelope has no estimated coverage.
     """
     method = interval_meta.get("method")
     calib = interval_meta.get("calibration_model")
@@ -356,7 +355,9 @@ def _interval_caption(interval_meta: dict, model_name: str) -> str:
             f"(calibration window: last {int(interval_meta.get('calibration_window_hours', 0))}h"
             f"{calib_note})</sup>"
         )
-    return ""
+    return (
+        "<br><sup>Illustrative percentage range; probability coverage has not been estimated.</sup>"
+    )
 
 
 def _add_trailing_actuals(
@@ -1132,10 +1133,10 @@ def _outlook_tab_from_redis(
 
     peak_val = float(np.max(predictions))
     peak_idx = int(np.argmax(predictions))
-    peak_time = timestamps[peak_idx].strftime("%a %H:%M")
+    peak_time = timestamps[peak_idx].strftime("%b %d %H:%M UTC")
     min_val = float(np.min(predictions))
     min_idx = int(np.argmin(predictions))
-    min_time = timestamps[min_idx].strftime("%a %H:%M")
+    min_time = timestamps[min_idx].strftime("%b %d %H:%M UTC")
     avg_val = float(np.mean(predictions))
     range_val = peak_val - min_val
 
@@ -1462,7 +1463,7 @@ def register_forecast_callbacks(app):
         region_name = REGION_NAMES.get(region, region)
         return build_page_title(
             "Forecast",
-            f"24h–30d demand outlook with confidence bands · {region_name}",
+            f"24h–30d demand forecasts and uncertainty ranges · {region_name}",
         )
 
     @app.callback(
@@ -1521,7 +1522,7 @@ def register_forecast_callbacks(app):
             "R²": _fmt("r2", ".3f"),
         }
         name = model_display_name(model_name)
-        badge = "trained" if is_trained(region) else "simulated"
+        badge = "training holdout · 168h recursive" if is_trained(region) else "simulated metrics"
         return build_model_metrics_card(model_name=name, metrics=formatted, badge=badge)
 
     @app.callback(
@@ -1708,11 +1709,11 @@ def register_forecast_callbacks(app):
         # Calculate KPIs
         peak_val = np.max(predictions)
         peak_idx = np.argmax(predictions)
-        peak_time = timestamps[peak_idx].strftime("%a %H:%M")
+        peak_time = timestamps[peak_idx].strftime("%b %d %H:%M UTC")
 
         min_val = np.min(predictions)
         min_idx = np.argmin(predictions)
-        min_time = timestamps[min_idx].strftime("%a %H:%M")
+        min_time = timestamps[min_idx].strftime("%b %d %H:%M UTC")
 
         avg_val = np.mean(predictions)
         range_val = peak_val - min_val
@@ -2471,22 +2472,10 @@ def _build_scenarios_panel(
     region: str | None,
     demand_json: str | None,
 ) -> tuple[html.Div, go.Figure]:
-    """Heuristic scenario impact + baseline-vs-scenario comparison chart.
+    """Compare the scored ensemble with a weather scenario on the same hours.
 
-    Returns ``(kpi_bar, figure)``. The math is a deliberate simplification:
-    no model re-run, just a linear demand-sensitivity factor against the
-    current 24h forecast. Real ensemble simulation lives in the (now hidden)
-    Scenarios tab and the simulation/scenario_engine module — exposing
-    full-fidelity here would need model loading on every slider drag.
-
-    Demand sensitivities — see ``_scenario_demand_factor`` for coefficients.
-
-    Renewable-share sensitivities (independent of demand):
-      * wind_delta: ±0.6 pp per mph (caps at 30 pp)
-      * solar_delta: ±0.05 pp per W/m² (caps at 30 pp)
-
-    Confidence sensitivity: −1 pp per 5 °F of |temp_delta|, capped at −10 pp
-    (forecast residuals grow with abs(temp_delta) outside ±10 °F).
+    Use precomputed model responses when available and disclose the linear
+    fallback. Every KPI comes from the two demand curves shown in the chart.
     """
     region = region or "FPL"
     temp_delta = float(temp_delta or 0)
@@ -2496,7 +2485,7 @@ def _build_scenarios_panel(
     # Base forecast (next 24h ensemble)
     horizon = 24
     base_y: np.ndarray | None = None
-    last_actual_ts: pd.Timestamp | None = None
+    forecast_ts: pd.DatetimeIndex | None = None
 
     if demand_json:
         try:
@@ -2512,23 +2501,26 @@ def _build_scenarios_panel(
             # reader the Overview hero uses.
             forecast_payload = _read_ensemble_forecast_from_redis(region)
             if forecast_payload is not None:
-                _fc_ts, ensemble_arr, _scored_at = forecast_payload
-                if ensemble_arr is not None and len(ensemble_arr) >= horizon:
+                fc_ts, ensemble_arr, _scored_at = forecast_payload
+                if (
+                    ensemble_arr is not None
+                    and len(ensemble_arr) >= horizon
+                    and len(fc_ts) >= horizon
+                ):
                     base_y = np.asarray(ensemble_arr[:horizon], dtype=float)
-                    last_actual_ts = demand_df["timestamp"].iloc[-1]
+                    forecast_ts = pd.DatetimeIndex(fc_ts[:horizon])
         except Exception as exc:  # pragma: no cover
             log.warning("forecast_scenario_baseline_failed", region=region, error=str(exc))
 
-    if base_y is None or last_actual_ts is None:
+    if base_y is None or forecast_ts is None:
         kpi_empty = build_metrics_bar(
             [
-                {"label": "Δ Peak", "value": "—", "tone": "secondary", "hero": True},
-                {"label": "Δ Headroom", "value": "—", "tone": "secondary"},
-                {"label": "Δ Renewable", "value": "—", "tone": "secondary"},
-                {"label": "Δ Confidence", "value": "—", "tone": "secondary"},
+                {"label": "Baseline peak", "value": "—", "tone": "secondary"},
+                {"label": "Scenario peak", "value": "—", "tone": "secondary"},
+                {"label": "Peak change", "value": "—", "tone": "secondary", "hero": True},
             ]
         )
-        kpi_empty.className = "gp-metrics-bar gp-metrics-bar--4up"
+        kpi_empty.className = "gp-metrics-bar gp-metrics-bar--3up"
         return (kpi_empty, _empty_figure("Awaiting baseline forecast"))
 
     # ── Scenario forecast ──────────────────────────────────────
@@ -2547,68 +2539,20 @@ def _build_scenarios_panel(
     delta_peak_mw = scenario_peak - base_peak
     delta_peak_pct = (delta_peak_mw / base_peak * 100.0) if base_peak > 0 else 0.0
 
-    from models.pricing import capacity_headroom_pct
-
-    capacity = REGION_CAPACITY_MW.get(region, 100_000)
-    base_headroom = capacity_headroom_pct(base_peak, capacity)
-    scenario_headroom = capacity_headroom_pct(scenario_peak, capacity)
-    delta_headroom_pp = scenario_headroom - base_headroom
-
-    # Renewable share heuristic — wind: 0.6 %/mph; solar: 0.05 %/(W/m²)
-    delta_renewable_pp = wind_delta * 0.6 + solar_delta * 0.05
-    delta_renewable_pp = max(min(delta_renewable_pp, 30.0), -30.0)
-
-    # Confidence delta: bigger temp swings widen the band roughly linearly
-    # (forecast residuals grow with abs(temp_delta) outside ±10°F band).
-    delta_confidence_pp = -min(abs(temp_delta) / 5.0, 10.0)  # negative pp
-
-    # ── KPI bar ────────────────────────────────────────────────
-    peak_tone = (
-        "negative"
-        if delta_peak_pct > 0.5
-        else ("positive" if delta_peak_pct < -0.5 else "secondary")
-    )
-    headroom_tone = (
-        "positive"
-        if delta_headroom_pp > 0.1
-        else ("negative" if delta_headroom_pp < -0.1 else "secondary")
-    )
-    renewable_tone = (
-        "positive"
-        if delta_renewable_pp > 0.5
-        else ("negative" if delta_renewable_pp < -0.5 else "secondary")
-    )
     kpis = build_metrics_bar(
         [
+            {"label": "Baseline peak", "value": f"{base_peak:,.0f}", "unit": "MW"},
+            {"label": "Scenario peak", "value": f"{scenario_peak:,.0f}", "unit": "MW"},
             {
-                "label": "Δ Peak",
+                "label": "Peak change",
                 "value": f"{delta_peak_mw:+,.0f}",
                 "unit": f"MW ({delta_peak_pct:+.1f}%)",
-                "tone": peak_tone,
-                "hero": True,
-            },
-            {
-                "label": "Δ Headroom",
-                "value": f"{delta_headroom_pp:+.1f}",
-                "unit": "pp",
-                "tone": headroom_tone,
-                "help": "Change in capacity headroom (nameplate) at peak under this scenario — not a NERC reserve margin (#243).",
-            },
-            {
-                "label": "Δ Renewable",
-                "value": f"{delta_renewable_pp:+.1f}",
-                "unit": "pp",
-                "tone": renewable_tone,
-            },
-            {
-                "label": "Δ Confidence",
-                "value": f"{delta_confidence_pp:+.1f}",
-                "unit": "pp",
                 "tone": "secondary",
+                "hero": True,
             },
         ]
     )
-    kpis.className = "gp-metrics-bar gp-metrics-bar--4up"
+    kpis.className = "gp-metrics-bar gp-metrics-bar--3up"
 
     # Say which engine produced these numbers. The static panel copy asserted
     # "not a model re-forecast" for a fortnight while production served
@@ -2616,15 +2560,13 @@ def _build_scenarios_panel(
     # claim belongs with the results it describes.
     source_note = html.P(
         (
-            "Real ensemble re-forecast — 81 precomputed weather scenarios, "
-            "interpolated to these slider positions."
+            "Interpolated from precomputed ensemble forecasts for weather scenarios."
             if scenario_source == "grid"
-            else "Beyond this region's observed weather — the model is "
-            "extrapolating and its response flattens here. Directional only."
+            else "Scenario inputs extend beyond the model’s recorded weather range. "
+            "Treat this result as an extrapolation."
             if scenario_source == "grid_extrapolated"
-            else "Illustrative linear weather-sensitivity — not a model "
-            "re-forecast. Directional stress-testing only, not calibrated "
-            "predictions."
+            else "Illustrative demand estimate using fixed weather coefficients. "
+            "This fallback does not rerun the forecasting model."
         ),
         className="gp-panel__disclosure",
         **{"data-scenario-source": scenario_source},
@@ -2632,11 +2574,6 @@ def _build_scenarios_panel(
     kpis = html.Div([kpis, source_note])
 
     # ── Baseline vs scenario chart ─────────────────────────────
-    forecast_ts = pd.date_range(
-        start=last_actual_ts + pd.Timedelta(hours=1),
-        periods=horizon,
-        freq="h",
-    )
     fig = go.Figure()
     fig.add_trace(
         go.Scatter(
@@ -2645,7 +2582,7 @@ def _build_scenarios_panel(
             mode="lines",
             name="Baseline",
             line=dict(color="#3b82f6", width=1.75),
-            hovertemplate="<b>Baseline</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
+            hovertemplate="<b>Baseline</b><br>%{x|%b %d %H:%M} UTC<br>%{y:,.0f} MW<extra></extra>",
         )
     )
     fig.add_trace(
@@ -2655,7 +2592,7 @@ def _build_scenarios_panel(
             mode="lines",
             name="Scenario",
             line=dict(color="#f97316", width=1.75, dash="dash"),
-            hovertemplate="<b>Scenario</b><br>%{x|%H:%M}<br>%{y:,.0f} MW<extra></extra>",
+            hovertemplate="<b>Scenario</b><br>%{x|%b %d %H:%M} UTC<br>%{y:,.0f} MW<extra></extra>",
         )
     )
     fig.update_layout(
