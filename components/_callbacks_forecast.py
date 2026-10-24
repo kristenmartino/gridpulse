@@ -1188,7 +1188,10 @@ def _outlook_tab_from_redis(
     # Mark the Open-Meteo / climatology boundary on long-horizon views.
     # Only the 30-day view actually crosses the day-16 boundary; on 24h
     # and 7-day views the helper is a no-op. See ADR-008.
-    has_climatology_segment = _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
+    has_climatology_segment = identity.metric_key not in (
+        None,
+        "baseline",
+    ) and _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
     interval_caption = _interval_caption(interval_meta, served_model) if interval_meta else ""
     # On the 30-day view, surface in the subtitle that days 17-30 are
