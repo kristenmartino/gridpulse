@@ -1,0 +1,1 @@
+2026-10-21 [documented-command-cannot-run] scripts/dump_drift_horizon.py docstring run command (--args="-m,scripts.dump_drift_horizon" on gridpulse-scoring-job) fails with ModuleNotFoundError because .dockerignore excludes scripts/ from the image; the dump only succeeded by passing its main() body inline via python -c — ref: execution gridpulse-scoring-job-m5wrp

@@ -357,3 +357,164 @@ class TestPredictProphet:
         # The honest 80% posterior brackets the point forecast.
         assert (result["upper_80"] >= result["forecast"]).all()
         assert (result["lower_80"] <= result["forecast"]).all()
+
+
+class TestDegenerateRegressorsNotAttached:
+    """A regressor whose training values barely vary has a coefficient the data
+    cannot identify, and Prophet standardizes it by that near-zero std — so the
+    first forecast-time value outside the training range is amplified into an
+    arbitrary demand swing. Measured 2026-10-21: ERCOT's 2026-10-16 Prophet
+    trained on 1 of 1,996 hours with any HDD (std 0.0095); HDD alone moved its
+    08:00 forecast from 53.6 GW (HDD 0) to 237.6 GW (HDD 15), and the served
+    ensemble reached 124-134 GW on the 10-17 cold front.
+
+    Requirement: a non-binary regressor whose training std is below
+    ``PROPHET_MIN_REGRESSOR_STD`` is not attached; binary regressors are exempt
+    (Prophet does not standardize them, so there is nothing to amplify)."""
+
+    def _df(self, **overrides):
+        n = 240
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame(
+            {
+                "timestamp": pd.date_range("2026-07-25", periods=n, freq="h", tz="UTC"),
+                "demand_mw": 50_000.0 + rng.normal(0, 1_000, n),
+                "temperature_2m": 85.0 + rng.normal(0, 7, n),
+                "apparent_temperature": 90.0 + rng.normal(0, 7, n),
+                "wind_speed_80m": 10.0 + rng.normal(0, 3, n),
+                "shortwave_radiation": 250.0 + rng.normal(0, 300, n),
+                "cooling_degree_days": 20.0 + rng.normal(0, 7, n),
+                "heating_degree_days": 0.0,
+                "is_holiday": 0,
+            }
+        )
+        for k, v in overrides.items():
+            df[k] = v
+        return df
+
+    def _attached(self, instance):
+        return {name for name, _ in instance._added_regressors}
+
+    def test_one_hour_of_hdd_is_not_attached(self, mock_prophet_class):
+        """The ERCOT 2026-10-16 shape: HDD is zero except one hour at 0.4."""
+        from models.prophet_model import train_prophet
+
+        _, instance = mock_prophet_class
+        hdd = np.zeros(240)
+        hdd[100] = 0.4
+        train_prophet(self._df(heating_degree_days=hdd))
+        assert "heating_degree_days" not in self._attached(instance)
+
+    def test_varying_regressors_still_attached(self, mock_prophet_class):
+        from models.prophet_model import train_prophet
+
+        _, instance = mock_prophet_class
+        train_prophet(self._df())
+        assert {
+            "temperature_2m",
+            "apparent_temperature",
+            "wind_speed_80m",
+            "shortwave_radiation",
+            "cooling_degree_days",
+        } <= self._attached(instance)
+
+    def test_binary_regressor_kept_even_when_rare(self, mock_prophet_class):
+        """24 holiday hours in 240 has std ~0.3 — under the bar, but binary."""
+        from models.prophet_model import train_prophet
+
+        _, instance = mock_prophet_class
+        hol = np.zeros(240, dtype=int)
+        hol[:24] = 1
+        train_prophet(self._df(is_holiday=hol))
+        assert "is_holiday" in self._attached(instance)
+
+    def test_boundary_at_min_std(self, mock_prophet_class):
+        """At exactly the bar the regressor is attached; just below, it is not."""
+        from models.prophet_model import PROPHET_MIN_REGRESSOR_STD, train_prophet
+
+        base = np.tile([-1.0, 1.0], 120)  # sample std (ddof=1) of +/-1 alternation
+        unit_std = float(pd.Series(base).std())
+
+        _, instance = mock_prophet_class
+        at_bar = 10.0 + base * (PROPHET_MIN_REGRESSOR_STD / unit_std)
+        train_prophet(self._df(heating_degree_days=at_bar))
+        assert "heating_degree_days" in self._attached(instance)
+
+        instance._added_regressors.clear()
+        below = 10.0 + base * (0.99 * PROPHET_MIN_REGRESSOR_STD / unit_std)
+        train_prophet(self._df(heating_degree_days=below))
+        assert "heating_degree_days" not in self._attached(instance)
+
+    def test_flag_off_attaches_everything(self, mock_prophet_class):
+        """Rollback path: with the flag off, every regressor is attached as before."""
+        from models.prophet_model import PROPHET_REGRESSORS, train_prophet
+
+        _, instance = mock_prophet_class
+        hdd = np.zeros(240)
+        hdd[100] = 0.4  # would be skipped with the flag on
+        with patch.dict("config.FEATURE_FLAGS", {"prophet_skip_degenerate_regressors": False}):
+            train_prophet(self._df(heating_degree_days=hdd))
+        assert self._attached(instance) == {name for name, _ in PROPHET_REGRESSORS}
+
+    def test_fit_frame_still_carries_every_regressor_column(self, mock_prophet_class):
+        """Dropping a regressor must not drop its column — predict_prophet and
+        the NaN-sanitation contract above both assume the full set exists."""
+        from models.prophet_model import PROPHET_REGRESSORS, train_prophet
+
+        _, instance = mock_prophet_class
+        train_prophet(self._df())
+        fit_df = instance.fit.call_args.args[0]
+        for name, _ in PROPHET_REGRESSORS:
+            assert name in fit_df.columns
+
+
+@pytest.mark.slow
+def test_real_prophet_does_not_blow_up_on_first_cold_hour():
+    """End-to-end on real Prophet: summer-only training with one 0.4-HDD hour,
+    then a forecast hour at HDD 15 (50 F). Before the fix this reproduced the
+    ERCOT 2026-10-17 shape — a forecast several times the training max. The
+    bar is the logistic cap (1.5x training max), which bounds only the trend,
+    so a forecast above it can only come from a regressor term."""
+    from models.prophet_model import predict_prophet, train_prophet
+
+    n = 24 * 30
+    rng = np.random.default_rng(1)
+    ts = pd.date_range("2026-07-25", periods=n, freq="h", tz="UTC")
+    hour = np.arange(n) % 24
+    temp = 85.0 + 8.0 * np.sin(2 * np.pi * (hour - 9) / 24) + rng.normal(0, 2, n)
+    temp = np.maximum(temp, 65.0)
+    temp[300] = 64.6
+    df = pd.DataFrame(
+        {
+            "timestamp": ts,
+            "demand_mw": 50_000.0 + 600.0 * (temp - 85.0) + rng.normal(0, 800, n),
+            "temperature_2m": temp,
+            "apparent_temperature": temp + 3.0,
+            "wind_speed_80m": 10.0 + rng.normal(0, 3, n),
+            "shortwave_radiation": np.clip(800 * np.sin(2 * np.pi * (hour - 6) / 24), 0, None),
+            "cooling_degree_days": np.maximum(temp - 65.0, 0),
+            "heating_degree_days": np.maximum(65.0 - temp, 0),
+            "is_holiday": 0,
+        }
+    )
+    model = train_prophet(df)
+    assert "heating_degree_days" not in model.extra_regressors
+
+    fut_ts = pd.date_range(ts[-1] + pd.Timedelta(hours=1), periods=24, freq="h")
+    cold = pd.DataFrame(
+        {
+            "timestamp": fut_ts,
+            "temperature_2m": 50.0,
+            "apparent_temperature": 46.0,
+            "wind_speed_80m": 10.0,
+            "shortwave_radiation": 0.0,
+            "cooling_degree_days": 0.0,
+            "heating_degree_days": 15.0,
+            "is_holiday": 0,
+        }
+    )
+    out = predict_prophet(model, cold, periods=24)
+    assert out["forecast"].max() <= 1.5 * df["demand_mw"].max(), (
+        f"forecast {out['forecast'].max():.0f} MW exceeds the trend cap "
+        f"{1.5 * df['demand_mw'].max():.0f} MW — a regressor term is extrapolating"
+    )

@@ -53,7 +53,56 @@ PROPHET_REGRESSORS = [
 YEARLY_SEASONALITY_MIN_DAYS = 730
 
 
-def create_prophet_model(yearly_seasonality: bool = False) -> Any:
+# A regressor whose training values barely vary has a coefficient the data
+# cannot identify, and Prophet standardizes it by that near-zero std — so the
+# first forecast-time value outside the training range is amplified into an
+# arbitrary demand swing. Measured 2026-10-21: ERCOT's 2026-10-16 model trained
+# on 1 of 1,996 hours with any HDD (std 0.0095); HDD alone moved its 08:00
+# forecast from 53.6 GW (HDD 0) to 237.6 GW (HDD 15), and the served ensemble
+# reached 124-134 GW on the 10-17 cold front. Below this std (in the
+# regressor's own units) a non-binary regressor is not attached. Binary
+# regressors are exempt: Prophet does not standardize them.
+PROPHET_MIN_REGRESSOR_STD = 0.5
+
+
+def _identifiable_regressors(train_df: pd.DataFrame) -> list[str]:
+    """Names from ``PROPHET_REGRESSORS`` whose training values can identify a coefficient.
+
+    Args:
+        train_df: Sanitized fit frame carrying every ``PROPHET_REGRESSORS`` column.
+
+    Returns:
+        Regressor names to attach, in ``PROPHET_REGRESSORS`` order.
+    """
+    from config import feature_enabled
+
+    names = [name for name, _ in PROPHET_REGRESSORS]
+    if not feature_enabled("prophet_skip_degenerate_regressors"):
+        return names
+
+    kept: list[str] = []
+    for name in names:
+        col = train_df[name]
+        if set(col.unique()) <= {0, 1}:
+            kept.append(name)
+            continue
+        std = float(col.std())
+        if std >= PROPHET_MIN_REGRESSOR_STD:
+            kept.append(name)
+        else:
+            log.info(
+                "prophet_regressor_skipped",
+                regressor=name,
+                std=round(std, 4),
+                min_std=PROPHET_MIN_REGRESSOR_STD,
+            )
+    return kept
+
+
+def create_prophet_model(
+    yearly_seasonality: bool = False,
+    regressors: list[str] | None = None,
+) -> Any:
     """
     Create a configured Prophet model instance.
 
@@ -64,6 +113,9 @@ def create_prophet_model(yearly_seasonality: bool = False) -> Any:
         yearly_seasonality: Whether to fit a 365-day seasonal component. Off by
             default — only meaningful with ≥ ``YEARLY_SEASONALITY_MIN_DAYS`` of
             history (see #281); ``train_prophet`` sets it from the training span.
+        regressors: Regressor names to attach. ``None`` attaches every entry in
+            ``PROPHET_REGRESSORS``; ``train_prophet`` passes only the ones its
+            training data can identify (see ``PROPHET_MIN_REGRESSOR_STD``).
 
     Returns:
         Unfitted Prophet model with regressors attached.
@@ -79,13 +131,14 @@ def create_prophet_model(yearly_seasonality: bool = False) -> Any:
         seasonality_mode="additive",
     )
 
-    for regressor_name, _mode in PROPHET_REGRESSORS:
+    names = [name for name, _ in PROPHET_REGRESSORS] if regressors is None else regressors
+    for regressor_name in names:
         # Use additive mode for all regressors to match the global setting.
         # Multiplicative regressors on a logistic growth trend can cause
         # erratic extrapolation beyond the training data range.
         model.add_regressor(regressor_name, mode="additive")
 
-    log.debug("prophet_model_created", regressors=len(PROPHET_REGRESSORS))
+    log.debug("prophet_model_created", regressors=len(names))
     return model
 
 
@@ -117,7 +170,6 @@ def train_prophet(
     ts = df["timestamp"]
     span_days = int((ts.max() - ts.min()) / pd.Timedelta(days=1)) if len(ts) else 0
     enable_yearly = span_days >= YEARLY_SEASONALITY_MIN_DAYS
-    model = create_prophet_model(yearly_seasonality=enable_yearly)
 
     # Prophet expects 'ds' and 'y' columns
     train_df = pd.DataFrame(
@@ -153,6 +205,11 @@ def train_prophet(
             log.warning("prophet_missing_regressor", regressor=regressor_name)
             train_df[regressor_name] = 0.0
 
+    # Every column stays on the fit frame; only identifiable ones are attached.
+    model = create_prophet_model(
+        yearly_seasonality=enable_yearly,
+        regressors=_identifiable_regressors(train_df),
+    )
     model.fit(train_df)
     # Store cap for use in predict_prophet
     model._demand_cap = demand_cap

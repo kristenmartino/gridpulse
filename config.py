@@ -1324,6 +1324,12 @@ FEATURE_FLAGS: dict[str, bool] = {
     # region sits at -1.68. Rollback = flip back; the substitution is a
     # read-time swap with no persisted state.
     "baseline_substitution": True,
+    # Prophet does not attach a non-binary regressor whose training std is
+    # below models.prophet_model.PROPHET_MIN_REGRESSOR_STD. Added 2026-10-21
+    # after ERCOT's summer-trained Prophet (1 of 1,996 hours with any HDD)
+    # forecast 244-251 GW against ~42 GW actual on the 10-17 cold front.
+    # Rollback = flip back; models trained after the flip carry every regressor.
+    "prophet_skip_degenerate_regressors": True,
     # #127: serve the scenario simulator from a precomputed grid of real
     # ensemble re-forecasts instead of the analytical heuristic in
     # ``components/_callbacks_overview._scenario_demand_factor``. The scoring
