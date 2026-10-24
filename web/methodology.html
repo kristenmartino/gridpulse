@@ -463,8 +463,8 @@
           <p>
             Retraining daily means drawing a new model daily, and the draws are
             not all good. A historical replay of persisted model versions for one authority
-            showed <strong>about 27% produce recursive forecasts that collapse
-            overnight demand</strong> in that historical replay &mdash; a failure
+            found that <strong>about 27% produced recursive forecasts that collapsed
+            overnight demand</strong> &mdash; a failure
             that authority&rsquo;s training holdout missed. The holdout scores a fresh
             model on sliced historical rows rather than running the deployed
             candidate through the recursion path production actually uses.
