@@ -384,6 +384,33 @@ class TestHeroChartEmpiricalConfidenceInterval:
 class TestInsightSummaryReadsRedis:
     """``_build_overview_insight``'s forecast clause uses real Redis timestamps."""
 
+    def test_peak_leads_and_stale_and_accuracy_context_are_visible(self):
+        from dash import html
+
+        from components._callbacks_overview import _build_overview_insight
+
+        timestamps = pd.date_range("2026-05-20 06:00", periods=24, freq="h", tz="UTC")
+        values = np.array([18000.0] * 23 + [22500.0])
+        with (
+            patch(
+                "components._callbacks_overview._read_ensemble_forecast_from_redis",
+                return_value=(timestamps, values, "2026-05-20T06:00:00Z"),
+            ) as forecast,
+            patch(
+                "components._callbacks_overview._resolve_forecast_mape",
+                return_value=(5.2, "live 7d sMAPE"),
+            ),
+            patch("components._callbacks_overview._provenance_note", return_value=[]),
+        ):
+            card = _build_overview_insight("FPL", _demand_df(), "grid_ops")
+
+        forecast.assert_called_once_with("FPL")
+        visible = " ".join(_all_text(c) for c in card.children if not isinstance(c, html.Details))
+        assert "Next-24h forecast peaks at 22,500 MW on Thu 21 May, 05:00 UTC." in visible
+        assert visible.index("Next-24h") < visible.index("Demand is")
+        assert "live 7d sMAPE 5.2% (1h-ahead forecasts)" in visible
+        assert "Forecast last refreshed" in visible
+
     @patch("components._callbacks_shared.redis_get")
     @patch("models.model_service.get_model_metrics")
     def test_forecast_clause_uses_real_peak_timestamp(self, mock_metrics, mock_redis_get):
@@ -417,7 +444,7 @@ class TestInsightSummaryReadsRedis:
 
         text = _all_text(card)
         # The fallback copy stays — no fake numbers
-        assert "Next-cycle forecast confidence is updating." in text
+        assert "Next-24h forecast is unavailable." in text
         # No phantom MAPE / peak from the simulated path
         assert "Next-24h forecast peaks" not in text
 

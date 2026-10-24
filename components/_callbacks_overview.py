@@ -668,65 +668,40 @@ def _build_overview_insight(
     artifact_exclusions: list[dict] | None = None,
     weather_df: pd.DataFrame | None = None,
 ) -> html.Div:
-    """Narrative paragraph with semantic-color delta spans, then role-specific lines.
-
-    The narrative is identical for every persona — demand level, last-24h
-    peak, next-24h forecast with live MAPE and staleness disclosure. What
-    varies is what follows it: ``generate_tab1_insights`` emits observations
-    tagged with ``persona_relevance``, and ``_filter_for_persona`` keeps and
-    ranks the ones this role cares about. Grid Ops sees ramp rate and
-    variability; Renewables sees the temperature-demand correlation; the
-    Data Scientist leads with variability.
-
-    Before #523 the persona changed only the eyebrow label — four words —
-    which is why the landing page's "role-aware briefing" claim was reworded
-    away in #522. This is the half that earns it back.
-
-    The ``peak_demand`` insight is dropped: the narrative above already
-    states the last-24h peak, and the two together read as a stutter. Matched
-    on ``metric_name``, not on the rendered string.
-    """
+    """Lead with the forecast; disclose data warnings before optional context."""
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
         return build_insight_card(
             "Summary",
-            (
-                "Awaiting demand data for this region. The forecast will populate once "
-                "the next pipeline cycle completes."
-            ),
+            "Awaiting demand data for this region. The forecast will populate once "
+            "the next pipeline cycle completes.",
         )
 
     df = demand_df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
     df = df.sort_values("timestamp")
     nonzero = df[df["demand_mw"] > 0]
     last_7d = nonzero.tail(168)
-
-    # Read from ``nonzero`` so a NaN tail (EIA-930 publishing lag) doesn't
-    # poison the narrative with literal "nan%" deltas.
     now_value = _latest_real_demand(nonzero["demand_mw"]) or 0.0
     avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
     delta_pct = ((now_value - avg_7d) / avg_7d * 100.0) if avg_7d else 0.0
     direction = "above" if delta_pct >= 0 else "below"
-    # Demand above/below a 7-day average is routine — neither a risk nor a win —
-    # so render the delta in neutral text both directions (#219 — 2026-07);
-    # alert/semantic colors are reserved for genuine risk.
-    delta_class = ""
+    current_context = (
+        f"Demand is {now_value:,.0f} MW, {abs(delta_pct):.1f}% {direction} the 7-day average."
+    )
 
-    last_24h = df.tail(24)
+    details = []
+    last_24h = df.tail(24).dropna(subset=["demand_mw"])
     if not last_24h.empty:
         peak_idx = last_24h["demand_mw"].idxmax()
         peak_mw = float(last_24h.loc[peak_idx, "demand_mw"])
-        peak_ts = pd.to_datetime(last_24h.loc[peak_idx, "timestamp"])
-        peak_str = f"{peak_mw:,.0f} MW at {peak_ts.strftime('%H:%M')}"
-    else:
-        peak_str = "—"
+        peak_ts = last_24h.loc[peak_idx, "timestamp"]
+        details.append(
+            f"Last 24h peak: {peak_mw:,.0f} MW at {peak_ts.strftime('%a %d %b, %H:%M')} UTC."
+        )
 
-    # Forecast clause — read from the same Redis payload the hero chart
-    # uses. Drop the clause entirely when Redis is cold (warming state)
-    # instead of fabricating it from the simulated baseline. Same fix
-    # arc as the hero chart above; see comment there for the prior-bug
-    # context.
-    forecast_clause = "Next-cycle forecast confidence is updating."
+    forecast_clause = "Next-24h forecast is unavailable. Awaiting the next scoring update."
+    accuracy_clause = ""
+    stale_clause = ""
     try:
         forecast_payload = _read_ensemble_forecast_from_redis(region)
         if forecast_payload is not None:
@@ -734,117 +709,81 @@ def _build_overview_insight(
             horizon = min(24, len(ensemble_arr))
             if horizon > 0:
                 f_arr = ensemble_arr[:horizon]
-                f_peak = float(f_arr.max())
                 f_peak_idx = int(f_arr.argmax())
-                # Use the REAL timestamp from the Redis payload, not a
-                # computed offset off last_actual. The previous code
-                # computed ``last_ts + (f_peak_idx + 1)h`` which is
-                # meaningless against the simulated baseline (the
-                # ensemble array represented historical hours, not
-                # forward) and produced bogus peak times like "04:00".
-                f_peak_ts = forecast_ts_all[f_peak_idx]
+                f_peak_ts = pd.Timestamp(forecast_ts_all[f_peak_idx])
+                if f_peak_ts.tzinfo is None:
+                    f_peak_ts = f_peak_ts.tz_localize("UTC")
+                f_peak_ts = f_peak_ts.tz_convert("UTC")
+                forecast_clause = (
+                    f"Next-24h forecast peaks at {float(f_arr.max()):,.0f} MW "
+                    f"on {f_peak_ts.strftime('%a %d %b, %H:%M')} UTC."
+                )
 
-                # MAPE for this forecast (#4 — 2026-05-20).
-                #
-                # Pre-fix this cited ``get_model_metrics`` which returns
-                # training-time HOLDOUT MAPE — the model's MAPE on its
-                # validation slice from yesterday's training run. That's
-                # not "how this specific 24h forecast is likely to do" —
-                # it's "how the model did on a frozen slice last night."
-                # Users reading "MAPE 1.6%" reasonably assumed the
-                # forecast itself was expected to be 1.6% off. Fluff.
-                #
-                # Honest replacement: LIVE rolling 7d MAPE from
-                # ``gridpulse:drift:{region}`` (#121 part 1, PR #126).
-                # This is computed by comparing every previous tick's
-                # 1-hour-ahead forecast against the now-known actual,
-                # rolled over the last 7 days. It tells the user how
-                # the model has actually been performing on real
-                # forecasts of similar horizon.
-                #
-                # Fall-back order:
-                #   1. Live 7d MAPE from drift (real, calibrated to
-                #      recent reality)
-                #   2. Live 30d MAPE from drift (more samples, slightly
-                #      staler — used only when 7d has too few records)
-                #   3. Training holdout MAPE (clearly labeled as such)
-                #   4. No MAPE clause at all (when nothing is available)
+                # Keep observed error separate from the future peak. Live drift
+                # measures 1h-ahead forecasts, not the displayed 24h horizon.
                 mape_value, mape_source = _resolve_forecast_mape(region)
-
-                mape_clause = ""
                 if mape_value is not None:
-                    mape_clause = f" ({mape_source} {mape_value:.1f}%)"
+                    horizon_note = " (1h-ahead forecasts)" if mape_source.startswith("live") else ""
+                    accuracy_clause = f"Model error: {mape_source} {mape_value:.1f}%{horizon_note}."
 
-                # A stale forecast must not narrate as the current outlook
-                # (P1-4): disclose the scoring age once it exceeds the
-                # missed-tick tolerance.
-                stale_clause = ""
                 if scored_at_iso:
                     scored_dt = pd.Timestamp(scored_at_iso)
                     if scored_dt.tzinfo is None:
                         scored_dt = scored_dt.tz_localize("UTC")
                     age_h = (pd.Timestamp.now(tz="UTC") - scored_dt).total_seconds() / 3600.0
                     if age_h > FRESHNESS_FRESH_MAX_AGE_HOURS:
-                        stale_clause = f" Forecast last refreshed {age_h:.0f}h ago."
-
-                forecast_clause = (
-                    f"Next-24h forecast peaks at {f_peak:,.0f} MW around "
-                    f"{f_peak_ts.strftime('%H:%M')} UTC{mape_clause}.{stale_clause}"
-                )
+                        stale_clause = f"Forecast last refreshed {age_h:.0f}h ago."
     except Exception as exc:  # pragma: no cover
         log.warning("overview_insight_forecast_failed", region=region, error=str(exc))
 
-    # #8 (2026-05-20): relabel "Recent peak" → "Last 24h peak" so the
-    # window is explicit and consistent with the "7d Peak" cell in the
-    # metrics bar above. The previous label was ambiguous about whether
-    # "recent" meant 24h or the current 7d-peak window.
-    body = [
-        "Demand is ",
-        html.Span(f"{abs(delta_pct):.1f}% {direction}", className=delta_class),
-        " the 7-day average. ",
-        "Last 24h peak: ",
-        html.Span(peak_str, className="gp-insight-card__strong"),
-        ". ",
-        forecast_clause,
-    ]
-    # #309: name the exclusion in prose — the tiles above already computed on
-    # the cleaned series, so without this sentence the exclusion is invisible.
+    # Quality and staleness disclosures remain visible when details are closed.
+    warnings = []
+    if stale_clause:
+        warnings.append(stale_clause)
     for exc in (artifact_exclusions or [])[-1:]:
-        body.append(
-            f" Latest EIA reading ({exc.get('mw'):,.0f} MW at "
+        warnings.append(
+            f"Latest EIA reading ({exc.get('mw'):,.0f} MW at "
             f"{str(exc.get('ts'))[11:16]} UTC) excluded: {exc.get('reason')} — "
             f"an EIA reporting artifact, not demand."
         )
+    warnings.extend(_provenance_note(region))
 
-    # PR 3: the per-class data note, from the vintage study's measured
-    # verdict. clean/unknown/missing → silence — callouts stay rare, which is
-    # what keeps them credible.
-    body.extend(_provenance_note(region))
-
-    # #523: the role-aware half. Appended as sentences rather than a bullet
-    # list because ``build_insight_card`` renders ``body`` inside an
-    # ``html.P`` — nesting a ``<ul>`` there is invalid HTML and browsers
-    # break the paragraph around it.
     try:
         from components.insights import generate_tab1_insights
 
-        for ins in generate_tab1_insights(persona_id, region, demand_df, weather_df):
-            # The narrative already reported the peak two sentences ago.
-            if ins.metric_name == "peak_demand":
-                continue
-            body.append(f" {ins.text}")
-    except Exception as exc:  # pragma: no cover — never let this drop the card
+        details.extend(
+            ins.text
+            for ins in generate_tab1_insights(persona_id, region, demand_df, weather_df)
+            if ins.metric_name != "peak_demand"
+        )
+    except Exception as exc:  # pragma: no cover
         log.warning("overview_insight_persona_lines_failed", region=region, error=str(exc))
 
-    # Eyebrow names the role; the lines above are what make it true.
     eyebrow_map = {
         "grid_ops": "Operating summary",
         "renewables": "Renewables outlook",
-        "trader": "Market signal",
+        "trader": "Demand outlook",
         "data_scientist": "Model summary",
     }
-    eyebrow = eyebrow_map.get(persona_id, "Summary")
-    return build_insight_card(eyebrow, body)
+    children = [
+        html.Div(eyebrow_map.get(persona_id, "Summary"), className="gp-insight-card__eyebrow"),
+        html.P(forecast_clause, className="gp-insight-card__body gp-insight-card__strong"),
+        html.P(current_context, className="gp-insight-card__body"),
+    ]
+    if accuracy_clause:
+        children.append(html.P(accuracy_clause, className="gp-insight-card__body"))
+    children.extend(html.P(note, className="gp-insight-card__body") for note in warnings)
+    if details:
+        children.append(
+            html.Details(
+                [
+                    html.Summary("Historical demand details"),
+                    *[html.P(line, className="gp-insight-card__body") for line in details],
+                ],
+                className="gp-insight-card__details",
+            )
+        )
+    return html.Div(children, className="gp-insight-card")
 
 
 # ── Overview panels block (Step 7b — drivers / generation / models / risk / scenarios) ──

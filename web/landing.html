@@ -432,8 +432,8 @@
           <h1>See demand sooner. Decide with confidence.</h1>
           <p class="subhead">
             GridPulse forecasts hourly electricity demand for the 51
-            balancing authorities that run the US grid, and scores every
-            forecast against the operator's own.
+            balancing authorities that run the US grid, and compares its
+            forecast error with operators&rsquo; day-ahead forecasts.
           </p>
           <div class="cta-row">
             <a class="btn-primary" href="/">Explore the live platform</a>
@@ -451,7 +451,7 @@
             <img src="/assets/landing-dashboard.png" width="1280" height="900"
                  alt="The live GridPulse Overview for Texas (ERCOT): current demand, 7-day KPIs, actuals with the forward forecast segment, and real holdout metrics">
           </div>
-          <p class="shot-caption">The live dashboard — real EIA demand, weather-aware forecasts, honest holdout metrics.</p>
+          <p class="shot-caption">Reported EIA demand, weather-aware forecasts, and model error.</p>
         </div>
       </div>
     </div>
@@ -495,13 +495,14 @@
         <p class="section-lede">
           Each view opens on one question. Picking a role &mdash; grid
           operations, renewables, trading or data science &mdash; changes
-          which view loads first and which numbers it leads with.
+          which view loads first and which historical observations appear
+          in the summary. The demand data, KPIs and forecasts stay the same.
         </p>
         <div role="list">
           <div class="module" role="listitem">
             <span class="module-name">Overview</span>
             <span class="module-q">What changed, and what matters now?</span>
-            <span class="module-what">Mission-control summary, key KPIs, and a role-aware insight card.</span>
+            <span class="module-what">Current demand, the next forecast peak, and recent model error.</span>
           </div>
           <div class="module" role="listitem">
             <span class="module-name">US Grid</span>
@@ -545,9 +546,9 @@
             <a class="card-link" href="https://github.com/kristenmartino/gridpulse/blob/main/PRD.md" target="_blank" rel="noopener">ADR trail in PRD.md &rarr;</a>
           </div>
           <div class="card">
-            <h3>Accuracy, measured honestly</h3>
-            <p>Holdout backtests use the recursive multi-step protocol production serves — each prediction builds on the model&rsquo;s own previous ones, roughly 2&times; harder than the one-step-ahead (&ldquo;teacher-forced&rdquo;) numbers dashboards usually quote. All 51 BAs, published. Head-to-head against each grid operator&rsquo;s own day-ahead forecast, GridPulse runs within a fraction of a point of the operators&rsquo; median — and holds steady where their forecasts break down. Wins and losses published, per operator.</p>
-            <p>The blend GridPulse serves is a hedge, not a free win, and the number says so: it trails the best single model at the median — <strong>4.35%</strong> against <strong>3.69%</strong> — and beats that model on <strong>21 of 51</strong> authorities. What it buys is error decorrelation, because which model wins for a given authority does not hold still between retrains. Serving the blend is that trade, made deliberately and published per authority rather than smoothed away.</p>
+            <h3>Forecast accuracy</h3>
+            <p>Holdout backtests predict 168 hours recursively: each prediction feeds into the next. Results are published for all 51 balancing authorities. A separate live benchmark compares GridPulse with each operator&rsquo;s day-ahead forecast on matched observations, with results per operator.</p>
+            <p>In the published recursive holdout, the served ensemble has a median per-BA error of <strong>4.35%</strong>, compared with <strong>3.69%</strong> for XGBoost alone. The ensemble has lower error on <strong>21 of 51</strong> authorities. Combining models does not consistently improve accuracy; the per-authority results show where it helps and where it does not.</p>
             <!--SSR_BENCHMARK_CLAIM-->
             <a class="card-link" href="/benchmark">See the head-to-head benchmark &rarr;</a>
             <a class="card-link" href="/methodology#ensemble-cost">What the ensemble costs &rarr;</a>

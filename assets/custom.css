@@ -719,6 +719,21 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     font-weight: 500;
 }
 
+.gp-insight-card__details summary {
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.gp-insight-card__details summary:focus-visible {
+    outline: 2px solid var(--accent-base);
+    outline-offset: 4px;
+}
+
+.gp-insight-card__details[open] .gp-insight-card__body {
+    margin-top: var(--space-2);
+}
+
 /* Page footer — small attribution row */
 .gp-footer {
     color: var(--text-disabled);

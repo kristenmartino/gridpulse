@@ -171,7 +171,7 @@ class TestEnsembleTradeIsStatedAndTraces:
     def test_the_cost_is_stated_not_only_the_win(self, body) -> None:
         """The unflattering half must survive a copy edit. Both numbers in
         the same sentence is the point — the median alone reads as a win."""
-        assert "hedge, not a free win" in body
+        assert "Combining models does not consistently improve accuracy" in body
         assert body.index("4.35%") < body.index("Data provenance")
 
     def test_hero_chip_does_not_sell_the_blend_as_an_advantage(self, body) -> None:
@@ -197,7 +197,7 @@ class TestAboutBenchmarkClaim:
         monkeypatch.setattr(api, "build_benchmark_payload", lambda: payload)
         body = client.get("/about").get_data(as_text=True)
         assert '<p class="bench-claim">' in body
-        assert "within 0.23 points" in body
+        assert "0.23 percentage points higher" in body
         assert landing._CLAIM_MARKER not in body
 
     def test_claim_handles_the_winning_direction_too(self, client, monkeypatch) -> None:
@@ -211,7 +211,32 @@ class TestAboutBenchmarkClaim:
         }
         monkeypatch.setattr(api, "build_benchmark_payload", lambda: payload)
         body = client.get("/about").get_data(as_text=True)
-        assert "the closer forecast on the typical operator" in body
+        assert "0.60 percentage points lower" in body
+
+    @pytest.mark.parametrize(
+        ("ours", "theirs", "comparison"),
+        [
+            (5.27, 3.49, "1.78 percentage points higher"),
+            (3.49, 5.27, "1.78 percentage points lower"),
+            (3.49, 3.49, "The medians are equal."),
+            (3.491, 3.49, "differs by less than 0.01 percentage points"),
+        ],
+    )
+    def test_comparison_tracks_the_current_gap(self, client, monkeypatch, ours, theirs, comparison):
+        import api
+
+        monkeypatch.setattr(
+            api,
+            "build_benchmark_payload",
+            lambda: {
+                "fleet": {"median_gridpulse_mape": ours, "median_official_mape": theirs, "n": 46},
+                "regions": [],
+            },
+        )
+        body = client.get("/about").get_data(as_text=True)
+        assert comparison in body
+        assert "30-day live benchmark (~24h lead), across 46 operators" in body
+        assert "fraction of a point" not in body
 
     def test_fails_open_when_the_payload_raises(self, client, monkeypatch) -> None:
         """Enrichment must never 500 the page: the card's qualitative copy
