@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GridPulse — US grid demand forecasting | Kristen Martino</title>
+  <title>GridPulse — Electricity demand forecast review | Kristen Martino</title>
 
   <link rel="canonical" href="https://gridpulse.kristenmartino.ai/about">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,21 +23,20 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
   <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
 
-  <!-- ~152 chars. The previous version ran 189 and truncated in results. -->
-  <meta name="description" content="Weather-aware hourly demand forecasts for 51 US balancing authorities, with per-BA holdout accuracy published in the open. Built by Kristen Martino.">
+  <meta name="description" content="An independent project for forecast review analysts: inspect forecast sources, observed error, demand, and weather across 51 US balancing authorities.">
   <meta name="author" content="Kristen Martino">
   <meta name="theme-color" content="#0a0a0b">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/about">
-  <meta property="og:title" content="About GridPulse — Electricity demand forecasting">
-  <meta property="og:description" content="Compare hourly electricity demand forecasts, reported demand, weather, and model error across 51 US balancing authorities.">
+  <meta property="og:title" content="About GridPulse — Electricity demand forecast review">
+  <meta property="og:description" content="Review the forecast shown, its observed error, demand, and weather across 51 US balancing authorities.">
   <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="GridPulse electricity demand dashboard">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="About GridPulse — Electricity demand forecasting">
-  <meta name="twitter:description" content="Compare hourly electricity demand forecasts, reported demand, weather, and model error across 51 US balancing authorities.">
+  <meta name="twitter:title" content="About GridPulse — Electricity demand forecast review">
+  <meta name="twitter:description" content="Review the forecast shown, its observed error, demand, and weather across 51 US balancing authorities.">
   <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
 
   <!-- Structured data. Only types this page's content honestly supports.
@@ -65,8 +64,8 @@
         "@type": "WebPage",
         "@id": "https://gridpulse.kristenmartino.ai/about",
         "url": "https://gridpulse.kristenmartino.ai/about",
-        "name": "GridPulse — US grid demand forecasting",
-        "description": "Weather-aware hourly demand forecasts for 51 US balancing authorities, with per-BA holdout accuracy published in the open.",
+        "name": "GridPulse — Electricity demand forecast review",
+        "description": "An independent project demonstrating forecast review across 51 US balancing authorities, with forecast sources and evaluation evidence.",
         "inLanguage": "en",
         "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
         "about": {"@id": "https://gridpulse.kristenmartino.ai/#software"}
@@ -78,7 +77,7 @@
         "applicationCategory": "BusinessApplication",
         "operatingSystem": "Web",
         "url": "https://gridpulse.kristenmartino.ai/",
-        "description": "Electricity demand forecasts, reported demand, weather scenarios, and model evaluation across 51 US balancing authorities.",
+        "description": "Electricity demand forecast review across 51 US balancing authorities, with source labels, observed error, weather scenarios, and model evaluation.",
         "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
       },
       {
@@ -228,6 +227,7 @@
       gap: 56px;
       align-items: center;
     }
+    .hero .wrap > * { min-width: 0; }
     .eyebrow {
       font-size: 12px;
       font-weight: 600;
@@ -286,21 +286,18 @@
     }
     .chip strong { color: var(--text-primary); font-weight: 600; }
 
-    .hero-visual { min-width: 0; }
-    .shot {
+    .hero-review {
+      min-width: 0;
+      padding: 28px;
       border: 1px solid var(--border-default);
-      border-radius: var(--radius-xl);
-      overflow: hidden;
+      border-left: 2px solid var(--accent-base);
+      border-radius: var(--radius-lg);
       background: var(--bg-raised);
-      box-shadow: 0 0 80px rgba(59, 130, 246, 0.10);
     }
-    .shot img { display: block; width: 100%; height: auto; }
-    .shot-caption {
-      margin-top: 10px;
-      font-size: 12px;
-      color: var(--text-tertiary);
-      text-align: center;
-    }
+    .hero-review h2 { font-size: 24px; line-height: 1.3; }
+    .hero-review p { color: var(--text-secondary); font-size: 15px; }
+    .hero-review .eyebrow { color: var(--accent-base); font-size: 12px; }
+    .hero-review a { display: inline-block; margin-top: 20px; font-size: 14px; font-weight: 600; }
 
     /* ── Sections ───────────────────────────────────────── */
     section { padding: 64px 0; border-top: 1px solid var(--border-subtle); }
@@ -393,15 +390,30 @@
     footer a { color: var(--text-secondary); }
     footer a:hover { color: var(--text-primary); }
 
+    /* A numbered review sequence, distinct from the capability cards. */
+    .review-steps {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 28px;
+      margin: 28px 0 0;
+      padding-left: 22px;
+    }
+    .review-steps li { padding-left: 4px; min-width: 0; }
+    .review-steps li::marker { color: var(--accent-base); font-weight: 600; }
+    .review-steps h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
+    .review-steps p { font-size: 14px; color: var(--text-secondary); }
+
     /* ── Responsive ─────────────────────────────────────── */
     @media (max-width: 900px) {
       .hero { padding: 56px 0 48px; }
       .hero .wrap { grid-template-columns: 1fr; gap: 40px; }
       .grid-4 { grid-template-columns: repeat(2, 1fr); }
+      .review-steps { grid-template-columns: 1fr; gap: 20px; }
       .module { grid-template-columns: 1fr; gap: 4px; padding: 16px 4px; }
     }
     @media (max-width: 560px) {
       .grid-4, .grid-2 { grid-template-columns: 1fr; }
+      .hero .chip { white-space: normal; max-width: 100%; }
       section { padding: 48px 0; }
     }
   </style>
@@ -428,12 +440,13 @@
     <div class="hero">
       <div class="wrap">
         <div>
-          <p class="eyebrow">Electricity demand forecasting</p>
-          <h1>Hourly US electricity demand forecasts</h1>
+          <p class="eyebrow">For the Forecast Review Analyst</p>
+          <h1>Does this demand forecast need closer review?</h1>
           <p class="subhead">
-            Compare forecasts with reported demand and operator forecasts
-            across 51 US balancing authorities. Review recent model error,
-            weather conditions, and data-quality notes.
+            GridPulse is an independent project demonstrating a proposed
+            forecast-review workflow across 51 US balancing authorities.
+            Identify the forecast shown, check its observed error, and review
+            demand and weather before deciding what to investigate.
           </p>
           <div class="cta-row">
             <a class="btn-primary" href="/">Open dashboard</a>
@@ -445,15 +458,37 @@
             <span class="chip"><strong>Hourly</strong> forecast updates</span>
           </div>
         </div>
-        <div class="hero-visual">
-          <div class="shot">
-            <img src="/assets/landing-dashboard.png" width="1280" height="900"
-                 alt="The live GridPulse Overview for Texas (ERCOT): current demand, 7-day KPIs, actuals with the forward forecast segment, and real holdout metrics">
-          </div>
-          <p class="shot-caption">Reported EIA demand, weather-aware forecasts, and model error.</p>
-        </div>
+        <aside class="hero-review" aria-labelledby="hero-review-title">
+          <p class="eyebrow">In the dashboard</p>
+          <h2 id="hero-review-title">Read the forecast with its evidence</h2>
+          <p>See whether the chart shows the published default or a model comparison.
+             Review observed error and training results as separate measurements.</p>
+          <a href="/">Review the current forecast &rarr;</a>
+        </aside>
       </div>
     </div>
+
+    <!-- ── Proposed review workflow ── -->
+    <section aria-labelledby="review-workflow">
+      <div class="wrap">
+        <p class="section-eyebrow">Proposed analyst workflow</p>
+        <h2 id="review-workflow">Start with the forecast you are reviewing</h2>
+        <ol class="review-steps">
+          <li>
+            <h3>Identify the source</h3>
+            <p>Read the forecast name and published default. A selected model comparison may differ from the forecast currently published.</p>
+          </li>
+          <li>
+            <h3>Check the matching evidence</h3>
+            <p>Inspect observed error for that series, including the forecast lead and measurement window. Keep training results and data limitations in view.</p>
+          </li>
+          <li>
+            <h3>Decide what to investigate</h3>
+            <p>Review the next demand peak, forecast curve, weather, and flagged observations to decide whether the forecast needs closer review.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
 
     <!-- ── Value pillars ── -->
     <section aria-labelledby="pillars">
@@ -471,7 +506,7 @@
           </div>
           <div class="card">
             <h3>Forecast error</h3>
-            <p>Review live error by forecast lead alongside training holdout results.</p>
+            <p>Check observed error for the displayed series by forecast lead and window. Training evaluations are labeled separately.</p>
           </div>
           <div class="card">
             <h3>Weather alerts</h3>
@@ -491,16 +526,15 @@
         <p class="section-eyebrow">Dashboard views</p>
         <h2 id="modules">What each view is for</h2>
         <p class="section-lede">
-          Each view opens on one question. Picking a role &mdash; grid
-          operations, renewables, trading or data science &mdash; changes
-          which view loads first and which historical observations appear
-          in the summary. The demand data, KPIs and forecasts stay the same.
+          Overview starts with the Forecast Review Analyst's decision.
+          Renewables, trading, and data-science contexts offer other starting
+          views and historical summaries using the same underlying data.
         </p>
         <div role="list">
           <div class="module" role="listitem">
             <span class="module-name">Overview</span>
-            <span class="module-q">What changed, and what matters now?</span>
-            <span class="module-what">Current demand, the next forecast peak, and recent model error.</span>
+            <span class="module-q">Does this forecast need closer review?</span>
+            <span class="module-what">The published forecast, its matching observed error, the next demand peak, and reported-demand history.</span>
           </div>
           <div class="module" role="listitem">
             <span class="module-name">US Grid</span>
@@ -509,8 +543,8 @@
           </div>
           <div class="module" role="listitem">
             <span class="module-name">Forecast</span>
-            <span class="module-q">What demand is forecast?</span>
-            <span class="module-what">Demand forecasts from Prophet, SARIMAX, XGBoost, and the ensemble, with labeled forecast ranges.</span>
+            <span class="module-q">Which forecast am I inspecting?</span>
+            <span class="module-what">Start with the published default or select a model comparison. Source identity, matching error evidence, and forecast ranges stay visible.</span>
           </div>
           <div class="module" role="listitem">
             <span class="module-name">Risk</span>
@@ -520,7 +554,7 @@
           <div class="module" role="listitem">
             <span class="module-name">Models</span>
             <span class="module-q">How have the models performed?</span>
-            <span class="module-what">Per-model holdout metrics, live drift, residuals, SHAP feature importance.</span>
+            <span class="module-what">Per-model training evaluations, observed forecast error, residuals, and built-in XGBoost feature importance.</span>
           </div>
         </div>
       </div>
@@ -533,7 +567,8 @@
         <h2 id="open">How results are checked</h2>
         <p class="section-lede">
           Read the model methods, data-quality rules, published evaluations,
-          and failure analysis behind the dashboard.
+          and failure analysis behind the dashboard. Model comparisons include
+          XGBoost, Prophet, SARIMAX, and Ensemble.
         </p>
         <div class="grid-2">
           <div class="card">
@@ -544,7 +579,7 @@
           <div class="card">
             <h3>Forecast accuracy</h3>
             <p>Holdout backtests predict 168 hours recursively: each prediction feeds into the next. Results are published for all 51 balancing authorities. A separate live benchmark compares GridPulse with each operator&rsquo;s day-ahead forecast on matched observations, with results per operator.</p>
-            <p>In the published recursive holdout, the served ensemble has a median per-BA error of <strong>4.35%</strong>, compared with <strong>3.69%</strong> for XGBoost alone. The ensemble has lower error on <strong>21 of 51</strong> authorities. Combining models does not consistently improve accuracy; the per-authority results show where it helps and where it does not.</p>
+            <p>In the published recursive holdout, the evaluated ensemble has a median per-BA error of <strong>4.35%</strong>, compared with <strong>3.69%</strong> for XGBoost alone. The ensemble has lower error on <strong>21 of 51</strong> authorities. Combining models does not consistently improve accuracy; the per-authority results show where it helps and where it does not.</p>
             <!--SSR_BENCHMARK_CLAIM-->
             <a class="card-link" href="/benchmark">See the head-to-head benchmark &rarr;</a>
             <a class="card-link" href="/methodology#ensemble-cost">Ensemble results &rarr;</a>

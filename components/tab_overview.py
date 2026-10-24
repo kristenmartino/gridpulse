@@ -1,20 +1,7 @@
-"""Tab 0: Overview — mission-control linear stack.
+"""Overview: proposed analyst review workflow and displayed forecast context.
 
-R2 of shell-redesign-v2.md. Replaces the prior 8-card sprawl (greeting /
-briefing / what-changed / data-health / quick-nav / spotlight / insight-digest /
-news-feed) with the gridpulse-v2 dashboard rhythm: a single-column space-y-8
-stack of seven sections.
-
-Structure (top → bottom):
-1. Page title block (region name + 1-line subtitle)
-2. MetricsBar — 5-up KPI row (Now / 7d Peak / 7d Low / Average / 24h Trend)
-3. Hero demand chart — full-width forecast with confidence band
-4. ModelMetricsCard — horizontal model-performance bar (MAPE / RMSE / MAE / R²)
-5. InsightCard — single narrative paragraph (eyebrow + body)
-6. Footer — static attribution
-
-Dynamic content (1–5) is filled by ``update_overview_tab`` in
-``components/callbacks.py``; the footer is rendered statically.
+Dynamic content retains its callback IDs. Reported-demand history sits below
+the forecast review so historical KPIs do not compete with the next decision.
 """
 
 from dash import dcc, html
@@ -23,16 +10,32 @@ from components.cards import build_page_footer
 
 
 def layout() -> html.Div:
-    """Build the v2-style Overview linear stack."""
+    """Build the forecast-review Overview using the existing page shell."""
     return html.Div(
         [
             html.Div(
                 [
-                    # 1. Title block (callback fills overview-title)
                     html.Div(id="overview-title"),
-                    # 2. MetricsBar (5-up KPI row)
-                    html.Div(id="overview-metrics-bar"),
-                    # 3. Hero demand chart (full-width with confidence band)
+                    html.Div(
+                        [
+                            html.P(
+                                "For the Forecast Review Analyst",
+                                className="gp-review-workflow__audience",
+                            ),
+                            html.P(
+                                "Does this forecast need closer review?",
+                                className="gp-review-workflow__question",
+                            ),
+                            html.P(
+                                "Check the forecast source, its recent observed error, "
+                                "and the demand outlook before deciding what to investigate.",
+                                className="gp-review-workflow__note",
+                            ),
+                        ],
+                        className="gp-review-workflow",
+                    ),
+                    html.Div(id="overview-insight-card"),
+                    html.Div(id="overview-model-card"),
                     html.Div(
                         dcc.Loading(
                             dcc.Graph(
@@ -48,11 +51,13 @@ def layout() -> html.Div:
                         ),
                         className="gp-chart-card",
                     ),
-                    # 4. ModelMetricsCard (horizontal model performance bar)
-                    html.Div(id="overview-model-card"),
-                    # 5. InsightCard (narrative summary)
-                    html.Div(id="overview-insight-card"),
-                    # 6. Footer (static)
+                    html.Details(
+                        [
+                            html.Summary("Reported demand history"),
+                            html.Div(id="overview-metrics-bar"),
+                        ],
+                        className="gp-review-workflow__history",
+                    ),
                     build_page_footer(),
                 ],
                 className="gp-section-stack",

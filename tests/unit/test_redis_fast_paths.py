@@ -970,14 +970,17 @@ class TestOutlookTabFromRedis:
         result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "data_scientist")
         assert result is not None
         fig = result[0]
-        assert fig.data[0].name == "PROPHET Forecast"
+        assert fig.data[0].name == "Prophet Forecast"
         assert fig.data[0].line.color == COLORS["prophet"]
         title = fig.layout.title.text
-        assert "PROPHET Demand Forecast" in title
+        assert "Prophet Demand Forecast" in title
         assert "XGBOOST Demand Forecast" not in title
-        # Substitution disclosed on the chart itself.
-        assert "Requested XGBoost is unavailable" in title
-        assert "showing the published primary forecast, Prophet" in title
+        # The visible source panel carries substitution context; chart titles stay short.
+        from components.forecast_context import forecast_review_context
+
+        context = forecast_review_context("FPL", payload, "xgboost", 48)
+        assert "Requested XGBoost is unavailable" in context["source_note"]
+        assert context["display_label"] == "Prophet"
         # Bands calibrate against the model actually plotted, and the
         # caption discloses the cross-model calibration.
         assert mock_bands.call_args.kwargs["model_name"] == "prophet"
@@ -988,7 +991,7 @@ class TestOutlookTabFromRedis:
     @patch("components._callbacks_forecast._add_trailing_actuals")
     @patch("components._callbacks_forecast._add_confidence_bands")
     @patch("components._callbacks_forecast.redis_get")
-    def test_legacy_payload_without_primary_keeps_xgboost_attribution(
+    def test_legacy_payload_without_primary_does_not_guess_attribution(
         self, mock_rg, mock_bands, mock_trail
     ):
         """Legacy payloads (no ``primary_model``) can't identify the series'
@@ -1009,7 +1012,8 @@ class TestOutlookTabFromRedis:
         result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
         assert result is not None
         fig = result[0]
-        assert fig.data[0].name == "XGBOOST Forecast"
+        assert fig.data[0].name == "Published forecast (source unspecified) Forecast"
+        mock_bands.assert_not_called()
         assert "unavailable" not in fig.layout.title.text
 
 
@@ -1060,8 +1064,8 @@ class TestServedModelForPayload:
         result = _outlook_tab_from_redis("FPL", 48, "xgboost", None, None, "grid_ops")
         assert result is not None
         fig = result[0]
-        assert fig.data[0].name == "XGBOOST Forecast"
-        assert "XGBOOST Demand Forecast" in fig.layout.title.text
+        assert fig.data[0].name == "XGBoost Forecast"
+        assert "XGBoost Demand Forecast" in fig.layout.title.text
         assert "unavailable" not in fig.layout.title.text
         assert mock_bands.call_args.kwargs["model_name"] == "xgboost"
 

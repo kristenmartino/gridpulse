@@ -91,7 +91,7 @@ def _build_header() -> html.Header:
                         className="gp-header__wordmark dashboard-title",
                     ),
                     html.P(
-                        "Electricity demand forecasts",
+                        "Electricity demand forecast review",
                         className="gp-brand-tagline",
                     ),
                 ],
@@ -112,7 +112,7 @@ def _build_header() -> html.Header:
                 value="FPL",
                 className="gp-header__select region-selector",
             ),
-            html.Label("View", htmlFor="persona-selector", className="sr-only"),
+            html.Label("Review context", htmlFor="persona-selector", className="sr-only"),
             dbc.Select(
                 id="persona-selector",
                 options=persona_options,

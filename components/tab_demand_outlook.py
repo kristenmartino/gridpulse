@@ -1,16 +1,6 @@
-"""Tab: Forecast (formerly Demand Outlook).
+"""Forecast view with explicit source and error context above the chart.
 
-R4a-1 of shell-redesign-v2.md. Rebuilt to the v2 linear-stack rhythm:
-title / controls / hero chart / MetricsBar / ModelCard / InsightCard /
-footer. R4a-2 will add the toggle strip + Drivers / Generation /
-Scenario inline panels beneath the InsightCard.
-
-All existing component IDs (outlook-chart, outlook-horizon, outlook-model,
-outlook-peak, outlook-avg, outlook-min, outlook-range, outlook-peak-time,
-outlook-min-time, outlook-data-through, tab2-insight-card, replay-*) are
-preserved so the multi-output ``update_demand_outlook`` callback continues
-to work without a signature change. The new visual structure wraps the
-existing IDs as inner spans of MetricsBar cells / ModelMetricsCard slots.
+Existing outlook, replay, and inline-panel IDs are retained for callbacks.
 """
 
 import dash_bootstrap_components as dbc
@@ -34,7 +24,7 @@ def _horizon_segmented() -> html.Div:
                     {"label": "7d", "value": "168"},
                     {"label": "30d", "value": "720"},
                 ],
-                value="168",
+                value="24",
                 inline=True,
                 className="gp-segmented",
             ),
@@ -44,38 +34,19 @@ def _horizon_segmented() -> html.Div:
 
 
 def _model_segmented() -> html.Div:
-    """v2-style segmented control for active model.
-
-    Production data path only carries XGBoost predictions: the scheduled
-    scoring job at ``jobs/phases.py:364`` writes only XGBoost output to
-    ``gridpulse:forecast:{region}:1h``, and the v1 inline-compute fallback
-    in ``_run_forecast_outlook`` is gated by ``REQUIRE_REDIS`` (returns a
-    warming state instead of training Prophet / SARIMAX on the request
-    thread). Surface only the option the data path can actually fulfill —
-    in dev (``REQUIRE_REDIS=False``) all four are still trainable inline,
-    so we keep the full segmented set there.
-
-    Plan: lift the single-option restriction once the scoring job is
-    extended to write Prophet + SARIMAX + Ensemble predictions to Redis
-    alongside XGBoost (option B in the post-redesign discussion).
-    """
-    # All four models now land in Redis via jobs/phases.py
-    # predict_and_write_forecast (Stages 1–3 of scoring-job-multi-model.md).
-    # The dev/prod gate collapses now that Ensemble is computed in the
-    # scoring phase via inverse-MAPE weighting over each region's loaded
-    # models — same options either way.
-    options = [
+    """Select the forecast source to inspect in this view."""
+    options = [{"label": "Published default", "value": "published"}] + [
         {"label": model_display_name(key), "value": key}
         for key in ("xgboost", "prophet", "arima", "ensemble")
     ]
 
     return html.Div(
         [
-            html.Div("Model", className="gp-control-eyebrow"),
+            html.Div("Forecast shown", className="gp-control-eyebrow"),
             dbc.RadioItems(
                 id="outlook-model",
                 options=options,
-                value="xgboost",
+                value="published",
                 inline=True,
                 className="gp-segmented",
             ),
@@ -474,7 +445,7 @@ def _panel_scenarios() -> dbc.Collapse:
 
 
 def layout() -> html.Div:
-    """Build the v2 linear-stack Forecast tab layout."""
+    """Build the Forecast view with context preceding the demand curve."""
     return html.Div(
         [
             html.Div(
@@ -488,6 +459,8 @@ def layout() -> html.Div:
                     ),
                     # 2b. Replay panel (hidden carrier — preserved for callback)
                     _replay_panel(),
+                    # Source and matching error context precede the chart.
+                    html.Div(id="outlook-model-card"),
                     # 3. Hero forecast chart (full-width, with confidence band)
                     html.Div(
                         dcc.Loading(
@@ -515,8 +488,6 @@ def layout() -> html.Div:
                     ),
                     # 4. MetricsBar (4-up, reuses existing outlook-* IDs)
                     _metrics_bar(),
-                    # 5. ModelMetricsCard (callback fills)
-                    html.Div(id="outlook-model-card"),
                     # 6. InsightCard (existing id; styled by the wrapper)
                     html.Div(id="tab2-insight-card", className="gp-insight-card-slot"),
                     # 7. Inline panel toggle strip (R4a-2)

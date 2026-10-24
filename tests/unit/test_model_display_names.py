@@ -222,8 +222,15 @@ class TestSurfacesAgree:
         def _values(control):
             return {o["value"] for o in control.children[1].options}
 
-        assert _values(_model_segmented()) == _values(_model_selector())
-        assert _values(_model_segmented()) == {"xgboost", "prophet", "arima", "ensemble"}
+        assert _values(_model_segmented()) - {"published"} == _values(_model_selector())
+        assert _values(_model_segmented()) == {
+            "published",
+            "xgboost",
+            "prophet",
+            "arima",
+            "ensemble",
+        }
+        assert _model_segmented().children[1].value == "published"
 
 
 class TestPublicPagesUseTheCanonicalLabel:

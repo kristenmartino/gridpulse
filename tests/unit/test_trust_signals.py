@@ -213,7 +213,7 @@ class TestScoredAtSurfaced:
         )
         payload = (forecast_ts, np.full(24, 1000.0), scored_at_iso)
         with (
-            patch.object(ov, "_read_ensemble_forecast_from_redis", return_value=payload),
+            patch.object(ov, "_read_published_forecast_from_redis", return_value=payload),
             patch.object(
                 ov, "_empirical_interval_from_backtests", return_value={"available": False}
             ),

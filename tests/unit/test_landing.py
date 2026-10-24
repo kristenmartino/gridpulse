@@ -51,8 +51,9 @@ class TestLandingContent:
 
     def test_canonical_framing_present(self, body) -> None:
         """CLAUDE.md's canonical category + tagline, verbatim."""
-        assert "Electricity demand forecasting" in body
-        assert "Hourly US electricity demand forecasts" in body
+        assert "Electricity demand forecast review" in body
+        assert "forecast review analyst" in body.lower()
+        assert "closer review" in body
 
     def test_ctas_point_at_the_live_platform_and_public_docs(self, body) -> None:
         assert 'href="/"' in body

@@ -31,7 +31,7 @@ PERSONAS: dict[str, Persona] = {
     "grid_ops": Persona(
         id="grid_ops",
         name="Sarah",
-        title="Grid Operations Manager",
+        title="Forecast Review Analyst",
         avatar="👩‍💼",
         default_tab="tab-overview",
         priority_tabs=[
@@ -49,11 +49,10 @@ PERSONAS: dict[str, Persona] = {
             "ramp_rate_max",
         ],
         alert_threshold="warning",
-        welcome_title="Grid Operations Dashboard",
+        welcome_title="Forecast Review",
         welcome_message=(
-            "Good morning, Sarah. Here's your grid status overview. "
-            "Focus areas: demand forecast accuracy, capacity headroom, "
-            "and any active severe weather alerts that could impact operations."
+            "Does this forecast need closer review? Check the displayed source, "
+            "its observed error, and the demand outlook to decide what to investigate."
         ),
         color="#1f77b4",
     ),
@@ -141,7 +140,7 @@ PERSONAS: dict[str, Persona] = {
         welcome_message=(
             "Hey Dev. Model diagnostics are ready for review. "
             "Focus areas: ensemble accuracy trends, individual model MAPE, "
-            "SHAP feature contributions, and residual analysis."
+            "built-in XGBoost feature importance, and residual analysis."
         ),
         color="#9467bd",
     ),

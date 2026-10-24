@@ -4,7 +4,9 @@
 
 GridPulse compares hourly electricity demand forecasts with reported EIA demand and operator forecasts across 51 US balancing authorities. It also shows weather data, model error, data-quality notes, and weather scenarios.
 
-**Product description:** _Hourly US electricity demand forecasts_
+**Product description:** _Electricity demand forecast review_
+
+The primary user is a forecast review analyst deciding whether a published forecast needs closer examination. This is a proposed workflow demonstrated with public data; analyst adoption and business impact have not been validated. Start with the next peak, identify the forecast shown, then check its matching error evidence and data warnings before investigating in Forecast or Models.
 
 ---
 
@@ -16,15 +18,21 @@ Use GridPulse to inspect reported demand and forecasts, compare model error, rev
 
 | Tab | Question | What it shows |
 |---|---|---|
-| **Overview** | What changed, and what matters now? | Reported demand, next forecast peak, model error, expandable history |
+| **Overview** | Does the published forecast need closer review? | Published next-24h peak, source, same-series 24h-ahead error when available, separate training reference, expandable history |
 | **US Grid** | How does demand compare across regions? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
-| **Forecast** | What demand is forecast? | Per-model and ensemble demand forecasts; bands use backtest error ranges when available and heuristic envelopes otherwise |
+| **Forecast** | Which forecast am I reviewing? | Published default or a named model comparison; source and same-lead error above the chart; trained-model bands use backtest error ranges when available and heuristic envelopes otherwise |
 | **Risk** | Which alerts need review? | Weather alerts, demand anomalies, demand/nameplate comparison |
 | **Models** | How have the models performed? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, built-in XGBoost feature importance |
 
-Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) tune the narrative layer: the insight card's framing, and which insights surface and how many. The data, KPI tiles, and forecasts are identical across personas. (Per-persona KPI cards and alert thresholds are declared in `personas/config.py` but not yet wired into the shell — see [#188](https://github.com/kristenmartino/gridpulse/issues/188).)
+The default view is Forecast Review Analyst. Three secondary role-based views (Renewables Analyst, Trader, Data Scientist) tune the narrative layer: the insight card's framing, and which insights surface and how many. The data, KPI tiles, and forecasts are identical across personas. (Per-persona KPI cards and alert thresholds are declared in `personas/config.py` but not yet wired into the shell — see [#188](https://github.com/kristenmartino/gridpulse/issues/188).)
 
 ---
+
+## Forecast identity and accuracy
+
+The scoring job writes the published default to `predicted_demand_mw`. `primary_model` identifies its model unless `served_series=seasonal-naive` marks a repeated-day baseline. Overview and Forecast's default selection read that published column; explicit model columns remain available for comparison. A baseline never inherits a trained model's name, holdout score, or prediction interval.
+
+The visible evidence panel separates **observed error** from the **training reference**. Observed error is seven-day MAPE for the displayed series at the selected lead (24/48/72h), shown only with at least six matching observations. It describes past forecasts at that lead, not every point in the chart or expected future accuracy. The 7-day and 30-day views have no matching live lead score and say so. The training reference is that model's last 168-hour recursive holdout across multiple leads; missing or unidentified series never inherit another model's metrics.
 
 ## Models
 

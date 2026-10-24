@@ -50,10 +50,9 @@ Redis-backed briefing. #523 is its first piece.
   hero metric never displays as ``nan`` when EIA-930 has a publishing
   lag on the most recent hour.
 * ``_build_overview_hero_chart`` — 7d actual demand + 24h forecast bridge
-  with 80% confidence band. Mirrors the v2 ``DemandChart.tsx`` shape.
+  using the published default series.
 * ``_build_overview_model_card`` — horizontal model-performance bar
-  showing the primary (ensemble → xgboost → first available) model's
-  MAPE / RMSE / MAE / R² with a trained-vs-simulated badge.
+  showing the source, matching live lead error and separate training reference.
 * ``_build_overview_insight`` — three-sentence narrative paragraph with
   semantic-color delta spans (rising demand is "warning" not "good").
 
@@ -78,23 +77,25 @@ import structlog
 from dash import Input, Output, State, html, no_update
 
 from components._callbacks_shared import (
+    _FORECAST_NOT_LOADED,
     _empirical_interval_from_backtests,
     _empty_figure,
     _latest_real_demand,
     _layout,
-    _read_ensemble_forecast_from_redis,
+    _read_published_forecast_from_redis,
 )
-from components.accessibility import model_display_name
 from components.cards import (
     build_insight_card,
     build_metrics_bar,
-    build_model_metrics_card,
     build_page_title,
 )
+from components.forecast_context import forecast_review_context
+from components.forecast_review import build_forecast_review
 from config import (
     FRESHNESS_FRESH_MAX_AGE_HOURS,
     REGION_NAMES,
 )
+from data.forecast_identity import resolve_forecast_identity
 from data.redis_client import redis_get, redis_key
 
 log = structlog.get_logger()
@@ -385,6 +386,7 @@ def _build_overview_metrics_items(
 def _build_overview_hero_chart(
     region: str,
     demand_df: pd.DataFrame | None,
+    cached=_FORECAST_NOT_LOADED,
 ) -> go.Figure:
     """7d actual demand + 24h forecast bridge with confidence band.
 
@@ -428,86 +430,71 @@ def _build_overview_hero_chart(
         )
     )
 
-    # 24h forecast bridge (orange dashed) + confidence band.
-    #
-    # Reads the live ensemble forecast from gridpulse:forecast:{region}:1h
-    # (written hourly by the scoring job). Falls back to actual-only chart
-    # when Redis is cold rather than to models.model_service._simulate_forecasts,
-    # which prior to 2026-05-20 was rendering noisy *historical* actuals at
-    # *forward* timestamps — producing visibly wrong forecast traces (e.g. FPL
-    # peak appearing at 04:00 instead of the real evening peak). See the
-    # 2026-05-20 "looks off" debug + the fix branch's PR for the full
-    # diagnosis.
+    # The same published series supplies the chart, peak summary and evidence panel.
+    if cached is _FORECAST_NOT_LOADED:
+        cached = redis_get(redis_key(f"forecast:{region}:1h"))
+    identity = resolve_forecast_identity(cached)
     try:
-        forecast_payload = _read_ensemble_forecast_from_redis(region)
+        forecast_payload = _read_published_forecast_from_redis(region, cached)
         if forecast_payload is not None:
-            forecast_ts_all, ensemble_arr, scored_at_iso = forecast_payload
-            horizon = min(24, len(ensemble_arr))
+            forecast_ts_all, forecast_arr, scored_at_iso = forecast_payload
+            horizon = min(24, len(forecast_arr))
             forecast_ts = forecast_ts_all[:horizon]
-            ensemble_y = list(ensemble_arr[:horizon])
+            forecast_y = list(forecast_arr[:horizon])
 
-            # Confidence band (PR-B, 2026-05-20): prefer calibrated
-            # empirical quantiles of recent backtest residuals, fall back
-            # to a ±3 % heuristic only when the calibration window is too
-            # small (typically <24 residual samples — first week
-            # post-deploy, or for newly-added regions).
-            #
-            # The empirical method is the same one the Forecast tab uses
-            # (``_empirical_interval_from_backtests`` →
-            # ``apply_empirical_interval``); see
-            # ``components._callbacks_shared:385-409`` and
-            # ``components._callbacks_forecast:108-170``. Sharing the
-            # method across surfaces means both views show a band
-            # calibrated to the same residual distribution — no
-            # surface-specific tuning that would silently diverge.
-            interval_meta = _empirical_interval_from_backtests(region, "ensemble", horizon)
-            empirical_ok = bool(interval_meta.get("available"))
-            if empirical_ok:
-                # Additive bands: lower_error / upper_error are quantiles
-                # of (actual - predicted) residuals, so band_y = pred + q.
-                lower_err = float(interval_meta["lower_error"])
-                upper_err = float(interval_meta["upper_error"])
-                upper_y = [v + upper_err for v in ensemble_y]
-                lower_y = [v + lower_err for v in ensemble_y]
-                # Disclose the calibration source when the residuals came
-                # from a substitute model (the prod backtest payload only
-                # carries XGBoost predictions), so the band never implies
-                # it was calibrated on the displayed ensemble.
-                calib = interval_meta.get("calibration_model")
-                calib_note = "" if calib in (None, "ensemble") else f", {calib}-calibrated"
-                band_name = (
-                    f"80% prediction interval "
-                    f"(empirical, n={int(interval_meta.get('sample_size', 0))}{calib_note})"
+            if identity and identity.metric_key not in (None, "baseline"):
+                interval_meta = _empirical_interval_from_backtests(
+                    region, identity.metric_key, horizon
                 )
-            else:
-                upper_y = [v * 1.03 for v in ensemble_y]
-                lower_y = [v * 0.97 for v in ensemble_y]
-                band_name = "±3% indicative range"
-            fig.add_trace(
-                go.Scatter(
-                    x=list(forecast_ts) + list(forecast_ts[::-1]),
-                    y=upper_y + lower_y[::-1],
-                    fill="toself",
-                    fillcolor="rgba(249, 115, 22, 0.12)",
-                    line=dict(width=0),
-                    hoverinfo="skip",
-                    showlegend=False,
-                    name=band_name,
+                empirical_ok = bool(interval_meta.get("available"))
+                if empirical_ok:
+                    # Additive bands: lower_error / upper_error are quantiles
+                    # of (actual - predicted) residuals, so band_y = pred + q.
+                    lower_err = float(interval_meta["lower_error"])
+                    upper_err = float(interval_meta["upper_error"])
+                    upper_y = [v + upper_err for v in forecast_y]
+                    lower_y = [v + lower_err for v in forecast_y]
+                    # Disclose the calibration source when the residuals came
+                    # from a substitute model (the prod backtest payload only
+                    # carries XGBoost predictions), so the band never implies
+                    # it was calibrated on the displayed series.
+                    calib = interval_meta.get("calibration_model")
+                    calib_note = (
+                        "" if calib in (None, identity.metric_key) else f", {calib}-calibrated"
+                    )
+                    band_name = (
+                        f"80% prediction interval "
+                        f"(empirical, n={int(interval_meta.get('sample_size', 0))}{calib_note})"
+                    )
+                else:
+                    upper_y = [v * 1.03 for v in forecast_y]
+                    lower_y = [v * 0.97 for v in forecast_y]
+                    band_name = "±3% indicative range"
+                fig.add_trace(
+                    go.Scatter(
+                        x=list(forecast_ts) + list(forecast_ts[::-1]),
+                        y=upper_y + lower_y[::-1],
+                        fill="toself",
+                        fillcolor="rgba(249, 115, 22, 0.12)",
+                        line=dict(width=0),
+                        hoverinfo="skip",
+                        showlegend=False,
+                        name=band_name,
+                    )
                 )
-            )
 
             # Forecast line bridged from the last actual point — gives a
             # visually continuous transition. The bridge segment uses the
-            # last actual MW; the forward segment uses the real ensemble
+            # last actual MW; the forward segment uses the published
             # predictions per their Redis-stored timestamps.
             bridge_x = [last_ts, *forecast_ts]
-            bridge_y = [last_mw, *ensemble_y]
+            bridge_y = [last_mw, *forecast_y]
             fig.add_trace(
                 go.Scatter(
                     x=bridge_x,
                     y=bridge_y,
                     mode="lines",
-                    name="Forecast (24h)",
+                    name=f"{identity.label if identity else 'Published forecast'} (24h)",
                     line=dict(color="#f97316", width=1.75, dash="dash"),
                     hovertemplate=(
                         "<b>%{x|%b %d, %H:%M}</b><br>%{y:,.0f} MW · forecast<extra></extra>"
@@ -562,62 +549,11 @@ def _build_overview_hero_chart(
     return fig
 
 
-def _build_overview_model_card(region: str) -> html.Div:
-    """Horizontal model-performance bar (top/bottom borders only)."""
-    try:
-        from models.model_service import get_model_metrics, is_trained
-    except ImportError:  # pragma: no cover — defensive
-        return html.Div()
-
-    metrics_dict = get_model_metrics(region)
-    if not metrics_dict:
-        return html.Div()
-
-    # Prefer ensemble; fall back to xgboost; finally first available
-    if "ensemble" in metrics_dict:
-        primary_key = "ensemble"
-    elif "xgboost" in metrics_dict:
-        primary_key = "xgboost"
-    else:
-        primary_key = next(iter(metrics_dict.keys()), None)
-    if primary_key is None:
-        return html.Div()
-
-    m = metrics_dict[primary_key]
-
-    def _fmt(key: str, spec: str, suffix: str = "") -> str:
-        # An absent metric must render as unavailable, not as a perfect score.
-        value = m.get(key)
-        if value is None:
-            return "—"
-        return f"{value:{spec}}{suffix}"
-
-    formatted = {
-        "MAPE": _fmt("mape", ".1f", "%"),
-        "RMSE": _fmt("rmse", ",.0f", " MW"),
-        "MAE": _fmt("mae", ",.0f", " MW"),
-        "R²": _fmt("r2", ".3f"),
-    }
-    name = model_display_name(primary_key)
-    badge = "trained" if is_trained(region) else "simulated"
-
-    caption = None
-    if primary_key == "ensemble":
-        single = {
-            k: v.get("mape")
-            for k, v in metrics_dict.items()
-            if k != "ensemble" and v.get("mape") is not None
-        }
-        if single:
-            best_key = min(single, key=single.get)
-            best_name = model_display_name(best_key)
-            caption = f"Production blend — most accurate single model: {best_name} {single[best_key]:.1f}%"
-        else:
-            caption = "Production blend — combines all models for stability."
-
-    return build_model_metrics_card(
-        model_name=name, metrics=formatted, badge=badge, caption=caption
-    )
+def _build_overview_model_card(region: str, cached=_FORECAST_NOT_LOADED) -> html.Div:
+    """Identity and error evidence for the same published 24-hour series."""
+    if cached is _FORECAST_NOT_LOADED:
+        cached = redis_get(redis_key(f"forecast:{region}:1h"))
+    return build_forecast_review(forecast_review_context(region, cached, "published", 24))
 
 
 def _provenance_note(region: str) -> list[str]:
@@ -665,6 +601,7 @@ def _build_overview_insight(
     persona_id: str,
     artifact_exclusions: list[dict] | None = None,
     weather_df: pd.DataFrame | None = None,
+    cached=_FORECAST_NOT_LOADED,
 ) -> html.Div:
     """Lead with the forecast; disclose data warnings before optional context."""
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
@@ -682,11 +619,9 @@ def _build_overview_insight(
     avg_7d = float(last_7d["demand_mw"].mean()) if not last_7d.empty else 0.0
     delta_pct = ((now_value - avg_7d) / avg_7d * 100.0) if avg_7d else 0.0
     direction = "above" if delta_pct >= 0 else "below"
-    current_context = (
-        f"Demand is {now_value:,.0f} MW, {abs(delta_pct):.1f}% {direction} the 7-day average."
-    )
+    current_context = f"Latest reported demand: {now_value:,.0f} MW."
 
-    details = []
+    details = [f"Demand is {abs(delta_pct):.1f}% {direction} the 7-day average."]
     last_24h = df.tail(24).dropna(subset=["demand_mw"])
     if not last_24h.empty:
         peak_idx = last_24h["demand_mw"].idxmax()
@@ -697,15 +632,16 @@ def _build_overview_insight(
         )
 
     forecast_clause = "Next-24h forecast is unavailable. Awaiting the next scoring update."
-    accuracy_clause = ""
     stale_clause = ""
+    if cached is _FORECAST_NOT_LOADED:
+        cached = redis_get(redis_key(f"forecast:{region}:1h"))
     try:
-        forecast_payload = _read_ensemble_forecast_from_redis(region)
+        forecast_payload = _read_published_forecast_from_redis(region, cached)
         if forecast_payload is not None:
-            forecast_ts_all, ensemble_arr, scored_at_iso = forecast_payload
-            horizon = min(24, len(ensemble_arr))
+            forecast_ts_all, forecast_arr, scored_at_iso = forecast_payload
+            horizon = min(24, len(forecast_arr))
             if horizon > 0:
-                f_arr = ensemble_arr[:horizon]
+                f_arr = forecast_arr[:horizon]
                 f_peak_idx = int(f_arr.argmax())
                 f_peak_ts = pd.Timestamp(forecast_ts_all[f_peak_idx])
                 if f_peak_ts.tzinfo is None:
@@ -715,13 +651,6 @@ def _build_overview_insight(
                     f"Next-24h forecast peaks at {float(f_arr.max()):,.0f} MW "
                     f"on {f_peak_ts.strftime('%a %d %b, %H:%M')} UTC."
                 )
-
-                # Keep observed error separate from the future peak. Live drift
-                # measures 1h-ahead forecasts, not the displayed 24h horizon.
-                mape_value, mape_source = _resolve_forecast_mape(region)
-                if mape_value is not None:
-                    horizon_note = " (1h-ahead forecasts)" if mape_source.startswith("live") else ""
-                    accuracy_clause = f"Model error: {mape_source} {mape_value:.1f}%{horizon_note}."
 
                 if scored_at_iso:
                     scored_dt = pd.Timestamp(scored_at_iso)
@@ -757,7 +686,7 @@ def _build_overview_insight(
         log.warning("overview_insight_persona_lines_failed", region=region, error=str(exc))
 
     eyebrow_map = {
-        "grid_ops": "Operating summary",
+        "grid_ops": "Review summary",
         "renewables": "Renewables outlook",
         "trader": "Demand outlook",
         "data_scientist": "Model summary",
@@ -767,8 +696,6 @@ def _build_overview_insight(
         html.P(forecast_clause, className="gp-insight-card__body gp-insight-card__strong"),
         html.P(current_context, className="gp-insight-card__body"),
     ]
-    if accuracy_clause:
-        children.append(html.P(accuracy_clause, className="gp-insight-card__body"))
     children.extend(html.P(note, className="gp-insight-card__body") for note in warnings)
     if details:
         children.append(
@@ -857,14 +784,15 @@ def register_overview_callbacks(app):
             )
 
             # 3. Hero forecast chart (actual + dashed forecast + confidence band)
-            chart = _build_overview_hero_chart(region, demand_df)
+            cached = redis_get(redis_key(f"forecast:{region}:1h"))
+            chart = _build_overview_hero_chart(region, demand_df, cached)
 
             # 4. ModelMetricsCard
-            model_card = _build_overview_model_card(region)
+            model_card = _build_overview_model_card(region, cached)
 
             # 5. InsightCard
             insight = _build_overview_insight(
-                region, demand_df, persona_id, artifact_exclusions, weather_df
+                region, demand_df, persona_id, artifact_exclusions, weather_df, cached
             )
 
             return (title, metrics_bar, chart, model_card, insight)
