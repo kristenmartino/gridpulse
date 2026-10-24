@@ -1,6 +1,6 @@
 # GridPulse — Electricity Demand Forecasting
 
-**[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)** · [About the platform](https://gridpulse.kristenmartino.ai/about)
+**[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)** · [Methodology and context](https://gridpulse.kristenmartino.ai/about)
 
 GridPulse compares hourly electricity demand forecasts with reported EIA demand and operator forecasts across 51 US balancing authorities. It also shows weather data, model error, data-quality notes, and weather scenarios.
 
@@ -18,7 +18,7 @@ Use GridPulse to inspect reported demand and forecasts, compare model error, rev
 |---|---|---|
 | **Overview** | What changed, and what matters now? | Reported demand, next forecast peak, model error, expandable history |
 | **US Grid** | How does demand compare across regions? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
-| **Forecast** | What demand is forecast? | Forward-looking predictions (Prophet, SARIMAX, XGBoost, Ensemble) with confidence bands |
+| **Forecast** | What demand is forecast? | Per-model and ensemble demand forecasts; bands use backtest error ranges when available and heuristic envelopes otherwise |
 | **Risk** | Which alerts need review? | Weather alerts, demand anomalies, demand/nameplate comparison |
 | **Models** | How have the models performed? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, SHAP feature importance |
 
@@ -28,14 +28,14 @@ Four role-based personas (Grid Ops, Renewables Analyst, Trader, Data Scientist) 
 
 ## Models
 
-- **XGBoost** — 49 engineered features, TimeSeriesSplit CV, SHAP explanations. Best base model for 42 of 51 BAs; 1.89% MAPE on ERCOT, 3.69% median across all BAs (168-hour **recursive** holdout, 2026-08-07).
+- **XGBoost** — 49 engineered features, TimeSeriesSplit CV, SHAP explanations. Best base model for 42 of 51 BAs in the dated 2026-08-07 evaluation; 1.89% MAPE on ERCOT and 3.69% median across all BAs (168-hour **recursive** holdout). These are historical reference results, not a current fleet measurement.
 - **Prophet** — weather regressors with logistic growth + floor=0 (structurally prevents negative forecasts). Daily / weekly / yearly seasonality.
 - **SARIMAX** — auto-order selection via `pmdarima` on cold runs; cached `(p,d,q)(P,D,Q,m)` order on warm runs (skips the auto-select stepwise search, ~10× speedup on daily refresh).
-- **Ensemble** — sharpened inverse-MAPE weighted combination ((1/MAPE)³ per ADR-004: follows the best model, blends only when peers are genuinely close). Its measured value is error decorrelation, not dominance — it beats XGBoost-alone on 21 of 51 BAs on the recursive holdout (2026-08-07).
+- **Ensemble** — sharpened inverse-MAPE weighted combination ((1/MAPE)³ per ADR-004: follows the best model, blends only when peers are genuinely close). In the 2026-08-07 evaluation it beat XGBoost alone on 21 of 51 BAs, while its median MAPE was worse: 4.35% versus 3.69%. Results depend on region and evaluation window.
 
-**Real holdout metrics, not simulated.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, scored **recursively** (multi-step — the model's own predictions feed forward, so errors compound as in a real forecast), persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble row is computed from the same holdout predictions so all four model metrics share provenance.
+**Holdout provenance.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, scored **recursively** (multi-step — the model's own predictions feed forward, so errors compound as in a real forecast), persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble uses held-out predictions too; its weighting and scoring split is described in the backtest document. Holdout error does not by itself establish live forecast performance.
 
-See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for full accuracy analysis on real EIA data.
+See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for the dated evaluation, including past leakage corrections and cases where the ensemble underperforms. Heuristic bands are indicative ranges, not calibrated probabilities; backtest-derived bands also need coverage checks for the forecast horizon. Demand/nameplate comparisons do not establish available reserves or grid reliability.
 
 ---
 
@@ -209,7 +209,10 @@ pytest tests/unit/ -v
 pytest tests/smoke/ -v
 ```
 
-**2,989 tests** — 2,986 passing, 3 skipped, in ~79s (unit 2,762 / integration 204 / smoke 23), measured 2026-08-05 at `db13c06`. The Test count row in [docs/CANONICAL_FACTS.md](docs/CANONICAL_FACTS.md) is the canonical figure; this line restates it and will drift, so trust that row. The 3 skips are environment-conditional — the scenario-heuristic tests skip when no Redis-backed ensemble forecast is reachable.
+The suite includes unit, integration, and smoke checks. Run it at the revision
+you are reviewing for current counts and results.
+[docs/CANONICAL_FACTS.md](docs/CANONICAL_FACTS.md) records dated measurements;
+those counts are historical, not evidence that the present revision was tested.
 
 See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test strategy.
 
@@ -228,15 +231,8 @@ See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test
 
 ---
 
-## Roadmap direction
+## Scope and next work
 
-GridPulse is being shaped to support a modular product architecture over time, including concepts like:
-- GridPulse Forecast
-- GridPulse Risk
-- GridPulse Grid
-- GridPulse Scenarios
-- GridPulse Models
-- GridPulse Briefings
-- GridPulse API
-
-The current repo should be treated as a technically credible foundation for that broader platform direction.
+The repository contains a forecasting dashboard, scheduled data/model jobs, and
+a read-only API. Current engineering work is tracked in
+[GitHub issues](https://github.com/kristenmartino/gridpulse/issues).
