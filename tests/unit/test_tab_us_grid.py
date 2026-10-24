@@ -145,8 +145,8 @@ class TestMetricsItems:
         assert labels == [
             "Total Demand",
             "National Peak (24h)",
-            "Highest-Stress Region",
-            "National Utilization",
+            "Highest demand / nameplate",
+            "Combined demand / nameplate",
         ]
         for item in items:
             assert item["value"] == "—"

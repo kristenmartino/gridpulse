@@ -67,7 +67,6 @@ _PUBLIC_FIGURES: dict[str, Path] = {
     "27%": _DOCS / "HOW_IT_WORKS.md",  # vintages that dive in the serve regime
     "6.96%": _DOCS / "HOW_IT_WORKS.md",  # the visibility-gate generosity example
     "70%": _DOCS / "BENCHMARK_METHODOLOGY.md",  # first-published EIA revision error
-    "30%": _DOCS / "BACKTEST_RESULTS.md",  # top of the 15–30% weight plain 1/MAPE kept
 }
 
 #: Percentages that are presentation, not claims — they appear in prose-ish

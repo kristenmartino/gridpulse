@@ -69,7 +69,7 @@ class TestMetricsBarStressCap:
             "ERCOT": {"current_mw": 50000.0, "today_mw": [50000.0] * 24},
         }
         items = _build_us_grid_metrics_items(region_data)
-        top = next(i for i in items if i["label"] == "Highest-Stress Region")
+        top = next(i for i in items if i["label"] == "Highest demand / nameplate")
         # PJM @ 38% should win, not CPLW @ 1071%
         assert "PJM" in top["value"]
         assert "CPLW" not in top["value"]
@@ -87,7 +87,7 @@ class TestMetricsBarStressCap:
             "PJM": {"current_mw": 70000.0, "today_mw": [70000.0] * 24},  # 70000/184202 ≈ 38%
         }
         items = _build_us_grid_metrics_items(region_data)
-        util = next(i for i in items if i["label"] == "National Utilization")
+        util = next(i for i in items if i["label"] == "Combined demand / nameplate")
         assert "-" not in util["value"]
         assert util["value"] != "—"
         assert "%" in util["value"]
@@ -102,7 +102,7 @@ class TestMetricsBarStressCap:
             "ERCOT": {"current_mw": 40000.0, "today_mw": [40000.0] * 24},
         }
         items = _build_us_grid_metrics_items(region_data)
-        util = next(i for i in items if i["label"] == "National Utilization")
+        util = next(i for i in items if i["label"] == "Combined demand / nameplate")
         expected = (90000 + 40000) / (REGION_CAPACITY_MW["PJM"] + REGION_CAPACITY_MW["ERCOT"]) * 100
         assert util["value"] == f"{expected:.0f}%"
 
@@ -119,7 +119,7 @@ class TestMetricsBarStressCap:
         ):
             region_data = {"PJM": {"current_mw": 70000.0, "today_mw": [70000.0] * 24}}
             items = _build_us_grid_metrics_items(region_data)
-            top = next(i for i in items if i["label"] == "Highest-Stress Region")
+            top = next(i for i in items if i["label"] == "Highest demand / nameplate")
             # Display should cap at 100% (no "140%" reading)
             assert "100" in top["value"]
             assert "140" not in top["value"]
@@ -137,8 +137,8 @@ class TestMetricsBarStressCap:
             "GVL": {"current_mw": 2000.0, "today_mw": [2000.0] * 24},  # 2000/600 = 3.3×
         }
         items = _build_us_grid_metrics_items(region_data)
-        top = next(i for i in items if i["label"] == "Highest-Stress Region")
-        util = next(i for i in items if i["label"] == "National Utilization")
+        top = next(i for i in items if i["label"] == "Highest demand / nameplate")
+        util = next(i for i in items if i["label"] == "Combined demand / nameplate")
         # No reliable-capacity BA remains, so both the per-BA max and the
         # national aggregate fall back to the placeholder.
         assert top["value"] == "—"
@@ -239,7 +239,7 @@ class TestStressCeilingThreshold:
         ):  # 70000/35176 ≈ 199%
             region_data = {"PJM": {"current_mw": 70000.0, "today_mw": [70000.0] * 24}}
             items = _build_us_grid_metrics_items(region_data)
-            top = next(i for i in items if i["label"] == "Highest-Stress Region")
+            top = next(i for i in items if i["label"] == "Highest demand / nameplate")
             assert "PJM" in top["value"]  # included in ranking, not excluded
 
     def test_just_above_ceiling_is_unreliable(self):
@@ -254,7 +254,7 @@ class TestStressCeilingThreshold:
                 "ERCOT": {"current_mw": 50000.0, "today_mw": [50000.0] * 24},
             }
             items = _build_us_grid_metrics_items(region_data)
-            top = next(i for i in items if i["label"] == "Highest-Stress Region")
+            top = next(i for i in items if i["label"] == "Highest demand / nameplate")
             # PJM excluded; ERCOT (the next-highest reliable) wins
             assert "PJM" not in top["value"]
             assert "ERCOT" in top["value"]
@@ -338,6 +338,6 @@ class TestPacwImportDominated:
             "PJM": {"current_mw": REGION_CAPACITY_MW["PJM"] * 0.60, "today_mw": [1.0] * 24},
         }
         items = _build_us_grid_metrics_items(region_data)
-        top = next(i for i in items if i["label"] == "Highest-Stress Region")
+        top = next(i for i in items if i["label"] == "Highest demand / nameplate")
         assert "PACW" not in top["value"]
         assert "PJM" in top["value"]

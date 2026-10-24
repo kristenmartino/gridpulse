@@ -82,9 +82,9 @@
 
 | Fact | Value |
 |---|---|
-| Category | Energy Intelligence Platform |
-| Positioning | Forecast confidence, grid visibility, decision support |
-| Tagline | See demand sooner. Decide with confidence. |
+| Category | Electricity Demand Forecasting |
+| Positioning | Reported demand, weather-aware forecasts, model evaluation |
+| Tagline | Hourly US electricity demand forecasts |
 | Personas | 4: Grid Operations, Renewables, Trader, Data Scientist |
 | Production URL | https://gridpulse.kristenmartino.ai — source of truth is `config.PUBLIC_BASE_URL` (tier-specific, in `_ENV_DEFAULTS`). Every absolute URL emitted to a crawler is built from it and never from `request.host_url`: the Cloud Run `*.run.app` origin is also live and unauthenticated, so deriving from the request would make the duplicate origin declare *itself* canonical |
 | Test count | **3,377 collected** — 3,374 passed, 3 skipped, in ~121s. Split: unit 3,138 / integration 215 / smoke 24. Measured 2026-08-11 via `pytest tests/ -q` at `87cb8cd`. The 3 skips are environment-conditional: `test_scenarios_heuristic.py` skips when no Redis-backed ensemble forecast is reachable. **This number moves most weeks** — re-measure at the merge base rather than citing this row's figure back at it. History: 1,589 (#119) → 2,989 (2026-08-05, `db13c06`) → 3,377; it moved 2,977 → 2,989 across a single intervening PR while an earlier version of this row was being written |
@@ -142,9 +142,9 @@ the median.
 **The old "variance-reduction on the tail" claim is withdrawn.** It rested on
 SEC 38.63% → 13.61%; on 2026-08-07 SEC is XGBoost 13.68% and ensemble 14.72%,
 i.e. the blend is *worse* there. Ensemble p90 (14.27%) is now well above
-XGBoost-only's (9.87%). The honest statement is that the blend buys error
-decorrelation on some BAs and costs accuracy on others; the per-BA table in
-[`BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md) is the only reliable guide.
+XGBoost-only's (9.87%). The blend improves accuracy on some BAs and worsens
+it on others; see the per-BA table in
+[`BACKTEST_RESULTS.md`](BACKTEST_RESULTS.md).
 Tail BAs (IID, SPA, AZPS, HST, SEC) swing run-to-run.
 
 (Source: generated 2026-07-03 from production GCS via

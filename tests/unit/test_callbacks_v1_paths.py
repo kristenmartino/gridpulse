@@ -908,7 +908,8 @@ class TestAlertsTabV1:
         # honesty fix: demo alerts must always be disclosed as demo).
         assert len(alert_cards) == 3
         assert "Demo data" in str(getattr(alert_cards[0], "children", ""))
-        assert int(stress) > 0
+        assert stress.endswith("%")
+        assert int(stress.removesuffix("%")) > 0
         assert isinstance(fig_anomaly, go.Figure)
         assert isinstance(fig_temp, go.Figure)
         assert isinstance(fig_timeline, go.Figure)

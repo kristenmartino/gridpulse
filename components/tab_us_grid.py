@@ -7,7 +7,7 @@ down lands the user on the Forecast tab pre-set to that region.
 
 Structure (top → bottom):
 1. Page title block (region count + national now-demand)
-2. MetricsBar — 4-up (Total Demand · National Peak 24h · Highest-Stress Region · National Utilization)
+2. MetricsBar — 4-up (Total Demand · National Peak 24h · Highest demand / nameplate · Combined demand / nameplate)
 3. Controls row — View toggle (Cards | Map | Polygons) + Sort dropdown
    (Region groups | Demand | Utilization | Hourly change | Name)
 4. Body — region card grid OR scatter_geo map (driven by toggle)
@@ -69,7 +69,7 @@ def _sort_control() -> html.Div:
                 options=[
                     {"label": "Region groups", "value": "groups"},
                     {"label": "Demand (high→low)", "value": "demand"},
-                    {"label": "Utilization (high→low)", "value": "stress"},
+                    {"label": "Demand/nameplate (high→low)", "value": "stress"},
                     {"label": "Hourly change", "value": "change"},
                     {"label": "Name (A–Z)", "value": "name"},
                 ],

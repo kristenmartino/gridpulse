@@ -4,7 +4,7 @@ _Last updated: 2026-04-09_
 
 ## 1. Product Summary
 
-GridPulse is an **energy intelligence platform** for forecast confidence, grid visibility, and operational decision support.
+GridPulse displays hourly electricity demand forecasts, reported demand, weather data, and model evaluation for US balancing authorities.
 
 It combines:
 - weather-aware demand forecasting
@@ -16,9 +16,9 @@ It combines:
 - briefing-ready outputs for stakeholders
 
 ### Product framing
-- **Category:** Energy Intelligence Platform
-- **Tagline:** See demand sooner. Decide with confidence.
-- **Primary outcome:** help energy teams interpret changing conditions faster and act with more confidence
+- **Category:** Electricity Demand Forecasting
+- **Tagline:** Hourly US electricity demand forecasts
+- **Primary task:** compare forecasts with reported demand, recent model error, and operator forecasts
 
 ---
 

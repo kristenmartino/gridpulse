@@ -54,9 +54,7 @@ def _monogram() -> html.Span:
 
 def _build_header() -> html.Header:
     """v2-aligned header: monogram + wordmark + region/persona/mode controls."""
-    persona_options = [
-        {"label": f"{p['avatar']} {p['title']}", "value": p["id"]} for p in list_personas()
-    ]
+    persona_options = [{"label": p["title"], "value": p["id"]} for p in list_personas()]
     # Region options are grouped geographically (Central / Northeast /
     # Southeast / West). dbc.Select doesn't support native <optgroup>,
     # so we surface each group with a disabled separator option that's
@@ -93,7 +91,7 @@ def _build_header() -> html.Header:
                         className="gp-header__wordmark dashboard-title",
                     ),
                     html.P(
-                        "Energy intelligence platform",
+                        "Electricity demand forecasts",
                         className="gp-brand-tagline",
                     ),
                 ],

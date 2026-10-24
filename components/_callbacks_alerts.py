@@ -67,17 +67,6 @@ from data.redis_client import redis_get, redis_key
 log = structlog.get_logger()
 
 
-def _stress_tone(stress: int | None) -> str:
-    """kpi-delta tone for the utilization-based grid-stress score (#265).
-
-    Normal < 70 (positive) ≤ Elevated < 85 (neutral) ≤ High ≥ 85 (negative);
-    a missing score is neutral. Bands mirror ``models.pricing.grid_stress``.
-    """
-    if stress is None:
-        return "neutral"
-    return "positive" if stress < 70 else ("negative" if stress >= 85 else "neutral")
-
-
 #: Temperature reference lines, °F — generic heat levels, NOT region-calibrated
 #: (P2-29 / #273). They are drawn identically for all 51 BAs, so 95°F reads as
 #: a meaningful mark in Florida and as an unreachable one in the Pacific
@@ -374,8 +363,13 @@ def _render_risk_tab(
     """
     return (
         _build_alert_cards(alerts, alerts_source, alerts_total),
-        "—" if stress is None else str(stress),
-        html.Span(stress_label, className=f"kpi-delta {_stress_tone(stress)}"),
+        "—" if stress is None else f"{stress}%",
+        html.Span(
+            ("Capacity unavailable" if stress_label == "Capacity n/a" else "Unavailable")
+            if stress is None
+            else "Rounded · capped at 100%",
+            className="kpi-delta neutral",
+        ),
         _build_stress_breakdown(counts, bool(alerts), alerts_source),
         _build_anomaly_figure(
             region,
@@ -519,7 +513,7 @@ def register_alerts_callbacks(app):
         region_name = REGION_NAMES.get(region, region)
         return build_page_title(
             "Risk",
-            f"Active alerts, demand anomalies, and grid stress · {region_name}",
+            f"Weather alerts and demand anomalies · {region_name}",
         )
 
     @app.callback(
@@ -717,8 +711,8 @@ def _build_risk_insight(
     the alerts/stress callback already computes, just rendered as prose."""
     region = region or "FPL"
 
-    # Demand-anomaly stat: pct of last-24h hours outside ±3σ
-    anomaly_clause = "Demand sits within normal bounds."
+    # Count outliers in the latest 24 demand values; this is a statistical check.
+    anomaly_clause = "Demand anomaly summary unavailable."
     try:
         if demand_json:
             ddf = pd.read_json(io.StringIO(demand_json))
@@ -729,16 +723,16 @@ def _build_risk_insight(
                 m = float(last_24.mean())
                 s = float(last_24.std()) or 1.0
                 outliers = int(((last_24 - m).abs() > 2.5 * s).sum())
-                if outliers > 0:
-                    anomaly_clause = (
-                        f"{outliers} hour{'s' if outliers > 1 else ''} of demand sat "
-                        "outside ±2.5σ in the last 24h."
-                    )
+                anomaly_clause = (
+                    f"Demand review: {outliers} of {len(last_24)} hourly values "
+                    "differ from the period mean by more than 2.5 standard deviations "
+                    "in either direction."
+                )
     except Exception as exc:  # pragma: no cover
         log.warning("risk_insight_anomaly_failed", region=region, error=str(exc))
 
-    # Weather-severity stat: |temperature_2m − 65| ≥ 25 (peak heat / cold band)
-    weather_clause = "Weather is in a comfortable band."
+    # Report the sampled temperature range without inferring operating risk.
+    weather_clause = "Temperature summary unavailable."
     try:
         if weather_json:
             wdf = pd.read_json(io.StringIO(weather_json))
@@ -749,14 +743,10 @@ def _build_risk_insight(
                 temps = recent["temperature_2m"].dropna()
                 t_max = float(temps.max())
                 t_min = float(temps.min())
-                if t_max >= 90:
-                    weather_clause = f"Heat-driven demand risk is elevated (peak {t_max:.0f} °F)."
-                elif t_min <= 30:
-                    weather_clause = f"Cold-driven demand risk is elevated (low {t_min:.0f} °F)."
-                elif t_max >= 80:
-                    weather_clause = f"Temperatures trending warm (peak {t_max:.0f} °F)."
-                elif t_min <= 40:
-                    weather_clause = f"Temperatures trending cool (low {t_min:.0f} °F)."
+                weather_clause = (
+                    f"Temperature range: {t_min:.0f}–{t_max:.0f} °F "
+                    f"across the latest {len(temps)} weather hours."
+                )
     except Exception as exc:  # pragma: no cover
         log.warning("risk_insight_weather_failed", region=region, error=str(exc))
 
@@ -764,9 +754,9 @@ def _build_risk_insight(
         anomaly_clause,
         " ",
         weather_clause,
-        " Check the timeline above for active alerts.",
+        " Review active weather alerts for severity and timing.",
     ]
-    return build_insight_card("Risk summary", body)
+    return build_insight_card("Demand and weather summary", body)
 
 
 def _build_weather_context(latest: pd.Series) -> html.Div:

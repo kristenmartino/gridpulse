@@ -41,7 +41,7 @@ class TestCardBadgeLabels:
             },
         )
         texts = _texts(card)
-        for label in ("util", "net", "Δ1h", "demand"):
+        for label in ("ratio", "net", "Δ1h", "demand"):
             assert label in texts, f"missing badge label: {label}"
 
     def test_import_dominated_keeps_imports_without_util_label(self):

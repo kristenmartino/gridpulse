@@ -301,7 +301,7 @@ This repo already has multiple context layers. Read them in this order:
 
 ### Agent objective
 
-GridPulse is evolving from a technically credible energy demand forecasting dashboard into a more cohesive **energy intelligence platform** for forecast confidence, grid visibility, and operational decision support.
+GridPulse displays hourly electricity demand forecasts, reported demand, weather context, and model evaluation. User-facing copy should name the measured quantities and their limits.
 
 Your job is to improve product coherence, positioning, and UX **without breaking core functionality**.
 
@@ -342,9 +342,9 @@ It combines:
 
 ### Working product framing
 Use this framing unless a human directs otherwise:
-- **Category:** Energy Intelligence Platform
-- **Positioning:** Forecast confidence, grid visibility, and decision support
-- **Tagline:** See demand sooner. Decide with confidence.
+- **Category:** Electricity Demand Forecasting
+- **Positioning:** Reported demand, weather-aware forecasts, and model evaluation
+- **Tagline:** Hourly US electricity demand forecasts
 
 This framing should guide UI copy, navigation naming, and landing-page work. For prioritization of those changes, follow `docs/internal/EXECUTION_BRIEF.md`.
 

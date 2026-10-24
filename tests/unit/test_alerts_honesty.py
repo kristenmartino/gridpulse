@@ -264,6 +264,7 @@ class TestRiskTabSingleRenderPath:
         )
         assert out[1] == "—"
         assert out[1] != "None"
+        assert _collect_text(out[2]) == "Capacity unavailable"
         assert "None" not in _collect_text(out[3])
 
     def test_both_paths_emit_the_same_breakdown_markup(self):
@@ -654,3 +655,30 @@ class TestTemperaturePercentileWriter:
 
     def test_all_nan_temperature_returns_none(self):
         assert phases._temperature_percentiles(self._weather(temp=np.nan)) is None
+
+
+class TestRiskSummaryDescribesInputs:
+    def test_missing_inputs_do_not_become_reassuring_conditions(self):
+        from components._callbacks_alerts import _build_risk_insight
+
+        text = _collect_text(_build_risk_insight("FPL", None, None)).lower()
+        assert text.count("unavailable") == 2
+        assert "normal" not in text
+        assert "comfortable" not in text
+
+    def test_hot_weather_reports_observations_without_inventing_operating_risk(self):
+        from components._callbacks_alerts import _build_risk_insight
+
+        timestamps = pd.date_range("2026-06-01", periods=24, freq="h", tz="UTC")
+        demand = pd.DataFrame({"timestamp": timestamps, "demand_mw": [1000.0] * 24})
+        weather = pd.DataFrame(
+            {"timestamp": timestamps, "temperature_2m": np.linspace(95, 104, 24)}
+        )
+        card = _build_risk_insight(
+            "FPL", demand.to_json(date_format="iso"), weather.to_json(date_format="iso")
+        )
+        text = _collect_text(card)
+        assert "0 of 24" in text
+        assert "95–104" in text
+        assert "elevated" not in text.lower()
+        assert "comfortable" not in text.lower()

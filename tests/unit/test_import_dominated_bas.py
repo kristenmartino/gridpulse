@@ -111,7 +111,7 @@ class TestV3EtaCapacityCorrections:
 
 
 class TestKpiSuppressesImportDominated:
-    """The "Highest-Stress Region" KPI must drop import-dominated BAs
+    """The "Highest demand / nameplate" KPI must drop import-dominated BAs
     from candidacy regardless of where their (corrected) ratio lands.
     The capacity is an estimate — even a benign 60% ratio against an
     estimated pool isn't comparable to a 60% ratio against measured
@@ -131,7 +131,7 @@ class TestKpiSuppressesImportDominated:
             "PJM": {"current_mw": 70_000.0, "today_mw": [70_000.0] * 24},
         }
         items = _build_us_grid_metrics_items(region_data)
-        top = next(i for i in items if i["label"] == "Highest-Stress Region")
+        top = next(i for i in items if i["label"] == "Highest demand / nameplate")
         assert "PJM" in top["value"]
         assert "CPLW" not in top["value"]
 
@@ -145,7 +145,7 @@ class TestKpiSuppressesImportDominated:
             "PJM": {"current_mw": 30_000.0, "today_mw": [30_000.0] * 24},
         }
         items = _build_us_grid_metrics_items(region_data)
-        top = next(i for i in items if i["label"] == "Highest-Stress Region")
+        top = next(i for i in items if i["label"] == "Highest demand / nameplate")
         assert "SPA" not in top["value"]
 
 

@@ -10,7 +10,7 @@ _Last updated: 2026-04-19_
 
 ## 1. Mission
 
-GridPulse is evolving from a technically credible energy demand forecasting dashboard into a more cohesive **energy intelligence platform**.
+GridPulse displays reported electricity demand, weather-aware forecasts, and model evaluation. The interface should name those outputs and their limits directly.
 
 The repo already contains substantial product and engineering value:
 - Dash/Plotly application architecture
@@ -97,9 +97,9 @@ This file is the **execution and prioritization layer** on top of those sources.
 ## 5. Desired end state
 
 GridPulse should present as:
-- **Category:** Energy Intelligence Platform
-- **Positioning:** Forecast confidence, grid visibility, and decision support
-- **Tagline:** See demand sooner. Decide with confidence.
+- **Category:** Electricity Demand Forecasting
+- **Positioning:** Reported demand, weather-aware forecasts, and model evaluation
+- **Tagline:** Hourly US electricity demand forecasts
 
 ## Product experience goals
 - clearer hierarchy
@@ -144,19 +144,19 @@ Keep **GridPulse** as the master brand.
 
 ## Product descriptor
 Use one of these consistently:
-- **Energy Intelligence Platform**
+- **Electricity Demand Forecasting**
 - **Forecast Confidence & Grid Visibility**
 
 Recommended:
-**Energy Intelligence Platform** for external use
+**Electricity Demand Forecasting** for external use
 **Forecast Confidence & Grid Visibility** as a secondary supporting line in-product where useful
 
 ## Tagline
 Use:
-**See demand sooner. Decide with confidence.**
+**Hourly US electricity demand forecasts**
 
 ## Brand promise
-Operational clarity for a volatile grid.
+Compare demand forecasts with reported results.
 
 ---
 
@@ -187,7 +187,7 @@ Use this as the target structure:
 - Persona → View or Role View
 - Presentation Mode → Briefing Mode
 - Bookmark → Save View or Save Snapshot
-- Demand Forecasting & Analytics → Energy Intelligence Platform
+- Demand Forecasting & Analytics → Electricity Demand Forecasting
 - News Ticker → Grid Signals or Market & Grid Signals
 
 ---

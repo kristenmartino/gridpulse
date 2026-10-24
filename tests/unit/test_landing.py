@@ -51,8 +51,8 @@ class TestLandingContent:
 
     def test_canonical_framing_present(self, body) -> None:
         """CLAUDE.md's canonical category + tagline, verbatim."""
-        assert "Energy Intelligence Platform" in body
-        assert "See demand sooner. Decide with confidence." in body
+        assert "Electricity demand forecasting" in body
+        assert "Hourly US electricity demand forecasts" in body
 
     def test_ctas_point_at_the_live_platform_and_public_docs(self, body) -> None:
         assert 'href="/"' in body
@@ -172,14 +172,14 @@ class TestEnsembleTradeIsStatedAndTraces:
         """The unflattering half must survive a copy edit. Both numbers in
         the same sentence is the point — the median alone reads as a win."""
         assert "Combining models does not consistently improve accuracy" in body
-        assert body.index("4.35%") < body.index("Data provenance")
+        assert body.index("4.35%") < body.index("Data sources and revisions")
 
     def test_hero_chip_does_not_sell_the_blend_as_an_advantage(self, body) -> None:
         """The chip used to read "3 models + ensemble", which a reader takes
         as "more models, better forecast" — the opposite of what the holdout
-        says. It now claims the serve-path gate, which is measured."""
+        says. The chips describe the update schedule, leaving accuracy to the results section."""
         assert "3 models + ensemble" not in body
-        assert "gated on the real serve path" in body
+        assert "model training" in body and "forecast updates" in body
 
 
 class TestAboutBenchmarkClaim:

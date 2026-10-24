@@ -31,7 +31,7 @@ class TestJumpIdInCardsView:
 
         items = _build_us_grid_metrics_items(REGION_DATA, view="cards")
         # Find the Highest-Stress Region item
-        hs = next(i for i in items if i["label"] == "Highest-Stress Region")
+        hs = next(i for i in items if i["label"] == "Highest demand / nameplate")
         assert hs.get("cell_id") == {"type": "us-grid-kpi-jump", "region": "PJM"}
 
     @patch("components._callbacks_us_grid.REGION_CAPACITY_MW", {"PJM": 120000.0})
@@ -43,7 +43,7 @@ class TestJumpIdInCardsView:
 
         items = _build_us_grid_metrics_items(REGION_DATA, view="map")
         # Find the Highest-Stress Region item
-        hs = next(i for i in items if i["label"] == "Highest-Stress Region")
+        hs = next(i for i in items if i["label"] == "Highest demand / nameplate")
         assert hs.get("cell_id") is None or "cell_id" not in hs
 
     @patch("components._callbacks_us_grid.REGION_CAPACITY_MW", {})
@@ -67,7 +67,7 @@ class TestJumpIdInCardsView:
         # Call with one argument only (no view parameter)
         items = _build_us_grid_metrics_items(REGION_DATA)
         # Should behave the same as view="cards"
-        hs = next(i for i in items if i["label"] == "Highest-Stress Region")
+        hs = next(i for i in items if i["label"] == "Highest demand / nameplate")
         assert hs.get("cell_id") == {"type": "us-grid-kpi-jump", "region": "PJM"}
 
 
