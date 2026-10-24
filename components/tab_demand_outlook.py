@@ -414,7 +414,7 @@ def _panel_scenarios() -> dbc.Collapse:
                 # re-forecast" for a fortnight while production served exactly
                 # that.
                 html.P(
-                    "Adjust temperature, wind, and solar radiation relative to the baseline. "
+                    "Adjust temperature, wind, and solar radiation relative to the reference forecast. "
                     "The results identify the calculation used.",
                     className="gp-panel__disclosure",
                 ),

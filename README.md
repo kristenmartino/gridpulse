@@ -2,13 +2,15 @@
 
 **[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)** · [Methodology and context](https://gridpulse.kristenmartino.ai/about)
 
-Product direction by Kristen Martino.
+Product direction and delivery by Kristen Martino.
 
 GridPulse compares hourly electricity demand forecasts with reported EIA demand and operator forecasts across 51 US balancing authorities. It also shows weather data, model error, data-quality notes, and weather scenarios.
 
 **Product description:** _Electricity demand forecast review_
 
-The primary user is a forecast review analyst deciding whether a published forecast needs closer examination. This is a proposed workflow demonstrated with public data; analyst adoption and business impact have not been validated. Start with the next peak, identify the forecast shown, then check its matching error evidence and data warnings before investigating in Forecast or Models.
+The primary user is a forecast review analyst deciding whether a published forecast needs closer examination. Start with the next peak, identify the forecast shown, then check its matching error evidence and data warnings before investigating in Forecast or Models.
+
+Kristen set the product scope and priorities, defined the review workflow, and directed delivery of the live dashboard and read-only API, including how forecast sources, accuracy, and data quality are presented.
 
 ---
 
@@ -231,6 +233,8 @@ See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test
 ---
 
 ## Project notes
+
+GridPulse is an independent project using public data. Practitioner validation of the workflow and its operational value is the next step; analyst adoption and business impact have not been validated.
 
 Developed with AI assistance.
 

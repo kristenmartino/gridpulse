@@ -65,7 +65,7 @@
         "@id": "https://gridpulse.kristenmartino.ai/about",
         "url": "https://gridpulse.kristenmartino.ai/about",
         "name": "GridPulse — Electricity demand forecast review",
-        "description": "An independent project demonstrating forecast review across 51 US balancing authorities, with forecast sources and evaluation evidence.",
+        "description": "Review electricity demand forecasts across 51 US balancing authorities, with forecast sources, observed error, and data-quality warnings.",
         "inLanguage": "en",
         "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
         "about": {"@id": "https://gridpulse.kristenmartino.ai/#software"}
@@ -443,10 +443,10 @@
           <p class="eyebrow">For the Forecast Review Analyst</p>
           <h1>Does this demand forecast need closer review?</h1>
           <p class="subhead">
-            GridPulse is an independent project demonstrating a proposed
-            forecast-review workflow across 51 US balancing authorities.
-            Identify the forecast shown, check its observed error, and review
-            demand and weather before deciding what to investigate.
+            Review electricity demand forecasts across 51 US balancing
+            authorities. Identify the forecast shown, check its observed error,
+            and review demand, weather, and data-quality warnings before
+            deciding what to investigate.
           </p>
           <div class="cta-row">
             <a class="btn-primary" href="/">Open dashboard</a>
@@ -460,21 +460,22 @@
         </div>
         <aside class="hero-review" aria-labelledby="hero-review-title">
           <p class="eyebrow">My role</p>
-          <h2 id="hero-review-title">Product direction by Kristen Martino</h2>
+          <h2 id="hero-review-title">Product direction and delivery by Kristen Martino</h2>
           <p>Set the product scope and priorities, defined the review workflow,
              and directed how demand forecasts, accuracy, and data quality
              are presented.</p>
-          <p>GridPulse brings public demand data, forecasts, and model evaluation
-             into one review tool.</p>
+          <p>Directed delivery of the live dashboard and read-only API, with
+             scheduled forecast updates, model evaluation, and data-quality
+             disclosures.</p>
           <a href="/">Review the current forecast &rarr;</a>
         </aside>
       </div>
     </div>
 
-    <!-- ── Proposed review workflow ── -->
+    <!-- ── Forecast review workflow ── -->
     <section aria-labelledby="review-workflow">
       <div class="wrap">
-        <p class="section-eyebrow">Proposed analyst workflow</p>
+        <p class="section-eyebrow">Forecast review workflow</p>
         <h2 id="review-workflow">Start with the forecast you are reviewing</h2>
         <ol class="review-steps">
           <li>
@@ -499,8 +500,9 @@
         <p class="section-eyebrow">Why it exists</p>
         <h2 id="pillars">What you can inspect</h2>
         <p class="section-lede">
-          Reported demand, forecast results, and weather data are grouped
-          by balancing authority, with their sources and update times.
+          A forecast curve alone does not explain whether it needs attention.
+          Review its source, observed error, demand history, and weather
+          together, with update times and data warnings in view.
         </p>
         <div class="grid-4">
           <div class="card">
@@ -604,6 +606,7 @@
     <section aria-labelledby="project-notes">
       <div class="wrap">
         <h2 id="project-notes">Project notes</h2>
+        <p>GridPulse is an independent project using public data.</p>
         <p>Developed with AI assistance.</p>
         <p>Practitioner validation of the workflow and its operational value is the next step.</p>
       </div>
