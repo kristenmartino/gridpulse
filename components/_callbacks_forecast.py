@@ -86,7 +86,6 @@ from components._callbacks_shared import (
     _guard_max_ok,
     _layout,
     _pipeline_alive,
-    _read_ensemble_forecast_from_redis,
     _scoring_pass_completed_since_actuals,
     _widening_interval_from_backtests,
 )
@@ -1189,7 +1188,10 @@ def _outlook_tab_from_redis(
     # Mark the Open-Meteo / climatology boundary on long-horizon views.
     # Only the 30-day view actually crosses the day-16 boundary; on 24h
     # and 7-day views the helper is a no-op. See ADR-008.
-    has_climatology_segment = _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
+    has_climatology_segment = identity.metric_key not in (
+        None,
+        "baseline",
+    ) and _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
     interval_caption = _interval_caption(interval_meta, served_model) if interval_meta else ""
     # On the 30-day view, surface in the subtitle that days 17-30 are
@@ -1426,7 +1428,7 @@ def register_forecast_callbacks(app):
         region_name = REGION_NAMES.get(region, region)
         return build_page_title(
             "Forecast",
-            f"24h–30d demand forecasts and uncertainty ranges · {region_name}",
+            f"Published forecast and model comparisons · {region_name}",
         )
 
     @app.callback(
@@ -2413,46 +2415,35 @@ def _build_scenarios_panel(
     wind_delta = float(wind_delta or 0)
     solar_delta = float(solar_delta or 0)
 
-    # Base forecast (next 24h ensemble)
+    # Scenario reference is resolved independently of the main chart selector.
     horizon = 24
     base_y: np.ndarray | None = None
     forecast_ts: pd.DatetimeIndex | None = None
-
+    reference_label = "Unavailable"
     if demand_json:
         try:
-            demand_df = pd.read_json(io.StringIO(demand_json))
-            demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
-            demand_df = demand_df.sort_values("timestamp")
-
-            # Baseline = the real scored ensemble from Redis (the scoring job's
-            # own output), not model_service.get_forecasts — which on the
-            # stateless web tier is strict-gated to "unavailable" in prod
-            # (#149) and echoed actuals as a fake forecast in dev when only
-            # "ensemble" is requested (2026-07 review P2-31). This is the same
-            # reader the Overview hero uses.
-            forecast_payload = _read_ensemble_forecast_from_redis(region)
-            if forecast_payload is not None:
-                fc_ts, ensemble_arr, _scored_at = forecast_payload
-                if (
-                    ensemble_arr is not None
-                    and len(ensemble_arr) >= horizon
-                    and len(fc_ts) >= horizon
-                ):
-                    base_y = np.asarray(ensemble_arr[:horizon], dtype=float)
-                    forecast_ts = pd.DatetimeIndex(fc_ts[:horizon])
+            cached = redis_get(redis_key(f"forecast:{region}:1h"))
+            identity = resolve_forecast_identity(cached, "ensemble")
+            if identity is None:
+                identity = resolve_forecast_identity(cached, "published")
+            selected = selection_values(cached, identity, horizon) if identity else None
+            if selected is not None:
+                forecast_ts = pd.DatetimeIndex(pd.to_datetime(selected[0], utc=True))
+                base_y = np.asarray(selected[1], dtype=float)
+                reference_label = identity.label
         except Exception as exc:  # pragma: no cover
-            log.warning("forecast_scenario_baseline_failed", region=region, error=str(exc))
+            log.warning("forecast_scenario_reference_failed", region=region, error=str(exc))
 
     if base_y is None or forecast_ts is None:
         kpi_empty = build_metrics_bar(
             [
-                {"label": "Baseline peak", "value": "—", "tone": "secondary"},
+                {"label": "Reference peak", "value": "—", "tone": "secondary"},
                 {"label": "Scenario peak", "value": "—", "tone": "secondary"},
                 {"label": "Peak change", "value": "—", "tone": "secondary", "hero": True},
             ]
         )
         kpi_empty.className = "gp-metrics-bar gp-metrics-bar--3up"
-        return (kpi_empty, _empty_figure("Awaiting baseline forecast"))
+        return (kpi_empty, _empty_figure("Scenario reference forecast unavailable"))
 
     # ── Scenario forecast ──────────────────────────────────────
     # #127: real per-hour physics from the precomputed grid when the scoring
@@ -2472,7 +2463,7 @@ def _build_scenarios_panel(
 
     kpis = build_metrics_bar(
         [
-            {"label": "Baseline peak", "value": f"{base_peak:,.0f}", "unit": "MW"},
+            {"label": "Reference peak", "value": f"{base_peak:,.0f}", "unit": "MW"},
             {"label": "Scenario peak", "value": f"{scenario_peak:,.0f}", "unit": "MW"},
             {
                 "label": "Peak change",
@@ -2491,7 +2482,7 @@ def _build_scenarios_panel(
     # claim belongs with the results it describes.
     source_note = html.P(
         (
-            "Interpolated from precomputed ensemble forecasts for weather scenarios."
+            "Weather response factors interpolated from precomputed ensemble scenarios."
             if scenario_source == "grid"
             else "Scenario inputs extend beyond the model’s recorded weather range. "
             "Treat this result as an extrapolation."
@@ -2502,7 +2493,12 @@ def _build_scenarios_panel(
         className="gp-panel__disclosure",
         **{"data-scenario-source": scenario_source},
     )
-    kpis = html.Div([kpis, source_note])
+    reference_note = html.P(
+        f"Reference forecast: {reference_label}, next 24 hours. "
+        "This panel uses its own reference; changing the source or horizon above does not change it.",
+        className="gp-panel__disclosure",
+    )
+    kpis = html.Div([kpis, reference_note, source_note])
 
     # ── Baseline vs scenario chart ─────────────────────────────
     fig = go.Figure()
@@ -2511,9 +2507,9 @@ def _build_scenarios_panel(
             x=forecast_ts,
             y=base_y,
             mode="lines",
-            name="Baseline",
+            name=f"{reference_label} reference",
             line=dict(color="#3b82f6", width=1.75),
-            hovertemplate="<b>Baseline</b><br>%{x|%b %d %H:%M} UTC<br>%{y:,.0f} MW<extra></extra>",
+            hovertemplate="<b>Reference forecast</b><br>%{x|%b %d %H:%M} UTC<br>%{y:,.0f} MW<extra></extra>",
         )
     )
     fig.add_trace(

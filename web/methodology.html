@@ -23,20 +23,20 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
   <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
 
-  <meta name="description" content="Inside GridPulse: 49 weather-derived features, three base models plus a sharpened inverse-MAPE ensemble, and the gate a model passes before it serves.">
+  <meta name="description" content="Inside GridPulse: 49 weather and demand features, three base models plus a sharpened inverse-MAPE ensemble, and the validation checks before publishing.">
   <meta name="author" content="Kristen Martino">
   <meta name="theme-color" content="#0a0a0b">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/methodology">
   <meta property="og:title" content="How GridPulse forecasts US electricity demand">
-  <meta property="og:description" content="49 weather-derived features, three base models and a sharpened inverse-MAPE ensemble, scored on a recursive 168-hour holdout per balancing authority.">
+  <meta property="og:description" content="49 weather and demand features, three base models and a sharpened inverse-MAPE ensemble, scored on a recursive 168-hour holdout per balancing authority.">
   <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="GridPulse — Electricity demand forecasting">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="How GridPulse forecasts US electricity demand">
-  <meta name="twitter:description" content="49 weather-derived features, three base models and a sharpened inverse-MAPE ensemble, scored on a recursive 168-hour holdout per balancing authority.">
+  <meta name="twitter:description" content="49 weather and demand features, three base models and a sharpened inverse-MAPE ensemble, scored on a recursive 168-hour holdout per balancing authority.">
   <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
 
   <script type="application/ld+json">
@@ -46,7 +46,7 @@
     "@id": "https://gridpulse.kristenmartino.ai/methodology",
     "url": "https://gridpulse.kristenmartino.ai/methodology",
     "name": "How GridPulse forecasts US electricity demand",
-    "description": "The architecture behind GridPulse: 49 weather-derived features, three base models plus a sharpened inverse-MAPE ensemble, and the gate a model passes before it serves.",
+    "description": "The architecture behind GridPulse: 49 weather and demand features, three base models plus a sharpened inverse-MAPE ensemble, and the validation checks before publishing.",
     "inLanguage": "en",
     "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
     "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
@@ -232,13 +232,11 @@
         <p class="eyebrow">Methodology</p>
         <h1>How GridPulse forecasts US electricity demand</h1>
         <p class="lede">
-          Three forecasting models blended into one ensemble, 49
-          weather-derived features, and 51 balancing authorities &mdash; the
-          regional operators that keep electricity supply and demand matched
-          across the grid &mdash; scored every hour against live EIA data.
-          This page describes what the system actually does &mdash; including
-          the places the architecture is measurably worse than the simpler
-          alternative.
+          GridPulse publishes hourly demand forecasts for 51 balancing
+          authorities and compares three model families plus an ensemble.
+          The published default can be a primary model or a repeated-day baseline;
+          the Forecast view identifies which series is shown. This page explains
+          the data, evaluation methods, and their limits.
         </p>
       </div>
     </div>
@@ -247,10 +245,10 @@
       <nav class="toc" aria-label="Contents">
         <p>Contents</p>
         <a href="#tiers">Three runtime tiers</a>
-        <a href="#request-path">Why the web tier does no work</a>
+        <a href="#request-path">Why forecasting runs outside page requests</a>
         <a href="#features">49 features from 17 variables</a>
         <a href="#models">Three models and one ensemble</a>
-        <a href="#ensemble-cost">What the ensemble costs</a>
+        <a href="#ensemble-cost">Ensemble accuracy and tradeoffs</a>
         <a href="#accuracy">How accuracy is measured</a>
         <a href="#gates">The gates before serving</a>
         <a href="#horizon">The day-16 boundary</a>
@@ -261,8 +259,8 @@
         <section id="tiers">
           <h2>Three runtime tiers, three external services</h2>
           <p>
-            GridPulse runs as three separate things, and keeping them separate
-            is the single most load-bearing decision in the system.
+            The web service reads cached results. Scoring and training run in
+            separate scheduled jobs so they do not delay page requests.
           </p>
           <ul>
             <li>
@@ -324,15 +322,15 @@
           <p>
             Each region&rsquo;s feature matrix carries <strong>49
             features</strong> &mdash; 17 raw weather variables and 32 derived
-            from them. The derived set includes cooling and heating degree days
+            weather and demand statistics. The derived set includes cooling and heating degree days
             against a 65&deg;F baseline, wind power density, solar capacity
             factor, and a family of lag and rolling-window statistics over
             recent demand.
           </p>
           <p>
-            Every feature is <strong>backward-looking</strong>. Nothing in the
-            matrix can see a value from after the timestamp it describes, which
-            is what makes the holdout numbers below mean anything.
+            Demand lags and rolling statistics describe prior reported demand.
+            Weather inputs include forecasts for future hours. The evaluation
+            below distinguishes historical holdout results from observed forecast error.
           </p>
           <h3>Where the weather is sampled</h3>
           <p>
@@ -341,7 +339,8 @@
             point &mdash; for MISO, a single spot in rural Illinois standing in
             for a territory running from Minnesota to Louisiana. Each footprint
             is now sampled at up to <strong>12 fixed cells</strong> and
-            averaged, worth <strong>+1.14 sMAPE points</strong> overall
+            averaged. A published sampling study reported an error reduction of
+            <strong>1.14 sMAPE points</strong> overall
             (sMAPE is a symmetric variant of the average-error percentage;
             MISO +1.77, PJM +1.41) and approximately nothing for compact
             single-metro authorities, which keep their single point.
@@ -360,8 +359,9 @@
           <h2>Three base models and one ensemble</h2>
           <p>
             <strong>XGBoost</strong> learns the non-linear weather-to-demand
-            relationship from the full engineered feature set and is the best
-            base model for 42 of 51 balancing authorities.
+            relationship from the full engineered feature set and was the best
+            base model for 42 of 51 balancing authorities in the published
+            2026-08-07 evaluation.
             <strong>Prophet</strong> fits additive seasonality with weather
             regressors. <strong>SARIMAX</strong> captures stationary structure,
             with its order selected automatically.
@@ -372,12 +372,9 @@
             how accurate it has been: <code>weight &prop; (1/MAPE)&sup3;</code>,
             normalised to sum to one. MAPE is mean absolute percentage error
             &mdash; the average miss, as a share of actual demand &mdash; so a
-            model with lower error carries more weight. Training a second model
-            to combine the three (&ldquo;stacking&rdquo;) would be the more
-            fashionable choice; this was picked because the weights are
-            transparent and trivial to debug &mdash; you can always answer
-            &ldquo;which model is dominating right now, and why&rdquo; by
-            reading three numbers.
+            model with lower error carries more weight. The recorded weights show how much each
+            model contributes. This makes the blend inspectable; it does not
+            establish that a blend is more accurate.
           </p>
           <p>
             Cubing inverse MAPE concentrates weight on lower-error models.
@@ -392,13 +389,13 @@
             <p>
               GridPulse used to say the ensemble bought variance reduction in
               the tail. <strong>That claim is withdrawn.</strong> It rested on
-              one balancing authority improving from 38.63% to 13.61%. On the
-              current run that same authority is 13.68% under XGBoost alone and
+              one balancing authority improving from 38.63% to 13.61%. In the published
+              2026-08-07 evaluation that same authority is 13.68% under XGBoost alone and
               14.72% under the ensemble &mdash; the blend is
               <em>worse</em> there.
             </p>
             <p>
-              More broadly, the served ensemble <strong>trails best-base in
+              In that evaluation, the ensemble <strong>trails best-base in
               aggregate</strong>: 4.35% median per-BA error against 3.69%, and
               a 90th percentile of 14.27% against XGBoost-alone&rsquo;s 9.87%.
               It wins on 21 of 51 balancing authorities.
@@ -420,41 +417,40 @@
 
         <section id="accuracy">
           <h2>How accuracy is measured: recursive, 168 hours, per authority</h2>
-          <h3>Why recursive scoring runs about twice the usual number</h3>
+          <h3>Training holdout and observed error answer different questions</h3>
           <p>
-            Most dashboards quote <em>teacher-forced</em> error: the model
-            predicts one step ahead, then receives the true value before
-            predicting the next. That measures a nowcast. A seven-day forecast
-            has no true values to receive &mdash; the model&rsquo;s own
-            predictions feed forward as its lag features, and errors compound.
+            In a recursive evaluation, the model&rsquo;s predictions feed forward
+            as demand-lag inputs instead of receiving the true demand for each
+            next step. The training reference uses a 168-hour holdout: historical
+            hours withheld from model fitting. It is not expected accuracy for
+            the next seven-day forecast.
           </p>
           <p>
-            GridPulse scores the way it serves, recursively over a 168-hour
-            <em>holdout</em> &mdash; a stretch of real history withheld from
-            training, so the model is graded on hours it has never seen. That
-            runs roughly <strong>2&times; harder</strong> on the models than
-            the teacher-forced equivalent. It is the number a seven-day
-            forecast deserves.
+            Observed error instead compares previously issued forecasts with
+            reported demand at a stated lead and measurement window. Neither
+            score applies automatically to another model, a baseline, or a
+            different forecast lead.
           </p>
           <h3>Why there is no single &ldquo;across-51&rdquo; number</h3>
           <p>
-            Accuracy is quoted <strong>per balancing authority</strong>, never
-            pooled. The distribution is too wide for a mean to describe: on
-            the best-achievable-per-authority view the best sits at
-            <strong>1.72%</strong> and the worst at <strong>23.26%</strong>.
+            The published 2026-08-07 holdout reports error
+            <strong>per balancing authority</strong>, with medians used to
+            summarize the group. On the best-base-model-per-authority view,
+            the lowest error was
+            <strong>1.72%</strong> and the highest was <strong>23.26%</strong>.
             (Those two bracket the <em>best base model per authority</em>. The
             <strong>4.35%</strong> median quoted elsewhere on this site is a
-            different figure &mdash; the served ensemble, across all 51 &mdash;
+            different figure &mdash; the evaluated ensemble, across all 51 &mdash;
             and the gap between the two is the subject of the section above.)
-            A single headline figure would be a different claim depending on
-            which authority a reader cared about &mdash; which is to say, not a
-            claim at all.
+            A group median does not establish the accuracy for an individual
+            authority or the next forecast.
           </p>
           <p>
-            Every forecast is also scored against the balancing
-            authority&rsquo;s <em>own</em> published day-ahead forecast, on the
-            same hours and the same settled actuals, with wins and losses both
-            published.
+            The live benchmark scores model series against the authority&rsquo;s
+            earliest-observed published day-ahead forecast where sufficient
+            paired observations exist. It uses the same hours and settled actuals
+            for both, but their forecast leads are not fully matched. It does not
+            score the published fallback baseline.
           </p>
           <p class="source">
             <a href="/benchmark">See the head-to-head benchmark &rarr;</a>
@@ -466,10 +462,10 @@
           <h3>The serve-path acceptance gate</h3>
           <p>
             Retraining daily means drawing a new model daily, and the draws are
-            not all good. Replaying every persisted vintage for one authority
-            showed <strong>about 27% produce recursive forecasts that collapse
-            overnight demand</strong> into a phantom regime &mdash; a failure
-            the published holdout <em>cannot see</em>, because it scores a fresh
+            not all good. A historical replay of persisted model versions for one authority
+            found that <strong>about 27% produced recursive forecasts that collapsed
+            overnight demand</strong> &mdash; a failure
+            that authority&rsquo;s training holdout missed. The holdout scores a fresh
             model on sliced historical rows rather than running the deployed
             candidate through the recursion path production actually uses.
           </p>
@@ -501,7 +497,7 @@
         </section>
 
         <section id="horizon">
-          <h2>Where the forecast stops being a forecast</h2>
+          <h2>Where the weather inputs change</h2>
           <p>
             The scoring job produces a 30-day hourly demand forecast, but real
             weather forecast data only covers the first <strong>16 days</strong>.
@@ -512,12 +508,10 @@
           </p>
           <p>
             The Forecast tab draws a visible divider at day 16 and labels both
-            sides. Demand past that line reflects seasonal and daily patterns,
-            not forward-looking signal, and the interface says so rather than
-            drawing one continuous confident line. Atmospheric chaos limits
-            deterministic forecast skill to roughly 10&ndash;14 days regardless
-            of model, so this is the correct answer past that coverage rather
-            than a cost-driven shortcut.
+            sides. For trained-model curves, demand beyond that line uses seasonal
+            weather assumptions rather than a current weather forecast. The
+            repeated-day baseline does not use forecast weather. A 30-day curve
+            does not have a matching 30-day live accuracy score.
           </p>
         </section>
 
@@ -525,11 +519,10 @@
           <h2>What this does not do</h2>
           <ul>
             <li>
-              <strong>It does not detect drift between trainings.</strong>
-              Ensemble weights come from holdout error computed at training
-              time, so they stay frozen for a day. If one model degrades on live
-              actuals while another holds steady, nothing notices until the next
-              retrain.
+              <strong>Monitoring is not proof of future accuracy.</strong>
+              Live error tracking reports completed forecasts against reported
+              demand between training runs. It can flag errors, but it does not
+              establish that the next forecast is fit for an operational decision.
             </li>
             <li>
               <strong>It does not price energy or recommend trades.</strong>

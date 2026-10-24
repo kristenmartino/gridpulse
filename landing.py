@@ -87,8 +87,8 @@ def _benchmark_comparison(payload: dict) -> str:
 
     # Keep the live comparison distinct from the training holdout above it.
     claim = (
-        f"30-day live benchmark (~24h lead), across {_esc(n)} operators: "
-        f"GridPulse median error {_pct(ours)}; operator forecasts {_pct(theirs)}. "
+        f"30-day model-comparison benchmark (~24h lead), across {_esc(n)} operators: "
+        f"GridPulse model median error {_pct(ours)}; operator forecasts {_pct(theirs)}. "
     )
     gap = abs(ours - theirs)
     if ours == theirs:
@@ -324,6 +324,17 @@ def _metric_robustness(rows: list[dict], we_lead: bool) -> str:
     return ""
 
 
+def _benchmark_model_label(key: object) -> str:
+    """Only label the scored model carried by the benchmark row."""
+    from components.accessibility import MODEL_DISPLAY_NAMES
+
+    return (
+        MODEL_DISPLAY_NAMES.get(key, "Model unspecified")
+        if isinstance(key, str)
+        else "Model unspecified"
+    )
+
+
 def _render_benchmark_summary(payload: dict) -> str:
     """Server-rendered summary: fleet tiles, the verdict, and a plain table.
 
@@ -359,9 +370,11 @@ def _render_benchmark_summary(payload: dict) -> str:
                 f"{ours_spread}×; operator forecasts {theirs_spread}×."
             )
         robustness = _metric_robustness(rows, we_lead=ours < theirs)
-        verdict = f"{shape}{steadier} {tally}{robustness}"
+        verdict = f"{shape}{tally}"
+        detail = f"{steadier} {robustness}".strip()
     else:
         verdict = "Fleet results unavailable."
+        detail = ""
 
     # Total from config, the same source the coverage table renders from —
     # a bare N gives a reader no way to see the denominator move, which is
@@ -384,16 +397,16 @@ def _render_benchmark_summary(payload: dict) -> str:
     n_scoreable = payload.get("n_scoreable")
     tiles = [
         (
-            "Operators scored",
+            "Authorities with scored rows",
             "—" if n_scoreable is None else f"{_esc(n_scoreable)} / {len(REGION_COORDINATES)}",
-            exclusion_sub,
+            exclusion_sub + f"; {_esc(n)} in the aggregate group",
         ),
         (
-            "Their median error",
+            "Operator forecast error",
             _pct(theirs),
-            "median across operators of each one's average error (mean MAPE)",
+            f"median per-authority MAPE · {_esc(n)} authorities",
         ),
-        ("Our median error", _pct(ours), "same statistic, same hours, same window"),
+        ("GridPulse model error", _pct(ours), f"median per-authority MAPE · {_esc(n)} authorities"),
     ]
     tile_html = "".join(
         f'<div class="tile"><div class="label">{label}</div>'
@@ -414,17 +427,18 @@ def _render_benchmark_summary(payload: dict) -> str:
         gridpulse = lead.get("gridpulse") or {}
         rows.append(
             f'<tr><th scope="row">{_esc(region.get("region"))}</th>'
+            f"<td>{_esc(_benchmark_model_label(region.get('scored_model')))}</td>"
             f"<td>{_pct(official.get('mape'))}</td>"
             f"<td>{_pct(gridpulse.get('mape'))}</td>"
-            f"<td>{_esc(lead.get('winner'))}</td></tr>"
+            f"<td>{_esc({'gridpulse': 'GridPulse model', 'official': 'Operator forecast'}.get(lead.get('winner'), 'Unavailable'))}</td></tr>"
         )
 
     table = (
-        "<table><caption>GridPulse vs each grid operator&rsquo;s own "
-        "day-ahead forecast, 24-hour lead, 30-day window. Mean MAPE on paired "
-        "hours against settled actuals.</caption><thead><tr>"
-        '<th scope="col">BA</th><th scope="col">Their error</th>'
-        '<th scope="col">Our error</th><th scope="col">Closer</th>'
+        "<table><caption>GridPulse model comparison vs each grid operator&rsquo;s own "
+        "day-ahead forecast, nominal 24-hour lead, 30-day window. MAPE on paired "
+        "hours against settled actuals. This does not score the published fallback baseline.</caption><thead><tr>"
+        '<th scope="col">BA</th><th scope="col">Model scored</th>'
+        '<th scope="col">Operator error</th><th scope="col">Model error</th><th scope="col">Closer</th>'
         f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
         if rows
         else ""
@@ -434,7 +448,12 @@ def _render_benchmark_summary(payload: dict) -> str:
         f'<div id="ssr-summary" class="ssr-summary">'
         f'<div class="tiles">{tile_html}</div>'
         f'<p class="verdict">{verdict}</p>'
-        f"{table}</div>"
+        + (
+            f"<details><summary>More comparison statistics</summary><p>{detail}</p></details>"
+            if detail
+            else ""
+        )
+        + f"{table}</div>"
     )
 
 

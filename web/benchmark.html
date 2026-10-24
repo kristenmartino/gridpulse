@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>How accurate is GridPulse? Scored against operators' own forecasts</title>
+  <title>GridPulse model benchmark against operator forecasts</title>
 
   <link rel="canonical" href="https://gridpulse.kristenmartino.ai/benchmark">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -23,10 +23,10 @@
   <link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png">
   <link rel="mask-icon" href="/assets/favicon.svg" color="#3b82f6">
 
-  <meta name="description" content="How accurate is GridPulse? Scored against each US grid operator's own EIA-930 day-ahead forecast — same hours, same settled actuals, rules and limits published.">
+  <meta name="description" content="GridPulse model-comparison error against operator day-ahead forecasts on matched hours, with model names, sample sizes and limits.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/benchmark">
-  <meta property="og:title" content="How accurate is GridPulse? — Forecast Benchmark">
+  <meta property="og:title" content="GridPulse model benchmark — Forecast comparison">
   <meta property="og:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
   <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta property="og:image:width" content="1200">
@@ -36,7 +36,7 @@
        declared the card type from the start and supplied no image until
        2026-08-11 — title and description were missing too. -->
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="How accurate is GridPulse? — Forecast Benchmark">
+  <meta name="twitter:title" content="GridPulse model benchmark — Forecast comparison">
   <meta name="twitter:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
   <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta name="theme-color" content="#0a0a0b">
@@ -51,8 +51,8 @@
     "@type": "WebPage",
     "@id": "https://gridpulse.kristenmartino.ai/benchmark",
     "url": "https://gridpulse.kristenmartino.ai/benchmark",
-    "name": "How accurate is GridPulse? Scored against operators' own forecasts",
-    "description": "GridPulse scored against each US grid operator's own EIA-930 day-ahead forecast — same hours, same settled actuals, with the rules, exclusions and limits published.",
+    "name": "GridPulse model benchmark against operator forecasts",
+    "description": "GridPulse model series compared with each operator's earliest-observed EIA-930 day-ahead forecast — same hours, same settled actuals, with the rules, exclusions and limits published.",
     "inLanguage": "en",
     "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
     "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
@@ -361,17 +361,21 @@
     <div class="hero">
       <div class="wrap">
         <p class="eyebrow">Forecast Benchmark</p>
-        <h1>How accurate is GridPulse?</h1>
+        <h1>Model forecasts vs. operator forecasts</h1>
         <p class="subhead">
-          This page compares GridPulse and operator day-ahead demand forecasts
-          reported through EIA-930. Both are scored against settled demand on
-          the same hours.
+          The GridPulse column scores the model named in each row; the published
+          default may be a different model or baseline. Operator comparisons use
+          EIA-930 forecasts and settled demand on matched hours.
         </p>
         <p class="subhead">
-          Paired-hour counts, exclusions, and measurement limits are listed
-          below. Results depend on the authorities and hours available in the window.
+          Forecast leads are not fully matched. This measures demand error,
+          not operational value.
         </p>
         <p class="verdict" id="verdict" hidden></p>
+        <details class="row-detail" id="comparison-details" hidden>
+          <summary>More comparison statistics</summary>
+          <p class="drops" id="verdict-details"></p>
+        </details>
       </div>
     </div>
 
@@ -410,7 +414,7 @@
               <p class="section-lede">
                 Each row compares the two forecasts' mean MAPE (the average
                 miss, as a share of actual demand) over the paired hours in the
-                30-day window, at our nominal 24-hour horizon.
+                30-day window, at the nominal 24-hour lead. Lower error is better.
                 <strong>Hours scored</strong> counts the hours where both
                 forecasts and a settled actual exist. Those are the only hours
                 either side is graded on. Expand a row to see which hours were
@@ -422,9 +426,9 @@
                     <tr>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="region">Balancing authority</button></th>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="n">Hours scored<span class="unit">n — paired hours</span></button></th>
-                      <th scope="col" aria-sort="none"><button type="button" data-sort="official">Operator's forecast, as first published<span class="unit">as-issued &middot; mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="official">Operator's forecast, as first observed<span class="unit">earliest observed &middot; MAPE %</span></button></th>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="official_revised">Same forecast, after revisions<span class="unit">as-revised &middot; mean MAPE %</span></button></th>
-                      <th scope="col" aria-sort="none"><button type="button" data-sort="gridpulse">GridPulse forecast<span class="unit">mean MAPE %</span></button></th>
+                      <th scope="col" aria-sort="none"><button type="button" data-sort="gridpulse">GridPulse model comparison<span class="unit">MAPE %</span></button></th>
                       <th scope="col" aria-sort="none"><button type="button" data-sort="delta">Difference<span class="unit">points, + = GridPulse closer</span></button></th>
                     </tr>
                   </thead>
@@ -533,10 +537,11 @@
                 <div class="limit">
                   <h3>The drift grade never scores a full week</h3>
                   <p>
-                    The <span class="flag">above band</span> mark, and the
-                    scored-hours count on every row, come from our own drift
-                    monitor. Its window holds one comparison per hour of the
-                    past week &mdash; and it never gets all of them. A
+                    The <span class="flag">above band</span> mark comes from
+                    a separate seven-day drift monitor. The table&rsquo;s
+                    <strong>Hours scored</strong> counts paired observations in
+                    the 30-day benchmark; these are different samples. The drift
+                    monitor&rsquo;s window holds one comparison per hour of the past week &mdash; and it never gets all of them. A
                     24-hour-ahead score exists only for a target hour whose
                     forecast origin actually occurred, and when EIA publishes
                     two settled hours in the same tick the origin steps over
@@ -689,6 +694,13 @@
       nm.className = 'ba-name';
       nm.textContent = region.name || '';
       th.appendChild(nm);
+      if (scored(region)) {
+        var model = document.createElement('span');
+        model.className = 'ba-name';
+        var names = {xgboost: 'XGBoost', prophet: 'Prophet', arima: 'SARIMAX', ensemble: 'Ensemble'};
+        model.textContent = 'Model scored: ' + (names[region.scored_model] || 'unspecified');
+        th.appendChild(model);
+      }
       tr.appendChild(th);
       return th;
     }
@@ -901,24 +913,24 @@
       }
       var items = [
         {
-          label: 'Operators scored',
+          label: 'Authorities with scored rows',
           /* Rendered as N of 51, not a bare N. A lone number gives a reader no
              way to see the denominator move, which is exactly how #535 hid. */
           value: (data.n_scoreable === null || data.n_scoreable === undefined)
             ? '—' : data.n_scoreable + ' / 51',
-          sub: exclusionSub
+          sub: exclusionSub + '; ' + (fleet.n === undefined ? '—' : fleet.n) + ' in the aggregate group'
         },
         {
-          label: 'Their median error', cls: 'theirs',
+          label: 'Operator forecast error', cls: 'theirs',
           value: fleet.median_official_mape === null || fleet.median_official_mape === undefined
             ? '—' : num(fleet.median_official_mape) + '%',
-          sub: 'median across operators of each one’s average error (mean MAPE)'
+          sub: 'median per-authority MAPE · ' + (fleet.n === undefined ? '—' : fleet.n) + ' authorities'
         },
         {
-          label: 'Our median error', cls: 'ours',
+          label: 'GridPulse model error', cls: 'ours',
           value: fleet.median_gridpulse_mape === null || fleet.median_gridpulse_mape === undefined
             ? '—' : num(fleet.median_gridpulse_mape) + '%',
-          sub: 'same statistic, same hours, same window'
+          sub: 'median per-authority MAPE · ' + (fleet.n === undefined ? '—' : fleet.n) + ' authorities'
         },
         {
           label: 'Spread across operators', cls: 'wide',
@@ -929,7 +941,7 @@
              the scoreability report is a MEDIAN APE one over a different
              population, and quoting either without its name invites mixing
              them. */
-          sub: 'worst ÷ best operator mean MAPE, 30-day window — lower is steadier — ' +
+          sub: 'worst ÷ best operator mean MAPE, 30-day window — cross-authority range, not stability over time — ' +
                'over the ' + (fleet.n === undefined ? '—' : fleet.n) + ' scored operators' +
                ((data.isolated && data.isolated.ERCOT) ? ' excl. ERCOT' : '') +
                (spreadTheirs.min ? ' (theirs ' + num(spreadTheirs.min) + '–' + num(spreadTheirs.max) +
@@ -1003,8 +1015,8 @@
       var so = spreadOf(rows, 'gridpulse'), st = spreadOf(rows, 'official');
       var parts = [];
 
-      parts.push('30-day live benchmark (~24h lead), across ' + fleet.n +
-        ' operators: GridPulse median error ' + num(ours) +
+      parts.push('30-day model-comparison benchmark (~24h lead), across ' + fleet.n +
+        ' operators: GridPulse model median error ' + num(ours) +
         '%; operator forecasts ' + num(theirs) + '%.');
       parts.push(ours === theirs
         ? 'The medians are equal.'
@@ -1012,8 +1024,9 @@
           ? 'The median error differs by less than 0.01 percentage points.'
           : 'GridPulse’s median error is ' + gap + ' percentage points ' +
             (weLead ? 'lower.' : 'higher.'));
+      var details = [];
       if (so.ratio && st.ratio) {
-        parts.push('Best-to-worst per-operator error ratio: GridPulse ' + so.ratio +
+        details.push('Best-to-worst per-operator error ratio: GridPulse ' + so.ratio +
           '×; operator forecasts ' + st.ratio + '×.');
       }
 
@@ -1028,7 +1041,7 @@
       });
       var mWin = median(winDeltas), mLoss = median(lossDeltas);
       if (mWin !== null && mLoss !== null) {
-        parts.push('When the operator is closer, the median margin is ' + num(mLoss) +
+        details.push('When the operator is closer, the median margin is ' + num(mLoss) +
           ' points; when GridPulse is closer, it is ' + num(mWin) + '.');
       }
       var byDelta = rows.slice().sort(function (a, b) {
@@ -1038,12 +1051,12 @@
         var best = byDelta[0], worst = byDelta[byDelta.length - 1];
         var bh = head(data, best), wh = head(data, worst);
         if (bh.delta_mape > 0) {
-          parts.push('Largest GridPulse advantage: ' + best.region + ', with ' +
+          details.push('Largest GridPulse advantage: ' + best.region + ', with ' +
             num(bh.gridpulse.mape) + '% error against the operator’s ' +
             num(bh.official.mape) + '%.');
         }
         if (wh.delta_mape < 0) {
-          parts.push('Largest operator advantage: ' + worst.region + ', at ' +
+          details.push('Largest operator advantage: ' + worst.region + ', at ' +
             num(wh.gridpulse.mape) + '% against their ' + num(wh.official.mape) + '%.');
         }
       }
@@ -1070,14 +1083,16 @@
         ((o < t) === weLead ? same : flips).push(pair[0]);
       });
       if (same.length === 2) {
-        parts.push('Re-scored on median APE or WAPE instead, the verdict is the same.');
+        details.push('Re-scored on median APE or WAPE instead, the verdict is the same.');
       } else if (flips.length) {
-        parts.push('Re-scored on ' + flips.join(' or ') + ' the verdict flips — ' +
+        details.push('Re-scored on ' + flips.join(' or ') + ' the verdict flips — ' +
           'every statistic is published per row.');
       }
 
       el.textContent = parts.join(' ');
       el.hidden = false;
+      document.getElementById('verdict-details').textContent = details.join(' ');
+      document.getElementById('comparison-details').hidden = !details.length;
     }
 
     function renderRows() {

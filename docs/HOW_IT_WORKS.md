@@ -239,7 +239,7 @@ The ensemble is **sharpened inverse-MAPE weighted** — weight ∝ (1/MAPE)³ (`
 
 A real example from the 2026-05-01 training run for FPL: `{xgboost: 0.578, prophet: 0.293, arima: 0.130}`. XGBoost wins because it captures the weather→cooling-load relationship FPL is dominated by; SARIMAX gets a small allocation because Florida demand has a strong stationary daily cycle worth capturing.
 
-The known limitation surfaced 2026-05-19: holdout MAPE is computed at training time, so the weights stay frozen between trainings. Between-training drift (model A degrades on live actuals while model B holds steady) isn't detected. Closing that gap is [#121 Model drift monitoring](https://github.com/kristenmartino/gridpulse/issues/121).
+The Models view now reports live error between training runs at stated leads and windows. This monitoring can reveal that models degrade differently; it does not establish future accuracy. Keep the recorded training holdout separate from live forecast error and from the source currently published as the default.
 
 **The anchor, and where it comes from (ADR-009).** Every forecast seeds its
 autoregressive features (`demand_lag_1h` + 20 siblings) and SARIMAX's Kalman
@@ -457,7 +457,7 @@ Persona selection doesn't change the data — it changes the *emphasis*. A trade
 
 ## What's next
 
-The pieces above describe the **portfolio-grade complete** state shipped through 2026-05-20. The next investment shifts focus from "is the architecture sound" to "are the models continuously calibrated" — see [STATUS.md](../STATUS.md) for current focus and [#121](https://github.com/kristenmartino/gridpulse/issues/121) for the model drift monitoring scope.
+This document describes an evolving portfolio application. Working pipelines, tests and monitoring demonstrate implementation and evaluation; they do not establish practitioner adoption or operational impact. Check live forecast source and metric labels in the application, and validate the proposed review workflow with energy practitioners before claiming business outcomes.
 
 ## Anchor numbers (verbatim recall)
 

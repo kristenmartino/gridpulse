@@ -2,6 +2,8 @@
 
 **[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)** · [Methodology and context](https://gridpulse.kristenmartino.ai/about)
 
+An independent portfolio project by Kristen Martino, with product direction and AI-assisted development.
+
 GridPulse compares hourly electricity demand forecasts with reported EIA demand and operator forecasts across 51 US balancing authorities. It also shows weather data, model error, data-quality notes, and weather scenarios.
 
 **Product description:** _Electricity demand forecast review_
@@ -34,12 +36,14 @@ The scoring job writes the published default to `predicted_demand_mw`. `primary_
 
 The visible evidence panel separates **observed error** from the **training reference**. Observed error is seven-day MAPE for the displayed series at the selected lead (24/48/72h), shown only with at least six matching observations. It describes past forecasts at that lead, not every point in the chart or expected future accuracy. The 7-day and 30-day views have no matching live lead score and say so. The training reference is that model's last 168-hour recursive holdout across multiple leads; missing or unidentified series never inherit another model's metrics.
 
+The operator benchmark scores the named model series, not necessarily the published default. Each row identifies its model. Its aggregate median summarizes a stated group of authorities; authorities reported separately are excluded from that median. Forecast leads are not fully matched with the operator submissions, so the comparison does not establish operational value.
+
 ## Models
 
-- **XGBoost** — 49 engineered features, TimeSeriesSplit CV, SHAP explanations. Best base model for 42 of 51 BAs in the dated 2026-08-07 evaluation; 1.89% MAPE on ERCOT and 3.69% median across all BAs (168-hour **recursive** holdout). These are historical reference results, not a current fleet measurement.
+- **XGBoost** — 49 engineered features, TimeSeriesSplit CV, built-in feature importance. Best base model for 42 of 51 BAs in the dated 2026-08-07 evaluation; 1.89% MAPE on ERCOT and 3.69% median across all BAs (168-hour **recursive** holdout). These are historical reference results, not a current fleet measurement.
 - **Prophet** — weather regressors with logistic growth + floor=0 (structurally prevents negative forecasts). Daily / weekly / yearly seasonality.
 - **SARIMAX** — auto-order selection via `pmdarima` on cold runs; cached `(p,d,q)(P,D,Q,m)` order on warm runs (skips the auto-select stepwise search, ~10× speedup on daily refresh).
-- **Ensemble** — sharpened inverse-MAPE weighted combination ((1/MAPE)³ per ADR-004: follows the best model, blends only when peers are genuinely close). In the 2026-08-07 evaluation it beat XGBoost alone on 21 of 51 BAs, while its median MAPE was worse: 4.35% versus 3.69%. Results depend on region and evaluation window.
+- **Ensemble** — sharpened inverse-MAPE weighted combination ((1/MAPE)³ per ADR-004). Lower measured error receives more weight; missing input scores trigger equal weights. In the 2026-08-07 evaluation it beat XGBoost alone on 21 of 51 BAs, while its median MAPE was worse: 4.35% versus 3.69%. Results depend on region and evaluation window.
 
 **Holdout provenance.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, scored **recursively** (multi-step — the model's own predictions feed forward, so errors compound as in a real forecast), persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble uses held-out predictions too; its weighting and scoring split is described in the backtest document. Holdout error does not by itself establish live forecast performance.
 

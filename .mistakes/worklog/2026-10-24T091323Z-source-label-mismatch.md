@@ -1,0 +1,1 @@
+2026-10-24 — [source-label-mismatch]: final GridPulse review found the 30-day published baseline inherited a caption describing trained-model weather inputs; restricted the caption to identified model series and added a regression check before release.
