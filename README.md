@@ -54,7 +54,7 @@
 | models/model\_service.py              |      319 |       14 |     96% |148-149, 169-170, 241, 572-577, 721, 725-727 |
 | models/persistence.py                 |      306 |       53 |     83% |42, 88-101, 174-175, 200-202, 210-211, 319, 339, 355-372, 384-385, 459-467, 540-548, 568, 570-577, 604-610, 625-626, 638-644, 646-654, 668-676, 695 |
 | models/pricing.py                     |       32 |        0 |    100% |           |
-| models/prophet\_model.py              |       74 |        4 |     95% |208, 231-238 |
+| models/prophet\_model.py              |       92 |        4 |     96% |265, 288-295 |
 | models/rolling\_eval.py               |       97 |        0 |    100% |           |
 | models/shadow\_eval.py                |       63 |        5 |     92% |80-81, 164-165, 200 |
 | models/skill.py                       |       52 |        0 |    100% |           |
@@ -67,7 +67,7 @@
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
-| **TOTAL**                             | **8749** |  **719** | **92%** |           |
+| **TOTAL**                             | **8767** |  **719** | **92%** |           |
 
 
 ## Setup coverage badge
