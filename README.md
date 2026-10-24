@@ -2,7 +2,7 @@
 
 **[gridpulse.kristenmartino.ai](https://gridpulse.kristenmartino.ai)** · [Methodology and context](https://gridpulse.kristenmartino.ai/about)
 
-An independent portfolio project by Kristen Martino, with product direction and AI-assisted development.
+Product direction by Kristen Martino.
 
 GridPulse compares hourly electricity demand forecasts with reported EIA demand and operator forecasts across 51 US balancing authorities. It also shows weather data, model error, data-quality notes, and weather scenarios.
 
@@ -229,6 +229,10 @@ those counts are historical, not evidence that the present revision was tested.
 See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test strategy.
 
 ---
+
+## Project notes
+
+Developed with AI assistance.
 
 ## Documentation
 
