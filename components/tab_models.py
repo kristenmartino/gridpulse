@@ -62,7 +62,13 @@ def _metrics_table_card() -> html.Div:
                 ],
                 className="gp-panel__header",
             ),
-            html.Div(id="tab3-metrics-table", className="gp-metrics-table-slot"),
+            html.Div(
+                id="tab3-metrics-table",
+                className="gp-metrics-table-slot",
+                role="region",
+                tabIndex=0,
+                **{"aria-label": "Training holdout metrics; scroll horizontally if needed"},
+            ),
         ],
         className="gp-panel",
     )

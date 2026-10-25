@@ -127,3 +127,31 @@ forecasts are not asserted to be original issues. Existing calculation fields
 and exclusion keys remain compatible. The benchmark coverage explanation also
 keeps the missing-hour investigation open instead of asserting that every
 shortfall is a permanent feed-timing ceiling.
+
+## First production capture verification — 2026-10-25
+
+The foundation deployed at `a6898358`, followed by benchmark wording and
+Models diagnostic-table containment at `56fb150f`. The latter was verified on
+ready revision `gridpulse-00582-p2g` with all serving traffic; both job definitions
+matched that release. The original captures remained readable across this web
+revision change.
+
+A verification execution, `gridpulse-scoring-job-qmkhl`, ran the foundation
+image and completed at 19:16:51 UTC. Its terminal event reported 51 regions
+scored, zero failures, and zero forecast errors. All three pilot issues
+preserved 720 target hours; each issue's first 24 values and generation/source
+metadata matched the live forecast with that same publication ID. The stored
+GCS contents also passed the internal content-identity check.
+
+| Region | Published series | Generated (UTC) | GCS object bytes |
+|---|---|---|---:|
+| FPL | Seasonal baseline | 19:10:29 | 45,874 |
+| PJM | XGBoost | 19:10:31 | 49,193 |
+| LGEE | XGBoost | 19:13:47 | 51,906 |
+
+The run's `publication_archive` substeps reported three calls, 0.9 seconds
+combined, with a 0.4-second maximum. These are first-run observations, not a
+representative performance or cost estimate. The public indexes initially held
+one issue each; they do not yet establish a historical operating-day record.
+Production coverage totals reconciled to the 168-hour window, including the
+FPL baseline's 12 scored targets. Missing-hour causes remain under investigation.
