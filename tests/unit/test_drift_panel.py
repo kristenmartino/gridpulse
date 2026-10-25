@@ -76,6 +76,8 @@ def _drift_model(
         "rolling_mape_7d": rolling_mape_7d,
         "rolling_mape_30d": rolling_mape_30d if rolling_mape_30d is not None else rolling_mape_7d,
         "n_records": n_records,
+        "n_7d": n_records,
+        "n_30d": n_records,
         "records": [],  # records list not used by the panel directly
     }
 
@@ -89,7 +91,9 @@ def _horizon_payload(**grades_24h: str | None) -> dict:
     models = {}
     for name, grade in grades_24h.items():
         if grade is not None:
-            models[name] = {"24h": {"rolling_mape_7d": 4.0, "grade": grade, "n_records": 24}}
+            models[name] = {
+                "24h": {"rolling_mape_7d": 4.0, "grade": grade, "n_records": 24, "n_7d": 24}
+            }
     return {"region": "PJM", "horizons": ["24h", "48h", "72h"], "models": models}
 
 
@@ -248,9 +252,9 @@ class TestLeadHonestLabels:
         result = _build_drift_panel("PJM")
         text = _find_all_text(result)
         assert "Holdout (168h recursive)" in text
-        assert "Live 1h-ahead (7d avg)" in text
-        assert "Live 1h-ahead (30d avg)" in text
-        assert "different forecast leads" in text
+        assert "Live first-hour (7d avg)" in text
+        assert "Live first-hour (30d avg)" in text
+        assert "different forecast horizons" in text
         assert "Live ÷ Holdout" not in text
         assert "×" not in text  # no rendered ratio values
 
@@ -366,7 +370,7 @@ class TestVerdictConfirmationRule:
         assert "above the 1h band" in text
         # Copy must be honest about the ≥24h maturation lag — never
         # present-tense "healthy at 24h ahead" from lagged evidence.
-        assert "matured 24h-ahead scores" in text
+        assert "matured 24h-horizon scores" in text
         assert "investigate" not in text.lower()
 
     @patch("components._callbacks_models.redis_get")
@@ -457,7 +461,7 @@ class TestVerdictConfirmationRule:
         from components._callbacks_models import _build_drift_panel
 
         horizon = _horizon_payload(prophet="rollback")
-        horizon["models"]["prophet"]["24h"]["n_records"] = 3  # immature
+        horizon["models"]["prophet"]["24h"]["n_7d"] = 3  # immature
         mock_redis_get.side_effect = _redis_router(
             _drift_payload(prophet=_drift_model(12.0)), horizon
         )
@@ -500,7 +504,7 @@ class TestVerdictConfirmationRule:
                 walk(children)
 
         walk(result)
-        assert titles and "live error by forecast lead" in titles[0]
+        assert titles and "live error by forecast horizon" in titles[0]
         assert "target" in titles[0]
 
 

@@ -22,9 +22,9 @@ Use GridPulse to inspect reported demand and forecasts, compare model error, rev
 
 | Tab | Question | What it shows |
 |---|---|---|
-| **Overview** | Does the published forecast need closer review? | Published next-24h peak, source, same-series 24h-ahead error when available, separate training reference, expandable history |
+| **Overview** | Does the published forecast need closer review? | Published next-24h peak, source, same-series 24h-horizon diagnostic when available, separate training reference, expandable history |
 | **US Grid** | How does demand compare across regions? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
-| **Forecast** | Which forecast am I reviewing? | Published default or a named model comparison; source and same-lead error above the chart; trained-model bands use backtest error ranges when available and heuristic envelopes otherwise |
+| **Forecast** | Which forecast am I reviewing? | Published default or a named model comparison; source and same-horizon error above the chart; trained-model bands use backtest error ranges when available and heuristic envelopes otherwise |
 | **Risk** | Which alerts need review? | Weather alerts, demand anomalies, demand/nameplate comparison |
 | **Models** | How have the models performed? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, built-in XGBoost feature importance |
 
@@ -36,7 +36,7 @@ The default view is Forecast Review Analyst. Three secondary role-based views (R
 
 The scoring job writes the published default to `predicted_demand_mw`. `primary_model` identifies its model unless `served_series=seasonal-naive` marks a repeated-day baseline. Overview and Forecast's default selection read that published column; explicit model columns remain available for comparison. A baseline never inherits a trained model's name, holdout score, or prediction interval.
 
-The visible evidence panel separates **observed error** from the **training reference**. Observed error is seven-day MAPE for the displayed series at the selected lead (24/48/72h), shown only with at least six matching observations. It describes past forecasts at that lead, not every point in the chart or expected future accuracy. The 7-day and 30-day views have no matching live lead score and say so. The training reference is that model's last 168-hour recursive holdout across multiple leads; missing or unidentified series never inherit another model's metrics.
+The visible evidence panel separates **observed error** from the **training reference**. Observed error is seven-day MAPE for the displayed series at the selected forecast-start offset (24/48/72h), shown only with at least six matching observations. These offsets run from the first forecast target, not the generation/publication clock. The display-count rule does not establish sample sufficiency. Coverage and scored target dates are shown when recorded; legacy totals are not substituted for seven-day counts. It describes past forecasts at that horizon, not every point in the chart or expected future accuracy. The 7-day and 30-day views have no matching live lead score and say so. The training reference is that model's last 168-hour recursive holdout across multiple leads; missing or unidentified series never inherit another model's metrics.
 
 The operator benchmark scores the named model series, not necessarily the published default. Each row identifies its model. Its aggregate median summarizes a stated group of authorities; authorities reported separately are excluded from that median. Forecast leads are not fully matched with the operator submissions, so the comparison does not establish operational value.
 
@@ -231,6 +231,24 @@ those counts are historical, not evidence that the present revision was tested.
 See [tests/TEST_PYRAMID.md](tests/TEST_PYRAMID.md) for coverage targets and test strategy.
 
 ---
+
+## Published forecast evidence
+
+The forecast API now follows the same published column as the dashboard;
+clients needing the ensemble comparison can read `by_model.ensemble` explicitly.
+The timing object distinguishes generation, target range, and input anchor.
+Operator issue time is unknown unless supplied; capture time is not substituted.
+
+The scoring job prospectively archives published issues for the initial
+FPL/PJM/LGEE pilot. `/api/v1/publications/{region}` lists cached receipts;
+`/api/v1/publications/{region}/{id}` returns their immutable values and provenance.
+The read cache has a rolling 30-day index, bounded to 720 issues per region;
+this does not promise complete capture or a 30-day physical GCS deletion policy.
+Legacy chart replay is separate. The historical operating-day review is gated
+on verified publication history and has not been introduced by this foundation.
+
+See the [evidence audit](docs/audits/FORECAST_EVIDENCE_2026-10-25.md) and
+[implementation scope](docs/internal/PRACTITIONER_WORKFLOW_SCOPE.md).
 
 ## Project notes
 

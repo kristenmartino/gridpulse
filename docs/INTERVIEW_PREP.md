@@ -1608,3 +1608,10 @@ be told you failed.*
 A hiring-manager review found that the benchmark scored named model series while the dashboard could publish a seasonal baseline. Calling both simply “GridPulse accuracy” obscured that distinction. The page now identifies the model in every benchmark row, separates scored-row count from the aggregate population, and keeps supporting statistics below an expandable summary. Models also labels MAPE and MW error units.
 
 The demonstrated judgment is to make scope and limitations part of the result: historical holdout, live model-comparison error, and a published baseline answer different questions. These presentation changes do not establish practitioner adoption or operational value; that validation remains a next step. Development and review were AI-assisted.
+
+
+## Evidence-first workflow scope — 2026-10-25
+
+Kristen authorized a practitioner-oriented evidence audit before expanding the product. The audit found that a chart replay capture clock could not establish original publication time, and the public forecast API could select a different series from the dashboard. The implementation uses the existing published-series resolver and starts a separate immutable receipt only after successful forecast persistence. Scoring counts, target coverage, generation time, and forecast-start offsets are explicitly distinguished.
+
+The product judgment demonstrated is to constrain a historical review to evidence the application can actually preserve, rather than reconstructing apparently original forecasts from current models. Practitioner fit and business outcomes remain open questions. This work was developed with AI assistance; the code alone does not establish independent authorship of every underlying component.

@@ -20,6 +20,7 @@ def _block(mape, grade, n=168):
         "rolling_smape_7d": mape,
         "rolling_mape_30d": mape,
         "n_records": n,
+        "n_7d": n,
         "grade": grade,
         "records": [],
     }
@@ -120,7 +121,7 @@ class TestHorizonDriftPanel:
         chips = _chips(div)
         assert "≤2% band" in chips and "≤5% band" in chips and "≤12% band" in chips
         txt = _text(div)
-        assert "24h ahead" in txt and "48h ahead" in txt and "72h ahead" in txt
+        assert "24h horizon" in txt and "48h horizon" in txt and "72h horizon" in txt
         assert "2.00%" in txt  # the 24h MAPE renders
 
     def test_vindication_model_good_at_day_ahead(self):

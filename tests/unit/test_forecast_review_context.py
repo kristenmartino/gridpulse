@@ -82,7 +82,7 @@ def test_named_model_comparison_keeps_published_identity_but_uses_own_errors():
     ):
         context = forecast_review_context("FPL", payload(), "xgboost", 24)
     assert context["display_label"] == "XGBoost"
-    assert context["display_status"] == "Model comparison"
+    assert context["display_status"] == "GridPulse model comparison"
     assert context["published_label"] == "Seasonal baseline"
     assert context["error_value"] == "4.00%"
     assert context["holdout_value"] == "6.50% MAPE"
@@ -209,12 +209,15 @@ def test_forecast_default_and_comparison_plot_distinct_real_columns():
     assert default[2] != comparison[2]
 
 
-def test_baseline_live_error_supports_legacy_window_count():
+def test_baseline_live_error_does_not_treat_all_history_as_window_count():
     with patch(
         "components.forecast_context.redis_get",
         return_value={"models": {"baseline": {"24h": {"n_records": 6, "rolling_mape_7d": 3}}}},
     ):
-        assert forecast_review_context("FPL", payload(), "published", 24)["error_value"] == "3.00%"
+        assert (
+            forecast_review_context("FPL", payload(), "published", 24)["error_value"]
+            == "Not available"
+        )
 
 
 class CallbackCapture:

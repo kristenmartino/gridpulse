@@ -251,7 +251,9 @@ def _within_window(
         return []
     now = datetime.fromisoformat(now_iso) if now_iso is not None else datetime.now(UTC)
     cutoff = now - timedelta(hours=window_hours)
-    return [r for r in records if datetime.fromisoformat(r.timestamp) >= cutoff]
+    # A future/placeholder target is not a completed observation. The left-open
+    # interval also avoids 169 hourly targets at an exact seven-day boundary.
+    return [r for r in records if cutoff < datetime.fromisoformat(r.timestamp) <= now]
 
 
 def filter_low_actuals(
@@ -1191,7 +1193,22 @@ def _horizon_rollup_block(
     mape_7d = rolling_mape(
         merged, WINDOW_7D_HOURS, now_iso=now_iso, min_actual_fraction=LOW_ACTUAL_FRACTION
     )
+    as_of = datetime.fromisoformat(now_iso) if now_iso else datetime.now(UTC)
+    targets = sorted({_normalize_ts(r.timestamp) for r in kept_7d})
+    coverage = {
+        "as_of": as_of.isoformat(),
+        "window_start": (as_of - timedelta(hours=WINDOW_7D_HOURS)).isoformat(),
+        "window_end": as_of.isoformat(),
+        "possible_target_hours": WINDOW_7D_HOURS,
+        "scored_target_hours": len(targets),
+        "unscored_target_hours": max(0, WINDOW_7D_HOURS - len(targets)),
+        "scored_start": targets[0] if targets else None,
+        "scored_end": targets[-1] if targets else None,
+        "low_actual_excluded": n_low_excl_7d,
+        "duplicate_records": len(kept_7d) - len(targets),
+    }
     return {
+        "coverage_7d": coverage,
         "rolling_smape_7d": rolling_smape(merged, WINDOW_7D_HOURS, now_iso=now_iso),
         "rolling_smape_30d": rolling_smape(merged, WINDOW_30D_HOURS, now_iso=now_iso),
         "rolling_mape_7d": mape_7d,

@@ -383,10 +383,10 @@ class TestDayAheadGradeWindowGating:
 
         assert _day_ahead_grade(self._payload(n_7d=50), "xgboost") == "target"
 
-    def test_legacy_block_uses_total_count(self):
+    def test_legacy_block_without_window_count_cannot_confirm_grade(self):
         from components._callbacks_models import _day_ahead_grade
 
-        assert _day_ahead_grade(self._payload(), "xgboost") == "target"
+        assert _day_ahead_grade(self._payload(), "xgboost") is None
 
 
 class TestHorizonPanelWindowGating:

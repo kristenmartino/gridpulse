@@ -225,7 +225,9 @@ class TestItDoesNotDisturbWhatShips:
             # Wall-clock stamps differ between two runs by construction; every
             # other key is the thing under test.
             payloads[label] = {
-                k: v for k, v in payload.items() if k not in {"scored_at", "generated_at"}
+                k: v
+                for k, v in payload.items()
+                if k not in {"scored_at", "generated_at", "publication_id"}
             }
         assert payloads["on"] == payloads["off"]
 

@@ -80,6 +80,52 @@ def _patch_predict_one(monkeypatch, predictions_by_name):
     )
 
 
+class TestPublicationOrder:
+    def test_receipt_is_archived_only_after_successful_published_write(
+        self, fake_redis, region_data, monkeypatch
+    ):
+        from jobs import phases
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41000.0)})
+        monkeypatch.setattr("data.forecast_publications.PILOT_REGIONS", {"ERCOT"})
+        archived = []
+
+        def archive(record):
+            published = fake_redis["gridpulse:forecast:ERCOT:1h"]
+            assert record["publication_id"] == published["publication_id"]
+            assert (
+                record["forecast"][0]["demand_mw"]
+                == published["forecasts"][0]["predicted_demand_mw"]
+            )
+            archived.append(record)
+            return True
+
+        monkeypatch.setattr("data.forecast_publications.archive_publication", archive)
+        result = phases.predict_and_write_forecast(
+            region_data, models={"xgboost": object()}, model_mapes={"xgboost": 1}
+        )
+        assert result.ok
+        assert len(archived) == 1
+
+    def test_failed_forecast_write_never_creates_publication_receipt(
+        self, region_data, monkeypatch
+    ):
+        from unittest.mock import Mock
+
+        from jobs import phases
+
+        _patch_predict_one(monkeypatch, {"xgboost": np.full(HORIZON, 41000.0)})
+        monkeypatch.setattr("data.forecast_publications.PILOT_REGIONS", {"ERCOT"})
+        monkeypatch.setattr("data.redis_client.redis_set", lambda *a, **k: False)
+        archive = Mock()
+        monkeypatch.setattr("data.forecast_publications.archive_publication", archive)
+        result = phases.predict_and_write_forecast(
+            region_data, models={"xgboost": object()}, model_mapes={"xgboost": 1}
+        )
+        assert not result.ok
+        archive.assert_not_called()
+
+
 class TestPredictAndWriteForecast:
     def test_full_mape_uses_inverse_mape_weights(self, fake_redis, region_data, monkeypatch):
         """When every predicting model has a valid MAPE, weights ∝ (1/MAPE)^k,
@@ -1382,6 +1428,8 @@ class TestBaselineSubstitutionBlock:
             "n_hours",
             "window_days",
             "decision",
+            "compared_series",
+            "comparison_basis",
         }
 
     def test_the_window_is_disclosed_as_the_seven_days_it_measures(self, monkeypatch):

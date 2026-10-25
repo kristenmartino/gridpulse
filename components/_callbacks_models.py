@@ -345,7 +345,7 @@ _KNOWN_GRADES = ("excellent", "target", "acceptable", "rollback")
 
 
 def _day_ahead_grade(horizon_payload: dict | None, model_key: str) -> str | None:
-    """The model's resolved 24h-ahead grade from ``drift_horizon``, or ``None``.
+    """The model's resolved 24h-horizon grade from ``drift_horizon``, or ``None``.
 
     ``None`` when the payload / model / horizon block is missing or malformed,
     the MAPE is unresolved, fewer than 6 matured records exist (the same
@@ -365,9 +365,9 @@ def _day_ahead_grade(horizon_payload: dict | None, model_key: str) -> str | None
         return None
     # P2-21 (#273): gate the 7d figure on its own in-window sample count
     # (n_7d) — n_records is total history. Pre-#273 payloads lack n_7d;
-    # fall back to the old total-count gate until they rewrite.
+    # unknown window counts cannot confirm an assessment.
     n_window = block.get("n_7d")
-    n_eff = int(n_window) if n_window is not None else int(block.get("n_records", 0) or 0)
+    n_eff = int(n_window) if n_window is not None else 0
     if block.get("rolling_mape_7d") is None or n_eff < 6:
         return None
     grade = block.get("grade")
@@ -419,7 +419,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
     drift_models = drift_payload["models"]
 
-    # 24h-ahead grades for the verdict-confirmation rule (#217). Read after
+    # 24h-horizon grades for the verdict-confirmation rule (#217). Read after
     # the warming early-return so a cold region costs one Redis read, not two.
     # ``horizon_reporting`` distinguishes "feed alive, grades still maturing"
     # (pending, benign) from "feed absent" (broken >24h — fail closed).
@@ -455,12 +455,11 @@ def _build_drift_panel(region: str | None) -> html.Div:
             unassessed_names.append(display_names[key])
             continue
         drift = drift_models[key]
-        n_records = int(drift.get("n_records", 0) or 0)
         # P2-21 (#273): the displayed stat is the 7d rolling figure — gate it
         # on the 7d in-window post-filter count, not total history. Pre-#273
-        # payloads lack n_7d; fall back to the old total-count gate.
+        # payloads lacking n_7d cannot establish in-window sample size.
         n_window = drift.get("n_7d")
-        n_eff = int(n_window) if n_window is not None else n_records
+        n_eff = int(n_window) if n_window is not None else 0
         live_7d = drift.get("rolling_mape_7d")
         live_30d = drift.get("rolling_mape_30d")
         holdout = metrics.get(key, {}).get("mape")
@@ -488,7 +487,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
             status_tone = "secondary"
         else:
             # Grade derived from the live MAPE's own governance grade at the
-            # 1-hour-ahead horizon (the drift metric IS 1h-ahead) — never
+            # 1-hour-ahead horizon (the drift metric IS first-hour) — never
             # from any cross-horizon holdout comparison (#273).
             grade = mape_grade(float(live_7d), horizon="1h")
             if grade == "excellent" or grade == "target":
@@ -504,7 +503,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
                 # the model's own operating horizon (#217): a day-ahead model
                 # with no 1-hour anchor is expected to sit above the 1h band.
                 # Only confirm "Rollback" when the model is also off band at
-                # 24h-ahead (its horizon-matched grade, #227).
+                # 24h-horizon (its horizon-matched grade, #227).
                 day_grade = _day_ahead_grade(horizon_payload, key)
                 if day_grade == "rollback" and feed_limited_region and key in ANCHOR_FED_MODELS:
                     # Keep both above-band measurements visible alongside
@@ -521,7 +520,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
                     status_label = "Above both bands"
                     status_tone = "negative"
                     chip_title = (
-                        "Above the configured error bands at both 1h-ahead and 24h-ahead. "
+                        "Above the configured error bands at both first-hour and 24h-horizon. "
                         "This status does not indicate that a rollback has occurred."
                     )
                     degraded_names.append(display)
@@ -535,7 +534,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
                     status_label = "Off band"
                     status_tone = "negative"
                     chip_title = (
-                        "Above the 5% error band at 1h ahead. The 24h error feed is unavailable, "
+                        "Above the 5% error band at first forecast hour. The 24h error feed is unavailable, "
                         "so the longer-lead comparison cannot be assessed."
                     )
                     off_band_unverified.append(display)
@@ -543,8 +542,8 @@ def _build_drift_panel(region: str | None) -> html.Div:
                     status_label = "Off band"
                     status_tone = "warning"
                     chip_title = (
-                        "Above the 5% 1h nowcast band; the 24h-ahead grade is "
-                        "still resolving — see live error by forecast lead below."
+                        "Above the 5% 1h nowcast band; the 24h-horizon grade is "
+                        "still resolving — see live error by forecast horizon below."
                     )
                     off_band_pending.append(display)
                 else:
@@ -552,10 +551,10 @@ def _build_drift_panel(region: str | None) -> html.Div:
                     status_tone = "warning"
                     chip_title = (
                         f"Above the 5% 1h nowcast band, but graded "
-                        f"{day_grade} on matured 24h-ahead predictions (24h "
-                        f"grades lag ≥24h behind live) — models without a "
+                        f"{day_grade} on matured 24h-horizon predictions (24h "
+                        f"grades include reporting delay) — models without a "
                         f"1-hour anchor are expected to sit above the 1h band. "
-                        f"See live error by forecast lead below."
+                        f"See live error by forecast horizon below."
                     )
                     off_band_healthy.append(display)
 
@@ -618,7 +617,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
     parts = []
     if degraded_names:
         parts.append(
-            f"{', '.join(degraded_names)} off band at both 1h-ahead and 24h-ahead — investigate"
+            f"{', '.join(degraded_names)} off band at both first-hour and 24h-horizon — investigate"
         )
     if off_band_unverified:
         parts.append(
@@ -628,7 +627,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
         parts.append(feed_limited_clause)
     if off_band_healthy:
         parts.append(
-            f"{', '.join(off_band_healthy)} above the 1h band, within band on matured 24h-ahead scores (≥24h lag)"
+            f"{', '.join(off_band_healthy)} above the 1h band, within band on matured 24h-horizon scores (includes reporting delay)"
         )
     if off_band_pending:
         parts.append(f"{', '.join(off_band_pending)} above the 1h band; 24h grade still resolving")
@@ -651,8 +650,8 @@ def _build_drift_panel(region: str | None) -> html.Div:
                         for h in [
                             "Model",
                             "Holdout (168h recursive)",
-                            "Live 1h-ahead (7d avg)",
-                            "Live 1h-ahead (30d avg)",
+                            "Live first-hour (7d avg)",
+                            "Live first-hour (30d avg)",
                             "Status",
                             "n",
                         ]
@@ -666,15 +665,18 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
     return html.Div(
         [
-            html.Div("Live error — 1h ahead · 7d / 30d averages", className="gp-control-eyebrow"),
+            html.Div(
+                "Live error — first forecast hour · 7d / 30d averages",
+                className="gp-control-eyebrow",
+            ),
             html.Div(headline_note, className="gp-drift-headline"),
             table,
             html.Div(
                 (
-                    "Live columns show 1h-ahead MAPE over the trailing 7 and 30 days, "
+                    "Live columns show first-hour MAPE over the trailing 7 and 30 days, "
                     "recalculated as EIA revises reported demand. Holdout is the last "
                     "training run’s 168-hour recursive evaluation. These measure "
-                    "different forecast leads. Status bands apply to the seven-day live average."
+                    "different forecast horizons. Status bands apply to the seven-day live average. Horizon offsets are measured from the first forecast target, not the issue clock."
                 ),
                 className="gp-panel__caption",
             ),
@@ -705,10 +707,10 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
     if not isinstance(payload, dict) or not payload.get("models"):
         return html.Div(
             [
-                html.Div("Live error by forecast lead", className="gp-control-eyebrow"),
+                html.Div("Live error by forecast horizon", className="gp-control-eyebrow"),
                 html.Div(
                     (
-                        "No live error records available for these forecast leads. "
+                        "No live error records available for these forecast horizons. "
                         "Each forecast can be scored once demand for its target hour is reported; "
                         "a displayed average requires at least six scored observations."
                     ),
@@ -729,8 +731,8 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
         "acceptable": "warning",
         "rollback": "negative",
     }
-    # A few matured records before a grade is statistically meaningful at these
-    # slow-accruing horizons (records land ~hourly, but only after the horizon).
+    # This display-count rule is not evidence of statistical sufficiency.
+    # Show coverage separately; these records accrue only after targets resolve.
     min_records = 6
 
     rows: list[html.Tr] = []
@@ -747,9 +749,9 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
             grade = block.get("grade")
             n_records = int(block.get("n_records", 0) or 0)
             # P2-21 (#273): gate the displayed 7d figure on its in-window
-            # count when available (fallback: legacy total-count gate).
+            # count. Total retained history is not a seven-day denominator.
             n_window = block.get("n_7d")
-            n_eff = int(n_window) if n_window is not None else n_records
+            n_eff = int(n_window) if n_window is not None else 0
             if mape is None or n_eff < min_records:
                 cells.append(
                     html.Td(
@@ -770,6 +772,10 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
                                 _error_band_label(grade, horizon),
                                 className=f"gp-status-chip gp-status-chip--{tone}",
                             ),
+                            html.Span(
+                                f"{n_eff} scored observations",
+                                className="gp-panel__caption",
+                            ),
                         ],
                         className="gp-drift-cell--horizon",
                     )
@@ -779,9 +785,9 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
     if not rows:
         return html.Div(
             [
-                html.Div("Live error by forecast lead", className="gp-control-eyebrow"),
+                html.Div("Live error by forecast horizon", className="gp-control-eyebrow"),
                 html.Div(
-                    "No live error records are available for these forecast leads.",
+                    "No live error records are available for these forecast horizons.",
                     className="gp-panel__placeholder",
                 ),
             ],
@@ -790,7 +796,7 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
 
     table = html.Table(
         [
-            html.Thead(html.Tr([html.Th("Model")] + [html.Th(f"{h} ahead") for h in horizons])),
+            html.Thead(html.Tr([html.Th("Model")] + [html.Th(f"{h} horizon") for h in horizons])),
             html.Tbody(rows),
         ],
         className="metrics-table gp-drift-table gp-horizon-drift-table",
@@ -798,10 +804,10 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
 
     return html.Div(
         [
-            html.Div("Live error by forecast lead — 7d average", className="gp-control-eyebrow"),
+            html.Div("Live error by forecast horizon — 7d average", className="gp-control-eyebrow"),
             html.Div(
                 (
-                    "Each column compares MAPE with the configured error band for that forecast lead."
+                    "Each column compares MAPE with the configured error band for that forecast horizon."
                 ),
                 className="gp-drift-headline",
             ),
@@ -809,7 +815,8 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
             html.Div(
                 (
                     "Seven-day average MAPE, scored after demand for the target hour is reported. "
-                    "Longer forecast leads take more time to accumulate scored observations."
+                    "Offsets are measured from the first forecast target, not the issue clock. "
+                    "Counts are scored observations in the window, not seven complete days."
                 ),
                 className="gp-panel__caption",
             ),
