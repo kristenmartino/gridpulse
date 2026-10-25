@@ -2404,11 +2404,13 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
 }
 
 /* Keep wide diagnostics inside their panel on small screens. */
-.gp-drift-table-scroll {
+.gp-drift-table-scroll,
+.gp-metrics-table-slot {
     max-width: 100%;
     overflow-x: auto;
 }
-.gp-drift-table-scroll:focus-visible {
+.gp-drift-table-scroll:focus-visible,
+.gp-metrics-table-slot:focus-visible {
     outline: 2px solid var(--accent-primary);
     outline-offset: 2px;
 }
