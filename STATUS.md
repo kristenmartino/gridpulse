@@ -23,6 +23,7 @@ The foundation audit also applies to `/benchmark`: latest-observed EIA actuals
 are not certified settled/final values, and first capture is not an original
 operator issue. Public descriptions now use those meanings, preserve compatible
 field names, and leave the coverage investigation open. Calculations unchanged.
+Mobile Models diagnostic tables now scroll within their own focusable regions.
 
 ## Active focus + open question
 

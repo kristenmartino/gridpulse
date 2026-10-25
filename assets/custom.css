@@ -2403,6 +2403,16 @@ body.briefing #meeting-mode-btn.gp-header__link:hover {
     margin-top: var(--space-5, 20px);
 }
 
+/* Keep wide diagnostics inside their panel on small screens. */
+.gp-drift-table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+}
+.gp-drift-table-scroll:focus-visible {
+    outline: 2px solid var(--accent-primary);
+    outline-offset: 2px;
+}
+
 /* Shared drift-panel note + caption (both panels) */
 .gp-drift-headline {
     font-size: var(--text-sm);
