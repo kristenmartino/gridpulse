@@ -1,0 +1,67 @@
+{
+  "captured_at": "2026-10-25T18:29:50.608406+00:00",
+  "api_base": "https://gridpulse.kristenmartino.ai/api/v1",
+  "regions": [
+    {
+      "region": "FPL",
+      "api_series_source": "seasonal-naive-baseline",
+      "generated_at": "2026-10-25T18:02:19.202759+00:00",
+      "served_reason": "model loses to seasonal-naive by 4.27 error points over 168h \u2014 serving the baseline instead",
+      "first_target": "2026-10-25T18:00:00+00:00",
+      "last_target": "2026-10-28T17:00:00+00:00",
+      "target_rows": 72,
+      "diagnostic_24h_counts": {
+        "arima": 123,
+        "ensemble": 123,
+        "prophet": 123,
+        "xgboost": 123
+      }
+    },
+    {
+      "region": "PJM",
+      "api_series_source": "ensemble",
+      "generated_at": "2026-10-25T18:02:20.136770+00:00",
+      "served_reason": null,
+      "first_target": "2026-10-25T18:00:00+00:00",
+      "last_target": "2026-10-28T17:00:00+00:00",
+      "target_rows": 72,
+      "diagnostic_24h_counts": {
+        "arima": 120,
+        "ensemble": 120,
+        "prophet": 120,
+        "xgboost": 120
+      }
+    },
+    {
+      "region": "LGEE",
+      "api_series_source": "ensemble",
+      "generated_at": "2026-10-25T18:06:04.563899+00:00",
+      "served_reason": null,
+      "first_target": "2026-10-25T18:00:00+00:00",
+      "last_target": "2026-10-28T17:00:00+00:00",
+      "target_rows": 72,
+      "diagnostic_24h_counts": {
+        "arima": 129,
+        "ensemble": 129,
+        "prophet": 129,
+        "xgboost": 129
+      }
+    },
+    {
+      "region": "ERCOT",
+      "api_series_source": "ensemble",
+      "generated_at": "2026-10-25T18:02:19.167890+00:00",
+      "served_reason": null,
+      "first_target": "2026-10-25T18:00:00+00:00",
+      "last_target": "2026-10-28T17:00:00+00:00",
+      "target_rows": 72,
+      "diagnostic_24h_counts": {
+        "arima": 120,
+        "ensemble": 120,
+        "prophet": 120,
+        "xgboost": 120
+      }
+    }
+  ],
+  "caveat": "Pre-fix API excludes baseline drift series and can prefer ensemble over the published primary."
+}

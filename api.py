@@ -60,6 +60,7 @@ _DEFAULT_HORIZON_HOURS = 24
 #: (debug annotations, uncalibrated intervals) must NOT auto-publish to a
 #: public trust boundary. Export only what is explicitly listed.
 _EXPORTED_MODELS = ("prophet", "arima", "xgboost", "ensemble")
+_EXPORTED_DRIFT_SERIES = (*_EXPORTED_MODELS, "baseline")
 # P2-21 (#273): n_7d/n_30d are the per-window post-filter sample counts —
 # the honest denominators behind the rolling means (n_records is total
 # retained history, which can be dominated by records older than either
@@ -230,13 +231,15 @@ def index():
             "endpoints": {
                 "GET /api/v1/regions": "Balancing authorities + metadata",
                 "GET /api/v1/forecast/{region}?horizon=24": (
-                    "Hourly demand forecast (ensemble + per-model), max horizon 168"
+                    "GridPulse published hourly forecast + named comparisons, max horizon 168"
                 ),
+                "GET /api/v1/publications/{region}": "Prospective published-issue index (pilot)",
+                "GET /api/v1/publications/{region}/{id}": "Immutable published-issue evidence (pilot)",
                 "GET /api/v1/grid/summary": (
                     "National totals: demand, simultaneous 24h peak, utilization"
                 ),
                 "GET /api/v1/drift/{region}": (
-                    "Live 1h drift + horizon-matched (24/48/72h) accuracy grades"
+                    "Live drift + 24/48/72h forecast-start-offset diagnostics and scoring coverage"
                 ),
                 "GET /api/v1/benchmark": (
                     "GridPulse vs each BA's own EIA-930 day-ahead forecast, "
@@ -421,8 +424,11 @@ def scenario(raw_region: str):
 
 @api_v1.get("/forecast/<raw_region>")
 def forecast(raw_region: str):
-    """Hourly demand forecast for one region, ensemble + per-model series."""
+    """GridPulse's published hourly series, with separately named comparisons."""
     from flask import request
+
+    from data.forecast_evidence import baseline_selection, forecast_timing
+    from data.forecast_identity import resolve_forecast_identity, selection_values
 
     region = _resolve_region(raw_region)
     if region is None:
@@ -456,35 +462,25 @@ def forecast(raw_region: str):
     if not isinstance(payload, dict) or not payload.get("forecasts"):
         return _warming_response("No published forecast is available for this region.")
 
+    identity = resolve_forecast_identity(payload, "published")
+    available_hours = min(horizon, len(payload["forecasts"]))
+    if identity is None or selection_values(payload, identity, available_hours) is None:
+        return _warming_response(
+            "The published forecast is incomplete or withheld at this horizon."
+        )
     rows_in = payload["forecasts"][:horizon]
-    # The production series is the ensemble when present (ADR-004); fall back
-    # to the payload's primary model and say so — never silently.
-    has_ensemble = any("ensemble" in r for r in rows_in)
-    # A region served the seasonal-naive baseline (models/skill.py) must never
-    # read as a model forecast here — the substitution exists BECAUSE the model
-    # was worse than the baseline, and publishing it as "ensemble" would hide
-    # exactly the fact that justified it.
-    if payload.get("served_series") == "seasonal-naive":
-        series_source = "seasonal-naive-baseline"
-        # The headline series MUST follow the label. Reading `ensemble` here
-        # published the model's numbers under a "baseline" source — a false
-        # disclosure, and worse than not substituting at all, because a
-        # consumer would trust the label. The substituted series lives in
-        # `baseline` / `predicted_demand_mw`; the models stay in `by_model`.
-        headline_keys = ("baseline", "predicted_demand_mw")
-    else:
-        series_source = "ensemble" if has_ensemble else payload.get("primary_model", "unknown")
-        headline_keys = ("ensemble", "predicted_demand_mw")
+    series_source = (
+        "seasonal-naive-baseline"
+        if identity.metric_key == "baseline"
+        else identity.metric_key or "unknown"
+    )
 
     rows_out: list[dict[str, Any]] = []
     for r in rows_in:
         rows_out.append(
             {
                 "timestamp": r.get("timestamp"),
-                "demand_mw": next(
-                    (r[k] for k in headline_keys if k in r),
-                    r.get("predicted_demand_mw"),
-                ),
+                "demand_mw": r[identity.column],
                 # Allow-list, never pass-through: unknown fields a future
                 # writer adds to the cache schema must not auto-publish.
                 "by_model": {name: r[name] for name in _EXPORTED_MODELS if name in r},
@@ -497,6 +493,10 @@ def forecast(raw_region: str):
         "scored_at": payload.get("scored_at"),
         "granularity": payload.get("granularity", "1h"),
         "series_source": series_source,
+        "producer": "GridPulse",
+        "series_role": "published_forecast",
+        "timing": forecast_timing(payload, available_hours),
+        "baseline_selection": baseline_selection(payload),
         "served_reason": payload.get("served_reason"),
         "skill": payload.get("skill"),
         "horizon_hours": len(rows_out),
@@ -513,6 +513,66 @@ def forecast(raw_region: str):
     if payload.get("model_metrics"):
         body["holdout_metrics"] = payload["model_metrics"]
     return jsonify(body)
+
+
+@api_v1.get("/publications/<raw_region>")
+def publications(raw_region: str):
+    """Only cached prospective issues; absence never manufactures history."""
+    from data.forecast_publications import INDEX_DAYS, MAX_ISSUES, PILOT_REGIONS
+
+    region = _resolve_region(raw_region)
+    if region is None:
+        return _unknown_region_response()
+    cached = redis_get(redis_key(f"publication_index:{region}"))
+    fields = (
+        "publication_id",
+        "generated_at",
+        "observed_published_at",
+        "series_source",
+        "series_label",
+        "forecast_start_at",
+        "target_end_at",
+        "target_hours",
+    )
+    rows = (
+        [{k: row.get(k) for k in fields} for row in cached[:MAX_ISSUES] if isinstance(row, dict)]
+        if isinstance(cached, list)
+        else []
+    )
+    return jsonify(
+        {
+            "region": region,
+            "pilot_enabled": region in PILOT_REGIONS,
+            "status": "available" if rows else "no_cached_publications",
+            "index_window_days": INDEX_DAYS,
+            "publications": rows,
+            "notes": [
+                "Prospective scheduled-job captures only; legacy chart replay is separate.",
+                "An empty index does not prove no forecast was served.",
+            ],
+        }
+    )
+
+
+@api_v1.get("/publications/<raw_region>/<publication_id>")
+def publication(raw_region: str, publication_id: str):
+    from data.forecast_publications import export_publication
+
+    region = _resolve_region(raw_region)
+    if region is None:
+        return _unknown_region_response()
+    if len(publication_id) != 64 or any(c not in "0123456789abcdef" for c in publication_id):
+        return jsonify({"error": "invalid_publication_id"}), 400
+    record = redis_get(redis_key(f"publication:{region}:{publication_id}"))
+    if (
+        not isinstance(record, dict)
+        or record.get("publication_id") != publication_id
+        or record.get("region") != region
+    ):
+        return jsonify(
+            {"error": "publication_unavailable", "detail": "This issue is not in the read cache."}
+        ), 404
+    return jsonify(export_publication(record))
 
 
 @api_v1.get("/grid/summary")
@@ -625,7 +685,7 @@ def _export_drift_models(models_block: dict, allowed_fields: tuple[str, ...]) ->
     any future writer-added fields must not auto-publish (#250 review).
     """
     out: dict[str, Any] = {}
-    for name in _EXPORTED_MODELS:
+    for name in _EXPORTED_DRIFT_SERIES:
         block = models_block.get(name)
         if not isinstance(block, dict):
             continue
@@ -635,7 +695,7 @@ def _export_drift_models(models_block: dict, allowed_fields: tuple[str, ...]) ->
 
 @api_v1.get("/drift/<raw_region>")
 def drift(raw_region: str):
-    """Live 1h nowcast drift + horizon-matched (24/48/72h) grades."""
+    """First-hour nowcast and forecast-start-offset diagnostic evidence."""
     region = _resolve_region(raw_region)
     if region is None:
         return _unknown_region_response()
@@ -657,9 +717,10 @@ def drift(raw_region: str):
         "live_1h": None,
         "by_horizon": None,
         "notes": [
-            "1h drift is a nowcast diagnostic; models without a 1-hour anchor "
-            "are expected to sit above the 1h band. Horizon-matched grades "
-            "(24/48/72h) are the operating-horizon verdict (#227).",
+            "live_1h is a first-forecast-hour nowcast diagnostic, not an exact issue-to-target lead.",
+            "24/48/72h diagnostics use offsets from the first forecast target. "
+            "Configured error bands describe historical observations, not a guarantee for the current forecast.",
+            "n_records is retained history; n_7d and coverage_7d describe the seven-day scoring window.",
         ],
         # Drift = forecast-vs-actual demand; the EIA-930 actual is the anchor.
         "attribution": [_ATTRIBUTION["demand"]],
@@ -671,16 +732,23 @@ def drift(raw_region: str):
         }
     if horizon_ok:
         by_model: dict[str, Any] = {}
-        for name in _EXPORTED_MODELS:
+        from data.forecast_evidence import public_coverage
+
+        for name in _EXPORTED_DRIFT_SERIES:
             horizons_block = horizon["models"].get(name)
             if not isinstance(horizons_block, dict):
                 continue
             by_model[name] = {
-                h: {k: block.get(k) for k in _EXPORTED_HORIZON_DRIFT_FIELDS if k in block}
+                h: {
+                    **{k: block.get(k) for k in _EXPORTED_HORIZON_DRIFT_FIELDS if k in block},
+                    **({"coverage_7d": public_coverage(block)} if public_coverage(block) else {}),
+                }
                 for h, block in horizons_block.items()
                 if isinstance(block, dict)
             }
         body["by_horizon"] = {
+            "last_updated_at": horizon.get("last_updated_at"),
+            "lead_basis": "hours_after_first_forecast_target",
             "horizons": horizon.get("horizons", ["24h", "48h", "72h"]),
             "models": by_model,
         }

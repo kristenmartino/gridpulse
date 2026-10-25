@@ -138,16 +138,18 @@ class TestHeadlineFollowsTheLabel:
         # the models stay visible as the evidence for the substitution
         assert body["forecast"][0]["by_model"]["ensemble"] == 241.3
 
-    def test_normal_region_still_publishes_the_ensemble(self, monkeypatch):
+    def test_normal_region_publishes_its_primary_instead_of_the_ensemble(self, monkeypatch):
         import api as api_module
 
         api_module._memo.clear()
-        monkeypatch.setattr(api_module, "redis_get", self._redis(self._payload()))
+        payload = self._payload()
+        payload["forecasts"][0]["predicted_demand_mw"] = 249.2
+        monkeypatch.setattr(api_module, "redis_get", self._redis(payload))
         from flask import Flask
 
         app = Flask(__name__)
         app.register_blueprint(api_module.api_v1)
         body = app.test_client().get("/api/v1/forecast/SEC?horizon=1").get_json()
 
-        assert body["series_source"] == "ensemble"
-        assert body["forecast"][0]["demand_mw"] == 241.3
+        assert body["series_source"] == "arima"
+        assert body["forecast"][0]["demand_mw"] == 249.2

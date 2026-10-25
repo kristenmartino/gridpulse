@@ -1895,6 +1895,8 @@ def _baseline_substitution(
         # had already drifted from it (no `beats_baseline`, no non-finite
         # guards) while `should_serve_baseline` consumed it regardless.
         skill_block = skill_payload(float(model_mape), y, window_days=7)
+        skill_block["compared_series"] = "ensemble"
+        skill_block["comparison_basis"] = "unpaired_trailing_window"
         serve, reason = should_serve_baseline(skill_block)
         skill_block["decision"] = reason
         if not serve:
@@ -2734,12 +2736,24 @@ def predict_and_write_forecast(
         # The 720-row payload is the largest single write the job makes, and it
         # is JSON-serialised inside persist() — so this covers serialisation,
         # not just network time.
+        from data.forecast_publications import archive_publication, prepare_publication
+
+        try:
+            publication = prepare_publication(redis_payload)
+        except Exception as exc:
+            log.warning("publication_prepare_failed", region=region, error=str(exc))
+            publication = None
+        if publication is not None:
+            redis_payload["publication_id"] = publication["publication_id"]
         with substep("redis_write"):
             persist(
                 redis_key(f"forecast:{region}:1h"),
                 redis_payload,
                 ttl=REDIS_TTL,
             )
+        if publication is not None:
+            with substep("publication_archive"):
+                archive_publication(publication)
         # #478: the shadow weighting. Blends the SAME per-model forecasts under
         # the arm that is not being served, so the two differ only in weights —
         # and writes it to its own key, never into ``redis_payload``. That last

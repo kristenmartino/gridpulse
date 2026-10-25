@@ -27,11 +27,13 @@ def build_forecast_review(context: dict) -> html.Div:
                             ),
                             html.P(
                                 [
-                                    "Published default: ",
+                                    "GridPulse published forecast: ",
                                     html.Strong(value("published_label", "Unavailable")),
                                 ],
                                 className="gp-forecast-review__note",
-                            ),
+                            )
+                            if context.get("display_label") != context.get("published_label")
+                            else None,
                         ],
                         className="gp-forecast-review__cell",
                     ),
@@ -44,6 +46,10 @@ def build_forecast_review(context: dict) -> html.Div:
                             html.P(
                                 value("error_value", "Not available"),
                                 className="gp-forecast-review__value tabular",
+                            ),
+                            html.P(
+                                value("coverage_summary", "Scoring coverage unavailable"),
+                                className="gp-forecast-review__status",
                             ),
                             html.P(
                                 value(
@@ -80,6 +86,23 @@ def build_forecast_review(context: dict) -> html.Div:
             ),
             html.P(
                 value("source_note", "Forecast source details are not available."),
+                className="gp-forecast-review__source-note",
+            ),
+            *(
+                [html.P(context["baseline_note"], className="gp-forecast-review__source-note")]
+                if context.get("baseline_note")
+                else []
+            ),
+            html.P(
+                value("timing_summary", "Target window and generation time unavailable."),
+                className="gp-forecast-review__source-note",
+            ),
+            html.Details(
+                [
+                    html.Summary("Timing and scoring coverage"),
+                    html.P(value("timing_note", "Timing metadata unavailable.")),
+                    html.P(value("coverage_note", "Coverage metadata unavailable.")),
+                ],
                 className="gp-forecast-review__source-note",
             ),
         ],

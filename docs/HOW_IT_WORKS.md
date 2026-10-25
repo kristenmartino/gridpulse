@@ -455,6 +455,30 @@ Persona selection doesn't change the data — it changes the *emphasis*. A trade
 
 **Shipped scope is narrower than the persona config implies.** `personas/config.py` also declares `kpi_metrics` and `alert_threshold` per persona, and `_build_persona_kpis` / `_build_overview_briefing` exist in `components/_callbacks_overview.py` — but none of them have a live call site: the KPI builders are re-exported only for tests, and `alert_threshold` is never read outside its own dataclass. All four personas also declare `default_tab="tab-overview"`, so the default-tab redirect is a no-op in practice. Do not describe persona switching as changing KPI selection, alert thresholds, or scenario sets until that code is wired up or deleted — tracked in [#188](https://github.com/kristenmartino/gridpulse/issues/188) (dead persona config).
 
+## Published forecast evidence
+
+The dashboard and `/api/v1/forecast/{region}` use `predicted_demand_mw` as the
+published series. Producer/source labels distinguish GridPulse model comparisons
+from its published model or seasonal baseline. Forecast generation time, target
+range, and input-anchor time are separate; an original operator issue clock is
+not inferred from capture time. Horizon drift's 24/48/72h keys mean offsets from
+the first forecast target, not exact publication-to-target leads.
+
+The scoring job prospectively captures immutable published-series receipts for
+the configured pilot after its required forecast Redis write succeeds. GCS
+objects are create-only under `cache/publications/v1/`; Redis supplies the
+bounded read index and issue cache. Web requests read that cache without fetching
+GCS/upstream data or generating history. This is separate from chart-callback
+legacy replay. Missing receipts stay missing; an archive failure does not change
+the live series. API routes `/api/v1/publications/{region}` and
+`/api/v1/publications/{region}/{id}` expose allow-listed evidence. See the
+[audit and retention contract](audits/FORECAST_EVIDENCE_2026-10-25.md).
+
+Observed-error panels show sample/coverage separately from historical training
+scores. A full seven-day hourly window has 168 possible targets; that is not a
+claim that every series has existed or been captured throughout the window.
+Legacy total-history counts cannot stand in for in-window counts.
+
 ## What's next
 
 This document describes an evolving portfolio application. Working pipelines, tests and monitoring demonstrate implementation and evaluation; they do not establish practitioner adoption or operational impact. Check live forecast source and metric labels in the application, and validate the proposed review workflow with energy practitioners before claiming business outcomes.
@@ -465,7 +489,7 @@ Pulled from [`CANONICAL_FACTS.md`](CANONICAL_FACTS.md):
 
 - 51 US balancing authorities (~100% of contiguous-US lower-48 load)
 - 3 base ML models (Prophet, SARIMAX, XGBoost) + 1 inverse-MAPE weighted ensemble
-- 4 user-selectable forecasts in the UI (the 3 base + the ensemble)
+- Published default plus 4 named model comparisons in the UI
 - 49 features (17 raw weather + 32 derived)
 - Hourly scoring + daily training at 04:00 UTC
 - Redis-only reads in the web tier; degraded warming state when cold

@@ -182,6 +182,79 @@ class TestRegions:
         assert spa["import_dominated"] is True
 
 
+class TestPublicationEvidence:
+    @patch("api.redis_get", return_value=None)
+    def test_empty_archive_is_not_manufactured_from_live_forecast(self, redis, client):
+        body = client.get("/api/v1/publications/FPL").get_json()
+        assert body["status"] == "no_cached_publications"
+        assert body["publications"] == []
+        assert redis.call_count == 1
+
+    @patch("api.redis_get")
+    def test_index_export_is_allowlisted(self, redis, client):
+        redis.return_value = [
+            {"publication_id": "a" * 64, "generated_at": "now", "debug": "private"}
+        ]
+        body = client.get("/api/v1/publications/FPL").get_json()
+        assert body["status"] == "available"
+        assert "private" not in str(body)
+
+    @patch("api.redis_get")
+    def test_receipt_can_be_read_without_live_forecast_or_upstream_fetch(self, redis, client):
+        redis.return_value = {
+            "publication_id": "a" * 64,
+            "region": "FPL",
+            "timing": {},
+            "forecast": [
+                {"timestamp": "2026-10-25T18:00:00Z", "demand_mw": 100, "secret": "private"}
+            ],
+            "debug": "private",
+        }
+        response = client.get("/api/v1/publications/FPL/" + "a" * 64)
+        assert response.status_code == 200
+        assert response.get_json()["forecast"][0]["demand_mw"] == 100
+        assert "private" not in response.get_data(as_text=True)
+        assert redis.call_count == 1
+
+    @patch("api.redis_get", return_value=None)
+    def test_missing_or_invalid_issue_stays_missing(self, redis, client):
+        assert client.get("/api/v1/publications/FPL/" + "a" * 64).status_code == 404
+        assert client.get("/api/v1/publications/FPL/not-an-id").status_code == 400
+        assert client.get("/api/v1/publications/UNKNOWN").status_code == 404
+
+    @patch("api.redis_get")
+    def test_baseline_diagnostic_and_coverage_are_exported_without_internal_records(
+        self, redis, client
+    ):
+        redis.side_effect = [
+            None,
+            {
+                "last_updated_at": "2026-10-25T18:00:00Z",
+                "models": {
+                    "baseline": {
+                        "24h": {
+                            "n_7d": 10,
+                            "rolling_mape_7d": 3.36,
+                            "records": [{"secret": "private"}],
+                            "coverage_7d": {
+                                "scored_target_hours": 10,
+                                "possible_target_hours": 168,
+                                "debug": "private",
+                            },
+                        }
+                    },
+                    "unapproved_model": {"24h": {"n_7d": 100}},
+                },
+            },
+        ]
+        body = client.get("/api/v1/drift/FPL").get_json()
+        baseline = body["by_horizon"]["models"]["baseline"]["24h"]
+        assert baseline["coverage_7d"]["scored_target_hours"] == 10
+        assert "unapproved_model" not in body["by_horizon"]["models"]
+        assert "private" not in str(body)
+        assert body["by_horizon"]["lead_basis"] == "hours_after_first_forecast_target"
+
+
 class TestForecast:
     @patch("api.redis_get")
     def test_warming_when_cache_cold(self, mock_redis, client):
@@ -191,18 +264,18 @@ class TestForecast:
         assert resp.get_json()["status"] == "warming"
 
     @patch("api.redis_get")
-    def test_happy_path_defaults_to_24h_ensemble(self, mock_redis, client):
+    def test_happy_path_uses_published_primary_even_with_ensemble(self, mock_redis, client):
         mock_redis.return_value = _forecast_payload()
         resp = client.get("/api/v1/forecast/FPL")
         assert resp.status_code == 200
         body = resp.get_json()
         assert body["region"] == "FPL"
         assert body["scored_at"] == "2026-07-07T15:02:00+00:00"
-        assert body["series_source"] == "ensemble"
+        assert body["series_source"] == "xgboost"
         assert body["horizon_hours"] == 24
         assert len(body["forecast"]) == 24
         first = body["forecast"][0]
-        assert first["demand_mw"] == 20050.0  # ensemble, not primary
+        assert first["demand_mw"] == 20000.0  # same published column as the dashboard
         assert first["by_model"]["xgboost"] == 20000.0
         assert body["ensemble_weights"]["xgboost"] == 0.8
         assert body["holdout_metrics"]["xgboost"]["mape"] == 2.5

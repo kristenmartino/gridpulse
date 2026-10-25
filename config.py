@@ -241,6 +241,11 @@ GCS_ENABLED = os.getenv("GCS_ENABLED", str(_env.get("gcs_enabled", False))).lowe
     "yes",
 )
 GCS_PATH_PREFIX = os.getenv("GCS_PATH_PREFIX", "cache")
+FORECAST_PUBLICATION_REGIONS = frozenset(
+    region.strip()
+    for region in os.getenv("FORECAST_PUBLICATION_REGIONS", "FPL,PJM,LGEE").split(",")
+    if region.strip()
+)
 
 # ---------------------------------------------------------------------------
 # Model Training

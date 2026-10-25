@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-08-21
+# Status — updated 2026-10-25
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -18,6 +18,16 @@ follow-up commit.
 > sanity-check ritual.
 
 ## Active focus + open question
+
+**2026-10-25 — Practitioner workflow foundation.** Read-only production samples
+and source tracing found API/dashboard source divergence, nominal horizon labels
+that did not represent exact issue leads, incomplete scoring coverage, and legacy
+replay that cannot supply current originally published issues. The current work
+implements source/timing/baseline/coverage disclosures and prospective receipt
+capture before a historical operating-day review. See
+[`docs/audits/FORECAST_EVIDENCE_2026-10-25.md`](docs/audits/FORECAST_EVIDENCE_2026-10-25.md)
+and the [scoped sequence](docs/internal/PRACTITIONER_WORKFLOW_SCOPE.md).
+The older dated investigations below are retained as historical decisions.
 
 **2026-08-21 — [#231](https://github.com/kristenmartino/gridpulse/issues/231)
 more training history and hierarchical reconciliation both measured. #231 is

@@ -72,7 +72,9 @@ class TestTheServedForecastIsUnaffected:
         a, b = payloads["with"], payloads["without"]
         # scored_at is wall-clock and differs between the two runs by design.
         a.pop("scored_at", None)
+        a.pop("publication_id", None)  # includes the generation clock
         b.pop("scored_at", None)
+        b.pop("publication_id", None)
         assert a == b
 
     @patch("data.redis_client.redis_set")
