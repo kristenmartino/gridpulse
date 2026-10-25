@@ -43,7 +43,7 @@ flowchart LR
     TJ -- fetch --> OM
     SJ -- read models --> GCS
     TJ -- write models --> GCS
-    SJ -- write forecasts/alerts --> Redis
+    SJ -- write forecasts/alerts/hourly samples --> Redis
     TJ -- write backtests --> Redis
     App -- read only --> Redis
     User((User browser)) <-- HTTPS --> App
@@ -494,3 +494,21 @@ Pulled from [`CANONICAL_FACTS.md`](CANONICAL_FACTS.md):
 - Hourly scoring + daily training at 04:00 UTC
 - Redis-only reads in the web tier; degraded warming state when cold
 - 63 EIA-930 BAs in the contiguous US — we cover 51 of them (~81% by BA count, ~100% by demand-weighted load)
+
+## Hourly scoring coverage
+
+The scoring job observes the cached forecast before replacing it and writes
+`gridpulse:drift_hourly:{region}` through an atomic Redis WATCH transaction.
+The same transaction writes its small `:summary` key for web/API readers, so
+requests do not deserialize the retained sample ledger.
+Its sampling clock selects the next UTC hour plus 24/48/72 hours, so demand-based
+origin jumps or stalls do not skip target observations. This is a separate
+sampling policy; existing `drift_horizon` offset records and benchmark inputs
+are preserved. No trained-model inputs, serving thresholds, or weights change.
+
+The ledger retains seven days of target history plus future samples, with an
+11-day key TTL covering the longest future horizon and reporting lifetime.
+Actuals are reconciled on later ticks; first/latest observed values remain
+separate. Missing actuals do not suppress capture. API drift summaries expose
+`hourly_sampled` through an allow-list. UI panels keep startup visible and never
+blend these samples with legacy offsets. See the [dated coverage audit](audits/SCORING_COVERAGE_2026-10-25.md).

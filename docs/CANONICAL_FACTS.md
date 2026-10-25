@@ -272,8 +272,20 @@ which side loses a disagreement.
 ## Forecast-evidence contract (2026-10-25)
 
 - The public forecast API and dashboard select the published `predicted_demand_mw` series; named model columns remain comparisons.
-- Horizon-drift 24/48/72h keys are offsets from the first target hour, not exact issue-to-target leads. Seven-day observation counts and target coverage are separate from retained-history totals.
+- Legacy horizon-drift 24/48/72h keys are offsets from the first target hour, not exact issue-to-target leads. Seven-day observation counts and target coverage are separate from retained-history totals.
 - The baseline policy reason identifies its comparison as an unpaired ensemble-versus-seasonal-naive assessment. Its onset time is unknown; a record time is not substituted.
 - Prospective publication receipts are created by the scoring job after successful forecast persistence. Legacy chart replay cannot establish this provenance.
 
 Sources: [`data/forecast_identity.py`](../data/forecast_identity.py), [`data/forecast_evidence.py`](../data/forecast_evidence.py), [`data/forecast_publications.py`](../data/forecast_publications.py), [`models/drift.py`](../models/drift.py), and the [dated audit](audits/FORECAST_EVIDENCE_2026-10-25.md).
+
+## Hourly observation coverage (2026-10-25)
+
+The 19:56 UTC read-only fleet capture reconciled the legacy ensemble/24h window
+to 6,681 scored, 1,833 targets without an accepted matching forecast origin,
+and 54 awaiting usable actuals, across 8,568 region/target hours. Each region
+had all 168 hourly completion slots. This is a dated capture, not a standing
+accuracy or coverage claim. See the [reconciled audit](audits/SCORING_COVERAGE_2026-10-25.md).
+
+The new hourly observation stream uses H..H+1 sampling lead and a separate
+ledger. It does not recover missing historical predictions or establish a
+forecast-accuracy improvement. Legacy and new observations are never pooled.

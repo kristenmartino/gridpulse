@@ -97,6 +97,11 @@ def build_forecast_review(context: dict) -> html.Div:
                 value("timing_summary", "Target window and generation time unavailable."),
                 className="gp-forecast-review__source-note",
             ),
+            *(
+                [html.P(context["sampling_note"], className="gp-forecast-review__source-note")]
+                if context.get("sampling_note")
+                else []
+            ),
             html.Details(
                 [
                     html.Summary("Timing and scoring coverage"),

@@ -281,6 +281,22 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     # Redis round-trip — this payload is already the one about to be overwritten.
     region_data.previous_forecast_origin = phases.forecast_payload_origin(previous_forecast)
 
+    hourly_scoring_res = timed(
+        "hourly_scoring",
+        phases.write_hourly_scoring_metrics,
+        region,
+        previous_forecast,
+        region_data.demand_df,
+    )
+    summary["phases"]["hourly_scoring"] = {
+        "ok": hourly_scoring_res.ok,
+        **(
+            hourly_scoring_res.details
+            if hourly_scoring_res.ok
+            else {"error": hourly_scoring_res.error}
+        ),
+    }
+
     actuals_res = timed("actuals_weather", phases.write_actuals_and_weather, region_data)
     summary["phases"]["actuals_weather"] = {
         "ok": actuals_res.ok,

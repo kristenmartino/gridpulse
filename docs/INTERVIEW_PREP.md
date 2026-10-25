@@ -15,6 +15,18 @@
 - Time yourself reading aloud — most candidates run 50% over target on
   first attempt
 
+## Sampling coverage investigation (2026-10-25)
+
+**Project event, including AI-assisted implementation.** A fresh 51-region audit
+showed successful hourly jobs could still leave 1,833 of 8,568 24h target slots
+unsampled. The measurement followed a moving demand-based origin rather than
+the observation clock. The product decision was to preserve legacy results and
+add separately labeled hourly observations, rather than fill old gaps with
+later predictions. Synthetic continuity tests reach 168 scores per week under
+stalled/jumping origins; this is not a measured accuracy or business gain.
+Production sample capture and later actual scoring require separate checks.
+See the [audit](audits/SCORING_COVERAGE_2026-10-25.md) for evidence and limits.
+
 ## Seed stories identified from this week's work
 
 ### The metric that was measuring us — a public scorecard that lost 19 BAs and named the wrong culprit (2026-08-17 → 08-18)

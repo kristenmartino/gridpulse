@@ -27,6 +27,7 @@ def forecast_review_context(
         "holdout_note": "No training result is attributed to an unavailable forecast.",
         "coverage_summary": "Scoring coverage unavailable",
         "coverage_note": "The scored target hours and measurement window are not available.",
+        "sampling_note": "",
     }
     timing = forecast_timing(payload, hours)
 
@@ -137,6 +138,58 @@ def forecast_review_context(
         context["error_note"] = (
             f"No matching live score is published for the {hours}-hour lead. Scores from shorter leads are not substituted here."
         )
+    if key and hours in (24, 48, 72):
+        sampled = redis_get(redis_key(f"drift_hourly:{region}:summary"))
+        if (
+            isinstance(sampled, dict)
+            and sampled.get("schema_version") == 1
+            and sampled.get("sampling_basis") == "hourly_observation_before_target"
+        ):
+            new_block = (sampled.get("models", {}).get(key) or {}).get(f"{hours}h") or {}
+            n = new_block.get("n_7d", 0)
+            value = new_block.get("rolling_mape_7d")
+            context["sampling_note"] = (
+                f"Hourly sampling: first {hours}h target {clock(new_block.get('first_target_at'))} UTC. "
+                f"Scored observations: {n}; future samples: {new_block.get('future_sample_hours', 0)}."
+            )
+            if (
+                isinstance(n, int)
+                and n >= 6
+                and isinstance(value, (int, float))
+                and isfinite(value)
+                and value >= 0
+            ):
+                coverage = new_block.get("coverage_7d") or {}
+                context.update(
+                    error_label=f"Observed error · sampled ≥{hours}h before target · 7d MAPE",
+                    error_value=f"{value:.2f}%",
+                    error_note=(
+                        f"{identity.label} as observed by the hourly job, at least {hours} "
+                        f"and less than {hours + 1} hours before each target. This is the sampling "
+                        "lead, not the original publication lead. MAPE is mean absolute percentage "
+                        "error; lower is better. Historical error does not guarantee this forecast's accuracy."
+                    ),
+                    coverage_summary=f"{n} / 168 hourly targets scored",
+                    coverage_note=(
+                        f"Window evaluated at {coverage.get('as_of') or 'unknown time'}. "
+                        f"Of 168 target hours: {n} scored, "
+                        f"{coverage.get('not_yet_tracked_hours')} before collection, "
+                        f"{coverage.get('missing_sample_hours')} missing samples, "
+                        f"{coverage.get('series_unavailable_hours')} without this series, "
+                        f"{coverage.get('pending_actual_hours')} waiting for actual demand, "
+                        f"{coverage.get('low_actual_excluded_hours')} low-actual exclusions. "
+                        "These categories partition the window. Actuals may still be revised. "
+                        "Legacy forecast-start-offset records are not included."
+                    ),
+                )
+            else:
+                context["error_label"] = f"Observed error · legacy {hours}h offset · 7d MAPE"
+                context["sampling_note"] += (
+                    " The score above remains the legacy forecast-start-offset diagnostic "
+                    "until six new observations are scored; the two samples are not combined."
+                    if context["error_value"] != "Not available"
+                    else " No hourly error average is shown until six observations are scored; legacy histories stay separate."
+                )
     if key == "baseline":
         context.update(
             holdout_value="Not applicable",

@@ -1,5 +1,12 @@
 # Why the 24h drift window is short: the origin skips, it does not lose actuals
 
+> **2026-10-25 update:** this document describes the legacy forecast-start-offset
+> stream and an August capture. A [fresh fleet audit](audits/SCORING_COVERAGE_2026-10-25.md)
+> reconciles the current gaps and introduces a separate hourly observation
+> clock. Section 7's irrecoverability statement applies to missing old offset
+> predictions; it does not prohibit changing prospective sampling design.
+
+
 **Issue:** [#537](https://github.com/kristenmartino/gridpulse/issues/537), the
 fleet-wide half. The LGEE freeze and the SPA retraction are settled in
 [`docs/FORECAST_ORIGIN_REGRESSION.md`](FORECAST_ORIGIN_REGRESSION.md); this
