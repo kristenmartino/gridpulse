@@ -17,6 +17,16 @@ follow-up commit.
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
 
+## 2026-10-25 — foundation production evidence verified
+
+The three-region publication pilot is verified against live API values and GCS
+objects; a full scoring execution completed with 51 regions and zero failures.
+Source, clocks, baseline decision basis, coverage, and benchmark wording shipped.
+See the evidence audit for the dated observations. Historical operating-day
+review remains planned while trustworthy publication history accumulates.
+The final mobile follow-through contains the training metrics table as a
+keyboard-scrollable region, using the same rule as the diagnostic tables.
+
 ## 2026-10-25 — benchmark provenance wording follow-through
 
 The foundation audit also applies to `/benchmark`: latest-observed EIA actuals

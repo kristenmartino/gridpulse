@@ -2,7 +2,7 @@
 
 Date: 2026-10-25
 
-Status: implementation started 2026-10-25. Evidence audit A is recorded in `docs/audits/FORECAST_EVIDENCE_2026-10-25.md`; foundation B is being implemented before historical workflow C. Estimates remain planning ranges, not delivery commitments.
+Status: evidence audit A and foundation B deployed and production-verified on 2026-10-25; see `docs/audits/FORECAST_EVIDENCE_2026-10-25.md`. Prospective publication capture is verified for the three pilot regions. Historical workflow C remains gated on adequate verified history. Estimates for remaining work are planning ranges, not delivery commitments.
 
 ## 1. Product decision
 
