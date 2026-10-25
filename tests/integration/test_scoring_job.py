@@ -1600,3 +1600,42 @@ class TestAnchorProvenanceReachesRedis:
         assert seen["vintage_data"] is seen["forecast_data"], (
             "the two phases hold different RegionData objects — the in-memory hand-off cannot work"
         )
+
+
+def test_hourly_sample_is_taken_before_the_forecast_is_replaced(
+    fake_redis, patch_data_sources, patch_single_region, monkeypatch
+):
+    from jobs import phases, scoring_job
+
+    order = []
+
+    def sample(region, previous, demand):
+        order.append("sample")
+        return phases.PhaseResult(region=region, ok=True)
+
+    from models.persistence import ModelMetadata
+
+    meta = ModelMetadata(
+        region="ERCOT",
+        model_name="prophet",
+        version="test",
+        data_hash="h",
+        trained_at="",
+        train_rows=1,
+        mape=5.0,
+        lib_versions={},
+        extra={},
+    )
+    monkeypatch.setattr(
+        scoring_job, "load_model", lambda region, name: ({}, meta) if name == "prophet" else None
+    )
+
+    def predict(*args, **kwargs):
+        order.append("forecast")
+        assert order[0] == "sample"
+        return phases.PhaseResult(region="ERCOT", ok=True)
+
+    monkeypatch.setattr(phases, "write_hourly_scoring_metrics", sample)
+    monkeypatch.setattr(phases, "predict_and_write_forecast", predict)
+    scoring_job.run()
+    assert order.index("sample") < order.index("forecast")

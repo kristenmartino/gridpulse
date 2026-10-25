@@ -702,10 +702,16 @@ def drift(raw_region: str):
 
     live = redis_get(redis_key(f"drift:{region}"))
     horizon = redis_get(redis_key(f"drift_horizon:{region}"))
+    hourly = redis_get(redis_key(f"drift_hourly:{region}:summary"))
 
     live_ok = isinstance(live, dict) and live.get("models")
     horizon_ok = isinstance(horizon, dict) and horizon.get("models")
-    if not live_ok and not horizon_ok:
+    hourly_ok = (
+        isinstance(hourly, dict)
+        and hourly.get("schema_version") == 1
+        and hourly.get("sampling_basis") == "hourly_observation_before_target"
+    )
+    if not live_ok and not horizon_ok and not hourly_ok:
         return _warming_response(
             "No live error records are available for this region. "
             "Forecasts can be scored once demand for their target hours is reported."
@@ -716,6 +722,7 @@ def drift(raw_region: str):
         "name": REGION_NAMES[region],
         "live_1h": None,
         "by_horizon": None,
+        "hourly_sampled": None,
         "notes": [
             "live_1h is a first-forecast-hour nowcast diagnostic, not an exact issue-to-target lead.",
             "24/48/72h diagnostics use offsets from the first forecast target. "
@@ -752,6 +759,10 @@ def drift(raw_region: str):
             "horizons": horizon.get("horizons", ["24h", "48h", "72h"]),
             "models": by_model,
         }
+    if hourly_ok:
+        from models.hourly_scoring import export_hourly_scoring
+
+        body["hourly_sampled"] = export_hourly_scoring(hourly)
     return jsonify(body)
 
 

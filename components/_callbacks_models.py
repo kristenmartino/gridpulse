@@ -682,7 +682,7 @@ def _build_drift_panel(region: str | None) -> html.Div:
                     "Live columns show first-hour MAPE over the trailing 7 and 30 days, "
                     "recalculated as EIA revises reported demand. Holdout is the last "
                     "training run’s 168-hour recursive evaluation. These measure "
-                    "different forecast horizons. Status bands apply to the seven-day live average. Horizon offsets are measured from the first forecast target, not the issue clock."
+                    "different forecast horizons. Status bands apply to the seven-day live average. Horizon offsets are measured from the first forecast target, not the issue clock. Cross-horizon status uses the legacy offset diagnostic, separate from the new hourly samples."
                 ),
                 className="gp-panel__caption",
             ),
@@ -693,6 +693,99 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
 
 def _build_horizon_drift_panel(region: str | None) -> html.Div:
+    """Keep hourly clock samples and legacy origin-offset diagnostics separate."""
+    legacy = _build_legacy_horizon_drift_panel(region)
+    sampled = redis_get(redis_key(f"drift_hourly:{region or 'FPL'}:summary"))
+    if (
+        not isinstance(sampled, dict)
+        or sampled.get("schema_version") != 1
+        or sampled.get("sampling_basis") != "hourly_observation_before_target"
+    ):
+        return legacy
+    rows = []
+    for model in ("prophet", "arima", "xgboost", "ensemble", "baseline"):
+        cells = [html.Td(model_display_name(model) if model != "baseline" else "Seasonal baseline")]
+        for horizon in ("24h", "48h", "72h"):
+            block = (sampled.get("models", {}).get(model) or {}).get(horizon) or {}
+            count = block.get("n_7d", 0)
+            score = block.get("rolling_mape_7d")
+            if isinstance(score, (int, float)) and np.isfinite(score) and score >= 0 and count >= 6:
+                text = f"{score:.2f}%"
+            elif count or block.get("future_sample_hours"):
+                text = "Collecting"
+            else:
+                text = "Not sampled"
+            cells.append(
+                html.Td(
+                    [
+                        html.Span(text, className="gp-drift-horizon-mape"),
+                        html.Span(
+                            f"{count} / 168 scored · future samples: {block.get('future_sample_hours', 0)}",
+                            className="gp-panel__caption",
+                        ),
+                    ],
+                    className="gp-drift-cell--horizon",
+                )
+            )
+        rows.append(html.Tr(cells))
+    first = (sampled.get("models", {}).get("ensemble") or {}).get("24h", {}).get("first_target_at")
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Div("Hourly observation scores — 7d MAPE", className="gp-control-eyebrow"),
+                    html.P(
+                        "Each forecast is sampled at least H and less than H+1 hours before its target. "
+                        "This sampling clock is independent of the forecast's input origin and original "
+                        "publication time. Six scored observations are required to display an average; "
+                        "that display rule does not establish representative coverage.",
+                        className="gp-panel__caption",
+                    ),
+                    html.P(
+                        f"Collection started: {sampled.get('capture_started_at')}. First 24h target (UTC): {first}.",
+                        className="gp-panel__caption",
+                    ),
+                    html.Div(
+                        html.Table(
+                            [
+                                html.Thead(
+                                    html.Tr(
+                                        [
+                                            html.Th("Model"),
+                                            *[
+                                                html.Th(f"≥{h} sample lead")
+                                                for h in ("24h", "48h", "72h")
+                                            ],
+                                        ]
+                                    )
+                                ),
+                                html.Tbody(rows),
+                            ],
+                            className="metrics-table",
+                        ),
+                        className="gp-drift-table-scroll",
+                        role="region",
+                        tabIndex=0,
+                        **{
+                            "aria-label": "Hourly observation scores; scroll horizontally if needed"
+                        },
+                    ),
+                ],
+                className="gp-models-drift-panel",
+            ),
+            html.Details(
+                [
+                    html.Summary("Legacy forecast-start-offset diagnostics (separate sample)"),
+                    legacy,
+                ]
+            ),
+        ],
+        className="gp-models-drift-stack",
+        id="hourly-horizon-drift-panel",
+    )
+
+
+def _build_legacy_horizon_drift_panel(region: str | None) -> html.Div:
     """Per-horizon live drift panel — Models tab, #227.
 
     Reads ``gridpulse:drift_horizon:{region}`` (written by

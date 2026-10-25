@@ -36,7 +36,7 @@ The default view is Forecast Review Analyst. Three secondary role-based views (R
 
 The scoring job writes the published default to `predicted_demand_mw`. `primary_model` identifies its model unless `served_series=seasonal-naive` marks a repeated-day baseline. Overview and Forecast's default selection read that published column; explicit model columns remain available for comparison. A baseline never inherits a trained model's name, holdout score, or prediction interval.
 
-The visible evidence panel separates **observed error** from the **training reference**. Observed error is seven-day MAPE for the displayed series at the selected forecast-start offset (24/48/72h), shown only with at least six matching observations. These offsets run from the first forecast target, not the generation/publication clock. The display-count rule does not establish sample sufficiency. Coverage and scored target dates are shown when recorded; legacy totals are not substituted for seven-day counts. It describes past forecasts at that horizon, not every point in the chart or expected future accuracy. The 7-day and 30-day views have no matching live lead score and say so. The training reference is that model's last 168-hour recursive holdout across multiple leads; missing or unidentified series never inherit another model's metrics.
+The visible evidence panel separates **observed error** from the **training reference**. Observed error is seven-day MAPE for the displayed series, shown only with at least six matching observations. New hourly observations are sampled at least H and less than H+1 hours before their target (H = 24/48/72), independently of the forecast’s input origin. This is sampling lead, not original publication lead. Until six new observations are scored, the panel identifies the shown metric as the legacy forecast-start-offset score; the two histories are never pooled. The display-count rule does not establish sample sufficiency. Coverage and scored target dates are shown when recorded; legacy totals are not substituted for seven-day counts. It describes past forecasts at that horizon, not every point in the chart or expected future accuracy. The 7-day and 30-day views have no matching live lead score and say so. The training reference is that model's last 168-hour recursive holdout across multiple leads; missing or unidentified series never inherit another model's metrics.
 
 The operator benchmark scores the named model series, not necessarily the published default. Each row identifies its model. Its aggregate median summarizes a stated group of authorities; authorities reported separately are excluded from that median. Forecast leads are not fully matched with the operator submissions, so the comparison does not establish operational value.
 
@@ -246,6 +246,8 @@ The read cache has a rolling 30-day index, bounded to 720 issues per region;
 this does not promise complete capture or a 30-day physical GCS deletion policy.
 Legacy chart replay is separate. The historical operating-day review is gated
 on verified publication history and has not been introduced by this foundation.
+
+The drift API also exposes separate `hourly_sampled` summaries. Coverage categories distinguish startup, missing observations, unavailable series, pending actuals, and exclusions. See the [scoring-coverage investigation](docs/audits/SCORING_COVERAGE_2026-10-25.md).
 
 See the [evidence audit](docs/audits/FORECAST_EVIDENCE_2026-10-25.md) and
 [implementation scope](docs/internal/PRACTITIONER_WORKFLOW_SCOPE.md).

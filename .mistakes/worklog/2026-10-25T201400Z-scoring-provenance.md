@@ -1,0 +1,1 @@
+2026-10-25 [scoring-provenance] The coverage investigation found resolved targets could be sampled again with later predictions; the first-observation regression is covered in tests/unit/test_hourly_scoring.py.

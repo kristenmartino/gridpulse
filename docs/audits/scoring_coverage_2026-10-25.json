@@ -1,0 +1,1108 @@
+{
+  "captured_at": "2026-10-25T19:56:29.827944+00:00",
+  "region_count": 51,
+  "window_hours_per_region": 168,
+  "flags": {
+    "temporal_ar_seed": false,
+    "temporal_ar_seed_shadow": true
+  },
+  "totals": {
+    "24h": {
+      "scored": 6681,
+      "no_accepted_forecast_origin": 1833,
+      "awaiting_usable_actual": 54
+    },
+    "48h": {
+      "scored": 5886,
+      "no_accepted_forecast_origin": 2625,
+      "awaiting_usable_actual": 56,
+      "low_actual_excluded": 1
+    },
+    "72h": {
+      "no_accepted_forecast_origin": 2701,
+      "scored": 5810,
+      "awaiting_usable_actual": 56,
+      "low_actual_excluded": 1
+    }
+  },
+  "regions": {
+    "AECI": {
+      "as_of": "2026-10-25T19:13:08.630640+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 47,
+          "scored": 120,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "AVA": {
+      "as_of": "2026-10-25T19:14:26.386577+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "AZPS": {
+      "as_of": "2026-10-25T19:10:55.248771+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 124,
+          "no_accepted_forecast_origin": 42,
+          "awaiting_usable_actual": 2
+        },
+        "48h": {
+          "scored": 111,
+          "no_accepted_forecast_origin": 54,
+          "awaiting_usable_actual": 2,
+          "low_actual_excluded": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 54,
+          "scored": 111,
+          "awaiting_usable_actual": 2,
+          "low_actual_excluded": 1
+        }
+      }
+    },
+    "BANC": {
+      "as_of": "2026-10-25T19:15:10.054746+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 132,
+          "no_accepted_forecast_origin": 35,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 117,
+          "no_accepted_forecast_origin": 50,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 50,
+          "scored": 117,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "BPAT": {
+      "as_of": "2026-10-25T19:10:56.614915+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 128,
+          "no_accepted_forecast_origin": 39,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 41,
+          "scored": 126,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "CAISO": {
+      "as_of": "2026-10-25T19:09:38.415051+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 124,
+          "no_accepted_forecast_origin": 43,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 107,
+          "no_accepted_forecast_origin": 60,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 105,
+          "no_accepted_forecast_origin": 62,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "CHPD": {
+      "as_of": "2026-10-25T19:15:00.642572+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 134,
+          "no_accepted_forecast_origin": 33,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "CPLE": {
+      "as_of": "2026-10-25T19:10:53.877031+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 127,
+          "no_accepted_forecast_origin": 40,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 126,
+          "no_accepted_forecast_origin": 41,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "CPLW": {
+      "as_of": "2026-10-25T19:13:01.596284+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 138,
+          "no_accepted_forecast_origin": 29,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "DOPD": {
+      "as_of": "2026-10-25T19:15:05.090445+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 136,
+          "no_accepted_forecast_origin": 31,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 47,
+          "scored": 120,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "DUK": {
+      "as_of": "2026-10-25T19:10:51.972373+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 134,
+          "no_accepted_forecast_origin": 33,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 122,
+          "no_accepted_forecast_origin": 45,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 47,
+          "scored": 120,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "EPE": {
+      "as_of": "2026-10-25T19:13:07.588338+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 138,
+          "no_accepted_forecast_origin": 29,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 47,
+          "scored": 120,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "ERCOT": {
+      "as_of": "2026-10-25T19:09:41.067071+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 105,
+          "no_accepted_forecast_origin": 62,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 65,
+          "scored": 102,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "FMPP": {
+      "as_of": "2026-10-25T19:11:54.028450+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 49,
+          "scored": 118,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "FPC": {
+      "as_of": "2026-10-25T19:11:49.410587+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 133,
+          "no_accepted_forecast_origin": 34,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 117,
+          "no_accepted_forecast_origin": 50,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 52,
+          "scored": 115,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "FPL": {
+      "as_of": "2026-10-25T19:09:42.270570+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 124,
+          "no_accepted_forecast_origin": 43,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 106,
+          "no_accepted_forecast_origin": 61,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 101,
+          "no_accepted_forecast_origin": 66,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "GCPD": {
+      "as_of": "2026-10-25T19:15:01.821750+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 132,
+          "no_accepted_forecast_origin": 35,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 117,
+          "no_accepted_forecast_origin": 50,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 115,
+          "no_accepted_forecast_origin": 52,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "GVL": {
+      "as_of": "2026-10-25T19:12:11.299678+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 140,
+          "no_accepted_forecast_origin": 27,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "HST": {
+      "as_of": "2026-10-25T19:12:16.219449+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 139,
+          "no_accepted_forecast_origin": 28,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "IID": {
+      "as_of": "2026-10-25T19:15:30.766001+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 133,
+          "no_accepted_forecast_origin": 34,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 117,
+          "no_accepted_forecast_origin": 50,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 117,
+          "no_accepted_forecast_origin": 50,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "IPCO": {
+      "as_of": "2026-10-25T19:14:35.526563+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 135,
+          "no_accepted_forecast_origin": 33
+        },
+        "48h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 47,
+          "scored": 120,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "ISONE": {
+      "as_of": "2026-10-25T19:09:43.584759+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 106,
+          "no_accepted_forecast_origin": 61,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 103,
+          "no_accepted_forecast_origin": 64,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "JEA": {
+      "as_of": "2026-10-25T19:11:55.048186+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 133,
+          "no_accepted_forecast_origin": 34,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 115,
+          "no_accepted_forecast_origin": 52,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 54,
+          "scored": 113,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "LDWP": {
+      "as_of": "2026-10-25T19:15:11.450893+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 125,
+          "no_accepted_forecast_origin": 41,
+          "awaiting_usable_actual": 2
+        },
+        "48h": {
+          "scored": 111,
+          "no_accepted_forecast_origin": 55,
+          "awaiting_usable_actual": 2
+        },
+        "72h": {
+          "scored": 111,
+          "no_accepted_forecast_origin": 55,
+          "awaiting_usable_actual": 2
+        }
+      }
+    },
+    "LGEE": {
+      "as_of": "2026-10-25T19:13:02.111512+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 129,
+          "no_accepted_forecast_origin": 37,
+          "awaiting_usable_actual": 2
+        },
+        "48h": {
+          "scored": 111,
+          "no_accepted_forecast_origin": 55,
+          "awaiting_usable_actual": 2
+        },
+        "72h": {
+          "scored": 110,
+          "no_accepted_forecast_origin": 56,
+          "awaiting_usable_actual": 2
+        }
+      }
+    },
+    "MISO": {
+      "as_of": "2026-10-25T19:09:39.329991+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 116,
+          "no_accepted_forecast_origin": 51,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 99,
+          "no_accepted_forecast_origin": 68,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 94,
+          "no_accepted_forecast_origin": 73,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "NEVP": {
+      "as_of": "2026-10-25T19:11:10.080010+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 125,
+          "no_accepted_forecast_origin": 42,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 128,
+          "no_accepted_forecast_origin": 39,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "NWMT": {
+      "as_of": "2026-10-25T19:14:39.408280+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 134,
+          "no_accepted_forecast_origin": 33,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 49,
+          "scored": 118,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "NYISO": {
+      "as_of": "2026-10-25T19:09:39.032337+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 101,
+          "no_accepted_forecast_origin": 66,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 96,
+          "no_accepted_forecast_origin": 71,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "PACE": {
+      "as_of": "2026-10-25T19:13:24.923061+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 47,
+          "scored": 120,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "PACW": {
+      "as_of": "2026-10-25T19:13:57.714783+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "PGE": {
+      "as_of": "2026-10-25T19:13:59.232369+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 138,
+          "no_accepted_forecast_origin": 29,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 122,
+          "no_accepted_forecast_origin": 45,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "PJM": {
+      "as_of": "2026-10-25T19:09:44.657005+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 104,
+          "no_accepted_forecast_origin": 63,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 99,
+          "no_accepted_forecast_origin": 68,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "PNM": {
+      "as_of": "2026-10-25T19:16:09.656983+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 135,
+          "no_accepted_forecast_origin": 32,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 116,
+          "no_accepted_forecast_origin": 51,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "PSCO": {
+      "as_of": "2026-10-25T19:11:10.139621+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 123,
+          "no_accepted_forecast_origin": 44,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 113,
+          "no_accepted_forecast_origin": 54,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 113,
+          "no_accepted_forecast_origin": 54,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "PSEI": {
+      "as_of": "2026-10-25T19:14:05.070548+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 136,
+          "no_accepted_forecast_origin": 31,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "SC": {
+      "as_of": "2026-10-25T19:12:52.373336+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 134,
+          "no_accepted_forecast_origin": 33,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 115,
+          "no_accepted_forecast_origin": 52,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 115,
+          "no_accepted_forecast_origin": 52,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "SCEG": {
+      "as_of": "2026-10-25T19:13:00.840450+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 136,
+          "no_accepted_forecast_origin": 31,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "SCL": {
+      "as_of": "2026-10-25T19:14:03.722943+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 136,
+          "no_accepted_forecast_origin": 31,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 117,
+          "no_accepted_forecast_origin": 50,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "SEC": {
+      "as_of": "2026-10-25T19:12:19.838204+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 139,
+          "no_accepted_forecast_origin": 28,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "SOCO": {
+      "as_of": "2026-10-25T19:10:49.396941+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 135,
+          "no_accepted_forecast_origin": 32,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "SPA": {
+      "as_of": "2026-10-25T19:13:12.974691+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "no_accepted_forecast_origin": 85,
+          "scored": 82,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "no_accepted_forecast_origin": 90,
+          "scored": 75,
+          "awaiting_usable_actual": 3
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 95,
+          "scored": 70,
+          "awaiting_usable_actual": 3
+        }
+      }
+    },
+    "SPP": {
+      "as_of": "2026-10-25T19:09:41.378967+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 121,
+          "no_accepted_forecast_origin": 46,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 103,
+          "no_accepted_forecast_origin": 64,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 68,
+          "scored": 99,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "SRP": {
+      "as_of": "2026-10-25T19:15:46.370349+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 133,
+          "no_accepted_forecast_origin": 34,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 115,
+          "no_accepted_forecast_origin": 52,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "TAL": {
+      "as_of": "2026-10-25T19:12:00.158252+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 136,
+          "no_accepted_forecast_origin": 31,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 117,
+          "no_accepted_forecast_origin": 50,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 116,
+          "no_accepted_forecast_origin": 51,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "TEC": {
+      "as_of": "2026-10-25T19:11:52.633501+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 119,
+          "no_accepted_forecast_origin": 48,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "TEPC": {
+      "as_of": "2026-10-25T19:16:00.432230+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 133,
+          "no_accepted_forecast_origin": 34,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 51,
+          "scored": 116,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "TIDC": {
+      "as_of": "2026-10-25T19:15:42.050067+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 111,
+          "no_accepted_forecast_origin": 55,
+          "awaiting_usable_actual": 2
+        },
+        "48h": {
+          "scored": 100,
+          "no_accepted_forecast_origin": 67,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 102,
+          "no_accepted_forecast_origin": 65,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "TPWR": {
+      "as_of": "2026-10-25T19:14:10.489920+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 137,
+          "no_accepted_forecast_origin": 30,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 120,
+          "no_accepted_forecast_origin": 47,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "scored": 118,
+          "no_accepted_forecast_origin": 49,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "TVA": {
+      "as_of": "2026-10-25T19:10:50.898159+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 135,
+          "no_accepted_forecast_origin": 32,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 125,
+          "no_accepted_forecast_origin": 42,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 44,
+          "scored": 123,
+          "awaiting_usable_actual": 1
+        }
+      }
+    },
+    "WALC": {
+      "as_of": "2026-10-25T19:16:08.116579+00:00",
+      "successful_completion_hours": 168,
+      "horizons": {
+        "24h": {
+          "scored": 132,
+          "no_accepted_forecast_origin": 35,
+          "awaiting_usable_actual": 1
+        },
+        "48h": {
+          "scored": 116,
+          "no_accepted_forecast_origin": 51,
+          "awaiting_usable_actual": 1
+        },
+        "72h": {
+          "no_accepted_forecast_origin": 52,
+          "scored": 115,
+          "awaiting_usable_actual": 1
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Legacy forecast-start-offset samples, not a publication-lead benchmark.",
+    "No accepted origin means no successful non-regressed origin in these matching logs.",
+    "Pending samples await usable pipeline actuals; this does not prove the upstream never published demand.",
+    "This audit does not reconstruct unavailable historical forecast values."
+  ]
+}

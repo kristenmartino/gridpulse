@@ -3423,6 +3423,39 @@ def write_vintage_records(
         return PhaseResult(region=region, ok=False, error=str(exc))
 
 
+def write_hourly_scoring_metrics(
+    region: str,
+    forecast_payload: dict[str, Any] | None,
+    demand_df: pd.DataFrame,
+) -> PhaseResult:
+    """Observe the cached forecast on a wall clock, independently of its origin."""
+    from data.hourly_scoring_store import update_hourly_scoring
+
+    try:
+        actuals = {}
+        if demand_df is not None and not demand_df.empty:
+            for row in demand_df.itertuples():
+                value = getattr(row, "demand_mw", None)
+                if value is not None and np.isfinite(value) and value > 0:
+                    stamp = pd.to_datetime(row.timestamp, utc=True).isoformat()
+                    actuals[stamp] = float(value)
+        payload = update_hourly_scoring(region, forecast_payload, actuals)
+        # Fail loudly for this phase: a failed write must not report successful
+        # sampling. The surrounding job still isolates evaluation failures.
+        log.info(
+            "hourly_scoring_updated",
+            region=region,
+            sampling_basis=payload["sampling_basis"],
+            capture_started_at=payload["capture_started_at"],
+            retained_samples=len(payload["samples"]),
+            target_24h=payload["models"]["ensemble"]["24h"]["first_target_at"],
+        )
+        return PhaseResult(region=region, ok=True, details={"samples": len(payload["samples"])})
+    except Exception as exc:
+        log.warning("hourly_scoring_write_failed", region=region, error=str(exc))
+        return PhaseResult(region=region, ok=False, error=str(exc))
+
+
 def write_horizon_drift_metrics(
     region: str,
     forecast_payload: dict[str, Any] | None,
@@ -3444,18 +3477,17 @@ def write_horizon_drift_metrics(
     from data.redis_client import RedisReadError, redis_key, redis_set
     from models.drift import compute_horizon_drift_payload
 
-    if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
-        return PhaseResult(region=region, ok=True, details={"skipped": "no_actuals"})
-
     try:
-        df = demand_df.copy()
-        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-        df = df.dropna(subset=["demand_mw"])
-        actuals: dict[str, float] = {
-            row["timestamp"].isoformat(): float(row["demand_mw"])
-            for _, row in df.iterrows()
-            if np.isfinite(row["demand_mw"]) and float(row["demand_mw"]) > 0
-        }
+        actuals: dict[str, float] = {}
+        if demand_df is not None and not demand_df.empty and "demand_mw" in demand_df.columns:
+            df = demand_df.copy()
+            df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+            df = df.dropna(subset=["demand_mw"])
+            actuals = {
+                row["timestamp"].isoformat(): float(row["demand_mw"])
+                for _, row in df.iterrows()
+                if np.isfinite(row["demand_mw"]) and float(row["demand_mw"]) > 0
+            }
 
         try:
             existing = _read_window_strict(redis_key(f"drift_horizon:{region}"))
@@ -3464,7 +3496,8 @@ def write_horizon_drift_metrics(
             return PhaseResult(region=region, ok=False, error=f"history read failed: {exc}")
         existing_payload = existing if isinstance(existing, dict) else None
         payload = compute_horizon_drift_payload(region, existing_payload, forecast_payload, actuals)
-        redis_set(redis_key(f"drift_horizon:{region}"), payload, ttl=REDIS_TTL)
+        if not redis_set(redis_key(f"drift_horizon:{region}"), payload, ttl=REDIS_TTL):
+            raise RuntimeError("Horizon scoring history was not persisted")
 
         n_pending = len(payload.get("pending", []))
         n_records = sum(

@@ -17,6 +17,18 @@ follow-up commit.
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
 
+## 2026-10-25 — scoring coverage reconciliation
+
+Fresh state from all 51 regions and matching origin/completion logs reconciles
+all missing legacy target samples. The 24h window has 6,681 scored, 1,833 with no
+accepted matching origin, and 54 pending actuals; hourly completions are complete.
+The repair adds a separate wall-clock observation ledger, preserves legacy
+scores, freezes original predictions on retries, and reports failed writes.
+Synthetic continuity tests cover 168 targets at every lead despite origin stalls
+and jumps. Live capture must be checked after deployment; full observed scores
+need future targets and actuals. Historical review remains deferred.
+See [the dated audit](docs/audits/SCORING_COVERAGE_2026-10-25.md).
+
 ## 2026-10-25 — foundation production evidence verified
 
 The three-region publication pilot is verified against live API values and GCS

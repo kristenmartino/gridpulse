@@ -246,6 +246,7 @@ class TestPublicationEvidence:
                     "unapproved_model": {"24h": {"n_7d": 100}},
                 },
             },
+            None,
         ]
         body = client.get("/api/v1/drift/FPL").get_json()
         baseline = body["by_horizon"]["models"]["baseline"]["24h"]
@@ -522,3 +523,37 @@ class TestDrift:
     def test_unknown_region_404(self, client):
         resp = client.get("/api/v1/drift/NOPE")
         assert resp.status_code == 404
+
+
+@patch("api.redis_get")
+def test_hourly_scoring_is_exported_separately_and_does_not_publish_samples(redis, client):
+    redis.side_effect = lambda key: (
+        {
+            "schema_version": 1,
+            "region": "FPL",
+            "sampling_basis": "hourly_observation_before_target",
+            "samples": [{"private": "forecast values"}],
+            "models": {
+                "xgboost": {
+                    "24h": {
+                        "n_7d": 0,
+                        "future_sample_hours": 1,
+                        "coverage_7d": {
+                            "possible_target_hours": 168,
+                            "not_yet_tracked_hours": 168,
+                            "private": "hidden",
+                        },
+                    }
+                }
+            },
+        }
+        if "drift_hourly:" in key
+        else None
+    )
+    response = client.get("/api/v1/drift/FPL")
+    assert response.status_code == 200
+    body = response.get_json()
+    assert body["by_horizon"] is None
+    assert body["hourly_sampled"]["models"]["xgboost"]["24h"]["future_sample_hours"] == 1
+    assert "private" not in str(body)
+    assert "samples" not in body["hourly_sampled"]

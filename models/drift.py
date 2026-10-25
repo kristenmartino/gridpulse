@@ -1272,7 +1272,20 @@ def compute_horizon_drift_payload(
     #    horizon) already pending, this target hour is snapshotted by
     #    NOTHING this tick — the ``seen`` dedup below is correct, but was
     #    silent about how often it fires. Count it instead of just dropping.
+    # A resolved target is still a completed observation, not a free slot. A
+    # stalled origin can otherwise resnapshot it after resolution and replace
+    # the original prediction with a later one during merge_and_trim.
     seen = {(s.get("target_ts"), s.get("horizon")) for s in pending}
+    seen.update((record.timestamp, horizon) for _, horizon, record in resolved)
+    for model_horizons in existing_models.values():
+        for horizon, block in model_horizons.items():
+            if isinstance(block, dict):
+                # Only timestamps are needed; do not rebuild the retained
+                # DriftRecords a second time on the 51-region hourly fan-out.
+                for row in block.get("records") or []:
+                    stamp = row.get("ts") if isinstance(row, dict) else None
+                    if isinstance(stamp, str) and stamp:
+                        seen.add((_normalize_ts(stamp), horizon))
     dedup_skipped_by_horizon: dict[str, int] = {}
     for snap in snapshot_horizon_predictions(forecast_payload, horizons):
         key = (snap["target_ts"], snap["horizon"])
