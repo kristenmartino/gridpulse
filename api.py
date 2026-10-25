@@ -800,8 +800,8 @@ _BENCHMARK_STATISTICS = {
 }
 
 _BENCHMARK_NOTES = [
-    "Both arms are scored on the SAME hours against the SAME settled actual "
-    "(EIA's revised value), so neither is graded on its own yardstick.",
+    "Both arms are scored on the SAME hours against the SAME latest-observed actual "
+    "from EIA. These values can still be revised.",
     "Hours where EIA published the day-ahead forecast AS the actual are "
     "excluded — scoring them would credit the official forecast with a "
     "perfect prediction on hours it never made. Per-reason drop counts ship "
@@ -813,8 +813,8 @@ _BENCHMARK_NOTES = [
     "placeholder_pct reports how often the BA's readings arrive that way. The "
     "effect correlates our error with the operator's rather than shrinking "
     "it; see the methodology's limits.",
-    "The official arm is scored twice: as-issued (the earliest day-ahead "
-    "forecast we observed, the fair comparison) and as-revised (EIA's current "
+    "The official arm is scored twice: earliest-observed (the day-ahead "
+    "forecast we first captured, not a verified original issue) and as-revised (EIA's current "
     "value, which for a revising BA carries hindsight). Both verdicts are "
     "published.",
     "Verdicts are decided on mean MAPE. median_ape, mae and wape are "
@@ -927,7 +927,7 @@ def _export_benchmark_payload(payload: dict[str, Any]) -> dict[str, Any]:
 #: Shown when no BA has accumulated enough paired hours yet.
 BENCHMARK_WARMING_DETAIL = (
     "No benchmark results are available. Comparisons require enough "
-    "paired forecasts and settled demand observations."
+    "paired forecasts and usable demand observations."
 )
 
 
@@ -1012,7 +1012,7 @@ def build_benchmark_payload() -> dict[str, Any] | None:
 
     body = {
         "comparison": "GridPulse model comparison vs the balancing authority's earliest-observed day-ahead forecast",
-        "truth": "EIA's settled demand value for the hour, used for both arms",
+        "truth": "EIA's latest-observed demand value for the hour, used for both arms; not certified final",
         "window_days": 30,
         "updated_at": fleet.get("updated_at"),
         "fleet": fleet.get("fleet"),
@@ -1059,7 +1059,7 @@ def benchmark_region(raw_region: str):
     if not isinstance(payload, dict) or not payload.get("region"):
         return _warming_response(
             "No benchmark results are available for this region. "
-            "Comparisons require enough paired forecasts and settled demand observations."
+            "Comparisons require enough paired forecasts and usable demand observations."
         )
 
     body = _export_benchmark_payload(payload)

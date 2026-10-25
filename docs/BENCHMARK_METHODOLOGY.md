@@ -17,13 +17,13 @@ document going stale. Implementation: [`models/benchmark.py`](../models/benchmar
 Every US balancing authority already publishes a day-ahead demand forecast,
 free, through EIA-930 (the `DF` column). That is the incumbent. So the only
 question worth measuring is **relative**: for the same hour, judged by the
-same settled truth, whose number was closer?
+same latest-observed demand, whose number was closer?
 
 | | |
 |---|---|
-| **Official arm** | The earliest day-ahead forecast we observed the BA publish for the target hour — **provided we saw it before the hour settled** (§12.1, §12.9; hours first seen later are dropped as `stale_capture`) |
+| **Official arm** | The earliest day-ahead forecast we observed the BA publish for the target hour — **provided we saw it within the capture-lag rule** (§12.1, §12.9; hours first seen later are dropped as `stale_capture`) |
 | **GridPulse arm** | Our **ensemble's** forecast for that same hour — always the ensemble, which on a substituted BA is not the series we serve (limit 6) |
-| **Truth** | EIA's settled value for that hour — the *same* value grades both |
+| **Truth** | EIA's latest-observed value for that hour — the *same* value grades both |
 
 This is a continuously recomputed measurement, not a one-off replay: it runs
 every hourly scoring tick, per BA, on instrumentation the pipeline already
@@ -33,10 +33,10 @@ maintained for other reasons.
 
 | Quantity | Source | Field |
 |---|---|---|
-| Official, as-issued | `gridpulse:vintage:{ba}` | `first_seen_df` — the earliest day-ahead forecast we observed for the hour |
+| Official, earliest-observed (legacy as-issued field) | `gridpulse:vintage:{ba}` | `first_seen_df` — the earliest day-ahead forecast we observed for the hour |
 | Official, as-revised | the live EIA demand frame | `forecast_mw` — EIA's *current* day-ahead value for the hour |
 | GridPulse | `gridpulse:drift_horizon:{ba}` | `models.ensemble.{24h,48h}.records[].p` — the prediction as stored when it was made |
-| Truth | `gridpulse:vintage:{ba}` | `last_d` — EIA's latest (settled) value |
+| Truth | `gridpulse:vintage:{ba}` | `last_d` — EIA's latest-observed value; not certified final |
 | Exclusion inputs | `gridpulse:vintage_summary:{ba}` | revision class, DF coverage |
 | Observed lead | `gridpulse:forecast:{ba}:1h` | `scored_at` vs row 0 + H |
 | Output | `gridpulse:benchmark:{ba}` | the full payload, per BA, per tick |
@@ -58,7 +58,7 @@ Two properties of this wiring matter:
 
 Two disciplines, both load-bearing:
 
-**Settled truth only.** EIA's first-published actual is preliminary *by
+**Latest-observed actuals, with revisions possible.** EIA's first-published actual is preliminary *by
 design*, not by accident: the [Form EIA-930 instructions][eia930] direct
 respondents to "submit their best estimates on schedule and correct the data
 with a resubmission within 3 days or as soon as the actual data is available,"
@@ -68,9 +68,10 @@ On high-revision feeds we have observed it up to ~70% wrong — that magnitude i
 ours, measured; the fact that it revises at all is EIA's, documented. Scoring
 against it would grade both arms on a number EIA itself later withdrew. Only
 `last_d` counts — EIA's latest value for the hour, refreshed on every tick. Note what
-that is *not*: no flag marks an hour final, so `last_d` is settled in
-practice (revisions stop) rather than by declaration, and a very recent hour
-may still move. Both arms move with it together.
+that establishes: no flag marks an hour final. Revision stability is not
+verified by this field, and even an older value may still change. Both arms
+move with it together. The legacy `unsettled` exclusion key means a usable
+positive actual is unavailable; it is not a settlement-status test.
 
 **The same hours, always.** An hour enters the comparison only if *both*
 arms have a value for it. A one-sided score would put a 30-day official
@@ -88,8 +89,8 @@ assume the worst.
 | Rule | Dropped when | Why |
 |---|---|---|
 | `no_df` | the BA published no day-ahead forecast for the hour | nothing to compare against |
-| `unsettled` | no finite, positive settled actual yet | truth not available |
-| `unresolved_stub` | settled value still equals the day-ahead forecast (within 0.01 MW) | see below |
+| `unsettled` | no finite, positive actual yet | truth not available |
+| `unresolved_stub` | latest-observed actual still equals the day-ahead forecast (within 0.01 MW) | see below |
 | `first_seen_placeholder` | the hour was flagged `D == DF` at first sight | dropped conservatively, even if later corrected |
 | `no_gridpulse` | we have no matured prediction for the hour | keeps the hour sets identical |
 
@@ -99,7 +100,7 @@ forecast itself* as the actual. Score those hours and the official forecast
 records a perfect prediction on hours it never made — while our forecast is
 graded against their forecast rather than against reality. `unresolved_stub`
 is the sharper of the two defences: it catches the hour whether or not it was
-flagged at first sight, because it tests the *settled* value.
+flagged at first sight, because it tests the latest-observed value.
 
 The 0.01 MW tolerance is not a fudge factor: EIA publishes to 2 decimal
 places and the vintage store rounds identically, so it absorbs float noise
@@ -204,13 +205,13 @@ elsewhere. NYISO is the cheapest place to check — it publishes both its own
 day-ahead load forecast (`isolf.csv`) and its integrated actual load
 (`palIntegrated.csv`), auth-free.
 
-**The truth side is settled outright: EIA's `D` for NYISO *is* NYISO's own
+**The sampled actual feeds agree: EIA's `D` for NYISO *is* NYISO's own
 data.** Summed across NYISO's eleven zones and aligned to EIA's periods, the two
 actual series agree to **0.001%, correlation 1.000000** over 144 hours. There is
 no quality gap to close on the yardstick both arms are scored against.
 
 **On the forecast side EIA's `DF` is not the weaker series.** Over 212 hours
-(2026-08-07 → 08-17), scored against that shared settled truth:
+(2026-08-07 → 08-17), scored against that shared demand observations:
 
 | series | MAPE | median APE | bias |
 |---|---:|---:|---:|
@@ -242,12 +243,12 @@ revises 26.4%, SOCO 24.2% and FMPP 5.2%. FMPP is worth naming: revision
 makes its forecast *worse*, so revision is not a one-way advantage to the
 operator. Picking one value to score would invite a fair objection either
 way, so the official side is scored **twice, on the same hours, against the
-same settled truth**:
+same latest-observed demand**:
 
-- **`official`** — as-issued: the earliest day-ahead forecast we observed,
+- **`official`** — earliest-observed (legacy as-issued field): the earliest day-ahead forecast we observed,
   restricted to hours we saw within `FRESH_CAPTURE_LAG_HOURS` of the target
   (#358 — a backfilled first sighting is already post-revision).
-  The fair comparison, and the primary one.
+  This is the primary comparison; the original operator issue time is unknown.
 - **`official_revised`** — as-revised: EIA's current value, which for a
   revising BA carries hindsight our forecast never had. The conservative
   comparison.
@@ -465,7 +466,7 @@ number per BA is not a supportable format.
    serve).
 7. **Mean/median differ across artifacts** (§8) — a live footgun for anyone
    quoting across documents.
-8. **Both arms inherit EIA's settled values.** If a settled value is itself
+8. **Both arms inherit EIA's latest-observed values.** If an observed value is itself
    wrong, both arms are graded against the same wrong number. Shared bias,
    not differential bias, but not zero.
 9. **Backfilled hours are excluded, and the exclusion is not neutral.**

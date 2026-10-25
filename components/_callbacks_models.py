@@ -670,7 +670,13 @@ def _build_drift_panel(region: str | None) -> html.Div:
                 className="gp-control-eyebrow",
             ),
             html.Div(headline_note, className="gp-drift-headline"),
-            table,
+            html.Div(
+                table,
+                className="gp-drift-table-scroll",
+                role="region",
+                tabIndex=0,
+                **{"aria-label": "Forecast error comparison table; scroll horizontally if needed"},
+            ),
             html.Div(
                 (
                     "Live columns show first-hour MAPE over the trailing 7 and 30 days, "
@@ -811,7 +817,13 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
                 ),
                 className="gp-drift-headline",
             ),
-            table,
+            html.Div(
+                table,
+                className="gp-drift-table-scroll",
+                role="region",
+                tabIndex=0,
+                **{"aria-label": "Forecast error comparison table; scroll horizontally if needed"},
+            ),
             html.Div(
                 (
                     "Seven-day average MAPE, scored after demand for the target hour is reported. "
