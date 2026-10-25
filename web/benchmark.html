@@ -581,11 +581,10 @@
               <dt>Updated</dt><dd id="updated">&mdash;</dd>
             </dl>
             <p class="panel-note" id="lead-note">
-              The forecast anchors on a recent demand input hour, so
-              a &ldquo;24h&rdquo; row is slightly less than 24 hours ahead. It
-              is a property of how we anchor, near-identical across balancing
-              authorities &mdash; which is why it is stated here once rather
-              than repeated on every row.
+              The &ldquo;24h&rdquo; diagnostic selects a target 24 hours after
+              the first forecast target. That offset does not establish an
+              exact lead from forecast publication. The realized-lead field
+              reports a measured generation-to-target interval where available.
             </p>
           </div>
 
@@ -1265,8 +1264,7 @@
       if (observed.length < scoredRows.length) {
         note.textContent = 'Measured on ' + observed.length + ' of ' + scoredRows.length +
           ' scored rows; the rest carry the nominal label and say so when expanded. ' +
-          'The forecast anchors on a recent demand input hour, so a "24h" row is ' +
-          'slightly less than 24 hours ahead.';
+          'The 24h offset is measured from the first forecast target, not publication.';
       }
     }
 
