@@ -695,7 +695,7 @@ def _export_drift_models(models_block: dict, allowed_fields: tuple[str, ...]) ->
 
 @api_v1.get("/drift/<raw_region>")
 def drift(raw_region: str):
-    """Live 1h nowcast drift + horizon-matched (24/48/72h) grades."""
+    """First-hour nowcast and forecast-start-offset diagnostic evidence."""
     region = _resolve_region(raw_region)
     if region is None:
         return _unknown_region_response()
@@ -717,9 +717,10 @@ def drift(raw_region: str):
         "live_1h": None,
         "by_horizon": None,
         "notes": [
-            "1h drift is a nowcast diagnostic; models without a 1-hour anchor "
-            "are expected to sit above the 1h band. Horizon-matched grades "
-            "(24/48/72h) are the operating-horizon verdict (#227).",
+            "live_1h is a first-forecast-hour nowcast diagnostic, not an exact issue-to-target lead.",
+            "24/48/72h diagnostics use offsets from the first forecast target. "
+            "Configured error bands describe historical observations, not a guarantee for the current forecast.",
+            "n_records is retained history; n_7d and coverage_7d describe the seven-day scoring window.",
         ],
         # Drift = forecast-vs-actual demand; the EIA-930 actual is the anchor.
         "attribution": [_ATTRIBUTION["demand"]],

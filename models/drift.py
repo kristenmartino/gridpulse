@@ -981,9 +981,9 @@ def snapshot_horizon_predictions(
 ) -> list[dict[str, Any]]:
     """Snapshot a forecast's per-model prediction at each horizon.
 
-    A forecast made at ``scored_at`` predicts the hour ``scored_at + H`` at
-    horizon ``H``. Returns one pending-snapshot dict per horizon that has a
-    matching forecast row::
+    Horizon ``H`` selects ``first forecast target + H``, not ``scored_at + H``.
+    The actual generation-to-target lead can differ. Returns one pending
+    snapshot per offset that has a matching forecast row::
 
         {"target_ts": iso, "made_at": iso, "horizon": "24h",
          "preds": {"xgboost": mw, "prophet": mw, "arima": mw, "ensemble": mw},
