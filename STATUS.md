@@ -17,6 +17,13 @@ follow-up commit.
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
 
+## 2026-10-25 — benchmark provenance wording follow-through
+
+The foundation audit also applies to `/benchmark`: latest-observed EIA actuals
+are not certified settled/final values, and first capture is not an original
+operator issue. Public descriptions now use those meanings, preserve compatible
+field names, and leave the coverage investigation open. Calculations unchanged.
+
 ## Active focus + open question
 
 **2026-10-25 — Practitioner workflow foundation.** Read-only production samples

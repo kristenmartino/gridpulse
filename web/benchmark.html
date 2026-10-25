@@ -27,7 +27,7 @@
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://gridpulse.kristenmartino.ai/benchmark">
   <meta property="og:title" content="GridPulse model benchmark — Forecast comparison">
-  <meta property="og:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
+  <meta property="og:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same latest-observed demand. Rules, exclusions and limits published.">
   <meta property="og:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -37,7 +37,7 @@
        2026-08-11 — title and description were missing too. -->
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="GridPulse model benchmark — Forecast comparison">
-  <meta name="twitter:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same settled truth. Rules, exclusions and limits published.">
+  <meta name="twitter:description" content="Scored against each balancing authority's own day-ahead forecast on the same hours and the same latest-observed demand. Rules, exclusions and limits published.">
   <meta name="twitter:image" content="https://gridpulse.kristenmartino.ai/assets/og-image.png">
   <meta name="theme-color" content="#0a0a0b">
   <meta name="author" content="Kristen Martino">
@@ -52,7 +52,7 @@
     "@id": "https://gridpulse.kristenmartino.ai/benchmark",
     "url": "https://gridpulse.kristenmartino.ai/benchmark",
     "name": "GridPulse model benchmark against operator forecasts",
-    "description": "GridPulse model series compared with each operator's earliest-observed EIA-930 day-ahead forecast — same hours, same settled actuals, with the rules, exclusions and limits published.",
+    "description": "GridPulse model series compared with each operator's earliest-observed EIA-930 day-ahead forecast — same hours, same latest-observed actuals, with the rules, exclusions and limits published.",
     "inLanguage": "en",
     "isPartOf": {"@id": "https://gridpulse.kristenmartino.ai/#website"},
     "author": {"@id": "https://gridpulse.kristenmartino.ai/#person"}
@@ -365,7 +365,7 @@
         <p class="subhead">
           The GridPulse column scores the model named in each row; the published
           default may be a different model or baseline. Operator comparisons use
-          EIA-930 forecasts and settled demand on matched hours.
+          EIA-930 forecasts and latest-observed demand on matched hours.
         </p>
         <p class="subhead">
           Forecast leads are not fully matched. This measures demand error,
@@ -416,7 +416,7 @@
                 miss, as a share of actual demand) over the paired hours in the
                 30-day window, at the nominal 24-hour lead. Lower error is better.
                 <strong>Hours scored</strong> counts the hours where both
-                forecasts and a settled actual exist. Those are the only hours
+                forecasts and a usable actual exist. Those are the only hours
                 either side is graded on. Expand a row to see which hours were
                 dropped and why.
               </p>
@@ -535,26 +535,23 @@
                   </p>
                 </div>
                 <div class="limit">
-                  <h3>The drift grade never scores a full week</h3>
+                  <h3>Seven days does not mean complete coverage</h3>
                   <p>
                     The <span class="flag">above band</span> mark comes from
                     a separate seven-day drift monitor. The table&rsquo;s
                     <strong>Hours scored</strong> counts paired observations in
-                    the 30-day benchmark; these are different samples. The drift
-                    monitor&rsquo;s window holds one comparison per hour of the past week &mdash; and it never gets all of them. A
-                    24-hour-ahead score exists only for a target hour whose
-                    forecast origin actually occurred, and when EIA publishes
-                    two settled hours in the same tick the origin steps over
-                    one; nothing re-proposes that hour at a 24-hour lead.
+                    the 30-day benchmark; these are different samples.
+                    The drift count describes observed samples within a seven-day
+                    window, not seven complete days. Its 24h diagnostic uses an
+                    offset from the first forecast target, not an exact
+                    publication-to-target lead.
                   </p>
                   <p id="drift-coverage-observed" hidden></p>
                   <p>
-                    Some rows also lose hours to causes we can fix, and do.
-                    The ceiling is not one of them: it is set per balancing
-                    authority by how that feed's publication timing falls
-                    against an hourly clock, so it is the shape of the
-                    measurement rather than a gap being closed. Read each
-                    row's count as its sample size.
+                    Repeated origins and missing inputs can leave target hours
+                    unscored. Available counters do not establish every cause
+                    of the missing hours. Read each row&rsquo;s count as its
+                    sample size; the coverage investigation remains open.
                   </p>
                 </div>
                 <div class="limit">
@@ -575,7 +572,7 @@
             <h3>How this is measured</h3>
             <dl>
               <dt>Comparison</dt><dd>ours vs the earliest day-ahead we observed</dd>
-              <dt>Truth</dt><dd>EIA settled value — what both sides are graded against</dd>
+              <dt>Truth</dt><dd>Latest-observed EIA demand — used for both sides; may still be revised</dd>
               <dt>Applied to</dt><dd>both sides, same hours</dd>
               <dt>Window</dt><dd>30 days</dd>
               <dt>Horizon</dt><dd>nominal 24h</dd>
@@ -584,7 +581,7 @@
               <dt>Updated</dt><dd id="updated">&mdash;</dd>
             </dl>
             <p class="panel-note" id="lead-note">
-              The forecast anchors on the last <em>settled</em> demand hour, so
+              The forecast anchors on a recent demand input hour, so
               a &ldquo;24h&rdquo; row is slightly less than 24 hours ahead. It
               is a property of how we anchor, near-identical across balancing
               authorities &mdash; which is why it is stated here once rather
@@ -597,9 +594,9 @@
             <ul>
               <li>Hours where EIA published the forecast <em>as</em> the actual are excluded &mdash; scoring them would credit the operator with a perfect prediction on hours it never made.</li>
               <li>The operator's column is the <em>earliest day-ahead forecast we observed</em>, not necessarily the first they issued: a revision landing before we first saw the hour is invisible to us.</li>
-              <li>Only settled actuals count. First-published values run up to ~70% wrong on high-revision feeds.</li>
+              <li>Both forecasts use the latest demand values captured from EIA. These can still be revised; no final-status flag is available.</li>
               <li>Hours we first saw <em>after</em> they had already passed are excluded: their earliest-observed forecast is already a post-revision value, so scoring it as &ldquo;as-issued&rdquo; would erase the distinction the two operator columns exist to draw.</li>
-              <li>The operator's forecast is scored twice &mdash; as-issued and as-revised &mdash; because a value revised after the target hour carries hindsight. A row where the two scorings disagree about the winner is marked on its Difference cell; everywhere else they agree.</li>
+              <li>The operator's forecast is scored twice &mdash; earliest-observed and as-revised &mdash; because a value revised after the target hour carries hindsight. A row where the two scorings disagree about the winner is marked on its Difference cell; everywhere else they agree.</li>
               <li>Verdicts are decided on mean MAPE alone. The other statistics are published for interpretation and decide nothing.</li>
               <li>A row marked <span class="flag">above band</span> exceeds the configured error band for that forecast lead. This is an error assessment, not a record that a rollback occurred.</li>
               <li>A row marked <span class="flag substituted">not served</span> scores the ensemble while the dashboard displays a seasonal-naive baseline for that authority. This row does not score the displayed baseline.</li>
@@ -1155,8 +1152,8 @@
         var drops = h.excluded_hours || {};
         var labels = {
           no_df: 'no day-ahead forecast published',
-          unsettled: 'no settled actual yet',
-          unresolved_stub: 'settled value still equals the day-ahead forecast (unresolved stub)',
+          unsettled: 'no usable positive actual yet',
+          unresolved_stub: 'latest-observed actual still equals the day-ahead forecast (unresolved stub)',
           first_seen_placeholder: 'flagged as a placeholder at first sight',
           no_gridpulse: 'no matured GridPulse prediction'
         };
@@ -1268,7 +1265,7 @@
       if (observed.length < scoredRows.length) {
         note.textContent = 'Measured on ' + observed.length + ' of ' + scoredRows.length +
           ' scored rows; the rest carry the nominal label and say so when expanded. ' +
-          'The forecast anchors on the last settled demand hour, so a "24h" row is ' +
+          'The forecast anchors on a recent demand input hour, so a "24h" row is ' +
           'slightly less than 24 hours ahead.';
       }
     }

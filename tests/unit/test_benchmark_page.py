@@ -949,22 +949,10 @@ def _code_of(script: str) -> str:
 
 
 class TestDriftWindowCoverageIsPublished:
-    """#628 — the trailing-7-day claim gets the count that qualifies it.
+    """Coverage counts qualify the seven-day window without inventing completeness.
 
-    ``serve_grade`` has carried ``n_7d`` since #273 and this page read the
-    block without ever using it, so "over the trailing 7 days" invited a
-    reader to hear 168 hourly observations. Measured live across all 51 BAs
-    on 2026-08-20 the real range was 94 (LGEE) to 165 (seven BAs), and 168 is
-    unreachable by construction: a 24h-lead score needs an origin that
-    occurred, and EIA's publication timing skips some outright
-    (``docs/DRIFT_COVERAGE_CHANNELS.md`` §4, §7).
-
-    There is deliberately no coverage literal on the page to go stale, so
-    what these pin is the opposite of the CANONICAL_FACTS registry: that the
-    page keeps *deriving* the figure, and that the wording keeps saying the
-    ceiling is structural. A later edit that types a number in, drops the
-    qualifier, or reframes the shortfall as a queue fails here, naming this
-    page.
+    Counts remain derived from current payloads. The October 25 evidence audit
+    does not establish every missing-hour cause or a permanent coverage ceiling.
     """
 
     def test_the_seven_day_claim_never_stands_bare(self, body) -> None:
@@ -1013,17 +1001,11 @@ class TestDriftWindowCoverageIsPublished:
         )
         assert "notes.push" not in note, "the per-row count is routed through the flag list"
 
-    def test_the_ceiling_is_stated_as_structural_not_as_a_backlog(self, body) -> None:
-        """The wording is the whole point of the change. ~81% of the gap is
-        an origin skip with no re-proposal path, so copy that reads as a
-        defect awaiting a fix would be an overclaim in the other direction —
-        and the ~17% that IS fixable must not be denied either."""
-        assert "The drift grade never scores a full week" in body
-        assert "never gets all of them" in body
-        assert "rather than a gap being closed" in body
-        assert "causes we can fix" in body, (
-            "the fixable share of the shortfall is no longer acknowledged"
-        )
+    def test_coverage_does_not_claim_all_missing_hour_causes_are_established(self, body) -> None:
+        assert "Seven days does not mean complete coverage" in body
+        assert "do not establish every cause" in body
+        assert "coverage investigation remains open" in body
+        assert "never gets all of them" not in body
 
     def test_the_observed_ceiling_is_derived_and_rendered(self, body) -> None:
         """Same rule as the realized lead: read off the rows every render, so

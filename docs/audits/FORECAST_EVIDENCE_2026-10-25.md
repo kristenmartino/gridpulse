@@ -118,3 +118,12 @@ versioned when they are used in a review.
 
 Practitioner usefulness and business impact remain unvalidated. This audit
 establishes data and code contracts, not operational adoption.
+
+## Benchmark wording follow-through
+
+The benchmark page/API and methodology now describe `last_d` as the latest
+observed EIA actual, with revisions possible. Earliest-observed operator
+forecasts are not asserted to be original issues. Existing calculation fields
+and exclusion keys remain compatible. The benchmark coverage explanation also
+keeps the missing-hour investigation open instead of asserting that every
+shortfall is a permanent feed-timing ceiling.

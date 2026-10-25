@@ -154,7 +154,7 @@ EXCLUSION_REASONS: dict[str, str] = {
     ),
     EXCLUDE_INSUFFICIENT: (
         f"Fewer than {MIN_PAIRED_HOURS} comparable hours in the window "
-        "(after excluding placeholder hours and unsettled values)."
+        "(after excluding placeholder hours and unavailable actuals)."
     ),
 }
 
