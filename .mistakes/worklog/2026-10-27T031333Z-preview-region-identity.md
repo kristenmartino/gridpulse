@@ -1,0 +1,1 @@
+2026-10-27 UTC — [verification-fixture-identity] The isolated Overview preview used ERCO/CISO instead of the actual selector values ERCOT/CAISO, causing a trained-fixture check to exercise cold cache until the adapter was corrected (branch `codex/overview-reference-layout`).
