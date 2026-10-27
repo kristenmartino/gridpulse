@@ -1,0 +1,1 @@
+2026-10-27 [verification-instrument] PSCO's first-target score appeared after the same 598 MW reading aged out of the six-row quality guard; a nonzero score count was insufficient evidence that usable demand arrived (hourly actual-quality audit).

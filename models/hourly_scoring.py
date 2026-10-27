@@ -17,6 +17,7 @@ from models.drift import DriftRecord, absolute_pct_error, filter_low_actuals, ma
 HORIZONS = (24, 48, 72)
 WINDOW_HOURS = 168
 BASIS = "hourly_observation_before_target"
+ACTUAL_QUALITY_POLICY = "retained_window_guard_v1"
 SERIES = tuple(MODEL_LABELS)
 
 
@@ -94,7 +95,13 @@ def _rollup(samples: list[dict], model: str, horizon: int, now: datetime, starte
             continue
         predicted = sample["predictions"].get(model)
         actual = sample.get("actual")
-        if _finite(predicted) and _finite(actual) and actual > 0:
+        if (
+            not sample.get("actual_quality_exclusion")
+            and not sample.get("actual_quality_pending")
+            and _finite(predicted)
+            and _finite(actual)
+            and actual > 0
+        ):
             error = absolute_pct_error(predicted, actual)
             if error is not None:
                 records.append(DriftRecord(target.isoformat(), predicted, actual, error))
@@ -107,6 +114,7 @@ def _rollup(samples: list[dict], model: str, horizon: int, now: datetime, starte
             "missing_sample_hours",
             "series_unavailable_hours",
             "pending_actual_hours",
+            "quality_guard_excluded_hours",
             "low_actual_excluded_hours",
         ),
         0,
@@ -119,7 +127,9 @@ def _rollup(samples: list[dict], model: str, horizon: int, now: datetime, starte
             status = "missing_sample_hours"
         elif model not in sample["predictions"]:
             status = "series_unavailable_hours"
-        elif sample.get("actual") is None:
+        elif sample.get("actual_quality_exclusion"):
+            status = "quality_guard_excluded_hours"
+        elif sample.get("actual") is None or sample.get("actual_quality_pending"):
             status = "pending_actual_hours"
         elif target.isoformat() in scored:
             status = "scored_target_hours"
@@ -152,6 +162,7 @@ def compute_hourly_scoring(
     actuals: dict[str, float],
     *,
     now_iso: str | None = None,
+    actual_exclusions: dict[str, dict] | None = None,
 ) -> dict:
     """Take one immutable hourly sample and reconcile every retained actual.
 
@@ -204,9 +215,42 @@ def compute_hourly_scoring(
         for key, value in actuals.items()
         if (stamp := utc_timestamp(key)) and _finite(value) and value > 0
     }
+    excluded_actuals = {}
+    for key, exclusion in (actual_exclusions or {}).items():
+        stamp = utc_timestamp(key)
+        if (
+            not stamp
+            or not isinstance(exclusion, dict)
+            or not _finite(exclusion.get("mw"))
+            or not isinstance(exclusion.get("reason"), str)
+        ):
+            raise ValueError("Malformed actual-quality exclusion")
+        excluded_actuals[stamp] = exclusion
     for sample in samples.values():
         # Future rows in an upstream frame are not completed actuals.
         if _time(sample["target_ts"]) > now:
+            continue
+        if (
+            old.get("actual_quality_policy") != ACTUAL_QUALITY_POLICY
+            and sample.get("actual") is not None
+        ):
+            # During upgrade an absent current source row cannot validate an
+            # old scored value. Keep the evidence while awaiting a recheck.
+            sample["actual_quality_pending"] = True
+        exclusion = excluded_actuals.get(sample["target_ts"])
+        if exclusion is not None:
+            old_exclusion = sample.get("actual_quality_exclusion") or {}
+            event = {
+                **exclusion,
+                "first_flagged_at": old_exclusion.get("first_flagged_at") or now.isoformat(),
+                "last_checked_at": now.isoformat(),
+            }
+            # Keep prior actual values and clocks as evidence, but stop using
+            # them in error metrics while the latest reading is excluded.
+            sample["actual_quality_exclusion"] = event
+            sample["actual_last_quality_exclusion"] = dict(event)
+            sample["actual_quality_pending"] = False
+            sample["actual_quality_checked_at"] = now.isoformat()
             continue
         value = observed_actuals.get(sample["target_ts"])
         if value is not None:
@@ -215,11 +259,15 @@ def compute_hourly_scoring(
                 sample["actual_first_value"] = value
             sample["actual"] = value
             sample["actual_latest_observed_at"] = now.isoformat()
+            sample["actual_quality_exclusion"] = None
+            sample["actual_quality_pending"] = False
+            sample["actual_quality_checked_at"] = now.isoformat()
     ordered = sorted(samples.values(), key=lambda s: (s["target_ts"], s["horizon"]))
     return {
         "schema_version": 1,
         "region": region,
         "sampling_basis": BASIS,
+        "actual_quality_policy": ACTUAL_QUALITY_POLICY,
         "capture_started_at": started.isoformat(),
         "last_updated_at": now.isoformat(),
         "horizons": [f"{h}h" for h in HORIZONS],
@@ -251,9 +299,11 @@ def export_hourly_scoring(payload: dict) -> dict:
         "missing_sample_hours",
         "series_unavailable_hours",
         "pending_actual_hours",
+        "quality_guard_excluded_hours",
         "low_actual_excluded_hours",
     )
     return {
+        "actual_quality_policy": payload.get("actual_quality_policy", "legacy_tail_guard"),
         **{
             k: payload.get(k)
             for k in (
@@ -270,7 +320,10 @@ def export_hourly_scoring(payload: dict) -> dict:
                 f"{h}h": {
                     **{k: block.get(k) for k in fields},
                     "coverage_7d": {
-                        k: block.get("coverage_7d", {}).get(k) for k in coverage_fields
+                        k: block.get("coverage_7d", {}).get(
+                            k, 0 if k == "quality_guard_excluded_hours" else None
+                        )
+                        for k in coverage_fields
                     },
                 }
                 for h in HORIZONS
@@ -282,7 +335,8 @@ def export_hourly_scoring(payload: dict) -> dict:
         "notes": [
             "Separate hourly observations: H..H+1 hours from sampling to target, not original publication lead.",
             "First observation for a target and horizon wins; no retrospective forecast reconstruction.",
-            "Not-yet-tracked hours, missing samples, unavailable series, pending actuals and exclusions partition coverage.",
-            "Actuals are latest observed values and may be revised. Legacy offset diagnostics remain separate.",
+            "Not-yet-tracked hours, missing samples, unavailable series, pending actuals, quality-guard and low-actual exclusions partition coverage.",
+            "The retained-window quality guard is reapplied to every scoreable target; aging alone does not clear an exclusion.",
+            "Scored actuals pass the retained-window guard and may be revised. Rejected values remain separate from scored errors; legacy offset diagnostics stay separate.",
         ],
     }

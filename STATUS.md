@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-10-26
+# Status — updated 2026-10-27
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -16,6 +16,17 @@ follow-up commit.
 > See [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md) for the full
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
+
+## 2026-10-27 — retained-hour actual eligibility
+
+Monitoring found PSCO's unchanged 598 MW first-target reading became scored
+after it aged beyond the short input-quality guard. The new hourly scorer now
+rechecks retained target hours with the same thresholds on a separate frame,
+keeps original forecasts and first-observation evidence, and counts quality
+flags separately. Historical review remains on hold; a scored row alone does
+not resolve coverage when its actual failed the configured signals. The dated
+[audit](docs/audits/HOURLY_ACTUAL_QUALITY_2026-10-27.md) records the measurement,
+scope, tests, and production-verification boundary.
 
 ## 2026-10-26 — approved Overview presentation
 

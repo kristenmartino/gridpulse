@@ -1608,9 +1608,20 @@ def test_hourly_sample_is_taken_before_the_forecast_is_replaced(
     from jobs import phases, scoring_job
 
     order = []
+    frames = {}
+
+    def guard(data):
+        frames["raw"] = data.demand_df
+        data.demand_df = data.demand_df.copy()
+        data.demand_df.loc[data.demand_df.index[-1], "demand_mw"] = float("nan")
+        frames["guarded"] = data.demand_df
+        return phases.PhaseResult(region=data.region, ok=True)
 
     def sample(region, previous, demand):
         order.append("sample")
+        assert demand is frames["raw"]
+        assert demand is not frames["guarded"]
+        assert pd.notna(demand["demand_mw"].iloc[-1])
         return phases.PhaseResult(region=region, ok=True)
 
     from models.persistence import ModelMetadata
@@ -1633,8 +1644,10 @@ def test_hourly_sample_is_taken_before_the_forecast_is_replaced(
     def predict(*args, **kwargs):
         order.append("forecast")
         assert order[0] == "sample"
+        assert args[0].demand_df is frames["guarded"]
         return phases.PhaseResult(region="ERCOT", ok=True)
 
+    monkeypatch.setattr(phases, "apply_demand_quality_guard", guard)
     monkeypatch.setattr(phases, "write_hourly_scoring_metrics", sample)
     monkeypatch.setattr(phases, "predict_and_write_forecast", predict)
     scoring_job.run()

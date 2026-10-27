@@ -3429,17 +3429,14 @@ def write_hourly_scoring_metrics(
     demand_df: pd.DataFrame,
 ) -> PhaseResult:
     """Observe the cached forecast on a wall clock, independently of its origin."""
+    from data.hourly_scoring_actuals import hourly_actuals
     from data.hourly_scoring_store import update_hourly_scoring
 
     try:
-        actuals = {}
-        if demand_df is not None and not demand_df.empty:
-            for row in demand_df.itertuples():
-                value = getattr(row, "demand_mw", None)
-                if value is not None and np.isfinite(value) and value > 0:
-                    stamp = pd.to_datetime(row.timestamp, utc=True).isoformat()
-                    actuals[stamp] = float(value)
-        payload = update_hourly_scoring(region, forecast_payload, actuals)
+        actuals, exclusions = hourly_actuals(demand_df)
+        payload = update_hourly_scoring(
+            region, forecast_payload, actuals, actual_exclusions=exclusions
+        )
         # Fail loudly for this phase: a failed write must not report successful
         # sampling. The surrounding job still isolates evaluation failures.
         log.info(
@@ -3448,6 +3445,8 @@ def write_hourly_scoring_metrics(
             sampling_basis=payload["sampling_basis"],
             capture_started_at=payload["capture_started_at"],
             retained_samples=len(payload["samples"]),
+            quality_excluded_targets=len(exclusions),
+            actual_quality_policy=payload["actual_quality_policy"],
             target_24h=payload["models"]["ensemble"]["24h"]["first_target_at"],
         )
         return PhaseResult(region=region, ok=True, details={"samples": len(payload["samples"])})

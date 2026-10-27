@@ -254,6 +254,9 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
     # #309: NaN-coerce implausible trailing readings ONCE, so every downstream
     # consumer — actuals payload (tiles), drift scoring, the forecast anchor —
     # sees the same cleaned frame. Never fatal.
+    # The input guard replaces the frame with a cleaned copy. Retain the raw
+    # reference for scoring's wider quality window and explicit exclusions.
+    scoring_demand_df = region_data.demand_df
     guard_res = timed("quality_guard", phases.apply_demand_quality_guard, region_data)
     summary["phases"]["quality_guard"] = {
         "ok": guard_res.ok,
@@ -286,7 +289,7 @@ def _score_region(region: str, deadline: float | None = None) -> dict:
         phases.write_hourly_scoring_metrics,
         region,
         previous_forecast,
-        region_data.demand_df,
+        scoring_demand_df,
     )
     summary["phases"]["hourly_scoring"] = {
         "ok": hourly_scoring_res.ok,

@@ -11,7 +11,9 @@ from data.redis_client import _get_redis, redis_key
 from models.hourly_scoring import compute_hourly_scoring, export_hourly_scoring
 
 
-def update_hourly_scoring(region: str, forecast: dict | None, actuals: dict) -> dict:
+def update_hourly_scoring(
+    region: str, forecast: dict | None, actuals: dict, *, actual_exclusions: dict | None = None
+) -> dict:
     """Concurrent retries cannot replace an already captured hourly sample."""
     client = _get_redis()
     if client is None:
@@ -27,7 +29,12 @@ def update_hourly_scoring(region: str, forecast: dict | None, actuals: dict) -> 
                 if previous is not None and not isinstance(previous, dict):
                     raise ValueError("Hourly scoring history is malformed")
                 payload = compute_hourly_scoring(
-                    region, previous, forecast, actuals, now_iso=observed_at
+                    region,
+                    previous,
+                    forecast,
+                    actuals,
+                    now_iso=observed_at,
+                    actual_exclusions=actual_exclusions,
                 )
                 pipe.multi()
                 # Include the 72h future horizon as well as the 7d reporting

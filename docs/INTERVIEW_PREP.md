@@ -15,6 +15,17 @@
 - Time yourself reading aloud — most candidates run 50% over target on
   first attempt
 
+## Actual eligibility after collection (2026-10-27)
+
+**Project event, including AI-assisted implementation.** Monitoring the first
+maturing observations found an apparent coverage recovery that came from a
+reading aging out of a short guard, rather than a source correction. The
+response preserves the forecasts and first-observation evidence while making
+quality eligibility consistent over the retained scoring window. Coverage
+separately reports quality flags. This work does not establish improved model
+accuracy, practitioner validation, or business impact. See the
+[audit](audits/HOURLY_ACTUAL_QUALITY_2026-10-27.md).
+
 ## Sampling coverage investigation (2026-10-25)
 
 **Project event, including AI-assisted implementation.** A fresh 51-region audit

@@ -278,6 +278,18 @@ which side loses a disagreement.
 
 Sources: [`data/forecast_identity.py`](../data/forecast_identity.py), [`data/forecast_evidence.py`](../data/forecast_evidence.py), [`data/forecast_publications.py`](../data/forecast_publications.py), [`models/drift.py`](../models/drift.py), and the [dated audit](audits/FORECAST_EVIDENCE_2026-10-25.md).
 
+## Retained-hour actual quality (2026-10-27)
+
+PSCO's first 24h target, October 26 at 21:00 UTC, was initially excluded at
+598 MW against a 3,535 MW day-ahead value. The source value did not change when
+it became scored: the row had moved beyond the default six-row input guard.
+A direct replay rejects the same row when the retained scoring window is
+checked. The new hourly scorer applies those unchanged signals throughout its
+seven-day target window and counts quality exclusions explicitly; model inputs
+and legacy metrics retain their separate policies. This is an eligibility
+correction, not a forecast-accuracy improvement or certified source truth.
+See the [dated audit](audits/HOURLY_ACTUAL_QUALITY_2026-10-27.md).
+
 ## Hourly observation coverage (2026-10-25)
 
 The 19:56 UTC read-only fleet capture reconciled the legacy ensemble/24h window

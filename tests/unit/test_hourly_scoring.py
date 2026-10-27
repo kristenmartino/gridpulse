@@ -43,6 +43,7 @@ def partition(block):
                 "missing_sample_hours",
                 "series_unavailable_hours",
                 "pending_actual_hours",
+                "quality_guard_excluded_hours",
                 "low_actual_excluded_hours",
             )
         )

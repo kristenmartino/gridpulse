@@ -46,12 +46,13 @@ Three independent signals (any fires ⇒ artifact):
 
 ## Scope rule for series coercion
 
-``coerce_demand_artifacts`` judges only the **trailing hours** of a frame.
-Measured: gross artifacts live only at the tail — EIA revisions settle older
-hours in every fresh fetch — while bulk-revision regions' same-day values are
-provisional-but-plausible (14-40% off, revised at the next-morning daily file)
-and must NOT be excluded; that is provenance-callout territory, not artifact
-territory.
+The default ``coerce_demand_artifacts`` span is the short forecast-input tail.
+It is not a settlement guarantee: the October 27 scoring audit found PSCO's
+unchanged 598 MW reading still failing these signals after it aged out of that
+tail. Hourly scoring therefore checks its entire retained target window on a
+separate copy (``data.hourly_scoring_actuals``). Model inputs retain the default
+tail policy. Plausible revisions remain provenance information; these signals
+are heuristics, not certification that a reading is physically wrong or final.
 """
 
 from __future__ import annotations
@@ -72,7 +73,7 @@ from config import (
 #: Measured settle behavior: stub→partial→settled completes within ~1h for
 #: most BAs; the worst observed partial (LDWP) held ~44 min, and AZPS held a
 #: partial for ~46 min. Six hours covers every observed case with margin
-#: while structurally exempting the settled bulk of the series.
+#: for forecast inputs. This is not a settlement deadline or the scoring span.
 DEMAND_ARTIFACT_TRAILING_HOURS = 6
 
 
