@@ -10,7 +10,7 @@
 | components/\_callbacks\_forecast.py   |      849 |      155 |     82% |379, 442-443, 545, 558-561, 576-579, 608-611, 624-629, 648-653, 673-678, 714-715, 731, 759-760, 771, 780-792, 877, 1100-1102, 1119-1120, 1208, 1318-1320, 1337-1339, 1353-1365, 1411-1413, 1424-1429, 1503, 1531-1535, 1639-1640, 1676-1677, 1781-1799, 1823-1876, 1900, 1909, 1979-2069, 2073-2076, 2080, 2128, 2138, 2175, 2300, 2384-2385, 2394 |
 | components/\_callbacks\_generation.py |       72 |        4 |     94% |74, 99-100, 112 |
 | components/\_callbacks\_models.py     |      405 |       15 |     96% |94, 179, 596, 713, 885, 982, 1001, 1019-1022, 1062, 1126-1127, 1265, 1312 |
-| components/\_callbacks\_overview.py   |      288 |        7 |     98% |398, 405, 413, 511, 648, 658, 751 |
+| components/\_callbacks\_overview.py   |      285 |        6 |     98% |406, 415, 423, 648, 658, 763 |
 | components/\_callbacks\_shared.py     |      283 |       26 |     91% |384-392, 409-410, 415-416, 622-623, 630-631, 746, 748, 842, 867-869, 892, 894-895 |
 | components/\_callbacks\_us\_grid.py   |      302 |       46 |     85% |449, 636, 799, 928-984, 996-1004, 1058, 1061 |
 | components/\_callbacks\_weather.py    |       42 |        0 |    100% |           |
@@ -18,11 +18,12 @@
 | components/callbacks.py               |      360 |       84 |     77% |141-143, 221, 361-366, 514-562, 738, 778-779, 813-841, 857-871, 888-901, 910-922, 949-950 |
 | components/cards.py                   |       88 |       13 |     85% |139-142, 172, 288-325 |
 | components/error\_handling.py         |      106 |       13 |     88% |52, 99, 238-243, 305, 354-358, 442, 457 |
-| components/forecast\_context.py       |       72 |        0 |    100% |           |
+| components/forecast\_context.py       |       76 |        0 |    100% |           |
 | components/forecast\_review.py        |        6 |        0 |    100% |           |
 | components/icons.py                   |       14 |        1 |     93% |       123 |
 | components/insights.py                |      349 |        1 |     99% |       483 |
 | components/layout.py                  |       29 |        1 |     97% |        76 |
+| components/overview\_review.py        |       66 |        2 |     97% |     23-24 |
 | components/tab\_alerts.py             |       15 |        0 |    100% |           |
 | components/tab\_demand\_outlook.py    |       42 |        0 |    100% |           |
 | components/tab\_models.py             |       15 |        0 |    100% |           |
@@ -69,12 +70,12 @@
 | models/xgboost\_model.py              |       84 |        7 |     92% |83, 107, 127-131 |
 | personas/\_\_init\_\_.py              |        0 |        0 |    100% |           |
 | personas/config.py                    |       13 |        0 |    100% |           |
-| personas/welcome.py                   |       90 |        3 |     97% |47, 49, 97 |
+| personas/welcome.py                   |       90 |        4 |     96% | 48-51, 97 |
 | simulation/\_\_init\_\_.py            |        0 |        0 |    100% |           |
 | simulation/presets.py                 |        7 |        0 |    100% |           |
 | simulation/scenario\_engine.py        |       78 |        8 |     90% |258-264, 271-273 |
 | simulation/scenario\_grid.py          |      104 |        9 |     91% |121, 234, 259, 261, 305-307, 310, 314 |
-| **TOTAL**                             | **9215** |  **736** | **92%** |           |
+| **TOTAL**                             | **9282** |  **738** | **92%** |           |
 
 
 ## Setup coverage badge
