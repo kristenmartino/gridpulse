@@ -15,15 +15,16 @@ from data.forecast_identity import resolve_forecast_identity, selection_values
 
 
 def _utc_clock(value: object, fmt: str) -> str | None:
-    """Format one recorded ISO timestamp without per-row dataframe parsing."""
+    """Format an aware recorded clock; an unknown timezone stays unknown."""
     if not isinstance(value, str):
         return None
     try:
         stamp = datetime.fromisoformat(value)
     except ValueError:
         return None
-    stamp = stamp.replace(tzinfo=UTC) if stamp.tzinfo is None else stamp.astimezone(UTC)
-    return stamp.strftime(fmt)
+    if stamp.tzinfo is None:
+        return None
+    return stamp.astimezone(UTC).strftime(fmt)
 
 
 def _cell(label: str, value: str | list, note: str | list, *, source: bool = False) -> html.Section:

@@ -190,3 +190,34 @@ def test_stale_forecast_warning_is_visible_outside_compact_disclosures():
         text(child) for child in insight.children if not isinstance(child, html.Details)
     )
     assert "Forecast last refreshed" in visible
+
+
+def test_naive_target_clock_stays_unavailable_in_table_and_peak():
+    cached = payload()
+    cached["forecasts"][-1]["timestamp"] = "2026-10-24T23:00:00"
+    with patch("components.forecast_context.redis_get", return_value=None):
+        context = forecast_review_context("FPL", cached, "published", 24)
+    table = next(
+        n for n in nodes(build_review_evidence(context, cached)) if isinstance(n, html.Tbody)
+    )
+    assert table.children[-1].children[0].children == "Timestamp unavailable"
+    assert table.children[-1].children[1].children == "123"
+    peak = build_review_summary(context, cached).children[0].children[0]
+    assert "123" in text(peak)
+    assert "Target time unavailable" in text(peak)
+    assert "23:00 UTC" not in text(peak)
+
+
+def test_aware_offset_target_clock_normalizes_to_utc_in_table_and_peak():
+    cached = payload()
+    cached["forecasts"][-1]["timestamp"] = "2026-10-24T23:00:00-04:00"
+    with patch("components.forecast_context.redis_get", return_value=None):
+        context = forecast_review_context("FPL", cached, "published", 24)
+    table = next(
+        n for n in nodes(build_review_evidence(context, cached)) if isinstance(n, html.Tbody)
+    )
+    assert table.children[-1].children[0].children == "25 Oct 2026, 03:00 UTC"
+    assert table.children[-1].children[1].children == "123"
+    peak = build_review_summary(context, cached).children[0].children[0]
+    assert "Sun 25 Oct, 03:00 UTC" in text(peak)
+    assert "Target time unavailable" not in text(peak)
