@@ -1,0 +1,1 @@
+2026-10-27 UTC — [changed-surface-test-scope] CI found two trust-signal tests still asserting chart annotations after Overview generation metadata moved to the summary; the final focused set had omitted that module (PR #656).
