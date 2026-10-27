@@ -497,6 +497,18 @@ Pulled from [`CANONICAL_FACTS.md`](CANONICAL_FACTS.md):
 
 ## Hourly scoring coverage
 
+Hourly actual eligibility uses the same configured quality signals across all
+retained scoreable targets, with each target's preceding demand context. It
+uses a separate raw-frame reference; the six-row forecast-input guard, model
+inputs, serving policy, and legacy diagnostics are unchanged. A rejected value
+does not become eligible merely by aging. Rechecks can remove a previously
+scored observation from current metrics while retaining its original forecast,
+first stored actual, clocks, and last rejection evidence. A later passing
+revision clears the active exclusion. The API reports policy
+`retained_window_guard_v1` and `quality_guard_excluded_hours` separately from
+pending demand and low-actual exclusions. See the
+[actual-quality audit](audits/HOURLY_ACTUAL_QUALITY_2026-10-27.md).
+
 The scoring job observes the cached forecast before replacing it and writes
 `gridpulse:drift_hourly:{region}` through an atomic Redis WATCH transaction.
 The same transaction writes its small `:summary` key for web/API readers, so

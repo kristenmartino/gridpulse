@@ -1,0 +1,498 @@
+{
+  "measured_at": "2026-10-27T04:32:19.107511+00:00",
+  "state_captured_at": "2026-10-27T04:26:40.817459+00:00",
+  "state_sha256": "a05a18e2fc70c2b63275020eee12bbd6ac1bc053c65ed9fd4b9750011a26126a",
+  "regions_verified": 51,
+  "already_scored_flagged_observations": 2,
+  "unchanged_flagged_observations": 1,
+  "local_quality_cpu_seconds_total": 1.5263,
+  "local_quality_cpu_seconds_max": 0.1295,
+  "prediction_and_first_actual_provenance_preserved": true,
+  "notes": [
+    "Counterfactual recheck of retained observations with current mirrored source frames; source revisions may also affect scores.",
+    "No accuracy improvement is claimed. Flags apply configured heuristics; they do not certify source truth."
+  ],
+  "regions": {
+    "AECI": {
+      "demand_sha256": "a7b547494daee173a908a27fd0690e254a7e4fa9b9515a242234abf06e95b4ac",
+      "demand_object_updated_at": "2026-10-27T04:05:01.240000+00:00",
+      "ledger_updated_at": "2026-10-27T04:05:08.844986+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "AVA": {
+      "demand_sha256": "630dc44c2a397eebd75683639fb41dba2628eedf5868fd23b38fbb31f8475edf",
+      "demand_object_updated_at": "2026-10-27T04:06:12.104000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:18.229017+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "AZPS": {
+      "demand_sha256": "58914b513d9b63d1488f54a0b7aa96d2f296b7357e8defdfdd273b6bef8bc67d",
+      "demand_object_updated_at": "2026-10-27T04:02:33.623000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:40.146179+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 6,
+      "n_24h_after_recheck": 6,
+      "quality_excluded_24h_after": 1
+    },
+    "BANC": {
+      "demand_sha256": "003d37c436a750e0a9513a7208ab80c6e353b3a2b780bc60e7215055ae72d87d",
+      "demand_object_updated_at": "2026-10-27T04:07:11.945000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:14.119265+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "BPAT": {
+      "demand_sha256": "9a717f6c2c3b8c47ef5e145187b47ea5e3b0f3e6cfa357b1d2e3feadc0b7057d",
+      "demand_object_updated_at": "2026-10-27T04:02:31.875000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:42.094239+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "CAISO": {
+      "demand_sha256": "d8c0f93fccd15df1635e88f752e275e9d328cb2e8588ab13b9e60b53e6f3589b",
+      "demand_object_updated_at": "2026-10-27T04:01:20.994000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:20.339822+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "CHPD": {
+      "demand_sha256": "ce2a0d43510008d6d2561572cf139905b632647af9e84682b31dda454f81956e",
+      "demand_object_updated_at": "2026-10-27T04:07:04.411000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:07.377820+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "CPLE": {
+      "demand_sha256": "2e3f4da3000071d5b622c7d165081be2c455c8bbd0dc754c5d7e97987f9c3aaf",
+      "demand_object_updated_at": "2026-10-27T04:27:56.646000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:41.477105+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "CPLW": {
+      "demand_sha256": "9d6d807c3979912a6f7a98cf2415a6f7807f65f909ddb4f39e4f93fdc7456eba",
+      "demand_object_updated_at": "2026-10-27T04:04:49.017000+00:00",
+      "ledger_updated_at": "2026-10-27T04:04:56.111563+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "DOPD": {
+      "demand_sha256": "f38c0d7aa3e5559063ea8b71651d69b1dbe4943c1f01f76ac6c20bacd4885b4b",
+      "demand_object_updated_at": "2026-10-27T04:07:04.452000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:10.346275+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "DUK": {
+      "demand_sha256": "bcb8ad9f4afde61e4ef313df6a489bbf07973bc9cdbf44cfe890482ba5f1d046",
+      "demand_object_updated_at": "2026-10-27T04:30:46.228000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:34.385205+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "EPE": {
+      "demand_sha256": "2e5cfdcc061e0ebf64ac335a910d5f95097f78451c1ee2fb6a10f5ec95d10c54",
+      "demand_object_updated_at": "2026-10-27T04:05:01.194000+00:00",
+      "ledger_updated_at": "2026-10-27T04:05:06.074561+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "ERCOT": {
+      "demand_sha256": "8cd4bd008704130b621788e84f9d47cd21aa54c6b13a6dc53a64aa3df9e9fcdb",
+      "demand_object_updated_at": "2026-10-27T04:01:20.998000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:24.408827+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "FMPP": {
+      "demand_sha256": "80abf56f1e53e20f4f312f2b742b3a7366415d8c698978208eaed20da8126537",
+      "demand_object_updated_at": "2026-10-27T04:03:39.274000+00:00",
+      "ledger_updated_at": "2026-10-27T04:03:43.820273+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "FPC": {
+      "demand_sha256": "4ed5222e67ef693b89926fb2961e3bd4df0993cc81dd64b543d9e0095372c37b",
+      "demand_object_updated_at": "2026-10-27T04:03:35.107000+00:00",
+      "ledger_updated_at": "2026-10-27T04:03:39.933625+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "FPL": {
+      "demand_sha256": "86a9fc5da03976ca44908e456d367eb36facfe5461c80483b2c4d3ca1b3920f6",
+      "demand_object_updated_at": "2026-10-27T04:01:20.798000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:09.136141+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "GCPD": {
+      "demand_sha256": "7c7560d58fee81dbdabcc40497cc06dc6360f6fe7299c1758b38a856b4f2889f",
+      "demand_object_updated_at": "2026-10-27T04:06:43.300000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:44.644660+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "GVL": {
+      "demand_sha256": "949cf7c71f56892e006ba1962cc90083d0e9d3948515bf1dbd082647a4a8222a",
+      "demand_object_updated_at": "2026-10-27T04:03:57.360000+00:00",
+      "ledger_updated_at": "2026-10-27T04:03:58.711166+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "HST": {
+      "demand_sha256": "e7b5eb713284ae51ccce1e648cd17fed100d1a6834e93bc1078abc55a8b29c7f",
+      "demand_object_updated_at": "2026-10-27T04:04:03.320000+00:00",
+      "ledger_updated_at": "2026-10-27T04:04:05.853341+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "IID": {
+      "demand_sha256": "92d5ead633bbc3aedff4d60f4f83d2fa074049e5a8b1907623b4ec3246378bbd",
+      "demand_object_updated_at": "2026-10-27T04:07:18.658000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:20.029441+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "IPCO": {
+      "demand_sha256": "c1323f0935dd1f6a88d999131ce54debfe4fe00ab571da5180b1e8ca2bf20b37",
+      "demand_object_updated_at": "2026-10-27T04:06:12.792000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:20.304330+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "ISONE": {
+      "demand_sha256": "306119441e14cd2128215d9221c60a4ea5eafbc78bdfe1eb2c0b6a86bb905614",
+      "demand_object_updated_at": "2026-10-27T04:22:12.452000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:19.619542+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "JEA": {
+      "demand_sha256": "dce8f9cf307cc6101ba3ca9a61ea8b9d37a2ce4cf6716c18062a5ee50eb9bb68",
+      "demand_object_updated_at": "2026-10-27T04:03:49.951000+00:00",
+      "ledger_updated_at": "2026-10-27T04:03:55.056390+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "LDWP": {
+      "demand_sha256": "3ee020f24186a5de29c62768c3cbca7025edb5ff6e2e6733327a37e17a45fd8b",
+      "demand_object_updated_at": "2026-10-27T04:07:12.318000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:15.191487+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 6,
+      "n_24h_after_recheck": 6,
+      "quality_excluded_24h_after": 1
+    },
+    "LGEE": {
+      "demand_sha256": "fee6b644cba3efac9b1299306403aad1701f868b9eca5f1fdfb40997fd9c0de5",
+      "demand_object_updated_at": "2026-10-27T04:04:59.375000+00:00",
+      "ledger_updated_at": "2026-10-27T04:05:06.755908+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "MISO": {
+      "demand_sha256": "068f5cb42c4827743629e362678200ec85a2e39c33a643ebf119a4cd1fbd85ee",
+      "demand_object_updated_at": "2026-10-27T04:10:39.469000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:17.473013+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "NEVP": {
+      "demand_sha256": "6129c015efa82cb139623bef80cd55364b08d29a15d47e7843b154eaf968c7bb",
+      "demand_object_updated_at": "2026-10-27T04:02:35.292000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:37.816453+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "NWMT": {
+      "demand_sha256": "ac277ae53731e3cdb65d42033c63e6514242dc72e0a804f7ba5b21118de94dd2",
+      "demand_object_updated_at": "2026-10-27T04:06:17.228000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:25.142945+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "NYISO": {
+      "demand_sha256": "cc8771cd843e2036c9ee3c15be10e7a5836ecfc5adeaf0deb26cc26c9d745e3c",
+      "demand_object_updated_at": "2026-10-27T04:10:49.227000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:07.117924+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "PACE": {
+      "demand_sha256": "2a89ece207545d75d9e6d71dea29e6e3d4eaa6c8342014f24b664848e581c772",
+      "demand_object_updated_at": "2026-10-27T04:05:08.545000+00:00",
+      "ledger_updated_at": "2026-10-27T04:05:11.986040+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "PACW": {
+      "demand_sha256": "512f4509724cb37d7356f3be165ea9adda6796e0493eb7aa97123a062def079d",
+      "demand_object_updated_at": "2026-10-27T04:05:20.926000+00:00",
+      "ledger_updated_at": "2026-10-27T04:05:29.545489+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "PGE": {
+      "demand_sha256": "52573441c5dec88d7ae879f4b13cda69d40db8bf53cd7ee9c40d27790e39c3d2",
+      "demand_object_updated_at": "2026-10-27T04:05:58.036000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:02.639647+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "PJM": {
+      "demand_sha256": "70415f49a1acf5087eb7b83b36d23638d0ed31b4b644174e6a2848a3d9b05c81",
+      "demand_object_updated_at": "2026-10-27T04:08:41.569000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:20.526489+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "PNM": {
+      "demand_sha256": "75e87a7f82968256e737aaffe0a69a801610f44efa68bf3108ad838a4d489933",
+      "demand_object_updated_at": "2026-10-27T04:08:06.953000+00:00",
+      "ledger_updated_at": "2026-10-27T04:08:17.143558+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "PSCO": {
+      "demand_sha256": "adcee5175056ac848bb773c7006f5ca29fe322fae7b580afaef2686d29caa5db",
+      "demand_object_updated_at": "2026-10-27T04:02:36.516000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:44.523801+00:00",
+      "already_scored_quality_flags": [
+        {
+          "target": "2026-10-26T21:00:00+00:00",
+          "horizon": "24h",
+          "stored_actual": 598.0,
+          "guard_mw": 598.0,
+          "reason": "17% of the BA's own day-ahead forecast",
+          "unchanged_value": true
+        }
+      ],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 6,
+      "quality_excluded_24h_after": 1
+    },
+    "PSEI": {
+      "demand_sha256": "84e9407012ed173349e1210de073e0db9bbca8e1acc6a2917de5044e27764759",
+      "demand_object_updated_at": "2026-10-27T04:05:59.669000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:05.785325+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "SC": {
+      "demand_sha256": "1228727303236364aeeee95fd9e713ffd0994b818f4bd2d4dfb4bc15a8a16a95",
+      "demand_object_updated_at": "2026-10-27T04:04:46.901000+00:00",
+      "ledger_updated_at": "2026-10-27T04:04:55.669277+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "SCEG": {
+      "demand_sha256": "9d32681010d78571541f03df45562eeb4892cd92bc0a5885b65431f26c7fb096",
+      "demand_object_updated_at": "2026-10-27T04:04:47.166000+00:00",
+      "ledger_updated_at": "2026-10-27T04:04:54.906225+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "SCL": {
+      "demand_sha256": "c6b2e13ce51e97c2678499755edd59cb853b336c609e75359b84290ef7ff679b",
+      "demand_object_updated_at": "2026-10-27T04:06:00.397000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:03.414373+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "SEC": {
+      "demand_sha256": "61a8732b9a82f3bd1084c585f704c7818be54592545ea774a956cce61cb79937",
+      "demand_object_updated_at": "2026-10-27T04:03:57.503000+00:00",
+      "ledger_updated_at": "2026-10-27T04:04:01.574362+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "SOCO": {
+      "demand_sha256": "dd0f4aefeaa47d35c63414662044511e6a8f9a231fb25a298cc0b83a55a3aa7e",
+      "demand_object_updated_at": "2026-10-27T04:21:00.588000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:34.514184+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "SPA": {
+      "demand_sha256": "6e68d2cd64a8a29b4bd771d5cce2622798db00e3d18adee1eedd12b59f68d1b3",
+      "demand_object_updated_at": "2026-10-27T04:05:08.480000+00:00",
+      "ledger_updated_at": "2026-10-27T04:05:10.084804+00:00",
+      "already_scored_quality_flags": [
+        {
+          "target": "2026-10-26T21:00:00+00:00",
+          "horizon": "24h",
+          "stored_actual": 11.0,
+          "guard_mw": 4.0,
+          "reason": "76% single-hour drop to 27% of the daily median",
+          "unchanged_value": false
+        }
+      ],
+      "n_24h_before": 3,
+      "n_24h_after_recheck": 2,
+      "quality_excluded_24h_after": 3
+    },
+    "SPP": {
+      "demand_sha256": "a98955f6d322d8c02f9f4c30cc80d9bebdef7ba02e501e88c3392dbdf71540ed",
+      "demand_object_updated_at": "2026-10-27T04:15:27.905000+00:00",
+      "ledger_updated_at": "2026-10-27T04:01:08.752845+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "SRP": {
+      "demand_sha256": "0a3edb4733d9ba645954a62c5c954206459ef88405fc3847012372a20c391708",
+      "demand_object_updated_at": "2026-10-27T04:07:39.229000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:42.870083+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "TAL": {
+      "demand_sha256": "f40314a3ae453cafad072675e7fcf7db91ad3bc73cc951e12e9fc5a999d04770",
+      "demand_object_updated_at": "2026-10-27T04:03:53.139000+00:00",
+      "ledger_updated_at": "2026-10-27T04:03:55.360419+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "TEC": {
+      "demand_sha256": "a6268bbf0834c54ccb439bd2150028cd8f106b3d63b1c7f93878dabe635f285f",
+      "demand_object_updated_at": "2026-10-27T04:03:35.352000+00:00",
+      "ledger_updated_at": "2026-10-27T04:03:37.307401+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "TEPC": {
+      "demand_sha256": "69dee36718de8c5ec87437458402ac6fb7fe2bfe32e4fc6d0652c103c4e592f9",
+      "demand_object_updated_at": "2026-10-27T04:07:48.963000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:51.629670+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "TIDC": {
+      "demand_sha256": "1902e9c9b3a4f9b3f8c764b2b64b44dfbd20c85cd07e67f64205ee5297183f48",
+      "demand_object_updated_at": "2026-10-27T04:07:28.387000+00:00",
+      "ledger_updated_at": "2026-10-27T04:07:31.110891+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "TPWR": {
+      "demand_sha256": "1be13a88a9db2e23409221d829c26ee2be2cf7128c0476ed60b4916cd437c5f9",
+      "demand_object_updated_at": "2026-10-27T04:06:12.161000+00:00",
+      "ledger_updated_at": "2026-10-27T04:06:15.315050+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "TVA": {
+      "demand_sha256": "340c32461a1bc0819a8892f03fb47fc9d6a099f1d4d018e82f10d7fe7bbbfc4d",
+      "demand_object_updated_at": "2026-10-27T04:26:17.939000+00:00",
+      "ledger_updated_at": "2026-10-27T04:02:32.534083+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    },
+    "WALC": {
+      "demand_sha256": "835f1d944779671feda9e98309e4952dacb23fb5414cdc1209f3ca8647597fa5",
+      "demand_object_updated_at": "2026-10-27T04:08:09.519000+00:00",
+      "ledger_updated_at": "2026-10-27T04:08:14.317441+00:00",
+      "already_scored_quality_flags": [],
+      "n_24h_before": 7,
+      "n_24h_after_recheck": 7,
+      "quality_excluded_24h_after": 0
+    }
+  },
+  "regions_with_already_scored_quality_flags": [
+    "PSCO",
+    "SPA"
+  ]
+}

@@ -738,7 +738,8 @@ def _build_horizon_drift_panel(region: str | None) -> html.Div:
                         "Each forecast is sampled at least H and less than H+1 hours before its target. "
                         "This sampling clock is independent of the forecast's input origin and original "
                         "publication time. Six scored observations are required to display an average; "
-                        "that display rule does not establish representative coverage.",
+                        "that display rule does not establish representative coverage. "
+                        "Quality-flagged actuals stay excluded until a revision passes the same checks.",
                         className="gp-panel__caption",
                     ),
                     html.P(
