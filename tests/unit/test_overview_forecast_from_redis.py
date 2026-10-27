@@ -228,7 +228,7 @@ class TestHeroChartReadsRedis:
         trace_names = [t.name for t in fig.data]
         assert "XGBoost (24h)" not in trace_names
         # Actuals still render
-        assert any("Actual" in str(t.name) or t.name is None for t in fig.data)
+        assert any("Reported demand" in str(t.name) or t.name is None for t in fig.data)
 
     @patch("components._callbacks_overview.redis_get")
     def test_does_not_call_get_forecasts(self, mock_redis_get):

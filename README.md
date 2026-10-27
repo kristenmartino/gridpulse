@@ -30,6 +30,8 @@ Use GridPulse to inspect reported demand and forecasts, compare model error, rev
 
 The default view is Forecast Review Analyst. Three secondary role-based views (Renewables Analyst, Trader, Data Scientist) tune the narrative layer: the insight card's framing, and which insights surface and how many. The data, KPI tiles, and forecasts are identical across personas. (Per-persona KPI cards and alert thresholds are declared in `personas/config.py` but not yet wired into the shell — see [#188](https://github.com/kristenmartino/gridpulse/issues/188).)
 
+Overview keeps the published source, next peak, and matching observed-error label above the demand chart. Its 24-hour and seven-day history controls change the reported-demand history while retaining the next 24 hours of published forecasts. Aggregate scoring coverage and the separate training reference sit alongside the chart; the hatched portion represents unscored targets in the recorded window, not the timing or cause of particular gaps. Unknown coverage remains unknown. **Inspect evidence** separates the scoring summary from the hourly forecast targets, with source, timing, selection-policy, and sampling qualifications available in expandable details.
+
 ---
 
 ## Forecast identity and accuracy

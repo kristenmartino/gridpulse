@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-10-25
+# Status — updated 2026-10-26
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -16,6 +16,18 @@ follow-up commit.
 > See [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md) for the full
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
+
+## 2026-10-26 — approved Overview presentation
+
+The approved Overview layout brings the chart and compact source/peak/error
+summary forward, with a separate aggregate coverage and training-reference
+panel. History controls change actual-demand history only; the published
+forecast window remains 24 hours. Evidence inspection separates scoring
+metadata from hourly forecast targets. The display uses the existing shared
+source/error resolver, including hourly-sampling precedence and legacy-offset
+qualifications. Forecast, ingestion, scoring, and training calculations are
+unchanged. This is a presentation change, not practitioner validation of the
+review workflow.
 
 ## 2026-10-25 — scoring coverage reconciliation
 

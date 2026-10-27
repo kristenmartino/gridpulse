@@ -91,6 +91,12 @@ from components.cards import (
 )
 from components.forecast_context import forecast_review_context
 from components.forecast_review import build_forecast_review
+from components.overview_review import (
+    build_review_definitions,
+    build_review_evidence,
+    build_review_sidebar,
+    build_review_summary,
+)
 from config import (
     FRESHNESS_FRESH_MAX_AGE_HOURS,
     REGION_NAMES,
@@ -387,8 +393,10 @@ def _build_overview_hero_chart(
     region: str,
     demand_df: pd.DataFrame | None,
     cached=_FORECAST_NOT_LOADED,
+    *,
+    history_hours: int = 168,
 ) -> go.Figure:
-    """7d actual demand + 24h forecast bridge with confidence band.
+    """Selected actual-demand history + the same 24h published forecast bridge.
 
     Mirrors gridpulse-v2 components/DemandChart.tsx — blue solid actual with
     a faint area fill, orange dashed forecast bridged from the last actual
@@ -400,7 +408,9 @@ def _build_overview_hero_chart(
     df = demand_df.copy()
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     df = df.sort_values("timestamp")
-    actual = df.tail(168)
+    history_hours = 24 if history_hours == 24 else 168
+    cutoff = df["timestamp"].max() - pd.Timedelta(hours=history_hours)
+    actual = df[df["timestamp"] >= cutoff]
     if actual.empty:
         return _empty_figure("No recent demand")
 
@@ -422,7 +432,7 @@ def _build_overview_hero_chart(
             x=actual["timestamp"],
             y=actual["demand_mw"].where(actual["demand_mw"] > 0),
             mode="lines",
-            name="Actual",
+            name="Reported demand",
             line=dict(color="#3b82f6", width=1.75),
             fill="tozeroy",
             fillcolor="rgba(59, 130, 246, 0.08)",
@@ -437,7 +447,7 @@ def _build_overview_hero_chart(
     try:
         forecast_payload = _read_published_forecast_from_redis(region, cached)
         if forecast_payload is not None:
-            forecast_ts_all, forecast_arr, scored_at_iso = forecast_payload
+            forecast_ts_all, forecast_arr, _scored_at_iso = forecast_payload
             horizon = min(24, len(forecast_arr))
             forecast_ts = forecast_ts_all[:horizon]
             forecast_y = list(forecast_arr[:horizon])
@@ -478,7 +488,7 @@ def _build_overview_hero_chart(
                         fillcolor="rgba(249, 115, 22, 0.12)",
                         line=dict(width=0),
                         hoverinfo="skip",
-                        showlegend=False,
+                        showlegend=True,
                         name=band_name,
                     )
                 )
@@ -502,46 +512,30 @@ def _build_overview_hero_chart(
                 )
             )
 
-            # Surface the payload's own scored_at instead of discarding it —
-            # a stale forecast must not render as the current outlook
-            # (2026-07 critical-review finding P1-4).
-            if scored_at_iso:
-                scored_dt = pd.Timestamp(scored_at_iso)
-                if scored_dt.tzinfo is None:
-                    scored_dt = scored_dt.tz_localize("UTC")
-                age_h = (pd.Timestamp.now(tz="UTC") - scored_dt).total_seconds() / 3600.0
-                is_stale = age_h > FRESHNESS_FRESH_MAX_AGE_HOURS
-                note = f"forecast scored {scored_dt.strftime('%b %d %H:%M')} UTC"
-                if is_stale:
-                    note += f" · {age_h:.0f}h ago — stale"
-                fig.add_annotation(
-                    xref="paper",
-                    yref="paper",
-                    x=0.99,
-                    y=1.06,
-                    xanchor="right",
-                    showarrow=False,
-                    text=note,
-                    font=dict(size=10, color="#FFB84D" if is_stale else "#71717a"),
-                )
+            # Generation/target timing is shown in the shared summary above
+            # this chart; stale warnings stay visible in the insight block.
+            # Keeping timestamps outside Plotly avoids collisions when its
+            # series legend wraps on a narrow viewport.
     except Exception as exc:  # pragma: no cover — fall back to actual-only chart
         log.warning("overview_hero_forecast_failed", region=region, error=str(exc))
 
     fig.update_layout(
         **_layout(
-            uirevision=region,
-            showlegend=False,
+            uirevision=f"{region}:overview:{history_hours}",
+            showlegend=True,
+            legend=dict(orientation="h", y=1.04, yanchor="bottom", x=0, font=dict(size=10)),
+            margin=dict(l=48, r=20, t=88, b=38),
             xaxis=dict(
                 showgrid=False,
                 linecolor="rgba(255,255,255,0.04)",
-                tickfont=dict(color="#71717a", size=10),
+                tickfont=dict(color="#9eafc6", size=10),
             ),
             yaxis=dict(
                 showgrid=True,
                 gridcolor="rgba(255,255,255,0.04)",
                 zeroline=False,
                 tickformat=",.0f",
-                tickfont=dict(color="#71717a", size=10),
+                tickfont=dict(color="#9eafc6", size=10),
                 title=None,
             ),
         ),
@@ -549,10 +543,14 @@ def _build_overview_hero_chart(
     return fig
 
 
-def _build_overview_model_card(region: str, cached=_FORECAST_NOT_LOADED) -> html.Div:
+def _build_overview_model_card(
+    region: str, cached=_FORECAST_NOT_LOADED, *, context: dict | None = None
+) -> html.Div:
     """Identity and error evidence for the same published 24-hour series."""
     if cached is _FORECAST_NOT_LOADED:
         cached = redis_get(redis_key(f"forecast:{region}:1h"))
+    if context is not None:
+        return build_review_sidebar(context)
     return build_forecast_review(forecast_review_context(region, cached, "published", 24))
 
 
@@ -602,6 +600,8 @@ def _build_overview_insight(
     artifact_exclusions: list[dict] | None = None,
     weather_df: pd.DataFrame | None = None,
     cached=_FORECAST_NOT_LOADED,
+    *,
+    compact: bool = False,
 ) -> html.Div:
     """Lead with the forecast; disclose data warnings before optional context."""
     if demand_df is None or demand_df.empty or "demand_mw" not in demand_df.columns:
@@ -691,17 +691,25 @@ def _build_overview_insight(
         "trader": "Demand outlook",
         "data_scientist": "Model summary",
     }
-    children = [
-        html.Div(eyebrow_map.get(persona_id, "Summary"), className="gp-insight-card__eyebrow"),
-        html.P(forecast_clause, className="gp-insight-card__body gp-insight-card__strong"),
-        html.P(current_context, className="gp-insight-card__body"),
-    ]
+    children = (
+        []
+        if compact
+        else [
+            html.Div(eyebrow_map.get(persona_id, "Summary"), className="gp-insight-card__eyebrow"),
+            html.P(forecast_clause, className="gp-insight-card__body gp-insight-card__strong"),
+            html.P(current_context, className="gp-insight-card__body"),
+        ]
+    )
     children.extend(html.P(note, className="gp-insight-card__body") for note in warnings)
     if details:
         children.append(
             html.Details(
                 [
-                    html.Summary("Historical demand details"),
+                    html.Summary(
+                        eyebrow_map.get(persona_id, "Historical demand details")
+                        if compact
+                        else "Historical demand details"
+                    ),
                     *[html.P(line, className="gp-insight-card__body") for line in details],
                 ],
                 className="gp-insight-card__details",
@@ -731,11 +739,15 @@ def register_overview_callbacks(app):
             Output("overview-spotlight-chart", "figure"),
             Output("overview-model-card", "children"),
             Output("overview-insight-card", "children"),
+            Output("overview-review-summary", "children"),
+            Output("overview-evidence-panel", "children"),
+            Output("overview-source-details", "children"),
         ],
         [
             Input("demand-store", "data"),
             Input("dashboard-tabs", "active_tab"),
             Input("persona-selector", "value"),
+            Input("overview-history-range", "value"),
         ],
         [
             State("weather-store", "data"),
@@ -744,11 +756,11 @@ def register_overview_callbacks(app):
         ],
     )
     def update_overview_tab(
-        demand_json, active_tab, persona_id, weather_json, region, freshness_data
+        demand_json, active_tab, persona_id, history_range, weather_json, region, freshness_data
     ):
-        """Render the v2 linear-stack Overview: title, metrics, chart, model, insight."""
+        """Render one coherent published snapshot across the Overview workspace."""
         if active_tab != "tab-overview":
-            return [no_update] * 5
+            return [no_update] * 8
 
         persona_id = persona_id or "grid_ops"
         region = region or "FPL"
@@ -779,23 +791,34 @@ def register_overview_callbacks(app):
             title = _build_overview_title(region)
 
             # 2. MetricsBar (5-up KPI row)
-            metrics_bar = build_metrics_bar(
-                _build_overview_metrics_items(demand_df, artifact_exclusions)
-            )
+            history_items = _build_overview_metrics_items(demand_df, artifact_exclusions)
+            metrics_bar = build_metrics_bar(history_items)
 
             # 3. Hero forecast chart (actual + dashed forecast + confidence band)
             cached = redis_get(redis_key(f"forecast:{region}:1h"))
-            chart = _build_overview_hero_chart(region, demand_df, cached)
+            context = forecast_review_context(region, cached, "published", 24)
+            chart = _build_overview_hero_chart(
+                region, demand_df, cached, history_hours=24 if history_range == "24" else 168
+            )
 
             # 4. ModelMetricsCard
-            model_card = _build_overview_model_card(region, cached)
+            model_card = _build_overview_model_card(region, cached, context=context)
 
             # 5. InsightCard
             insight = _build_overview_insight(
-                region, demand_df, persona_id, artifact_exclusions, weather_df, cached
+                region, demand_df, persona_id, artifact_exclusions, weather_df, cached, compact=True
             )
 
-            return (title, metrics_bar, chart, model_card, insight)
+            return (
+                title,
+                metrics_bar,
+                chart,
+                model_card,
+                insight,
+                build_review_summary(context, cached, latest=history_items[0]),
+                build_review_evidence(context, cached),
+                build_review_definitions(context),
+            )
         except Exception:
             log.exception("update_overview_tab_failed")
             err_msg = (
@@ -805,7 +828,16 @@ def register_overview_callbacks(app):
                 err_msg,
                 style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
             )
-            return (err_div, html.Div(), _empty_figure(err_msg), html.Div(), err_div)
+            return (
+                err_div,
+                html.Div(),
+                _empty_figure(err_msg),
+                html.Div(),
+                err_div,
+                html.Div(),
+                html.Div(),
+                html.Div(),
+            )
 
 
 __all__ = [

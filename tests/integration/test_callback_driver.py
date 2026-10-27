@@ -308,6 +308,7 @@ class TestOverviewInsightIsRoleAwareThroughDispatch:
                 "demand-store": demand_json,
                 "dashboard-tabs": "tab-overview",
                 "persona-selector": persona,
+                "overview-history-range": "24",
             },
             state={
                 "weather-store": wj if weather_json is None else weather_json,
@@ -339,3 +340,73 @@ class TestOverviewInsightIsRoleAwareThroughDispatch:
         text = self._insight_text(driver, "renewables", "{not valid json")
         assert "Demand is" in text
         assert "Error" not in text and "error" not in text
+
+
+class TestOverviewReviewWorkspace:
+    """The actual Dash request connects controls, source, chart and inspection."""
+
+    def test_history_input_keeps_one_published_snapshot_and_serializable_evidence(
+        self, driver: DashDriver
+    ) -> None:
+        from unittest.mock import patch
+
+        import components._callbacks_overview as ov
+        from tests.unit.test_forecast_review_context import payload
+
+        cached = payload()
+        demand_json, _ = TestOverviewInsightIsRoleAwareThroughDispatch._stores()
+        drift = {
+            "models": {
+                "baseline": {
+                    "24h": {
+                        "n_7d": 8,
+                        "rolling_mape_7d": 7.5,
+                        "coverage_7d": {"scored_target_hours": 8, "possible_target_hours": 168},
+                    }
+                }
+            }
+        }
+        figures = []
+        with (
+            patch.object(ov, "redis_get", return_value=cached) as forecast_read,
+            patch.object(
+                ov, "_provenance_note", return_value=["Provisional demand can be revised."]
+            ),
+            patch(
+                "components.forecast_context.redis_get",
+                side_effect=lambda key: drift if "drift_horizon" in key else None,
+            ),
+        ):
+            for history in ("24", "168"):
+                result = driver.dispatch(
+                    "overview-review-summary.children",
+                    inputs={
+                        "demand-store": demand_json,
+                        "dashboard-tabs": "tab-overview",
+                        "persona-selector": "grid_ops",
+                        "overview-history-range": history,
+                    },
+                    state={
+                        "weather-store": None,
+                        "region-selector": "FPL",
+                        "data-freshness-store": None,
+                    },
+                )
+                assert result.ok
+                assert "123" in result.text("overview-review-summary")
+                assert "Seasonal baseline" in result.text("overview-review-summary")
+                assert "7.50%" in result.text("overview-review-summary")
+                assert "8 / 168" in result.text("overview-model-card")
+                assert "Not applicable" in result.text("overview-model-card")
+                assert "Provisional demand can be revised" in result.text("overview-insight-card")
+                assert "24 stored published forecast targets" in result.text(
+                    "overview-evidence-panel"
+                )
+                assert "not scored observations" in result.text("overview-evidence-panel")
+                assert "forecast start, not an exact publication-to-target lead" in result.text(
+                    "overview-source-details"
+                )
+                figures.append(result.value("overview-spotlight-chart", "figure"))
+            assert forecast_read.call_count == 2  # once per real callback request
+        assert figures[0]["layout"]["uirevision"] != figures[1]["layout"]["uirevision"]
+        assert figures[0]["data"][-1]["y"] == figures[1]["data"][-1]["y"]

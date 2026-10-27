@@ -1,0 +1,1 @@
+2026-10-27 UTC — [clock-assumption] Final source review found the new Overview timestamp formatter assigning UTC to timezone-naive inputs despite the existing unknown-clock policy; the peak and target-table formatter was corrected before merge (PR #656).

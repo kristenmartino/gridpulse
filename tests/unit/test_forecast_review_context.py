@@ -269,11 +269,17 @@ def test_overview_callback_reads_one_forecast_snapshot_for_every_surface():
     cached = payload()
     with (
         patch.object(ov, "redis_get", return_value=cached) as redis,
+        patch.object(ov, "forecast_review_context", return_value={}),
+        patch.object(ov, "build_review_summary"),
+        patch.object(ov, "build_review_evidence"),
+        patch.object(ov, "build_review_definitions"),
         patch.object(ov, "_build_overview_hero_chart") as chart,
         patch.object(ov, "_build_overview_model_card") as panel,
         patch.object(ov, "_build_overview_insight") as summary,
     ):
-        app.functions["update_overview_tab"](None, "tab-overview", "grid_ops", None, "FPL", None)
+        app.functions["update_overview_tab"](
+            None, "tab-overview", "grid_ops", "24", None, "FPL", None
+        )
     redis.assert_called_once_with("gridpulse:forecast:FPL:1h")
     assert chart.call_args.args[-1] is cached
     assert panel.call_args.args[-1] is cached

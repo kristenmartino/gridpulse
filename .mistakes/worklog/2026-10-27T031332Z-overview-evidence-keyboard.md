@@ -1,0 +1,1 @@
+2026-10-27 UTC — [keyboard-control-gap] Independent browser review found that the new Overview evidence selectors rendered nonfocusable divs despite passing render/dispatch tests, before publication (branch `codex/overview-reference-layout`).

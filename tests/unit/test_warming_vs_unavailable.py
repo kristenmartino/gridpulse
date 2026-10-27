@@ -553,7 +553,7 @@ def test_overview_error_logs_details_without_rendering_them(callbacks):
         patch.object(ov.log, "exception") as logger,
     ):
         result = callbacks["update_overview_tab"](
-            None, "tab-overview", "grid_ops", None, "FPL", None
+            None, "tab-overview", "grid_ops", "24", None, "FPL", None
         )
     assert "Overview could not be loaded" in str(result)
     assert "TRACE_ONLY_MARKER" not in str(result)

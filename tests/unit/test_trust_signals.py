@@ -5,8 +5,8 @@ Pins the fixes for the 2026-07 critical-review P1 cluster
 
 * P1-3 — freshness is MEASURED from each Redis payload's own ``scored_at``,
   never hardcoded ``'fresh'`` at render time;
-* P1-4 — the Overview hero surfaces ``scored_at`` and marks a stale
-  forecast instead of narrating it as current;
+* P1-4 — the Overview review surfaces the payload generation time and
+  a visible stale warning instead of narrating an old forecast as current;
 * P1-2 — an empirical interval calibrated on a substitute model's
   residuals discloses the calibration source in its label;
 * P1-8 — an sMAPE value is labeled sMAPE, never "MAPE".
@@ -194,7 +194,7 @@ class TestMetricNameHonesty:
 
 
 # ---------------------------------------------------------------------------
-# P1-4: scored_at surfaced on the hero chart
+# P1-4: generation time and measured staleness stay visible in Overview
 # ---------------------------------------------------------------------------
 
 
@@ -203,31 +203,51 @@ class TestScoredAtSurfaced:
         ts = pd.date_range(end=pd.Timestamp.now(tz="UTC").floor("h"), periods=48, freq="h")
         return pd.DataFrame({"timestamp": ts, "demand_mw": 1000.0})
 
-    def _hero(self, scored_at_iso):
-        import components._callbacks_overview as ov
+    def _review(self, scored_at_iso: str) -> tuple[str, str]:
+        from dash import html
 
+        import components._callbacks_overview as ov
+        from components.forecast_context import forecast_review_context
+        from components.overview_review import build_review_summary
+        from tests.unit.test_forecast_review_context import payload, text
+
+        cached = payload()
+        cached["scored_at"] = scored_at_iso
         forecast_ts = pd.date_range(
             start=pd.Timestamp.now(tz="UTC").floor("h") + pd.Timedelta(hours=1),
             periods=24,
             freq="h",
         )
-        payload = (forecast_ts, np.full(24, 1000.0), scored_at_iso)
+        for row, stamp in zip(cached["forecasts"], forecast_ts, strict=True):
+            row["timestamp"] = stamp.isoformat()
         with (
-            patch.object(ov, "_read_published_forecast_from_redis", return_value=payload),
-            patch.object(
-                ov, "_empirical_interval_from_backtests", return_value={"available": False}
-            ),
+            patch("components.forecast_context.redis_get", return_value=None),
+            patch.object(ov, "_provenance_note", return_value=[]),
         ):
-            return ov._build_overview_hero_chart("ERCOT", self._demand_df())
+            context = forecast_review_context("ERCOT", cached, "published", 24)
+            summary = build_review_summary(context, cached)
+            insight = ov._build_overview_insight(
+                "ERCOT", self._demand_df(), "grid_ops", cached=cached, compact=True
+            )
+
+        def visible_copy(component) -> str:
+            # Closed disclosures cannot satisfy a visible freshness requirement.
+            return " ".join(
+                text(child) for child in component.children if not isinstance(child, html.Details)
+            )
+
+        return visible_copy(summary), visible_copy(insight)
 
     def test_stale_forecast_is_marked(self):
-        fig = self._hero(_iso_hours_ago(9))
-        notes = " ".join(a.text or "" for a in fig.layout.annotations)
-        assert "forecast scored" in notes
-        assert "stale" in notes
+        scored_at = _iso_hours_ago(9)
+        summary, visible_insight = self._review(scored_at)
+        expected_clock = datetime.fromisoformat(scored_at).strftime("%Y-%m-%d %H:%M")
+        assert f"Generated: {expected_clock} UTC" in summary
+        assert "Forecast last refreshed 9h ago." in visible_insight
 
     def test_fresh_forecast_shows_timestamp_without_stale_flag(self):
-        fig = self._hero(_iso_hours_ago(0.5))
-        notes = " ".join(a.text or "" for a in fig.layout.annotations)
-        assert "forecast scored" in notes
-        assert "stale" not in notes
+        scored_at = _iso_hours_ago(0.5)
+        summary, visible_insight = self._review(scored_at)
+        expected_clock = datetime.fromisoformat(scored_at).strftime("%Y-%m-%d %H:%M")
+        assert f"Generated: {expected_clock} UTC" in summary
+        assert "Forecast last refreshed" not in visible_insight

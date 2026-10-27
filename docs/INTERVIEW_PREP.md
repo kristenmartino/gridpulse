@@ -1627,3 +1627,9 @@ The demonstrated judgment is to make scope and limitations part of the result: h
 Kristen authorized a practitioner-oriented evidence audit before expanding the product. The audit found that a chart replay capture clock could not establish original publication time, and the public forecast API could select a different series from the dashboard. The implementation uses the existing published-series resolver and starts a separate immutable receipt only after successful forecast persistence. Scoring counts, target coverage, generation time, and forecast-start offsets are explicitly distinguished.
 
 The product judgment demonstrated is to constrain a historical review to evidence the application can actually preserve, rather than reconstructing apparently original forecasts from current models. Practitioner fit and business outcomes remain open questions. This work was developed with AI assistance; the code alone does not establish independent authorship of every underlying component.
+
+## Overview design follow-through — 2026-10-26
+
+Kristen approved a comparison mockup that brought the published forecast, next peak, chart, and supporting evidence forward. The implementation retains the existing Dash application and shared evidence resolver, including the distinction between hourly sampling, legacy forecast-start offsets, and training holdouts. An aggregate coverage bar avoids inventing the position or cause of missing hours; the target table shows stored forecasts separately from observed-error metadata.
+
+Browser review caught evidence selectors that render/dispatch tests could not establish were keyboard-accessible. The implementation uses native expandable sections and keeps the generation timestamp outside the chart legend. This is an AI-assisted presentation and verification example; practitioner adoption and operational benefit remain unvalidated.

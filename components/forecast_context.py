@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from math import isfinite
+from typing import Any
 
 from data.forecast_evidence import baseline_selection, forecast_timing
 from data.forecast_identity import resolve_forecast_identity, selection_values
@@ -12,7 +13,7 @@ from data.redis_client import redis_get, redis_key
 
 def forecast_review_context(
     region: str, payload: dict | None, requested: str, hours: int
-) -> dict[str, str]:
+) -> dict[str, Any]:
     identity = resolve_forecast_identity(payload, requested)
     context = {
         "display_label": "Unavailable",
@@ -28,6 +29,9 @@ def forecast_review_context(
         "coverage_summary": "Scoring coverage unavailable",
         "coverage_note": "The scored target hours and measurement window are not available.",
         "sampling_note": "",
+        "coverage_scored": None,
+        "coverage_possible": None,
+        "display_available": False,
     }
     timing = forecast_timing(payload, hours)
 
@@ -77,6 +81,7 @@ def forecast_review_context(
             source_note=f"{identity.label} is unavailable or withheld for the selected {hours}-hour window.",
         )
         return context
+    context["display_available"] = True
     key = identity.metric_key
     context.update(
         error_label=f"Observed error · {hours}h horizon · 7d MAPE",
@@ -94,7 +99,9 @@ def forecast_review_context(
             if isinstance(coverage, dict):
                 count = coverage.get("scored_target_hours")
                 possible = coverage.get("possible_target_hours")
-                if isinstance(count, int) and isinstance(possible, int) and 0 <= count <= possible:
+                if type(count) is int and type(possible) is int and 0 <= count <= possible:
+                    context["coverage_scored"] = count
+                    context["coverage_possible"] = possible
                     context["coverage_summary"] = f"{count} / {possible} hourly targets scored"
                     context["coverage_note"] = (
                         f"Scored targets: {coverage.get('scored_start') or 'none'} to "
@@ -169,6 +176,8 @@ def forecast_review_context(
                         "lead, not the original publication lead. MAPE is mean absolute percentage "
                         "error; lower is better. Historical error does not guarantee this forecast's accuracy."
                     ),
+                    coverage_scored=n if 0 <= n <= 168 else None,
+                    coverage_possible=168 if 0 <= n <= 168 else None,
                     coverage_summary=f"{n} / 168 hourly targets scored",
                     coverage_note=(
                         f"Window evaluated at {coverage.get('as_of') or 'unknown time'}. "
