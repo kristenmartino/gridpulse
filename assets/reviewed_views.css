@@ -9,3 +9,13 @@
 .gp-explorer-evidence>*{min-width:0;overflow-wrap:anywhere}.gp-review-disclosure p{overflow-wrap:anywhere}.gp-review-disclosure .gp-review-table-scroll{overflow-wrap:normal}@media(max-width:760px){.gp-explorer-span-control .form-check-label{min-height:40px;display:flex;align-items:center}}
 /* The authority directory remains a real wide table inside a keyboard-pan region. */
 .gp-grid-directory .gp-table-scroll{width:100%;max-width:100%;min-width:0;overflow-x:auto;overscroll-behavior-x:contain}.gp-grid-directory .gp-table-scroll:focus-visible{outline:2px solid #9dc9ec;outline-offset:2px}
+
+/* Hide the previous selection only while Dash has a real pending callback. */
+#outlook-model-card[data-dash-is-loading="true"],
+#outlook-peak[data-dash-is-loading="true"],
+#outlook-peak-time[data-dash-is-loading="true"],
+#outlook-avg[data-dash-is-loading="true"],
+#outlook-min[data-dash-is-loading="true"],
+#outlook-min-time[data-dash-is-loading="true"],
+#outlook-range[data-dash-is-loading="true"],
+#outlook-data-through[data-dash-is-loading="true"]{visibility:hidden}

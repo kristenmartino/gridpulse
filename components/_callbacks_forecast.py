@@ -65,6 +65,8 @@ When patching for tests, target the function's *new* namespace:
 from __future__ import annotations
 
 import io
+from html import escape
+from textwrap import fill
 
 import numpy as np
 import pandas as pd
@@ -91,6 +93,7 @@ from components._callbacks_shared import (
 )
 from components.accessibility import LINE_STYLES, model_display_name
 from components.cards import build_metrics_bar
+from components.forecast_availability import forecast_availability
 from components.forecast_context import forecast_review_context
 from components.forecast_review import build_forecast_review
 from config import (
@@ -99,10 +102,62 @@ from config import (
     REQUIRE_REDIS,
 )
 from data.forecast_identity import resolve_forecast_identity, selection_values
-from data.redis_client import redis_get, redis_key
+from data.redis_client import RedisReadError, redis_get, redis_get_strict, redis_key
 from data.weather_windows import forecast_weather_window
 
 log = structlog.get_logger()
+_FORECAST_NOT_READ = object()
+
+
+def _read_outlook_forecast(region):
+    """Read once, distinguishing cache absence from failure in Redis-only mode.
+
+    The existing strict reader has bounded connection/read timeouts and no
+    writes. Development retains the optional-cache, inline-compute behavior.
+    """
+    try:
+        reader = redis_get_strict if REQUIRE_REDIS else redis_get
+        cached = reader(redis_key(f"forecast:{region}:1h"))
+        return cached, False
+    except (RedisReadError, ValueError, TypeError):
+        log.warning("forecast_display_read_failed", region=region)
+        return None, True
+
+
+def _outlook_availability(region, cached, model, hours, read_failed=False):
+    alive = completed = False
+    if (
+        cached is None or isinstance(cached, dict) and not cached.get("forecasts")
+    ) and not read_failed:
+        alive = _pipeline_alive(region)
+        completed = alive and _scoring_pass_completed_since_actuals(region)
+    return forecast_availability(
+        cached, model, hours, region, alive=alive, completed=completed, read_failed=read_failed
+    )
+
+
+def _empty_outlook(availability, region, hours):
+    """One completed-response renderer; pending callbacks use dcc.Loading."""
+    fig = go.Figure()
+    fig.update_layout(
+        **_layout(
+            uirevision=f"{region}:{hours}",
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            margin=dict(l=16, r=16, t=20, b=20),
+        )
+    )
+    fig.add_annotation(
+        text=escape(fill(availability.message, width=34)).replace("\n", "<br>"),
+        xref="paper",
+        yref="paper",
+        x=0.5,
+        y=0.5,
+        showarrow=False,
+        font=dict(color="#f87171" if availability.state == "error" else "#a1a1aa", size=14),
+    )
+    return fig, "—", "—", "", "—", "—", "", "—", html.Div()
+
 
 # Recent trailing window (days) for the (hour, dow) climatology used by
 # ``_create_future_features``, with a min-rows guard before trusting it.
@@ -959,7 +1014,14 @@ def _guarded_outlook_state(
 
 
 def _outlook_tab_from_redis(
-    region, horizon_hours, model_name, demand_json, weather_json, persona_id
+    region,
+    horizon_hours,
+    model_name,
+    demand_json,
+    weather_json,
+    persona_id,
+    *,
+    cached=_FORECAST_NOT_READ,
 ):
     """Redis fast path for the outlook (demand forecast) tab.
 
@@ -968,8 +1030,9 @@ def _outlook_tab_from_redis(
     or insufficient data.
     """
     granularity = "1h"
-    cached = redis_get(redis_key(f"forecast:{region}:{granularity}"))
-    if cached is None or not cached.get("forecasts"):
+    if cached is _FORECAST_NOT_READ:
+        cached = redis_get(redis_key(f"forecast:{region}:{granularity}"))
+    if not isinstance(cached, dict) or not cached.get("forecasts"):
         return None
 
     log.info("outlook_redis_hit", region=region, granularity=granularity)
@@ -1514,30 +1577,45 @@ def register_forecast_callbacks(app):
             Input("outlook-model", "value"),
             Input("dashboard-tabs", "active_tab"),
             Input("outlook-horizon", "value"),
+            Input("demand-store", "data"),
         ],
     )
-    def update_outlook_model_card(region, model_name, active_tab, horizon=24):
+    def update_outlook_model_card(region, model_name, active_tab, horizon=24, demand_json=None):
         """Match evidence to the selected series and lead, with no metric fallback."""
         if active_tab != "tab-outlook":
             return no_update
         region = region or "FPL"
-        cached = redis_get(redis_key(f"forecast:{region}:1h"))
+        cached, failed = _read_outlook_forecast(region)
+        availability = _outlook_availability(
+            region, cached, model_name or "published", int(horizon or 24), failed
+        )
         context = forecast_review_context(
             region, cached, model_name or "published", int(horizon or 24)
         )
+        if availability.state != "available":
+            context.update(
+                display_status=availability.label,
+                source_note=availability.message,
+            )
+            if not resolve_forecast_identity(cached, model_name or "published"):
+                context["display_label"] = availability.label
         return html.Div(
             [
                 html.Div(
                     [
                         html.Strong(context.get("display_label", "Source unavailable")),
-                        html.Span(context.get("display_status", "")),
+                        html.Span(context.get("display_status", ""))
+                        if context.get("display_status") != context.get("display_label")
+                        else None,
                         html.Span(
                             context.get("error_label", "")
                             + ": "
                             + context.get("error_value", "Not available")
                             + " · "
                             + context.get("coverage_summary", "Scoring coverage unavailable")
-                        ),
+                        )
+                        if availability.state == "available"
+                        else None,
                     ],
                     className="gp-forecast-source-line",
                 ),
@@ -1602,11 +1680,33 @@ def register_forecast_callbacks(app):
             weather_json = _regional_weather_json(region)
         # ── v2 Redis fast path ──────────────────────────────
         if region:
+            cached, failed = _read_outlook_forecast(region)
             redis_result = _outlook_tab_from_redis(
-                region, horizon_hours, model_name, demand_json, weather_json, persona_id
+                region,
+                horizon_hours,
+                model_name,
+                demand_json,
+                weather_json,
+                persona_id,
+                cached=cached,
             )
             if redis_result is not None:
                 return redis_result
+            if REQUIRE_REDIS:
+                availability = _outlook_availability(
+                    region, cached, model_name, horizon_hours, failed
+                )
+                if availability.state == "available":
+                    # A valid selection that failed to render is an error,
+                    # never an empty cache or a promise that the chart exists.
+                    availability = forecast_availability(
+                        None, model_name, horizon_hours, region, read_failed=True
+                    )
+                return _empty_outlook(
+                    availability,
+                    region,
+                    horizon_hours,
+                )
 
         # uirevision keyed on region + horizon so zoom/legend state persists
         # across data refresh but resets when the user picks a new horizon.
@@ -1614,21 +1714,10 @@ def register_forecast_callbacks(app):
 
         # ── v1 compute fallback ─────────────────────────────
         if not demand_json or not weather_json:
-            fig = go.Figure()
-            fig.update_layout(**_layout(uirevision=uirev))
-            fig.add_annotation(
-                text="Loading data...", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False
-            )
-            return (
-                fig,
-                "Loading...",
-                "Loading...",
-                "",
-                "Loading...",
-                "Loading...",
-                "",
-                "Loading...",
-                empty_insight,
+            return _empty_outlook(
+                _outlook_availability(region, None, model_name, horizon_hours),
+                region,
+                horizon_hours,
             )
 
         try:

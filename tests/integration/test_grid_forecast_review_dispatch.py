@@ -67,6 +67,7 @@ def test_forecast_region_change_reads_keyed_actuals_never_prior_store(driver):
     with (
         patch("components._callbacks_forecast.redis_get", side_effect=cache.get),
         patch("components._callbacks_forecast.REQUIRE_REDIS", True),
+        patch("components._callbacks_forecast.redis_get_strict", side_effect=cache.get),
     ):
         result = driver.dispatch(
             "outlook-chart.figure",
@@ -232,6 +233,12 @@ def test_production_cache_miss_preserves_completed_unavailable_guard(driver):
     with (
         patch("components._callbacks_forecast.redis_get", side_effect=cache.get),
         patch("components._callbacks_forecast.REQUIRE_REDIS", True),
+        patch("components._callbacks_forecast.redis_get_strict", side_effect=cache.get),
+        patch("components._callbacks_forecast._pipeline_alive", return_value=True),
+        patch(
+            "components._callbacks_forecast._scoring_pass_completed_since_actuals",
+            return_value=True,
+        ),
         patch(
             "components._callbacks_forecast._run_forecast_outlook",
             return_value={"error": "unavailable"},
@@ -249,7 +256,7 @@ def test_production_cache_miss_preserves_completed_unavailable_guard(driver):
             },
             {"weather-store": "prior-region"},
         )
-    assert result.ok and guarded.call_count == 1
+    assert result.ok and guarded.call_count == 0
     assert "completed" in component_text(result.value("outlook-chart", "figure")).lower()
     assert "Loading data" not in component_text(result.value("outlook-chart", "figure"))
 

@@ -43,6 +43,25 @@ The same quality thresholds and publication/scoring writers remain in place.
 No model training, forecast-policy change, production archive write or shortened
 upstream demand fetch is part of the interface request path.
 
+## Forecast completed-response states
+
+Forecast source, chart and empty statistics share one availability resolver.
+Pending callbacks use Dash loading state and hide prior-selection values. A
+completed empty-cache read shows "No cached forecast available" with `—` KPIs,
+not a permanent loading placeholder. Recent regional input writes support a
+warming state only until a completed pass is recorded; a completed pass without
+a forecast supports the unavailable state. Strict Redis reads distinguish a
+failed read from an absent key without adding retry loops. Usable cached
+forecasts still render when weather or actuals are absent; model/horizon guards
+and region-keyed inputs remain enforced. The approved Overview is unchanged.
+
+Real callback dispatch covers these states, failures, missing selections and
+FPL → empty CAISO → FPL isolation. Native preview checks cover an intentionally
+delayed request, settled values and message fit at 375px. The full local suite
+passes 4,309 tests with 3 skips and 90.56% measured coverage; the final message-fit
+adjustment is also covered by focused callback checks. These results do not
+establish production deployment or physical-device touch behavior.
+
 ## Deliberate limits
 
 Error review requires cached immutable issues and eligible actual matches in

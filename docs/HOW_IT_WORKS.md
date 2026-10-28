@@ -7,11 +7,11 @@
 
 GridPulse is an **energy intelligence platform**: weather-aware electricity demand forecasting plus the supporting context (grid generation, severe-weather alerts, scenario simulation, model validation) for **51 US balancing authorities** covering ~100% of contiguous-US lower-48 load. The product surface is a Dash/Plotly web app; the operational machinery is a small set of Cloud Run services and scheduled jobs.
 
-The design principle that shapes everything below: **the web tier never does heavy work in the request path.** Cache misses degrade gracefully to a "warming" state instead of triggering inline model loads or third-party API calls. All the expensive work — fetching data from EIA / Open-Meteo / NOAA, training models, computing forecasts — happens out-of-band in scheduled jobs that write to Redis. The web service reads only.
+The design principle that shapes everything below: **the web tier never does heavy work in the request path.** Cache misses show an evidence-based availability state instead of triggering inline model loads or third-party API calls. All the expensive work — fetching data from EIA / Open-Meteo / NOAA, training models, computing forecasts — happens out-of-band in scheduled jobs that write to Redis. The web service reads only.
 
 ## §1 — System architecture
 
-Three runtime tiers plus four external data sources. The boundary that matters is `REQUIRE_REDIS` — when true (staging + production), web callbacks short-circuit to the warming state rather than fetching live data themselves.
+Three runtime tiers plus four external data sources. The boundary that matters is `REQUIRE_REDIS` — when true (staging + production), web callbacks short-circuit to an availability state rather than fetching live data themselves.
 
 ```mermaid
 flowchart LR
@@ -159,12 +159,12 @@ sequenceDiagram
         W-->>U: rendered Forecast tab
     else cache miss / cold
         R-->>W: nil
-        Note over W: warming state — degraded UI
-        W-->>U: "Data warming up" message
+        Note over W: classify regional update evidence
+        W-->>U: completed empty / warming / unavailable state
     end
 ```
 
-The web service is **stateless and idempotent**. It never fetches from EIA, Open-Meteo, NOAA, or trains a model in the request path. If Redis is cold (first deploy, post-flush, between scoring runs), the UI renders a degraded "warming" state instead of blocking the user on a 30-second model load. The next scheduled scoring run repopulates Redis and the next request succeeds.
+The web service is **stateless and idempotent**. It never fetches from EIA, Open-Meteo, NOAA, or trains a model in the request path. Forecast uses one availability decision for the source panel, chart and empty KPIs. A completed cache miss shows "No cached forecast available" and dash-valued KPIs; recent regional writes without a completed pass support "Warming", while a completed pass without a forecast supports "Forecast unavailable". A failed strict cache read shows a retryable error rather than claiming the key is absent. Dash loading indicators represent only pending callbacks, and pending source/KPI values are hidden to avoid showing a prior region. A usable cached forecast remains visible without weather or actual inputs. Scheduled jobs can repopulate missing values; the interface does not promise that the next run will recover them.
 
 This separation is the single biggest reliability decision in the project. It means the web tier survives any failure of the external data sources — they fail asynchronously in the scoring job, not in the user's tab.
 
@@ -536,7 +536,7 @@ Pulled from [`CANONICAL_FACTS.md`](CANONICAL_FACTS.md):
 - Published default plus 4 named model comparisons in the UI
 - 49 features (17 raw weather + 32 derived)
 - Hourly scoring + daily training at 04:00 UTC
-- Redis-only reads in the web tier; degraded warming state when cold
+- Redis-only reads in the web tier; evidence-based availability states on cache misses
 - 63 EIA-930 BAs in the contiguous US — we cover 51 of them (~81% by BA count, ~100% by demand-weighted load)
 
 ## Hourly scoring coverage
