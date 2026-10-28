@@ -31,7 +31,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import pytest
-from dash import html, no_update
+from dash import no_update
 
 # ---------------------------------------------------------------------------
 # Shared test data helpers
@@ -758,102 +758,54 @@ class TestLoadDataV1:
 
 
 class TestSwitchPersona:
-    """Tests for the persona-tab redirect callback.
+    """The legacy compatibility field cannot redirect the single workspace."""
 
-    R3 of shell-redesign-v2.md trimmed the prior 3-output ``switch_persona``
-    (welcome / KPIs / active_tab) down to the single tab-redirect callback
-    ``switch_persona_default_tab``, since R3 deleted the standalone
-    ``welcome-card`` / ``kpi-cards`` divs that lived between the header and
-    the tab strip. Region changes no longer redirect the active tab — only
-    the persona selector does.
-    """
+    def test_persona_does_not_override_explicit_view(self, callbacks):
+        assert callbacks["switch_persona_default_tab"]("grid_ops") is no_update
 
-    def test_persona_change_redirects_to_default_tab(self, callbacks):
-        """Switching persona returns the persona's default_tab."""
-        result = callbacks["switch_persona_default_tab"]("grid_ops")
-        # grid_ops persona defaults to tab-overview
-        assert result == "tab-overview"
-
-    def test_renewables_persona_returns_its_default_tab(self, callbacks):
-        """Each persona has its own default_tab; the callback echoes it."""
-        result = callbacks["switch_persona_default_tab"]("renewables")
-        # default_tab for renewables persona — verify against config
-        from personas.config import get_persona
-
-        assert result == get_persona("renewables").default_tab
+    def test_legacy_persona_value_is_non_navigating(self, callbacks):
+        assert callbacks["switch_persona_default_tab"]("renewables") is no_update
 
     def test_empty_persona_returns_no_update(self, callbacks):
-        """Falsy persona id should be a no-op (no_update)."""
-        result = callbacks["switch_persona_default_tab"](None)
-        assert result is no_update
+        assert callbacks["switch_persona_default_tab"](None) is no_update
 
 
 # ===================================================================
 # TestWeatherTabV1: update_weather_tab callback closure
-class TestModelsTabV1:
-    """Tests for update_models_tab v1 fallback (lines 2094-2210)."""
+class TestModelsCachedDiagnostics:
+    """Cached diagnostics are independent of demand availability and training filters."""
 
     def test_tab_guard(self, callbacks):
-        """When active_tab is not tab-models, return no_update list."""
-        result = callbacks["update_models_tab"](_demand_json(), "tab-forecast", ["ensemble"], "FPL")
-        assert result == [no_update] * 6
+        result = callbacks["update_models_tab"](_demand_json(), "tab-forecast", "FPL")
+        assert result == [no_update] * 9
 
-    def test_no_demand_returns_loading(self, callbacks):
-        """When demand_json is None, return loading placeholders."""
-        result = callbacks["update_models_tab"](None, "tab-models", ["ensemble"], "FPL")
-        assert len(result) == 6
-
-    def test_no_model_selected_returns_empty_state(self, callbacks):
-        """When no models are selected, callback returns empty-state visuals."""
-        result = callbacks["update_models_tab"](_demand_json(), "tab-models", [], "FPL")
-        assert len(result) == 6
-        assert isinstance(result[0], html.P)
-        for fig in result[1:]:
-            assert isinstance(fig, go.Figure)
-
-    def test_v1_fallback_with_valid_data(self, callbacks):
-        """V1 compute fallback produces table + 5 figures."""
-        fake_forecasts = {
-            "metrics": {
-                "prophet": {"mape": 5.0, "rmse": 500, "mae": 400, "r2": 0.95},
-                "arima": {"mape": 6.0, "rmse": 600, "mae": 450, "r2": 0.93},
-                "xgboost": {"mape": 4.0, "rmse": 400, "mae": 350, "r2": 0.96},
-                "ensemble": {"mape": 3.5, "rmse": 350, "mae": 300, "r2": 0.97},
-            },
-            "prophet": np.random.uniform(35000, 45000, 168),
-            "arima": np.random.uniform(35000, 45000, 168),
-            "xgboost": np.random.uniform(35000, 45000, 168),
-            "ensemble": np.random.uniform(35000, 45000, 168),
-        }
-
+    def test_cold_cache_has_no_compute_fallback(self, callbacks):
         with (
-            patch("components.callbacks.redis_get", return_value=None),
-            patch("models.model_service.get_forecasts", return_value=fake_forecasts),
+            patch("components._callbacks_models.redis_get", return_value=None) as read,
+            patch(
+                "models.model_service.get_forecasts",
+                side_effect=AssertionError("no inline compute"),
+            ) as compute,
         ):
-            result = callbacks["update_models_tab"](
-                _demand_json(), "tab-models", ["prophet", "arima", "xgboost", "ensemble"], "FPL"
-            )
-
-        assert len(result) == 6
-        # First element is a table
-        assert isinstance(result[0], html.Table)
-        # Remaining are figures
-        for fig in result[1:]:
+            result = callbacks["update_models_tab"](None, "tab-models", "FPL")
+        assert len(result) == 9
+        for fig in result[:5]:
             assert isinstance(fig, go.Figure)
+            assert not fig.data
+        assert result[5]["rows"] == []
+        read.assert_called_once()
+        compute.assert_not_called()
 
-    def test_shap_empty_state_when_xgboost_not_selected(self, callbacks):
-        """SHAP panel is intentionally blank when XGBoost is not in model selector."""
-        fake_forecasts = {
-            "metrics": {"prophet": {"mape": 5.0, "rmse": 500, "mae": 400, "r2": 0.95}},
-            "prophet": np.random.uniform(35000, 45000, 168),
+    def test_cached_importance_is_independent_of_training_selection(self, callbacks):
+        payload = {
+            "diagnostics_source": "unavailable",
+            "feature_importance": {"names": ["temperature"], "values": [0.75]},
         }
-        with patch("models.model_service.get_forecasts", return_value=fake_forecasts):
-            result = callbacks["update_models_tab"](
-                _demand_json(), "tab-models", ["prophet"], "FPL"
-            )
-        shap_fig = result[5]
-        assert isinstance(shap_fig, go.Figure)
-        assert shap_fig.layout.annotations
+        with patch("components._callbacks_models.redis_get", return_value=payload) as read:
+            result = callbacks["update_models_tab"](None, "tab-models", "FPL")
+        assert list(result[4].data[0].x) == [0.75]
+        assert not result[0].data
+        read.assert_called_once()
 
 
 # ===================================================================
@@ -959,7 +911,7 @@ class TestDemandOutlookV1:
     def test_tab_guard(self, callbacks):
         """Non-active tab returns no_update."""
         result = callbacks["update_demand_outlook"](
-            24, "xgboost", "tab-forecast", _demand_json(), "grid_ops", _weather_json(), "FPL"
+            24, "xgboost", "tab-forecast", _demand_json(), "grid_ops", "FPL", _weather_json()
         )
         assert result == [no_update] * 9
 
@@ -967,7 +919,7 @@ class TestDemandOutlookV1:
         """No demand/weather data returns loading placeholder."""
         with patch("components._callbacks_forecast.redis_get", return_value=None):
             result = callbacks["update_demand_outlook"](
-                24, "xgboost", "tab-outlook", None, "grid_ops", None, "FPL"
+                24, "xgboost", "tab-outlook", None, "grid_ops", "FPL", None
             )
 
         assert len(result) == 9
@@ -985,7 +937,7 @@ class TestDemandOutlookV1:
             patch("components._callbacks_forecast._run_forecast_outlook", return_value=fake_result),
         ):
             result = callbacks["update_demand_outlook"](
-                24, "xgboost", "tab-outlook", _demand_json(), "grid_ops", _weather_json(), "FPL"
+                24, "xgboost", "tab-outlook", _demand_json(), "grid_ops", "FPL", _weather_json()
             )
 
         assert len(result) == 9
@@ -1006,7 +958,7 @@ class TestDemandOutlookV1:
             ),
         ):
             result = callbacks["update_demand_outlook"](
-                24, "xgboost", "tab-outlook", _demand_json(), "grid_ops", _weather_json(), "FPL"
+                24, "xgboost", "tab-outlook", _demand_json(), "grid_ops", "FPL", _weather_json()
             )
 
         assert len(result) == 9

@@ -358,22 +358,22 @@ class TestLeaderboardTableConsistency:
         src = inspect.getsource(cb._models_tab_from_redis)
         assert "get_model_metrics(region)" in src
 
-    def test_v1_fallback_uses_shared_metrics(self):
-        """The v1 compute fallback in ``update_models_tab`` also reads
-        through ``get_model_metrics`` so cold-Redis dev mode stays
-        consistent with the (also-fallback) leaderboard.
+    def test_training_table_uses_real_cached_model_metrics(self):
+        """The production UI must not invent holdout metrics from compute fallbacks."""
+        from components._callbacks_models import _training_table
 
-        Step 10c moved the callback registration out of
-        ``components.callbacks.register_callbacks`` and into
-        ``components._callbacks_models.register_models_callbacks`` —
-        the assertion below introspects the new location.
-        """
-        import inspect
-
-        from components import _callbacks_models as cm
-
-        src = inspect.getsource(cm.register_models_callbacks)
-        assert "get_model_metrics(region) or forecasts.get" in src
+        with patch(
+            "components._callbacks_models.redis_get",
+            return_value={
+                "region": "PJM",
+                "model_metrics": {"xgboost": {"mape": 7.25, "rmse": 1400}},
+            },
+        ) as read:
+            table = _training_table("PJM", ["xgboost"])
+        assert "7.25%" in str(table)
+        assert "1,400" in str(table)
+        assert "Unavailable" in str(table)
+        read.assert_called_once()
 
 
 def test_missing_holdout_mape_renders_without_selecting_a_false_best_model():

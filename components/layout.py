@@ -30,7 +30,7 @@ _VISIBLE_LABEL_OVERRIDES = {
     "tab-overview": "Overview",
     "tab-us-grid": "US Grid",
     "tab-outlook": "Forecast",
-    "tab-alerts": "Risk",
+    "tab-alerts": "Conditions",
     "tab-models": "Models",
 }
 
@@ -118,6 +118,7 @@ def _build_header() -> html.Header:
                 options=persona_options,
                 value="grid_ops",
                 className="gp-header__chip persona-switcher",
+                style={"display": "none"},
             ),
             html.Button(
                 "Briefing Mode",
@@ -126,7 +127,7 @@ def _build_header() -> html.Header:
                 className="gp-header__link",
             ),
             html.Button(
-                "Save View",
+                "Create view link",
                 id="bookmark-btn",
                 n_clicks=0,
                 className="gp-header__link",

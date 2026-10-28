@@ -204,8 +204,8 @@ def test_forecast_default_and_comparison_plot_distinct_real_columns():
         comparison = fc._outlook_tab_from_redis("FPL", 24, "xgboost", None, None, "grid_ops")
     assert list(default[0].data[0].y) == list(range(100, 124))
     assert list(comparison[0].data[0].y) == list(range(200, 224))
-    assert "Seasonal baseline" in default[0].layout.title.text
-    assert "XGBoost" in comparison[0].layout.title.text
+    assert "Seasonal baseline" in default[0].data[0].name
+    assert "XGBoost" in comparison[0].data[0].name
     assert default[2] != comparison[2]
 
 
@@ -321,7 +321,7 @@ def test_published_baseline_does_not_inherit_trained_model_weather_caption():
     ):
         result = fc._outlook_tab_from_redis("FPL", 720, "published", None, None, "grid_ops")
     assert result is not None
-    assert "Seasonal baseline" in result[0].layout.title.text
+    assert "Seasonal baseline" in result[0].data[0].name
     assert "Open-Meteo" not in result[0].layout.title.text
     assert "climatology" not in result[0].layout.title.text
     weather_boundary.assert_not_called()

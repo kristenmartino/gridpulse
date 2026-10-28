@@ -51,7 +51,7 @@ class TestBuildWeatherContext:
         )
         assert _card_labels(_build_weather_context(s)) == [
             "TEMPERATURE",
-            "WIND SPEED",
+            "WIND AT 80 M",
             "HUMIDITY",
             "CLOUD COVER",
         ]
@@ -78,7 +78,7 @@ class TestBuildWeatherContext:
 
         s = pd.Series({"temperature_2m": 90.0, "wind_speed_80m": np.nan, "wind_speed_10m": 12.0})
         labels = _card_labels(_build_weather_context(s))
-        assert "WIND SPEED" in labels  # 10m carried it
+        assert "WIND AT 10 M" in labels  # 10m carried it
 
     def test_temperature_only_renders_one_card(self):
         from components._callbacks_alerts import _build_weather_context

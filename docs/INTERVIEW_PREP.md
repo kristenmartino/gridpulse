@@ -1644,3 +1644,62 @@ The product judgment demonstrated is to constrain a historical review to evidenc
 Kristen approved a comparison mockup that brought the published forecast, next peak, chart, and supporting evidence forward. The implementation retains the existing Dash application and shared evidence resolver, including the distinction between hourly sampling, legacy forecast-start offsets, and training holdouts. An aggregate coverage bar avoids inventing the position or cause of missing hours; the target table shows stored forecasts separately from observed-error metadata.
 
 Browser review caught evidence selectors that render/dispatch tests could not establish were keyboard-accessible. The implementation uses native expandable sections and keeps the generation timestamp outside the chart legend. This is an AI-assisted presentation and verification example; practitioner adoption and operational benefit remain unvalidated.
+
+## Weather and demand review follow-through — 2026-10-28
+
+Kristen approved the reviewed directory, forecast context, Conditions explorer
+and model-evidence views for implementation in the existing Dash application.
+Source tracing found that a combined weather feed's future tail had been labeled
+as current context. UTC window selectors correct that presentation without
+changing the forecasting models. Integration review also caught a missing
+paired operator-forecast input needed by one of the existing quality signals;
+new cache payloads retain it, and older payloads disclose its absence.
+
+The product trade-off is to make temporal comparison useful while preserving
+what it cannot prove: later historical weather may contextualize a demand miss,
+but cannot reconstruct expected weather as issued or attribute the miss to
+weather. That deeper archive remains deferred. This is an AI-assisted scope,
+implementation and verification example; no practitioner adoption, operational
+benefit or improved forecast accuracy is established by the interface changes.
+
+
+## Approved-design fidelity correction — 2026-10-28
+
+The user's review found that the implemented workspace did not preserve the
+approved mockup's composition, even though callback tests and an earlier browser
+review had passed. A fresh comparison at matched desktop/mobile widths exposed
+missing evidence rails, inherited styling collisions, unbounded directory rows
+and controls that were present without the promised keyboard behavior.
+
+The correction uses the approved study as the layout contract while preserving
+the application's real cache, clock and quality boundaries. Native checks also
+identified hidden Plotly charts retaining desktop dimensions, diagnostic
+readouts using encoded transport arrays, and date zoom parsing that could shift
+UTC windows into browser-local time. The verification lesson is to test the
+property being claimed: working callbacks do not establish visual fidelity, and
+programmatic focus does not establish ordinary keyboard access.
+
+This is an AI-assisted implementation and review example. The pull request
+records final verification; the work does not establish practitioner adoption,
+operational benefit or improved forecasting accuracy.
+
+A subsequent run-comparison review exposed a product-scope ambiguity: nearly
+30 days of repeating baseline revisions looked like a broader analysis than
+the data supported. The chosen default is 24 shared future hours, with longer
+windows available explicitly and same-window revision summaries. This makes
+the comparison legible without claiming forecast accuracy or weather causation.
+
+An expanded-table follow-up also showed why the reviewed state must be verified
+directly: a collapsed disclosure fit at 375px while opening it widened the page
+to 838px. The repair keeps the grid column shrinkable and the complete exact
+values inside a local scroll region; checks confirm `details.open` before
+measuring geometry.
+
+The same distinction applies within cards: fitting a three-column mobile grid
+did not establish readable captions or adequate padding. The focused review
+checks actual text insets, value/unit alignment and disclosure/action spacing.
+
+Message-table review adds another useful distinction: a wide table can be
+contained correctly but still look clipped when local scrolling is unclear.
+The check separates document overflow, readable source text and discoverable
+access to every column.

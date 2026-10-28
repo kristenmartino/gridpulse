@@ -33,6 +33,7 @@ import pathlib
 import re
 
 import pytest
+from dash.development.base_component import Component
 
 from components.accessibility import MODEL_DISPLAY_NAMES, model_display_name
 
@@ -177,7 +178,12 @@ def test_no_component_derives_a_model_label_with_title_case(path):
         receiver = node.func.value
         names = {n.id for n in ast.walk(receiver) if isinstance(n, ast.Name)}
         names |= {n.attr for n in ast.walk(receiver) if isinstance(n, ast.Attribute)}
-        if not (names & TITLE_CASE_ALLOWED_RECEIVERS):
+        # These two local comprehensions title fixed view/group literals,
+        # never a model key. Keep the generic x allowance scoped to the files.
+        fixed_view_literals = (
+            path.name in {"tab_us_grid.py", "tab_alerts.py"} and ast.unparse(receiver) == "x"
+        )
+        if not (names & TITLE_CASE_ALLOWED_RECEIVERS) and not fixed_view_literals:
             offenders.append((ast.unparse(receiver), node.lineno))
     assert not offenders, (
         f"{path.name} calls .title() on an undeclared receiver at {offenders!r}. "
@@ -190,6 +196,27 @@ def test_no_component_derives_a_model_label_with_title_case(path):
 class TestSurfacesAgree:
     """The two selectors from the original report, asserted together."""
 
+    @staticmethod
+    def _models_selector() -> Component:
+        """Find the actual training checklist without depending on card nesting."""
+        from components.tab_models import layout
+
+        def find(node: object) -> Component | None:
+            if getattr(node, "id", None) == "tab3-model-selector":
+                return node
+            children = getattr(node, "children", [])
+            if not isinstance(children, (list, tuple)):
+                children = [children]
+            for child in children:
+                found = find(child)
+                if found is not None:
+                    return found
+            return None
+
+        selector = find(layout())
+        assert selector is not None, "The Models training comparison selector is missing"
+        return selector
+
     def test_forecast_and_models_selectors_use_the_same_label(self):
         """tab_demand_outlook's segmented control vs tab_models' checklist.
 
@@ -199,14 +226,17 @@ class TestSurfacesAgree:
         pass the AST sweep above.
         """
         from components.tab_demand_outlook import _model_segmented
-        from components.tab_models import _model_selector
 
         def _label_for_arima(control):
             radio = control.children[1]
             return next(o["label"] for o in radio.options if o["value"] == "arima")
 
         forecast_label = _label_for_arima(_model_segmented())
-        models_label = _label_for_arima(_model_selector())
+        models_label = next(
+            option["label"]
+            for option in self._models_selector().options
+            if option["value"] == "arima"
+        )
 
         assert forecast_label == models_label, (
             f"Forecast tab says {forecast_label!r}, Models tab says "
@@ -217,12 +247,13 @@ class TestSurfacesAgree:
     def test_both_selectors_cover_the_same_four_models(self):
         """A label fix that silently dropped an option would be worse."""
         from components.tab_demand_outlook import _model_segmented
-        from components.tab_models import _model_selector
 
         def _values(control):
             return {o["value"] for o in control.children[1].options}
 
-        assert _values(_model_segmented()) - {"published"} == _values(_model_selector())
+        assert _values(_model_segmented()) - {"published"} == {
+            option["value"] for option in self._models_selector().options
+        }
         assert _values(_model_segmented()) == {
             "published",
             "xgboost",

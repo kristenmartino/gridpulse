@@ -104,7 +104,9 @@ class TestHorizonDriftPanel:
         with patch(PATCH, return_value=None):
             div = _build_horizon_drift_panel("PJM")
         assert "No live error records available" in _text(div)
-        assert div.id == "horizon-drift-panel-warming"
+        assert div.id == "hourly-horizon-drift-panel"
+        assert "Hourly-sampled error is unavailable" in _text(div)
+        assert any(child.__class__.__name__ == "Details" for child in div.children)
 
     def test_renders_grades_and_horizon_columns(self):
         from components._callbacks_models import _build_horizon_drift_panel

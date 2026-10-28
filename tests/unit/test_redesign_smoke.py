@@ -70,7 +70,7 @@ class TestTabStructure:
         assert _VISIBLE_LABEL_OVERRIDES["tab-overview"] == "Overview"
         assert _VISIBLE_LABEL_OVERRIDES["tab-us-grid"] == "US Grid"
         assert _VISIBLE_LABEL_OVERRIDES["tab-outlook"] == "Forecast"
-        assert _VISIBLE_LABEL_OVERRIDES["tab-alerts"] == "Risk"
+        assert _VISIBLE_LABEL_OVERRIDES["tab-alerts"] == "Conditions"
         assert _VISIBLE_LABEL_OVERRIDES["tab-models"] == "Models"
 
     def test_no_d_none_tab_in_layout_source(self):

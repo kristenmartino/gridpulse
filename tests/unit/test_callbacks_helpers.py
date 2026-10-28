@@ -2088,8 +2088,8 @@ class TestAddForecastHorizonDivider:
         # should mention both segment labels.
         assert len(fig.layout.shapes) >= 2
         annotation_texts = " ".join(str(a.text or "") for a in fig.layout.annotations).lower()
-        assert "climatology" in annotation_texts
-        assert "open-meteo" in annotation_texts
+        assert "nominal 16-day guide" in annotation_texts
+        assert "weather input vintage not retained" in annotation_texts
 
     def test_short_timestamp_array_returns_false(self):
         """Defensive: if the caller passes fewer than 384 timestamps but

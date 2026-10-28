@@ -56,25 +56,25 @@ class TestUsGridLayout:
         ):
             assert rid in ids, f"Missing component ID: {rid}"
 
-    def test_view_toggle_defaults_to_cards(self):
-        from components.tab_us_grid import _view_toggle
+    def test_view_toggle_defaults_to_table(self):
+        from components.tab_us_grid import layout
 
-        toggle = _view_toggle()
+        toggle = layout()
         radio = _find_by_id(toggle, "us-grid-view-toggle")
         assert radio is not None
-        assert radio.value == "cards"
+        assert radio.value == "table"
         # V3.β added the "polygons" option (real BA service-territory
         # choropleth). "map" is the V1.γ scatter-geo fallback.
-        assert {opt["value"] for opt in radio.options} == {"cards", "map", "polygons"}
+        assert {opt["value"] for opt in radio.options} == {"table", "cards", "map"}
 
     def test_layout_uses_section_stack(self):
         """Match the v2 page rhythm: gp-page > gp-section-stack."""
         from components.tab_us_grid import layout
 
         root = layout()
-        assert root.className == "gp-page"
-        inner = root.children[0]
-        assert inner.className == "gp-section-stack"
+        assert "gp-page" in root.className
+        assert "gp-section-stack" in root.className
+        assert "us-grid-inspector" in _collect_ids(root)
 
 
 class TestTabRegistration:

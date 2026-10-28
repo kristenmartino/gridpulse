@@ -30,6 +30,8 @@ import pandas as pd
 import pytest
 from dash import html, no_update
 
+from data.user_prefs import SIM_SLIDERS, TRACKED_FILTERS
+
 # ---------------------------------------------------------------------------
 # Fixture: register all callbacks, extract functions from app.callback_map
 # ---------------------------------------------------------------------------
@@ -263,24 +265,17 @@ class TestUpdateHeaderFreshness:
 
 
 class TestRestoreBookmark:
-    """C2+NEXD-12: URL bookmark restore callback.
-
-    V2.1 reduced the output set from 15 (3 core + 7 filters + 5 sliders)
-    to 6 (3 core + 3 filters) — the dropped filters/sliders belonged to
-    the now-removed hidden tabs (Historical / Backtest / Generation /
-    Simulator). Output indexing: 0=region, 1=persona, 2=tab,
-    3=outlook-horizon, 4=outlook-model, 5=tab3-model-selector.
-    """
+    """Restore core routing plus the allowlisted reviewed-view controls."""
 
     def test_empty_search_returns_no_update(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn("")
-        assert result == [no_update] * 6
+        assert result == [no_update] * (3 + len(TRACKED_FILTERS) + len(SIM_SLIDERS))
 
     def test_none_search_returns_no_update(self, callbacks):
         fn = callbacks["restore_bookmark"]
         result = fn(None)
-        assert result == [no_update] * 6
+        assert result == [no_update] * (3 + len(TRACKED_FILTERS) + len(SIM_SLIDERS))
 
     def test_valid_region_parsed(self, callbacks):
         fn = callbacks["restore_bookmark"]
@@ -335,15 +330,10 @@ class TestRestoreBookmark:
 
 
 class TestCreateBookmark:
-    """C2+NEXD-12: URL bookmark creation callback.
+    """Share current controls and inspected hour without mutating their state."""
 
-    V2.1 reduced the State set to 3 filters (was 7) and dropped the
-    5 sim sliders entirely. Filter order (matches TRACKED_FILTERS):
-    outlook-horizon, outlook-model, tab3-model-selector.
-    """
-
-    # 3 surviving filter states (None = no filter set).
-    _defaults = (None,) * 3
+    # Every registered State is supplied, including the separate live cursor.
+    _defaults = (None,) * (len(TRACKED_FILTERS) + len(SIM_SLIDERS) + 1)
 
     def test_no_clicks_returns_no_update(self, callbacks):
         fn = callbacks["create_bookmark"]
@@ -373,9 +363,37 @@ class TestCreateBookmark:
     def test_includes_filter_params(self, callbacks):
         fn = callbacks["create_bookmark"]
         # First filter state = outlook-horizon = "720"
-        state_values = ("720", None, None)
+        state_values = ("720", *self._defaults[1:])
         search, toast = fn(1, "FPL", "grid_ops", "tab-outlook", *state_values)
         assert "f.outlook-horizon=720" in search
+
+    def test_shared_explorer_cursor_and_sensitivity_round_trip(self, callbacks):
+        from copy import deepcopy
+
+        from components.explorer_state import clean_state
+
+        state = clean_state(None, "FPL")
+        state["mode"] = "future"
+        state["windows"]["future"].update(
+            start="2026-10-28T02:00:00+00:00", hours=24, cursor="2026-10-28T02:00:00+00:00"
+        )
+        original = deepcopy(state)
+        values = list(self._defaults)
+        values[TRACKED_FILTERS.index("explorer-state")] = state
+        values[TRACKED_FILTERS.index("outlook-model")] = "published"
+        for index, value in enumerate((3, -2, 100)):
+            values[len(TRACKED_FILTERS) + index] = value
+        values[-1] = {"region": "FPL", "mode": "future", "timestamp": "2026-10-28T07:00:00+00:00"}
+        search, _ = callbacks["create_bookmark"](1, "FPL", "grid_ops", "tab-alerts", *values)
+        restored = callbacks["restore_bookmark"](search)
+        assert restored[:3] == ["FPL", "grid_ops", "tab-alerts"]
+        assert restored[3 + TRACKED_FILTERS.index("outlook-model")] == "published"
+        shared = restored[3 + TRACKED_FILTERS.index("explorer-state")]
+        assert shared["windows"]["future"]["cursor"] == "2026-10-28T07:00:00+00:00"
+        assert shared["windows"]["future"]["start"] == original["windows"]["future"]["start"]
+        assert shared["windows"]["past"] == original["windows"]["past"]
+        assert restored[3 + len(TRACKED_FILTERS) :] == [3, -2, 100]
+        assert state == original
 
 
 # ===========================================================================
@@ -433,7 +451,8 @@ class TestToggleMeetingMode:
         assert mode == "true"
         assert "meeting-mode" in header_cls
         assert conf_style == {"display": "none"}
-        assert banner_style == {"display": "none"}
+        # Source degradation remains visible when projection chrome is hidden.
+        assert banner_style == {}
 
     def test_toggle_off_from_true(self, callbacks):
         fn = callbacks["toggle_meeting_mode"]

@@ -7,11 +7,11 @@
 
 GridPulse is an **energy intelligence platform**: weather-aware electricity demand forecasting plus the supporting context (grid generation, severe-weather alerts, scenario simulation, model validation) for **51 US balancing authorities** covering ~100% of contiguous-US lower-48 load. The product surface is a Dash/Plotly web app; the operational machinery is a small set of Cloud Run services and scheduled jobs.
 
-The design principle that shapes everything below: **the web tier never does heavy work in the request path.** Cache misses degrade gracefully to a "warming" state instead of triggering inline model loads or third-party API calls. All the expensive work — fetching data from EIA / Open-Meteo / NOAA, training models, computing forecasts — happens out-of-band in scheduled jobs that write to Redis. The web service reads only.
+The design principle that shapes everything below: **the web tier never does heavy work in the request path.** Cache misses show an evidence-based availability state instead of triggering inline model loads or third-party API calls. All the expensive work — fetching data from EIA / Open-Meteo / NOAA, training models, computing forecasts — happens out-of-band in scheduled jobs that write to Redis. The web service reads only.
 
 ## §1 — System architecture
 
-Three runtime tiers plus four external data sources. The boundary that matters is `REQUIRE_REDIS` — when true (staging + production), web callbacks short-circuit to the warming state rather than fetching live data themselves.
+Three runtime tiers plus four external data sources. The boundary that matters is `REQUIRE_REDIS` — when true (staging + production), web callbacks short-circuit to an availability state rather than fetching live data themselves.
 
 ```mermaid
 flowchart LR
@@ -159,12 +159,12 @@ sequenceDiagram
         W-->>U: rendered Forecast tab
     else cache miss / cold
         R-->>W: nil
-        Note over W: warming state — degraded UI
-        W-->>U: "Data warming up" message
+        Note over W: classify regional update evidence
+        W-->>U: completed empty / warming / unavailable state
     end
 ```
 
-The web service is **stateless and idempotent**. It never fetches from EIA, Open-Meteo, NOAA, or trains a model in the request path. If Redis is cold (first deploy, post-flush, between scoring runs), the UI renders a degraded "warming" state instead of blocking the user on a 30-second model load. The next scheduled scoring run repopulates Redis and the next request succeeds.
+The web service is **stateless and idempotent**. It never fetches from EIA, Open-Meteo, NOAA, or trains a model in the request path. Forecast uses one availability decision for the source panel, chart and empty KPIs. A completed cache miss shows "No cached forecast available" and dash-valued KPIs; recent regional writes without a completed pass support "Warming", while a completed pass without a forecast supports "Forecast unavailable". A failed strict cache read shows a retryable error rather than claiming the key is absent. Dash loading indicators represent only pending callbacks, and pending source/KPI values are hidden to avoid showing a prior region. A usable cached forecast remains visible without weather or actual inputs. Scheduled jobs can repopulate missing values; the interface does not promise that the next run will recover them.
 
 This separation is the single biggest reliability decision in the project. It means the web tier survives any failure of the external data sources — they fail asynchronously in the scoring job, not in the user's tab.
 
@@ -388,7 +388,16 @@ substitution.
 
 **Forecast and Models labels.** The Forecast range legend distinguishes empirical residual-based intervals from an illustrative percentage envelope; the latter has no estimated probability coverage. Scenario KPIs show baseline peak, scenario peak, and their difference on the scored forecast’s target hours. The source note identifies interpolation from precomputed ensemble scenarios, extrapolation beyond recorded weather ranges, or the fixed-coefficient fallback. It does not estimate confidence changes or renewable-share changes. Models separates the last training run’s 168-hour recursive holdout metrics from live errors by forecast lead. Numeric status bands describe configured MAPE thresholds; an above-band status does not mean a rollback occurred. Missing records and missing holdout context remain unassessed in the summary. The feature-importance panel shows XGBoost’s built-in importances, rather than SHAP values, and remains empty if no trained importances are available. Empty states report availability without promising the next update will recover. Error details stay in logs; the interface offers a retry or another selection. Freshness status does not imply verified accuracy. Forecast tooltips distinguish per-prediction SHAP contributions from model-wide XGBoost importance; XGBoost importance is not shown as an explanation of another model’s forecast.
 
-**Forecast horizon and the day-16 boundary.** The scoring job produces a **30-day** demand forecast at hourly granularity (`FORECAST_HORIZON_HOURS = 720`). Open-Meteo's free `/forecast` endpoint covers the first **16 days** (384 hours) with actual weather forecast values. For the remaining days 17-30, the future-feature builder drives the weather inputs from a per-BA **(day_of_year, hour) weather-normal** — a trailing ~10-year ERA5 "normal weather year" built nightly by the training job (#283), with a **seam anomaly-blend** so the current weather regime decays into the normal over ~5 days past the boundary, and the autoregressive demand features kept on recent data so the tail stays anchored to *current* load levels. Where a BA's normal artifact isn't backfilled yet, the builder falls back to the #281 **recent-28-day (hour, dow) climatology** (`CLIMATOLOGY_WINDOW_DAYS = 28`). The Forecast tab renders a visible day-16 divider on the 30-day chart with labels ("← Open-Meteo forecast" / "climatology baseline →") so users can correctly interpret the regime split — the demand forecast past day 16 reflects seasonal/diurnal patterns, not forward-looking signal. The decision and alternatives considered are documented in ADR-008 (PRD.md §10). Atmospheric chaos limits deterministic NWP skill to ~10-14 days regardless of model, so climatology is the right answer past Open-Meteo's coverage rather than a cost-driven hack.
+**Forecast horizon and weather coverage.** The scoring job retains its existing
+30-day hourly demand horizon (`FORECAST_HORIZON_HOURS = 720`) and weather-normal /
+recent-climatology fallback beyond supported future weather. The advanced chart
+marks current cached weather timestamp coverage when it is known. A missing
+original input vintage prevents treating that boundary as proof of the weather
+used by the saved demand run. Without cached membership the 16-day divider is
+explicitly a nominal guide. Intraday forecast starts can have fewer than 384
+covered future targets, and missing per-variable weather remains a separate
+limitation. The model's normal/climatology and seam-blending calculations are
+unchanged; see ADR-008 in PRD.md §10.
 
 **Where the weather is sampled (ADR-012).** A BA's demand responds to weather across its whole territory, but the fetch historically sampled a single representative point — for MISO, one spot in rural Illinois standing in for fifteen states. Since ADR-012 each BA's footprint is sampled at up to **12 static cells** (chosen offline from census population centres inside the BA polygon, committed as `assets/multipoint_coordinates.json`) and averaged. The study behind it (`docs/MULTIPOINT_WEATHER_STUDY.md`) measured **+1.14 sMAPE pts** — MISO +1.77, PJM +1.41, SPP +1.45, and ~0 for compact single-metro BAs, which keep their single point. It also measured population *weighting* as adding nothing over a plain average, so the aggregation is unweighted and needs no census data at runtime. Wind direction uses a circular mean (averaging 350° and 10° arithmetically would point the wind due south) and the ordinal WMO `weather_code` uses a mode rather than a mean. The whole path fails open to single-point at every seam — the #161 lesson.
 
@@ -425,35 +434,88 @@ indefinitely and every live order was selected univariately.
 
 ## §5 — UI structure
 
-Five tabs, four personas, one region. Adapts presentation to the user role without changing the underlying data.
+Five normal view tabs share one selected authority. They use the approved wide
+cool-slate shell, compact card toolbars and consistent responsive gutters. The
+hidden legacy persona value remains accepted for older callbacks and view links,
+rather than presenting four occupational modes.
 
 ```mermaid
 flowchart TB
-    Header["Header bar<br/>· Region selector (51 BAs grouped by area)<br/>· Persona selector (Grid Ops · Renewables · Trader · Data Scientist)<br/>· Briefing Mode toggle · Save View"]
-
+    Header["Region selector<br/>Briefing Mode · Create view link"]
     subgraph Tabs["5 visible tabs"]
-        T1[Overview<br/>mission control · KPIs · hero chart · briefing]
-        T2[US Grid<br/>map · polygons · 51-card grid · interchange]
-        T3[Forecast<br/>3 horizons 24h/7d/30d × 4 models · scenarios · drivers]
-        T4[Risk<br/>extreme events · weather alerts · stress indicators]
-        T5[Models<br/>backtests · MAPE/RMSE/MAE/R² · per-model diagnostics]
+        T1["Overview<br/>published outlook · source · peak · observed-error context"]
+        T2["US Grid<br/>searchable directory · territory map · authority inspector"]
+        T3["Forecast<br/>published/model outlook · run evidence · weather/generation · sensitivity"]
+        T4["Conditions<br/>past/future/error explorer · weather messages"]
+        T5["Models<br/>observed error · training reference · cached backtest diagnostics"]
     end
-
     Header --> T1
     Header --> T2
     Header --> T3
     Header --> T4
     Header --> T5
-
-    Personas["Persona affects (shipped scope):<br/>· Insight-card eyebrow wording<br/>· Which insights are shown, and how many"] -.-> T1
-    Personas -.-> T3
+    T2 -->|Review forecast| T3
+    T3 -->|Inspect weather or matched error| T4
 ```
 
-The shell was reduced from **9 tabs originally to 5 visible** in the R3 redesign. The five remaining tabs absorbed content from the deprecated ones (Historical Demand → Forecast, Backtest → Models, Generation/Weather/Simulator → cross-cutting sections inside the visible tabs).
+US Grid starts with reporting, tracked-demand and adjacent-hour movement
+summaries. The searchable, grouped, sortable directory scrolls inside its own
+panel so the authority inspector remains reachable. Row and map selection
+update an authority inspector; the separate Review forecast action changes the
+shared region and view. Cards remain available. The single territory map uses
+bundled authority geometry, representative-coordinate fallback and a local
+Plotly basemap. Counts, gaps, per-authority observation clocks and import/export
+context come from the cache; demand/nameplate ratios are not used to rank risk
+or color the reviewed directory.
 
-Persona selection doesn't change the data — it changes the *emphasis*. A trader and a grid operator looking at the same PJM forecast see the same demand series, the same ensemble forecast, and the same KPI tiles; what differs is the insight card's eyebrow ("Market signal" vs "Operating summary") and which insights are surfaced, filtered by `persona_relevance` and capped by `_PERSONA_MAX_INSIGHTS` ([`components/insights.py`](../components/insights.py)).
+Forecast places the selected 24h/7d curve and inline peak/minimum/mean summary
+beside a source, error, coverage and training-reference rail. Its card toolbar
+contains the series, horizon and actual-history control; weather and observed
+generation share a supporting-context card. The demand axis defaults to zero,
+while target inspection and zoom use the rendered cached values and UTC clocks.
+History and context selections survive view links. Advanced 30-day outlook and
+bounded weather sensitivity remain secondary. Current cached
+weather is aligned to the selected target timestamps, not taken from the last
+rows of a mixed history/future feed. Run comparison reads the existing bounded
+publication index and lazily reads chosen immutable receipts; missing receipts
+remain unavailable. Curve changes between issues and matched errors against
+later demand are separate comparisons. The run/actual comparison modes preserve
+those distinct evidence scopes and the eligible-actual guard.
 
-**Shipped scope is narrower than the persona config implies.** `personas/config.py` also declares `kpi_metrics` and `alert_threshold` per persona, and `_build_persona_kpis` / `_build_overview_briefing` exist in `components/_callbacks_overview.py` — but none of them have a live call site: the KPI builders are re-exported only for tests, and `alert_threshold` is never read outside its own dataclass. All four personas also declare `default_tab="tab-overview"`, so the default-tab redirect is a no-op in practice. Do not describe persona switching as changing KPI selection, alert thresholds, or scenario sets until that code is wired up or deleted — tracked in [#188](https://github.com/kristenmartino/gridpulse/issues/188) (dead persona config).
+Run-to-run review defaults to 24 shared future hours, with independent 7-day
+and advanced 30-day controls. The elapsed UTC window starts at the first
+eligible shared target; gaps do not extend it. Peak demand and timing changes,
+the largest signed hourly revision and changed-hour counts use the same targets
+as the plot and exact-value table. Tied peaks use their earliest occurrence,
+and short overlap is disclosed. Later reported demand retains its separate
+eligible-actual window. Repeating baseline issues are identified so a long
+comparison is not mistaken for independent new weather information.
+
+Conditions links demand, weather and signed error on the same UTC window and
+shared inspected hour. Past and Future use regional cache values; Error review
+uses genuine stored issues, targets after their recorded clocks, and eligible
+actuals in the retained scoring window. It reuses the scorer's quality helper
+and available paired operator-forecast inputs, preserving explicit exclusions.
+Legacy caches lacking those inputs disclose the missing signal. Weather remains
+regional model/reanalysis/backfill context, not station observations or a causal
+error attribution. Original expected weather as issued has not been archived.
+Weather messages are a separate associated-state inbox, not quantified demand
+impacts or verified territory intersections.
+
+Models defaults to observed error. Its sampled-lead matrix, first-hour records,
+legacy offsets, training reference and fixed cached backtest series retain their
+own clocks and samples. Training-model checkboxes affect the training table;
+they neither change cached residual diagnostics nor trigger model inference.
+Exact-value tables accompany diagnostic plots, with signed residuals defined as
+actual minus prediction. Legacy naive timestamps are interpreted as UTC only
+for the documented walk-forward-backtest producer lineage; unknown sources keep
+unknown clocks. Training dates absent from the cache remain unavailable.
+
+Create view link serializes validated region/view/source/horizon, Grid controls,
+Models sections, per-mode Explorer window/cursor and bounded sensitivity state.
+It creates a URL, not an operational save or a frozen evidence export. Briefing
+Mode retains source-degradation warnings. The approved Overview layout and its
+24-target outlook remain in the same workspace.
 
 ## Published forecast evidence
 
@@ -492,7 +554,7 @@ Pulled from [`CANONICAL_FACTS.md`](CANONICAL_FACTS.md):
 - Published default plus 4 named model comparisons in the UI
 - 49 features (17 raw weather + 32 derived)
 - Hourly scoring + daily training at 04:00 UTC
-- Redis-only reads in the web tier; degraded warming state when cold
+- Redis-only reads in the web tier; evidence-based availability states on cache misses
 - 63 EIA-930 BAs in the contiguous US — we cover 51 of them (~81% by BA count, ~100% by demand-weighted load)
 
 ## Hourly scoring coverage

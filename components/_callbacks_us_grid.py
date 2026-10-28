@@ -24,9 +24,10 @@ explicit re-import block so existing
 from __future__ import annotations
 
 import numpy as np
+import pandas as pd
 import plotly.graph_objects as go
 import structlog
-from dash import ALL, Input, Output, ctx, dcc, html, no_update
+from dash import ALL, Input, Output, State, ctx, dcc, html, no_update
 
 from components._callbacks_shared import (
     _MAP_AXIS_FONT_COLOR,
@@ -104,13 +105,25 @@ def _collect_us_grid_region_data() -> dict[str, dict]:
         # Sparkline is rendered tolerant of NaN (gp-region-card__sparkline
         # uses raw values), so we keep the trailing-24h slice as-is — but
         # the headline number paths read ``current_mw`` / ``prev_mw``.
+        stamps = (actuals or {}).get("timestamps") or []
+        pairs = [
+            (pd.to_datetime(t, utc=True, errors="coerce"), v)
+            for t, v in zip(stamps, demand, strict=False)
+        ]
+        finite = [(t, float(v)) for t, v in pairs if pd.notna(t) and _is_real_positive(v)]
+        finite.sort(key=lambda item: item[0])
+        latest_at = finite[-1][0].isoformat() if finite else None
+        # Movement is meaningful only for adjacent actual target hours.
+        hourly_pair = len(finite) > 1 and finite[-1][0] - finite[-2][0] == pd.Timedelta(hours=1)
+        history = pairs[-24:]
         out[region] = {
             "current_mw": current_mw,
             "prev_mw": prev_mw,
             "today_mw": demand[-24:],
-            # #309: exclusions the scoring job's guard stamped on the payload —
-            # the series above is already cleaned, so read-time detection sees
-            # nothing; this carries the disclosure forward (/grid/summary).
+            "history_timestamps": [t.isoformat() if pd.notna(t) else None for t, _ in history],
+            "latest_at": latest_at,
+            "scored_at": (actuals or {}).get("scored_at"),
+            "hourly_pair": hourly_pair,
             "artifact_excluded": (actuals or {}).get("artifact_excluded") or [],
             "interchange": interchange,
         }
@@ -900,163 +913,150 @@ def _build_us_grid_choropleth(region_data: dict) -> html.Div:
 
 
 def register_us_grid_callbacks(app):
-    """Register US Grid tab callbacks with the Dash app.
-
-    Step 10b of the ``register_callbacks`` decomposition. Owns the
-    three callbacks the US Grid tab needs: snapshot rendering (cards/
-    map/polygons toggle), card-click drilldown, and map-click drilldown.
-    All three reuse the helpers defined in this module.
-    """
-    from components.cards import build_metrics_bar
-    from config import REGION_GROUPS
+    from components.grid_review import directory, inspector, map_view, ordered, real
 
     @app.callback(
         [
             Output("us-grid-title", "children"),
             Output("us-grid-metrics-bar", "children"),
             Output("us-grid-region-grid", "children"),
+            Output("us-grid-inspector", "children"),
+            Output("us-grid-data", "data"),
         ],
         [
             Input("dashboard-tabs", "active_tab"),
             Input("refresh-interval", "n_intervals"),
             Input("us-grid-view-toggle", "value"),
             Input("us-grid-sort", "value"),
+            Input("us-grid-search", "value"),
+            Input("us-grid-group", "value"),
+            Input("us-grid-selected", "data"),
         ],
     )
-    def update_us_grid_snapshot(active_tab, _n_intervals, view, sort):
-        """Render the US Grid tabs title, MetricsBar, and body (cards or map)."""
-        if active_tab != "tab-us-grid":
-            return [no_update] * 3
+    def update_us_grid_snapshot(tab, _ticks, view, sort, search, group, selected):
+        if tab != "tab-us-grid":
+            return [no_update] * 5
+        data = _collect_us_grid_region_data()
+        codes = ordered(data, search or "", group or "all", sort or "change")
+        reporting = sum(real(x.get("current_mw")) for x in data.values())
+        title = build_page_title(
+            title="US Grid",
+            subtitle=f"{reporting}/{len(data)} tracked authorities reporting · {len(REGION_NAMES) - len(data)} hidden by the configured quality gate",
+        )
+        from components.grid_review import delta
 
-        view = view or "cards"
-        sort = sort or "groups"
+        movements = [delta(row) for row in data.values()]
+        rising = sum(value is not None and value > 0 for value in movements)
+        falling = sum(value is not None and value < 0 for value in movements)
+        metric_values = [
+            (
+                "Authorities reporting",
+                f"{reporting} / {len(data)}",
+                "Selected tracked fleet · separate source clocks",
+            ),
+            (
+                "Tracked demand",
+                f"{sum(float(row.get('current_mw') or 0) for row in data.values() if row.get('current_mw') and np.isfinite(float(row['current_mw'])) and float(row['current_mw']) > 0) / 1000:,.1f} GW"
+                if reporting
+                else "Unavailable",
+                "Sum of latest readings · not simultaneous US demand",
+            ),
+            ("Rising demand", str(rising), "Adjacent valid reported hours"),
+            ("Falling demand", str(falling), "Movement is not a forecast-error grade"),
+        ]
+        metrics = html.Div(
+            [
+                html.Div(
+                    [
+                        html.Span(label, className="gp-metric-label"),
+                        html.Strong(value, className="gp-grid-summary-value"),
+                        html.Span(note, className="gp-metric-sub"),
+                    ],
+                    className="gp-grid-summary-item",
+                )
+                for label, value, note in metric_values
+            ],
+            className="gp-grid-summary",
+        )
+        body = (
+            map_view(data, codes, selected, _load_ba_polygons())
+            if view in ("map", "polygons")
+            else directory(data, codes, view or "table", selected)
+        )
+        body = html.Div(
+            [
+                html.P(
+                    f"{len(codes)} of {len(data)} tracked authorities match these filters · hourly movement is not a forecast-error grade",
+                    className="gp-grid-results-meta",
+                ),
+                body,
+                html.Details(
+                    [
+                        html.Summary("Coverage, timestamps and quality exclusions"),
+                        html.Div(
+                            [
+                                html.P(
+                                    f"{reporting}/{len(data)} tracked authorities report a usable latest reading. {len(REGION_NAMES) - len(data)} are hidden by the configured quality gate."
+                                ),
+                                html.P(
+                                    "Authority readings can have different UTC source timestamps. Their latest-reading sum is not simultaneous US demand. Hourly movement uses adjacent valid reported hours; missing values stay unavailable."
+                                ),
+                                html.P(
+                                    f"{sum(len(row.get('artifact_excluded') or []) for row in data.values())} source-stamped quality exclusions are retained in these cache snapshots. Installed-capacity context does not establish operating reserves or grid risk."
+                                ),
+                            ],
+                            className="gp-grid-scope-copy",
+                        ),
+                    ],
+                    className="gp-review-disclosure",
+                ),
+            ]
+        )
+        return title, metrics, body, inspector(selected, data), data
 
-        try:
-            region_data = _collect_us_grid_region_data()
-            title = _build_us_grid_title(region_data)
-            metrics_items = _build_us_grid_metrics_items(region_data, view)
-            metrics_bar = build_metrics_bar(metrics_items)
-            metrics_bar.className = f"gp-metrics-bar gp-metrics-bar--{len(metrics_items)}up"
-
-            if view == "map":
-                body = _build_us_grid_map(region_data)
-            elif view == "polygons":
-                body = _build_us_grid_choropleth(region_data)
-            else:
-                # No legend: each card now self-describes via inline badge
-                # labels (util / net / Δ1h / demand), so a separate key to
-                # cross-reference is redundant.
-                grid_children: list = []
-                if sort == "groups":
-                    for group_name, codes in REGION_GROUPS.items():
-                        visible = [c for c in codes if c in region_data]
-                        if not visible:
-                            continue
-                        grid_children.append(
-                            html.Div(
-                                group_name,
-                                className="gp-region-grid__section-header",
-                            )
-                        )
-                        grid_children.extend(
-                            _build_us_grid_region_card(code, region_data[code]) for code in visible
-                        )
-                else:
-                    # Non-default sort flattens the regional grouping into one
-                    # ranked grid. Universe = the same BAs the grouped view shows.
-                    ordered = [
-                        c for codes in REGION_GROUPS.values() for c in codes if c in region_data
-                    ]
-                    ordered.sort(key=lambda c: _us_grid_card_sort_value(c, region_data[c], sort))
-                    grid_children.extend(
-                        _build_us_grid_region_card(code, region_data[code]) for code in ordered
-                    )
-                body = html.Div(grid_children, className="gp-region-grid")
-
-            return (title, metrics_bar, body)
-        except Exception as exc:
-            log.exception("update_us_grid_snapshot_failed")
-            err_msg = f"{type(exc).__name__}: {exc}"
-            err_div = html.Div(
-                err_msg,
-                style={"color": "var(--danger)", "fontSize": "0.8rem", "padding": "8px"},
-            )
-            return (err_div, html.Div(), err_div)
+    @app.callback(
+        Output("us-grid-selected", "data", allow_duplicate=True),
+        [
+            Input({"type": "us-grid-inspect", "region": ALL}, "n_clicks"),
+            Input("us-grid-map", "clickData"),
+        ],
+        State("us-grid-data", "data"),
+        prevent_initial_call=True,
+    )
+    def select_authority(clicks, map_click, data):
+        trigger = ctx.triggered_id
+        if isinstance(trigger, dict):
+            if not any(clicks or []):
+                return no_update
+            code = trigger.get("region")
+        elif trigger == "us-grid-map":
+            points = (map_click or {}).get("points") or []
+            cd = points[0].get("customdata") if points else None
+            code = cd[0] if isinstance(cd, (list, tuple)) and cd else cd
+        else:
+            return no_update
+        return code if code in (data or {}) else no_update
 
     @app.callback(
         [
             Output("region-selector", "value", allow_duplicate=True),
             Output("dashboard-tabs", "active_tab", allow_duplicate=True),
         ],
-        Input({"type": "us-grid-region-card", "region": ALL}, "n_clicks"),
+        Input("us-grid-review", "n_clicks"),
+        State("us-grid-selected", "data"),
+        State("us-grid-data", "data"),
         prevent_initial_call=True,
     )
-    def drilldown_from_us_grid(n_clicks_list):
-        """Click a region card → open Forecast tab pre-set to that region."""
-        if not n_clicks_list or not any(n for n in n_clicks_list if n):
-            return no_update, no_update
-        triggered = ctx.triggered_id
-        if not isinstance(triggered, dict) or triggered.get("type") != "us-grid-region-card":
-            return no_update, no_update
-        region = triggered.get("region")
-        if not region:
-            return no_update, no_update
-        return region, "tab-outlook"
+    def review_authority(click, selected, data):
+        return (
+            (selected, "tab-outlook")
+            if click and selected in (data or {})
+            else (no_update, no_update)
+        )
 
-    # Phase 2: click the Highest-Stress KPI → smooth-scroll to that BA's card
-    # and flash it. Pure clientside — no server round-trip. The card's Dash
-    # dict-id stringifies into the DOM id, so we match on the JSON substring.
     app.clientside_callback(
-        """
-        function(n_clicks_list) {
-            const nu = window.dash_clientside.no_update;
-            const ctx = window.dash_clientside.callback_context;
-            if (!ctx || !ctx.triggered || !ctx.triggered.length) { return nu; }
-            const trigger = ctx.triggered[0];
-            if (!trigger.value) { return nu; }
-            const region = JSON.parse(trigger.prop_id.split('.')[0]).region;
-            const cards = document.querySelectorAll('[id*="us-grid-region-card"]');
-            for (const el of cards) {
-                if (el.id.includes('"' + region + '"')) {
-                    el.scrollIntoView({behavior: 'smooth', block: 'center'});
-                    el.classList.add('gp-region-card--flash');
-                    setTimeout(function() { el.classList.remove('gp-region-card--flash'); }, 2400);
-                    break;
-                }
-            }
-            return nu;
-        }
-        """,
+        "function(code){if(code){setTimeout(function(){window.gridpulseReview.reveal('us-grid-inspector','us-grid-inspector-title');},80);}return window.dash_clientside.no_update;}",
         Output("us-grid-jump-store", "data"),
-        Input({"type": "us-grid-kpi-jump", "region": ALL}, "n_clicks"),
+        Input("us-grid-selected", "data"),
         prevent_initial_call=True,
     )
-
-    @app.callback(
-        [
-            Output("region-selector", "value", allow_duplicate=True),
-            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
-        ],
-        Input("us-grid-map", "clickData"),
-        prevent_initial_call=True,
-    )
-    def drilldown_from_us_grid_map(click_data):
-        """Click a map point → open Forecast tab pre-set to that region.
-
-        Tolerates two ``customdata`` shapes so the same callback works
-        for both the ``scatter_geo`` view (1-D array of region codes)
-        and the V3.β ``Choropleth`` view (2-D array where index 0 is
-        the region code, indexes 1-2 carry hover text fields).
-        """
-        if not click_data:
-            return no_update, no_update
-        points = click_data.get("points") or []
-        if not points:
-            return no_update, no_update
-        cd = points[0].get("customdata")
-        if cd is None:
-            return no_update, no_update
-        region = cd[0] if isinstance(cd, (list, tuple)) else cd
-        if not region:
-            return no_update, no_update
-        return region, "tab-outlook"

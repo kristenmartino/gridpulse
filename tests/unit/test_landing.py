@@ -75,7 +75,7 @@ class TestLandingContent:
 
     def test_in_product_module_names_only(self, body) -> None:
         """GP-P2-03: marketing copy uses the five real tab names."""
-        for tab in ("Overview", "US Grid", "Forecast", "Risk", "Models"):
+        for tab in ("Overview", "US Grid", "Forecast", "Conditions", "Models"):
             assert tab in body
 
     def test_external_links_new_tab_internal_links_same_tab(self, body) -> None:

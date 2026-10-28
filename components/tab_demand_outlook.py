@@ -16,13 +16,12 @@ def _horizon_segmented() -> html.Div:
     """v2-style segmented control for forecast horizon."""
     return html.Div(
         [
-            html.Div("Forecast Horizon", className="gp-control-eyebrow"),
+            html.Div("Horizon", className="gp-control-eyebrow"),
             dbc.RadioItems(
                 id="outlook-horizon",
                 options=[
                     {"label": "24h", "value": "24"},
                     {"label": "7d", "value": "168"},
-                    {"label": "30d", "value": "720"},
                 ],
                 value="24",
                 inline=True,
@@ -42,14 +41,8 @@ def _model_segmented() -> html.Div:
 
     return html.Div(
         [
-            html.Div("Forecast shown", className="gp-control-eyebrow"),
-            dbc.RadioItems(
-                id="outlook-model",
-                options=options,
-                value="published",
-                inline=True,
-                className="gp-segmented",
-            ),
+            html.Label("Series", htmlFor="outlook-model"),
+            dbc.Select(id="outlook-model", options=options, value="published"),
         ],
         className="gp-control",
     )
@@ -118,7 +111,7 @@ def _metrics_bar() -> html.Div:
         html.Div(
             [
                 html.Div(
-                    "Peak Demand",
+                    "Peak forecast",
                     className="gp-metric-label",
                     title="Highest forecasted demand over the selected horizon.",
                 ),
@@ -140,7 +133,7 @@ def _metrics_bar() -> html.Div:
         html.Div(
             [
                 html.Div(
-                    "Average",
+                    "Mean demand",
                     className="gp-metric-label",
                     title="Mean forecasted demand over the selected horizon.",
                 ),
@@ -162,7 +155,7 @@ def _metrics_bar() -> html.Div:
         html.Div(
             [
                 html.Div(
-                    "Min Demand",
+                    "Minimum",
                     className="gp-metric-label",
                     title="Lowest forecasted demand over the selected horizon.",
                 ),
@@ -203,7 +196,10 @@ def _metrics_bar() -> html.Div:
             className="gp-metric-cell",
         ),
     ]
-    return html.Div(cells, className="gp-metrics-bar gp-metrics-bar--4up")
+    cells[3].style = {"display": "none"}
+    return html.Div(
+        [cells[0], cells[2], cells[1], cells[3]], className="gp-metrics-bar gp-forecast-summary"
+    )
 
 
 def _panel_toggle_strip() -> html.Div:
@@ -218,9 +214,9 @@ def _panel_toggle_strip() -> html.Div:
             html.Div("Expand", className="gp-control-eyebrow"),
             html.Div(
                 [
-                    _panel_toggle("drivers", "Drivers", "Weather"),
+                    _panel_toggle("drivers", "Weather context", "Aligned targets"),
                     _panel_toggle("generation", "Generation", "Fuel mix"),
-                    _panel_toggle("scenarios", "Scenarios", "What-if"),
+                    _panel_toggle("scenarios", "Advanced sensitivity", "Experimental"),
                 ],
                 className="gp-panel-toggles",
             ),
@@ -233,7 +229,7 @@ def _panel_toggle(key: str, label: str, hint: str) -> html.Button:
     """Single toggle chip. Click flips the collapse panel's ``is_open``."""
     return html.Button(
         [
-            html.Span("+ ", className="gp-panel-toggle__sigil"),
+            html.Span("+ ", className="gp-panel-toggle__sigil", **{"aria-hidden": "true"}),
             html.Span(label, className="gp-panel-toggle__label"),
             html.Span(hint, className="gp-panel-toggle__hint"),
         ],
@@ -258,8 +254,8 @@ def _panel_drivers() -> dbc.Collapse:
         html.Div(
             [
                 _panel_header(
-                    "Drivers",
-                    "Weather signals shaping the next-24h forecast",
+                    "Weather context",
+                    "Regional model weather aligned to the selected target hours",
                 ),
                 # Filled by the update_forecast_drivers_panel callback when
                 # the collapse opens. Initial children are skeleton cells.
@@ -300,8 +296,8 @@ def _panel_generation() -> dbc.Collapse:
         html.Div(
             [
                 _panel_header(
-                    "Generation",
-                    "Fuel mix sorted by emissions intensity",
+                    "Observed generation",
+                    "Its own reported window · separate from forecast targets",
                 ),
                 html.Div(
                     id="forecast-generation-content",
@@ -319,34 +315,23 @@ def _panel_generation() -> dbc.Collapse:
     )
 
 
-_SCENARIO_PRESETS: dict[str, dict] = {
-    # 5 preset chips — heuristic deltas vs the current baseline (not absolute
-    # weather targets). Translated from simulation/presets.py historical
-    # scenarios into "delta from typical conditions".
-    "heat_dome": {
-        "label": "Warmer",
-        "sub": "+20°F · +200 W/m²",
-        "deltas": {"temp": 20, "wind": -5, "solar": 200},
+_SCENARIO_PRESETS = {
+    "reset": {
+        "label": "Reset",
+        "sub": "All deltas 0",
+        "deltas": {"temp": 0, "wind": 0, "solar": 0},
     },
-    "polar_vortex": {
-        "label": "Colder",
-        "sub": "−20°F · +10 mph",
-        "deltas": {"temp": -20, "wind": 10, "solar": -100},
+    "warmer": {"label": "Warmer", "sub": "+3°F", "deltas": {"temp": 3, "wind": 0, "solar": 0}},
+    "cooler": {"label": "Cooler", "sub": "−3°F", "deltas": {"temp": -3, "wind": 0, "solar": 0}},
+    "less_wind": {
+        "label": "Less wind",
+        "sub": "−2 mph",
+        "deltas": {"temp": 0, "wind": -2, "solar": 0},
     },
-    "calm_overcast": {
-        "label": "Less wind + sun",
-        "sub": "−8 mph · −150 W/m²",
-        "deltas": {"temp": 0, "wind": -8, "solar": -150},
-    },
-    "windy_cool": {
-        "label": "Cooler + windier",
-        "sub": "−10°F · +8 mph",
-        "deltas": {"temp": -10, "wind": 8, "solar": -50},
-    },
-    "eclipse": {
+    "less_sun": {
         "label": "Less sun",
-        "sub": "−200 W/m²",
-        "deltas": {"temp": 0, "wind": 0, "solar": -200},
+        "sub": "−50 W/m²",
+        "deltas": {"temp": 0, "wind": 0, "solar": -50},
     },
 }
 
@@ -444,65 +429,316 @@ def _panel_scenarios() -> dbc.Collapse:
     )
 
 
-def layout() -> html.Div:
-    """Build the Forecast view with context preceding the demand curve."""
-    return html.Div(
+def _publication_review():
+    return html.Section(
         [
             html.Div(
                 [
-                    # 1. Title block (callback fills outlook-title)
-                    html.Div(id="outlook-title"),
-                    # 2. Controls row (segmented horizon + model)
-                    html.Div(
-                        [_horizon_segmented(), _model_segmented()],
-                        className="gp-controls-row",
-                    ),
-                    # 2b. Replay panel (hidden carrier — preserved for callback)
-                    _replay_panel(),
-                    # Source and matching error context precede the chart.
-                    html.Div(id="outlook-model-card"),
-                    # 3. Hero forecast chart (full-width, with confidence band)
-                    html.Div(
-                        dcc.Loading(
-                            dcc.Graph(
-                                id="outlook-chart",
-                                style={"height": "380px"},
-                                config=_GRAPH_CONFIG,
-                            ),
-                            type="circle",
-                            color="#3b82f6",
-                        ),
-                        className="gp-chart-card",
-                    ),
-                    # 3b. Forecast as-of (preserved id, now rendered as a chip)
+                    html.H2("Review published issues"),
+                    html.P("Compare the same target hours before interpreting a curve change"),
+                ],
+                className="gp-workspace-panel-head",
+            ),
+            html.P(
+                "Choose immutable cached issues to compare shared target hours. Later actuals and weather are context, not original inputs.",
+                className="gp-panel__hint",
+            ),
+            html.Div(
+                [
                     html.Div(
                         [
-                            html.Span("Forecast as of ", className="gp-chip-label"),
-                            html.Span(
-                                id="outlook-data-through",
-                                children="—",
-                                className="gp-chip-value tabular",
+                            html.Label("Earlier issue", htmlFor="published-review-earlier"),
+                            dbc.Select(id="published-review-earlier"),
+                        ]
+                    ),
+                    html.Div(
+                        [
+                            html.Label("Later issue", htmlFor="published-review-later"),
+                            dbc.Select(id="published-review-later"),
+                        ]
+                    ),
+                ],
+                className="gp-review-toolbar",
+            ),
+            dbc.Tabs(
+                [
+                    dbc.Tab(label="Run-to-run change", tab_id="runs"),
+                    dbc.Tab(label="Later reported demand", tab_id="actuals"),
+                ],
+                id="published-review-mode",
+                active_tab="runs",
+                className="gp-context-tabs",
+            ),
+            html.Div(
+                [
+                    html.Label("Shared-target window", htmlFor="published-review-window"),
+                    dbc.Select(
+                        id="published-review-window",
+                        value="24",
+                        options=[
+                            {"label": "24 hours", "value": "24"},
+                            {"label": "7 days · long-range", "value": "168"},
+                            {"label": "30 days · advanced", "value": "720"},
+                        ],
+                    ),
+                    html.Span("Independent of the outlook chart horizon."),
+                ],
+                id="published-review-window-control",
+                className="gp-run-window-control",
+            ),
+            html.Div(id="published-review-content"),
+        ],
+        className="gp-workspace-panel gp-publication-review",
+    )
+
+
+def _context_panel():
+    drivers = _panel_drivers()
+    drivers.children.children.extend(
+        [
+            html.Details(
+                [
+                    html.Summary("Weather alignment and interpretation"),
+                    html.P(
+                        "Regional model weather is aligned to the selected forecast target hours. It provides context; this panel does not attribute demand or forecast error to weather. Historical error review uses later weather context, not the weather forecast originally issued with the demand run."
+                    ),
+                ],
+                className="gp-review-disclosure",
+            ),
+            html.Button(
+                "Open this weather & demand window →",
+                id="forecast-context-open-explorer",
+                type="button",
+                className="gp-review-button",
+            ),
+        ]
+    )
+    return html.Section(
+        [
+            html.Div(
+                [
+                    html.H2("Supporting context"),
+                    html.P("Weather and generation carry their own source windows"),
+                ],
+                className="gp-workspace-panel-head",
+            ),
+            dbc.Tabs(
+                [
+                    dbc.Tab(label="Weather context", tab_id="weather"),
+                    dbc.Tab(label="Observed generation", tab_id="generation"),
+                ],
+                id="forecast-context-tabs",
+                active_tab="weather",
+                className="gp-context-tabs",
+            ),
+            drivers,
+            _panel_generation(),
+        ],
+        className="gp-workspace-panel gp-supporting-context",
+    )
+
+
+def layout() -> html.Div:
+    """The approved chart-first workspace, with adjacent source evidence."""
+    return html.Div(
+        [
+            html.Div(id="outlook-title"),
+            _replay_panel(),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Section(
+                                [
+                                    html.Div(
+                                        [
+                                            html.H2("Demand outlook"),
+                                            html.P(
+                                                [
+                                                    "Run generated ",
+                                                    html.Span(
+                                                        id="outlook-data-through", children="—"
+                                                    ),
+                                                    " · target timestamps UTC",
+                                                ]
+                                            ),
+                                        ],
+                                        className="gp-workspace-panel-head",
+                                    ),
+                                    html.Div(
+                                        [
+                                            _model_segmented(),
+                                            _horizon_segmented(),
+                                            dbc.Checkbox(
+                                                id="outlook-show-history",
+                                                value=True,
+                                                label="Show demand history",
+                                            ),
+                                        ],
+                                        className="gp-forecast-toolbar",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Button(
+                                                [
+                                                    html.I(style={"borderColor": "#5b9fff"}),
+                                                    "Actual",
+                                                ],
+                                                id="forecast-legend-actual",
+                                                type="button",
+                                                **{"aria-pressed": "true"},
+                                            ),
+                                            html.Button(
+                                                [
+                                                    html.I(style={"borderColor": "#efb347"}),
+                                                    html.Span(
+                                                        "Published forecast",
+                                                        id="forecast-legend-label",
+                                                    ),
+                                                ],
+                                                id="forecast-legend-selected",
+                                                type="button",
+                                                **{"aria-pressed": "true"},
+                                            ),
+                                        ],
+                                        className="gp-forecast-legend",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Span(
+                                                "Inspect with ← → · target timestamps UTC · MW",
+                                                id="forecast-chart-inspection",
+                                                role="status",
+                                                **{"aria-live": "polite"},
+                                            ),
+                                            html.Button(
+                                                "Zoom in",
+                                                id="forecast-chart-zoom",
+                                                n_clicks=0,
+                                                className="gp-review-button",
+                                            ),
+                                            html.Button(
+                                                "Reset",
+                                                id="forecast-chart-reset",
+                                                n_clicks=0,
+                                                className="gp-review-button",
+                                            ),
+                                        ],
+                                        className="gp-chart-tools",
+                                    ),
+                                    html.Div(
+                                        [
+                                            dcc.Loading(
+                                                dcc.Graph(
+                                                    id="outlook-chart",
+                                                    style={"height": "350px"},
+                                                    config=_GRAPH_CONFIG,
+                                                ),
+                                                type="circle",
+                                                color="#5b9fff",
+                                            ),
+                                        ],
+                                        id="forecast-chart-keyboard",
+                                        tabIndex=0,
+                                        role="region",
+                                        **{
+                                            "aria-label": "Demand outlook chart. Arrow keys inspect forecast targets; Escape clears the inspection."
+                                        },
+                                    ),
+                                    html.P(id="forecast-ramp", className="gp-forecast-ramp"),
+                                    _metrics_bar(),
+                                    html.P(
+                                        id="forecast-curve-note",
+                                        className="gp-workspace-panel-foot",
+                                    ),
+                                ],
+                                className="gp-workspace-panel gp-forecast-outlook",
+                            ),
+                            html.Div(id="tab2-insight-card", style={"display": "none"}),
+                            html.Details(
+                                [
+                                    html.Summary(
+                                        "Forecast targets · exact values and input evidence"
+                                    ),
+                                    html.Div(id="forecast-target-evidence"),
+                                ],
+                                className="gp-review-disclosure",
+                            ),
+                            _publication_review(),
+                            _context_panel(),
+                            html.Details(
+                                [
+                                    html.Summary("Advanced · 30-day extended outlook"),
+                                    html.P(
+                                        "Long-range model comparisons may use seasonal weather context. The chart qualifies available cached weather coverage; it is not an original input vintage.",
+                                        className="gp-muted",
+                                    ),
+                                    html.Button(
+                                        "Show 30-day outlook",
+                                        id="forecast-extended-open",
+                                        n_clicks=0,
+                                        className="gp-review-button",
+                                    ),
+                                ],
+                                className="gp-review-disclosure gp-forecast-extended",
+                            ),
+                            html.Div(
+                                [
+                                    _panel_toggle(
+                                        "scenarios",
+                                        "Advanced · experimental weather sensitivity",
+                                        "Experimental",
+                                    ),
+                                    _panel_scenarios(),
+                                ],
+                                className="gp-forecast-advanced",
+                            ),
+                            html.Div(
+                                [
+                                    _panel_toggle("drivers", "Weather context", "Aligned targets"),
+                                    _panel_toggle("generation", "Observed generation", "Fuel mix"),
+                                ],
+                                style={"display": "none"},
                             ),
                         ],
-                        className="gp-as-of-chip",
+                        className="gp-workspace-stack",
                     ),
-                    # 4. MetricsBar (4-up, reuses existing outlook-* IDs)
-                    _metrics_bar(),
-                    # 6. InsightCard (existing id; styled by the wrapper)
-                    html.Div(id="tab2-insight-card", className="gp-insight-card-slot"),
-                    # 7. Inline panel toggle strip (R4a-2)
-                    _panel_toggle_strip(),
-                    # 7a. Drivers panel (R4a-2 — working)
-                    _panel_drivers(),
-                    # 7b. Generation panel (R4a-3 — working)
-                    _panel_generation(),
-                    # 7c. Scenarios panel (R4a-4 — working)
-                    _panel_scenarios(),
-                    # 8. Footer
-                    build_page_footer(),
+                    html.Aside(
+                        [
+                            html.Div(id="outlook-model-card"),
+                            html.Section(
+                                [
+                                    html.Div("Next step", className="gp-control-eyebrow"),
+                                    html.H2("Investigate the error"),
+                                    html.P(
+                                        "Compare coverage, sampling lead and source before interpreting a percentage."
+                                    ),
+                                    html.Button(
+                                        "Open error review →",
+                                        id="forecast-open-error",
+                                        n_clicks=0,
+                                        className="gp-review-button",
+                                    ),
+                                    html.Button(
+                                        "Check weather & demand →",
+                                        id="forecast-open-explorer",
+                                        n_clicks=0,
+                                        className="gp-review-button",
+                                    ),
+                                    html.P(
+                                        "Future reviews the current cached forecast. Error reviews the selected stored published issue with later eligible actuals. Explorer windows and source selections are retained independently.",
+                                        className="gp-panel__caption",
+                                    ),
+                                ],
+                                className="gp-workspace-panel gp-workspace-rail gp-forecast-next-step",
+                            ),
+                        ],
+                        className="gp-workspace-stack",
+                    ),
                 ],
-                className="gp-section-stack",
+                className="gp-workspace-split",
             ),
+            build_page_footer(),
         ],
-        className="gp-page",
+        className="gp-page gp-section-stack gp-forecast-page",
     )

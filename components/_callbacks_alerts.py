@@ -63,6 +63,7 @@ from components._callbacks_shared import (
 from components.cards import build_alert_card, build_insight_card
 from config import REQUIRE_REDIS
 from data.redis_client import redis_get, redis_key
+from data.weather_windows import historical_weather_window, latest_weather_at_or_before
 
 log = structlog.get_logger()
 
@@ -407,49 +408,49 @@ def _alerts_tab_from_redis(region):
     anomaly["timestamps"] = pd.to_datetime(anomaly.get("timestamps", []))
     anomaly["anomaly_timestamps"] = pd.to_datetime(anomaly.get("anomaly_timestamps", []))
 
-    # Cards, breakdown and figures are built by the shared renderer below;
-    # this path's only job is resolving the data out of the payload.
-    # Weather context — the full "Current Conditions" card row (temperature +
-    # wind + humidity + cloud), built from the scoring job's latest reading. The
-    # web tier used to only have the temperature series, so it rendered a lone
-    # Temperature card; the scoring job now ships ``weather_current`` so this
-    # matches the dev path's multi-card view.
-    weather_context = html.Div()
+    # Legacy weather_current has no observation clock. Rebuild from the full
+    # region-keyed weather cache and bound to the demand as-of clock instead.
+    as_of = pd.to_datetime(
+        cached.get("as_of") or cached.get("scored_at"), utc=True, errors="coerce"
+    )
+    if pd.isna(as_of):
+        as_of = pd.Timestamp.now(tz="UTC")
+    weather_context = html.P("Recent model weather unavailable.", className="gp-muted")
     weather_current = cached.get("weather_current")
-    if weather_current:
+    stamp = pd.to_datetime((weather_current or {}).get("timestamp"), utc=True, errors="coerce")
+    if (
+        isinstance(weather_current, dict)
+        and pd.notna(stamp)
+        and as_of - pd.Timedelta(hours=168) < stamp <= as_of
+    ):
         weather_context = _build_weather_context(pd.Series(weather_current))
-    elif t_vals:
-        # Back-compat: older payloads (pre this change, or Redis not yet
-        # refreshed) carry only the temperature series — show that one card.
-        import dash_bootstrap_components as dbc
-
-        last_temp = float(t_vals[-1])
-        if pd.isna(last_temp):
-            temp_display = "—"
-            color = "#A8B3C7"
-        else:
-            temp_display = f"{last_temp:.0f}°F"
-            color = "#FF5C7A" if last_temp >= 95 else ("#FFB84D" if last_temp >= 85 else "#2BD67B")
-        weather_context = dbc.Row(
-            [
-                dbc.Col(
-                    html.Div(
-                        [
-                            html.P("TEMPERATURE", className="kpi-label"),
-                            html.H4(
-                                temp_display,
-                                className="kpi-value",
-                                style={"fontSize": "1.3rem"},
-                            ),
-                        ],
-                        className="kpi-card",
-                        style={"borderTop": f"3px solid {color}"},
-                    ),
-                    md=3,
-                ),
-            ],
-            className="g-2",
-        )
+    else:
+        weather_payload = redis_get(redis_key(f"weather:{region}")) or {}
+        stamps = weather_payload.get("timestamps") or []
+        columns = {"timestamp": stamps}
+        for key in (
+            "temperature_2m",
+            "wind_speed_80m",
+            "wind_speed_10m",
+            "relative_humidity_2m",
+            "cloud_cover",
+        ):
+            values = weather_payload.get(key)
+            if isinstance(values, list) and len(values) == len(stamps):
+                columns[key] = values
+        frame = historical_weather_window(pd.DataFrame(columns), as_of, 168)
+        latest = latest_weather_at_or_before(frame, as_of)
+        if latest is not None:
+            weather_context = _build_weather_context(latest)
+    # The legacy temperature series can contain forecast-tail values. Filter
+    # its own timestamps rather than treating its final value as current.
+    tf = (
+        pd.DataFrame({"timestamp": temp_data.get("timestamps", []), "temperature_2m": t_vals})
+        if len(temp_data.get("timestamps", [])) == len(t_vals)
+        else pd.DataFrame()
+    )
+    tf = historical_weather_window(tf, as_of, 168)
+    temp_data = {"timestamps": tf.get("timestamp", []), "values": tf.get("temperature_2m", [])}
 
     return _render_risk_tab(
         region=region,
@@ -498,18 +499,29 @@ def register_alerts_callbacks(app):
         [
             Input("region-selector", "value"),
             Input("dashboard-tabs", "active_tab"),
+            Input("conditions-section", "value"),
         ],
     )
-    def update_risk_title(region, active_tab):
+    def update_risk_title(region, active_tab, section="explorer"):
         """Page-title block for the Risk tab."""
         if active_tab != "tab-alerts":
             return no_update
 
         region = region or "FPL"
         region_name = REGION_NAMES.get(region, region)
-        return build_page_title(
-            "Risk",
-            f"Weather alerts and demand anomalies · {region_name}",
+        return html.Div(
+            [
+                html.Div(region_name + " · " + region, className="gp-control-eyebrow"),
+                build_page_title(
+                    "Weather messages" if section == "messages" else "Weather & demand",
+                    (
+                        "Weather messages and descriptive demand context for a forecast review"
+                        if section == "messages"
+                        else "Compare one time window across demand and weather"
+                    )
+                    + f" · {region_name}",
+                ),
+            ]
         )
 
     @app.callback(
@@ -660,7 +672,12 @@ def register_alerts_callbacks(app):
         if weather_json:
             weather_df = pd.read_json(io.StringIO(weather_json))
             weather_df["timestamp"] = pd.to_datetime(weather_df["timestamp"])
-            recent_w = weather_df.tail(168)
+            as_of = (
+                pd.to_datetime(demand_df["timestamp"], utc=True).max()
+                if demand_json
+                else pd.Timestamp.now(tz="UTC")
+            )
+            recent_w = historical_weather_window(weather_df, as_of, 168)
             temperature = {
                 "timestamps": recent_w["timestamp"],
                 "values": recent_w["temperature_2m"],
@@ -672,7 +689,16 @@ def register_alerts_callbacks(app):
             try:
                 w_df = pd.read_json(io.StringIO(weather_json))
                 if not w_df.empty:
-                    weather_context = _build_weather_context(w_df.iloc[-1])
+                    as_of = (
+                        pd.to_datetime(demand_df["timestamp"], utc=True).max()
+                        if demand_json
+                        else pd.Timestamp.now(tz="UTC")
+                    )
+                    latest = latest_weather_at_or_before(
+                        historical_weather_window(w_df, as_of, 168), as_of
+                    )
+                    if latest is not None:
+                        weather_context = _build_weather_context(latest)
             except Exception:
                 log.warning("weather_context_build_failed")
 
@@ -732,7 +758,12 @@ def _build_risk_insight(
             wdf = pd.read_json(io.StringIO(weather_json))
             wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
             wdf = wdf.sort_values("timestamp")
-            recent = wdf.tail(24)
+            as_of = (
+                pd.to_datetime(ddf["timestamp"], utc=True).max()
+                if demand_json
+                else pd.Timestamp.now(tz="UTC")
+            )
+            recent = historical_weather_window(wdf, as_of, 24)
             if "temperature_2m" in recent.columns and not recent["temperature_2m"].isna().all():
                 temps = recent["temperature_2m"].dropna()
                 t_max = float(temps.max())
@@ -767,8 +798,10 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
     # 80m is the preferred anemometer height but is archive-unstable (#164);
     # fall through to 10m when it's missing/NaN, which get()'s default can't do.
     wind = _val("wind_speed_80m")
+    wind_label = "WIND AT 80 M"
     if wind is None:
         wind = _val("wind_speed_10m")
+        wind_label = "WIND AT 10 M"
     humidity = _val("relative_humidity_2m")
     cloud = _val("cloud_cover")
 
@@ -802,7 +835,7 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
             dbc.Col(
                 html.Div(
                     [
-                        html.P("WIND SPEED", className="kpi-label"),
+                        html.P(wind_label, className="kpi-label"),
                         html.H4(
                             f"{w:.0f} mph",
                             className="kpi-value",
@@ -861,7 +894,19 @@ def _build_weather_context(latest: pd.Series) -> html.Div:
     if not cards:
         return html.Div()
 
-    return dbc.Row(cards, className="g-2")
+    stamp = pd.to_datetime(latest.get("timestamp"), utc=True, errors="coerce")
+    when = stamp.strftime("%d %b %Y %H:%M UTC") if pd.notna(stamp) else "timestamp unavailable"
+    return html.Div(
+        [
+            html.P(
+                "Recent regional model weather · "
+                + when
+                + " · model estimate, not station observations",
+                className="gp-muted",
+            ),
+            dbc.Row(cards, className="g-2"),
+        ]
+    )
 
 
 # ── Callback registration (Step 10 — register_callbacks split) ──────

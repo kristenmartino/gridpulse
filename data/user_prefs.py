@@ -13,6 +13,8 @@ Pure logic — no Dash or I/O dependencies.
 
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import asdict, dataclass, field
 
 import structlog
@@ -21,36 +23,78 @@ log = structlog.get_logger()
 
 # ── Tracked filter IDs and their defaults ────────────────────────────
 
-# V2.1 dropped tab1-timerange, backtest-horizon, gen-date-range, and
-# sim-duration — those controls lived only in the hidden tabs that have
-# been removed. SIM_SLIDERS were similarly tied to the hidden simulator
-# and have been emptied; the constants are kept so callers that still
-# import them don't break (they iterate over an empty list).
+# Native view controls persisted and allowlisted in view links. Legacy global
+# region/persona/tab parameters remain compatible with existing URLs.
 TRACKED_FILTERS: list[str] = [
     "outlook-horizon",
     "outlook-model",
+    "outlook-show-history",
+    "forecast-context-tabs",
+    "published-review-mode",
+    "published-review-window",
     "tab3-model-selector",
+    "models-section",
+    "models-observed-basis",
+    "us-grid-view-toggle",
+    "us-grid-sort",
+    "us-grid-search",
+    "us-grid-group",
+    "us-grid-selected",
+    "explorer-state",
+    "meeting-mode-store",
+    "conditions-message-search",
+    "conditions-message-severity",
 ]
 
-FILTER_DEFAULTS: dict[str, str | list[str]] = {
-    "outlook-horizon": "168",
-    "outlook-model": "xgboost",
+FILTER_DEFAULTS: dict[str, str | list[str] | bool] = {
+    "outlook-horizon": "24",
+    "outlook-model": "published",
+    "outlook-show-history": True,
+    "forecast-context-tabs": "weather",
+    "published-review-mode": "runs",
+    "published-review-window": "24",
     "tab3-model-selector": ["prophet", "arima", "xgboost", "ensemble"],
+    "models-section": "observed",
+    "models-observed-basis": "sampled",
+    "us-grid-view-toggle": "table",
+    "us-grid-sort": "change",
+    "us-grid-search": "",
+    "us-grid-group": "all",
+    "us-grid-selected": "FPL",
+    "explorer-state": {},
+    "meeting-mode-store": "false",
+    "conditions-message-search": "",
+    "conditions-message-severity": "all",
 }
 
 # ── Valid option sets for per-filter validation ──────────────────────
 
 _FILTER_OPTIONS: dict[str, set[str] | None] = {
     "outlook-horizon": {"24", "168", "720"},
-    "outlook-model": {"xgboost", "prophet", "arima", "ensemble"},
+    "published-review-window": {"24", "168", "720"},
+    "outlook-model": {"published", "xgboost", "prophet", "arima", "ensemble"},
     "tab3-model-selector": {"prophet", "arima", "xgboost", "ensemble"},
 }
 
-# ── Scenario simulator slider IDs (V2.1: emptied; simulator removed) ──
+# ── Independent reviewed sensitivity axes ──────────────────────────
 
-SIM_SLIDERS: list[str] = []
-SIM_SLIDER_DEFAULTS: dict[str, float] = {}
-SIM_SLIDER_RANGES: dict[str, tuple[float, float]] = {}
+SIM_SLIDERS = ["forecast-scn-temp", "forecast-scn-wind", "forecast-scn-solar"]
+SIM_SLIDER_DEFAULTS = {key: 0 for key in SIM_SLIDERS}
+SIM_SLIDER_RANGES = {
+    "forecast-scn-temp": (-20, 20),
+    "forecast-scn-wind": (-10, 10),
+    "forecast-scn-solar": (-200, 200),
+}
+FILTER_PROPS = {
+    key: (
+        "data"
+        if key in {"explorer-state", "meeting-mode-store", "us-grid-selected"}
+        else "active_tab"
+        if key in {"forecast-context-tabs", "published-review-mode"}
+        else "value"
+    )
+    for key in TRACKED_FILTERS
+}
 
 # Kept as a constant for tests that import it; no longer referenced from
 # any tracked-filter machinery now that sim-duration is gone.
@@ -64,7 +108,7 @@ class UserPrefs:
     region: str = "FPL"
     persona: str = "grid_ops"
     tab: str = "tab-overview"
-    filters: dict[str, str | list[str] | int] = field(default_factory=dict)
+    filters: dict[str, str | list[str] | int | bool] = field(default_factory=dict)
     updated_at: str = ""
 
     def to_dict(self) -> dict:
@@ -81,12 +125,50 @@ class UserPrefs:
 
 
 def _validate_filter_value(
-    filter_id: str, value: str | list[str] | int | None
-) -> str | list[str] | int | None:
+    filter_id: str, value: str | list[str] | int | bool | None
+) -> str | list[str] | int | bool | None:
     """Validate a single filter value against known options.
 
     Returns the value if valid, or None if invalid.
     """
+    from config import REGION_GROUPS, REGION_NAMES
+
+    extra = {
+        "forecast-context-tabs": {"weather", "generation"},
+        "published-review-mode": {"runs", "actuals"},
+        "models-section": {"observed", "training", "backtest"},
+        "models-observed-basis": {"sampled", "first"},
+        "us-grid-view-toggle": {"table", "cards", "map"},
+        "us-grid-sort": {"change", "demand", "name"},
+        "us-grid-group": {"all", *REGION_GROUPS},
+        "us-grid-selected": {"", *REGION_NAMES},
+        "meeting-mode-store": {"true", "false"},
+        "conditions-message-severity": {"all", "critical", "warning", "info"},
+    }
+    if filter_id == "outlook-show-history":
+        if isinstance(value, bool):
+            return value
+        return {"true": True, "false": False}.get(str(value).lower())
+    if filter_id in extra:
+        return value if isinstance(value, str) and value in extra[filter_id] else None
+    if filter_id in {"us-grid-search", "conditions-message-search"}:
+        return value[:100] if isinstance(value, str) else None
+    if filter_id == "explorer-state":
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (ValueError, TypeError):
+                return None
+        if not isinstance(value, dict) or len(json.dumps(value)) > 8000:
+            return None
+        from components.explorer_state import clean_state
+
+        return clean_state(
+            value,
+            value.get("region")
+            if isinstance(value.get("region"), str) and value.get("region") in REGION_NAMES
+            else "FPL",
+        )
     options = _FILTER_OPTIONS.get(filter_id)
     if options is None:
         # Numeric filter (sim-duration) — accept int-like values
@@ -130,7 +212,7 @@ def validate_prefs(prefs_data: dict | None) -> UserPrefs:
         prefs.tab = "tab-overview"
 
     # Validate per-filter values
-    clean_filters: dict[str, str | list[str] | int] = {}
+    clean_filters: dict[str, str | list[str] | int | bool] = {}
     for fid in TRACKED_FILTERS:
         raw = prefs.filters.get(fid)
         if raw is not None:
@@ -152,7 +234,7 @@ def serialize_bookmark_params(
     region: str,
     persona: str,
     tab: str,
-    filters: dict[str, str | list[str] | int],
+    filters: dict[str, str | list[str] | int | bool],
     sim_sliders: dict[str, float] | None = None,
 ) -> str:
     """Serialize full dashboard state into a URL query string.
@@ -177,10 +259,16 @@ def serialize_bookmark_params(
 
     for fid in TRACKED_FILTERS:
         val = filters.get(fid)
+        if fid == "us-grid-selected" and fid in filters and val is None:
+            val = ""
         if val is None:
             continue
         if isinstance(val, list):
             params[f"f.{fid}"] = ",".join(str(v) for v in val)
+        elif isinstance(val, dict):
+            valid = _validate_filter_value(fid, val)
+            if valid is not None:
+                params[f"f.{fid}"] = json.dumps(valid, separators=(",", ":"))
         else:
             params[f"f.{fid}"] = str(val)
 
@@ -209,7 +297,7 @@ def deserialize_bookmark_params(search: str) -> dict:
     if not search:
         return {}
 
-    params = parse_qs(search.lstrip("?"))
+    params = parse_qs(search.lstrip("?"), keep_blank_values=True)
     result: dict = {}
 
     from config import REGION_NAMES, TAB_IDS
@@ -228,7 +316,7 @@ def deserialize_bookmark_params(search: str) -> dict:
         result["tab"] = tab
 
     # Tracked filters (f. prefix)
-    filters: dict[str, str | list[str] | int] = {}
+    filters: dict[str, str | list[str] | int | bool] = {}
     for fid in TRACKED_FILTERS:
         raw = params.get(f"f.{fid}", [None])[0]
         if raw is None:
@@ -253,7 +341,7 @@ def deserialize_bookmark_params(search: str) -> dict:
         try:
             num = float(raw_slider)
             min_v, max_v = SIM_SLIDER_RANGES[sid]
-            if min_v <= num <= max_v:
+            if math.isfinite(num) and min_v <= num <= max_v:
                 sim_sliders[sid] = num
             else:
                 log.warning("bookmark_slider_out_of_range", slider=sid, value=num)

@@ -74,7 +74,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import structlog
-from dash import Input, Output, State, html, no_update
+from dash import Input, Output, State, ctx, html, no_update
 
 from components._callbacks_shared import (
     _FORECAST_NOT_LOADED,
@@ -199,7 +199,12 @@ def _build_overview_title(region: str) -> html.Div:
 
     region_name = REGION_NAMES.get(region, region)
     subtitle = f"Reported demand and 24h forecast · {region}"
-    return build_page_title(region_name, subtitle)
+    return html.Div(
+        [
+            html.P(region_name + " · " + region, className="gp-overview__region-eyebrow"),
+            build_page_title("Overview", subtitle),
+        ]
+    )
 
 
 def _exclusions_from_freshness(freshness_data) -> list[dict]:
@@ -485,7 +490,7 @@ def _build_overview_hero_chart(
                         x=list(forecast_ts) + list(forecast_ts[::-1]),
                         y=upper_y + lower_y[::-1],
                         fill="toself",
-                        fillcolor="rgba(249, 115, 22, 0.12)",
+                        fillcolor="rgba(239, 179, 71, 0.12)",
                         line=dict(width=0),
                         hoverinfo="skip",
                         showlegend=True,
@@ -505,12 +510,59 @@ def _build_overview_hero_chart(
                     y=bridge_y,
                     mode="lines",
                     name=f"{identity.label if identity else 'Published forecast'} (24h)",
-                    line=dict(color="#f97316", width=1.75, dash="dash"),
+                    line=dict(color="#efb347", width=1.75, dash="dash"),
                     hovertemplate=(
                         "<b>%{x|%b %d, %H:%M}</b><br>%{y:,.0f} MW · forecast<extra></extra>"
                     ),
                 )
             )
+
+            # Approved first-target boundary and peak refer only to genuine targets;
+            # the historical continuity point above is preserved verbatim.
+            if len(forecast_ts):
+                fig.add_vrect(
+                    x0=forecast_ts[0],
+                    x1=forecast_ts[-1],
+                    fillcolor="rgba(239,179,71,0.035)",
+                    line_width=0,
+                    layer="below",
+                )
+                fig.add_shape(
+                    type="line",
+                    xref="x",
+                    yref="paper",
+                    x0=forecast_ts[0],
+                    x1=forecast_ts[0],
+                    y0=0,
+                    y1=1,
+                    line=dict(color="#9e7d42", dash="dot", width=1),
+                )
+                fig.add_annotation(
+                    x=forecast_ts[0],
+                    xref="x",
+                    y=0.025,
+                    yref="paper",
+                    text="First forecast target",
+                    showarrow=False,
+                    xanchor="right",
+                    yanchor="bottom",
+                    xshift=-5,
+                    font=dict(color="#b9a17b", size=9),
+                )
+                idx = int(np.argmax(forecast_y))
+                fig.add_trace(
+                    go.Scatter(
+                        x=[forecast_ts[idx]],
+                        y=[forecast_y[idx]],
+                        mode="markers+text",
+                        marker=dict(size=6, color="#efb347", line=dict(color="#f8e3bd", width=1)),
+                        text=["Peak"],
+                        textposition="top center",
+                        showlegend=False,
+                        name="Published forecast peak",
+                        hovertemplate="%{x|%b %d %H:%M UTC}<br>%{y:,.0f} MW<extra></extra>",
+                    )
+                )
 
             # Generation/target timing is shown in the shared summary above
             # this chart; stale warnings stay visible in the insight block.
@@ -532,7 +584,8 @@ def _build_overview_hero_chart(
             ),
             yaxis=dict(
                 showgrid=True,
-                gridcolor="rgba(255,255,255,0.04)",
+                gridcolor="#2b3a4c",
+                griddash="dot",
                 zeroline=False,
                 tickformat=",.0f",
                 tickfont=dict(color="#9eafc6", size=10),
@@ -731,6 +784,24 @@ def register_overview_callbacks(app):
     helpers (the 17 functions above), and callback wiring all in
     coherent places.
     """
+
+    @app.callback(
+        Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+        [
+            Input("overview-open-forecast", "n_clicks"),
+            Input("overview-open-models", "n_clicks"),
+            Input("overview-open-conditions", "n_clicks"),
+        ],
+        prevent_initial_call=True,
+    )
+    def continue_overview_review(forecast_click, models_click, conditions_click):
+        if not any((forecast_click, models_click, conditions_click)):
+            return no_update
+        return {
+            "overview-open-forecast": "tab-outlook",
+            "overview-open-models": "tab-models",
+            "overview-open-conditions": "tab-alerts",
+        }.get(ctx.triggered_id, no_update)
 
     @app.callback(
         [

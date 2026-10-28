@@ -499,19 +499,22 @@
         <section id="horizon">
           <h2>Where the weather inputs change</h2>
           <p>
-            The scoring job produces a 30-day hourly demand forecast, but real
-            weather forecast data only covers the first <strong>16 days</strong>.
-            Past that boundary the weather inputs are driven from a per-authority
+            The scoring job produces a 30-day hourly demand forecast. The weather
+            feed has nominal coverage of up to <strong>16 days</strong>; its
+            available target timestamps can end sooner for an intraday start.
+            Beyond supported future weather, inputs are driven from a per-authority
             seasonal normal &mdash; a trailing ten-year &ldquo;normal weather
             year&rdquo; &mdash; with the current weather regime decaying into
             that normal over about five days.
           </p>
           <p>
-            The Forecast tab draws a visible divider at day 16 and labels both
-            sides. For trained-model curves, demand beyond that line uses seasonal
-            weather assumptions rather than a current weather forecast. The
-            repeated-day baseline does not use forecast weather. A 30-day curve
-            does not have a matching 30-day live accuracy score.
+            The advanced Forecast chart marks current cached weather coverage
+            when known, and otherwise labels the day-16 boundary as a nominal
+            guide. The original weather input vintage is not archived alongside
+            the demand issue, so current coverage does not prove the exact inputs
+            used by that saved run. The repeated-day baseline does not explicitly
+            use forecast weather. A 30-day curve does not have a matching 30-day
+            live accuracy score.
           </p>
         </section>
 

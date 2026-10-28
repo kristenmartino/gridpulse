@@ -173,6 +173,6 @@ def test_forecast_presets_stay_within_controls_and_describe_changes():
         assert -20 <= preset["deltas"]["temp"] <= 20
         assert -10 <= preset["deltas"]["wind"] <= 10
         assert -200 <= preset["deltas"]["solar"] <= 200
-    less_sun = _SCENARIO_PRESETS["eclipse"]
-    assert less_sun["sub"] == "−200 W/m²"
+    less_sun = _SCENARIO_PRESETS["less_sun"]
+    assert less_sun["sub"] == "−50 W/m²"
     assert "zero" not in less_sun["sub"]

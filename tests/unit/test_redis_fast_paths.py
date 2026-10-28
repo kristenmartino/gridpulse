@@ -692,7 +692,7 @@ class TestAlertsTabFromRedis:
     @patch("components._callbacks_alerts.redis_get")
     def test_temperature_data_produces_figure_with_hlines(self, mock_rg):
         """Temperature timestamps present → figure with temp trace."""
-        mock_rg.return_value = _alerts_payload(with_alerts=True)
+        mock_rg.return_value = {**_alerts_payload(with_alerts=True), "scored_at": _ts(24)[-1]}
 
         from components.callbacks import _alerts_tab_from_redis
 
@@ -938,7 +938,7 @@ class TestOutlookTabFromRedis:
     def test_xgboost_miss_serves_primary_with_honest_labels(self, mock_rg, mock_bands, mock_trail):
         """P2-26 (#273): when the payload lacks an xgboost column and falls
         back to ``predicted_demand_mw`` (the prophet primary here), every
-        label must name PROPHET — trace, color, title, band calibration,
+        label must name PROPHET — trace, source rail, band calibration,
         interval caption, insights — plus a substitution disclosure. The old
         behavior titled prophet's numbers \"XGBOOST Demand Forecast\" with
         XGBoost-calibrated bands."""
@@ -962,7 +962,6 @@ class TestOutlookTabFromRedis:
         }
         mock_rg.return_value = payload
 
-        from components._callbacks_shared import COLORS
         from components.callbacks import _outlook_tab_from_redis
 
         # data_scientist persona: the model-attribution insight is persona-
@@ -971,9 +970,9 @@ class TestOutlookTabFromRedis:
         assert result is not None
         fig = result[0]
         assert fig.data[0].name == "Prophet Forecast"
-        assert fig.data[0].line.color == COLORS["prophet"]
+        assert fig.data[0].line.color == "#efb347"  # selected forecast role; identity is named
         title = fig.layout.title.text
-        assert "Prophet Demand Forecast" in title
+        assert "Prophet" in fig.data[0].name
         assert "XGBOOST Demand Forecast" not in title
         # The visible source panel carries substitution context; chart titles stay short.
         from components.forecast_context import forecast_review_context
@@ -1065,7 +1064,7 @@ class TestServedModelForPayload:
         assert result is not None
         fig = result[0]
         assert fig.data[0].name == "XGBoost Forecast"
-        assert "XGBoost Demand Forecast" in fig.layout.title.text
+        assert "XGBoost" in fig.data[0].name
         assert "unavailable" not in fig.layout.title.text
         assert mock_bands.call_args.kwargs["model_name"] == "xgboost"
 

@@ -422,6 +422,12 @@ def write_actuals_and_weather(data: RegionData) -> PhaseResult:
             # the disclosure the tiles and /grid/summary render.
             "artifact_excluded": data.artifact_exclusions,
         }
+        # The read-only explorer reuses the retained-hour quality guard. Keep
+        # its paired day-ahead input so it can apply the same three signals,
+        # including stuck partials that evade a single-step-collapse test.
+        # These are latest observed operator values, not an original issue.
+        if "forecast_mw" in demand_df.columns:
+            actuals_payload["forecast_mw"] = demand_df["forecast_mw"].tolist()
         persist(redis_key(f"actuals:{region}"), actuals_payload, ttl=REDIS_TTL)
 
         weather_payload: dict[str, Any] = {
@@ -3795,7 +3801,9 @@ def write_backtests(data: RegionData) -> PhaseResult:
             metrics = bt["metrics"]
             actual = np.asarray(bt["actual"]).tolist()
             preds = np.asarray(bt["predictions"]).tolist()
-            timestamps = [pd.Timestamp(t).isoformat() for t in bt["timestamps"]]
+            # Backtest folds originate in merge_demand_weather's UTC frame;
+            # NumPy .values drops the annotation, not the underlying UTC clock.
+            timestamps = _ts_list(pd.to_datetime(bt["timestamps"], utc=True))
             residuals = (np.asarray(bt["actual"]) - np.asarray(bt["predictions"])).tolist()
             redis_set(
                 key,
@@ -4044,7 +4052,9 @@ def write_diagnostics(data: RegionData, xgb_model: dict | None) -> PhaseResult:
         diag_pred = np.asarray(bt_payload["predictions"][pred_model], dtype=float)[:n]
         diag_actual = np.asarray(bt_payload["actual"], dtype=float)[:n]
         diag_residuals = diag_actual - diag_pred
-        diag_ts = pd.to_datetime(pd.Series(bt_payload["timestamps"][:n]))
+        # Legacy backtest payloads lost their UTC annotation when the fold
+        # timestamps crossed NumPy. Restore the documented pipeline clock.
+        diag_ts = pd.to_datetime(pd.Series(bt_payload["timestamps"][:n]), utc=True)
         error_by_hour = pd.DataFrame({"hour": diag_ts.dt.hour, "abs_error": np.abs(diag_residuals)})
         hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
 
@@ -4141,7 +4151,7 @@ def _live_noaa_alerts(region: str) -> tuple[list[dict[str, Any]], int, int, int,
 
 
 def write_alerts(data: RegionData) -> PhaseResult:
-    """Write the alerts / stress / anomaly payload for the Risk tab.
+    """Write the cached alerts and descriptive demand/weather context.
 
     Alert-feed honesty (2026-07 review P0-1 lineage): live alerts come from
     NOAA/NWS via ``data.noaa_client`` (``alerts_source="noaa"``). On any
@@ -4150,11 +4160,13 @@ def write_alerts(data: RegionData) -> PhaseResult:
     outage is never disguised as "no active alerts" (the client raises
     rather than returning empty on total failure). Demo alerts are emitted
     only when ``config.USE_DEMO_DATA`` is set and are labeled
-    ``alerts_source="demo"`` so the UI can disclose them. The anomaly and
-    temperature sections are always real (derived from fetched demand/weather).
+    ``alerts_source="demo"`` so the UI can disclose them. Temperature context
+    contains only fetched historical model estimates at/before the job clock;
+    it is neither a station-observation claim nor a weather-as-issued archive.
     """
     import config as _config
     from data.redis_client import redis_key, redis_set
+    from data.weather_windows import historical_weather_window, latest_weather_at_or_before
 
     region = data.region
     try:
@@ -4209,15 +4221,15 @@ def write_alerts(data: RegionData) -> PhaseResult:
         lower = (roll_mean_full - 2 * roll_std_full).tail(168)
         anomalies = recent[recent["demand_mw"] > upper]
 
-        recent_w = (
-            data.weather_df.tail(168).copy()
-            if data.weather_df is not None and not data.weather_df.empty
-            else pd.DataFrame()
-        )
+        # The weather frame includes future forecasts. Its final rows are not
+        # current readings: select by clock and preserve sample provenance.
+        weather_as_of = datetime.now(UTC)
+        recent_w = historical_weather_window(data.weather_df, weather_as_of, hours=168)
+        last_w = latest_weather_at_or_before(recent_w, weather_as_of)
 
         payload: dict[str, Any] = {
             "region": region,
-            "scored_at": datetime.now(UTC).isoformat(),
+            "scored_at": weather_as_of.isoformat(),
             "alerts": alerts,
             "alerts_source": alerts_source,
             "alerts_total": alerts_total,
@@ -4241,12 +4253,10 @@ def write_alerts(data: RegionData) -> PhaseResult:
                 "values": recent_w["temperature_2m"].tolist(),
             }
 
-        # Latest reading for the Risk tab's "Current Conditions" cards. Without
-        # this the web tier only had the temperature series above, so it could
-        # render a lone Temperature card — no wind / humidity / cloud (the fields
-        # _build_weather_context needs). Emit whichever the weather frame carries.
-        if not recent_w.empty:
-            last_w = recent_w.iloc[-1]
+        # Preserve the sample clock with the latest available historical model
+        # estimate. Consumers can show its age and reject legacy clockless
+        # payloads instead of promoting the future feed tail to current weather.
+        if last_w is not None:
             payload["weather_current"] = {
                 col: (
                     float(last_w[col])
@@ -4261,6 +4271,11 @@ def write_alerts(data: RegionData) -> PhaseResult:
                     "cloud_cover",
                 )
             }
+            payload["weather_current"].update(
+                timestamp=last_w["timestamp"].isoformat(),
+                as_of=weather_as_of.isoformat(),
+                source="open-meteo",
+            )
 
         redis_set(redis_key(f"alerts:{region}"), payload, ttl=REDIS_TTL)
         return PhaseResult(
