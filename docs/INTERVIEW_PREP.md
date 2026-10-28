@@ -1694,3 +1694,7 @@ directly: a collapsed disclosure fit at 375px while opening it widened the page
 to 838px. The repair keeps the grid column shrinkable and the complete exact
 values inside a local scroll region; checks confirm `details.open` before
 measuring geometry.
+
+The same distinction applies within cards: fitting a three-column mobile grid
+did not establish readable captions or adequate padding. The focused review
+checks actual text insets, value/unit alignment and disclosure/action spacing.

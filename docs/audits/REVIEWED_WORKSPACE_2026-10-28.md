@@ -56,6 +56,16 @@ remained contained, but inherited the older metrics-table presentation. The
 follow-up checks actual `details.open` state, card and document geometry, local
 table scrolling and complete source values at each reviewed width.
 
+A focused supporting-card review also found weather text almost flush with its
+border, 9px captions in three narrow mobile columns, and flex gaps compounded
+by child margins around disclosures and actions. The spacing follow-up checks
+weather values and units, caption readability, advanced controls and the
+selected-source/next-step evidence cards as actual rendered states.
+The repair adds real weather-card insets and readable captions, stacks those
+cards below 600px, and uses one disclosure/action spacing rhythm. The existing
+clientside sensitivity toggle now synchronizes its collapsed content and
+`aria-expanded` state; the decorative plus/minus follows that state.
+
 ## Run-to-run window follow-through
 
 The initial comparison exposed every eligible shared target, which could be
@@ -141,6 +151,11 @@ The subsequent table presentation repair passes 49 affected existing unit and
 real Dash-dispatch tests, plus Ruff, formatting and diff checks. Its expanded
 mobile/desktop geometry and local-scroll review are recorded separately in the
 pull request; the full-suite count above precedes that presentation-only repair.
+
+The supporting-card spacing follow-up passes 52 affected existing unit and
+real Dash-dispatch tests, plus Ruff, formatting and diff checks. Native review
+separately checks the clientside sensitivity state, since the Flask dispatch
+test driver does not execute browser callbacks.
 
 Focused behavioral and real Dash-dispatch tests cover cache-only readers,
 regional isolation, issue selection, time-window validation, gap rendering,

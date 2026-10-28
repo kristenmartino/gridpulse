@@ -229,7 +229,7 @@ def _panel_toggle(key: str, label: str, hint: str) -> html.Button:
     """Single toggle chip. Click flips the collapse panel's ``is_open``."""
     return html.Button(
         [
-            html.Span("+ ", className="gp-panel-toggle__sigil"),
+            html.Span("+ ", className="gp-panel-toggle__sigil", **{"aria-hidden": "true"}),
             html.Span(label, className="gp-panel-toggle__label"),
             html.Span(hint, className="gp-panel-toggle__hint"),
         ],
@@ -680,7 +680,7 @@ def layout() -> html.Div:
                                         className="gp-review-button",
                                     ),
                                 ],
-                                className="gp-review-disclosure",
+                                className="gp-review-disclosure gp-forecast-extended",
                             ),
                             html.Div(
                                 [
@@ -730,7 +730,7 @@ def layout() -> html.Div:
                                         className="gp-panel__caption",
                                     ),
                                 ],
-                                className="gp-workspace-panel gp-workspace-rail",
+                                className="gp-workspace-panel gp-workspace-rail gp-forecast-next-step",
                             ),
                         ],
                         className="gp-workspace-stack",

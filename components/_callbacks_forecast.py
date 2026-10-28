@@ -1361,8 +1361,14 @@ def register_forecast_callbacks(app):
     # Generic JS could pattern-match, but explicit is clearer.
     for _panel_key in ("scenarios",):
         app.clientside_callback(
-            "function(n, is_open) { return n ? !is_open : is_open; }",
-            Output(f"forecast-panel-{_panel_key}-collapse", "is_open"),
+            """function(n, is_open) {
+                const open = n ? !is_open : is_open;
+                return [open, open ? 'true' : 'false'];
+            }""",
+            [
+                Output(f"forecast-panel-{_panel_key}-collapse", "is_open"),
+                Output(f"forecast-panel-toggle-{_panel_key}", "aria-expanded"),
+            ],
             Input(f"forecast-panel-toggle-{_panel_key}", "n_clicks"),
             State(f"forecast-panel-{_panel_key}-collapse", "is_open"),
             prevent_initial_call=True,

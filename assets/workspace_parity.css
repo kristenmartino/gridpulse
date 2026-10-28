@@ -52,3 +52,34 @@ html,body,.dashboard-container,.tab-content{background:#0b0f14;color:var(--text-
 .gp-review-table-scroll .gp-exact-table th{position:sticky;top:0;z-index:1;background:#141f2b}
 .gp-review-table-scroll .gp-exact-table th,.gp-review-table-scroll .gp-exact-table td{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .gp-review-table-scroll .gp-exact-table th:first-child,.gp-review-table-scroll .gp-exact-table td:first-child{text-align:left}
+
+/* Forecast supporting evidence uses one inset and spacing rhythm. */
+.gp-forecast-page .gp-supporting-context .gp-panel{gap:14px}
+.gp-forecast-page .gp-supporting-context .gp-drivers-grid{gap:14px}
+.gp-forecast-page .gp-supporting-context .gp-drivers-grid>.gp-muted{font-size:11px;line-height:1.7;margin:0}
+.gp-forecast-page .gp-supporting-context .gp-driver-cell{padding:14px;gap:8px}
+.gp-forecast-page .gp-supporting-context .gp-driver-cell .gp-metric-label{font-size:10px;line-height:1.5;letter-spacing:.06em}
+.gp-forecast-page .gp-supporting-context .gp-driver-cell .gp-metric-value-row{align-items:baseline;gap:5px}
+.gp-forecast-page .gp-supporting-context .gp-driver-cell .gp-metric-value{font-size:22px;line-height:1.25}
+.gp-forecast-page .gp-supporting-context .gp-driver-cell .gp-metric-unit{font-size:11px;line-height:1.25;white-space:nowrap}
+.gp-forecast-page .gp-supporting-context .gp-driver-cell .gp-metric-sub{font-size:11px;line-height:1.6;overflow-wrap:normal}
+.gp-forecast-page .gp-supporting-context .gp-driver-cell>.dash-graph{min-width:0}
+.gp-forecast-page .gp-supporting-context .gp-panel>.gp-review-disclosure{margin:0}
+.gp-forecast-page .gp-supporting-context .gp-panel>.gp-review-button{align-self:flex-start;margin:0;min-height:36px;line-height:1.5}
+.gp-forecast-page .gp-forecast-extended>.gp-review-button{margin:0 17px 16px;max-width:calc(100% - 34px);min-height:36px;line-height:1.5}
+.gp-forecast-page .gp-forecast-advanced>.gp-panel-toggle{align-items:center;justify-content:space-between;gap:12px;min-height:44px;font-size:11px;line-height:1.6;font-weight:400}
+.gp-forecast-page .gp-forecast-advanced .gp-panel-toggle__label{order:1;min-width:0;text-align:left}
+.gp-forecast-page .gp-forecast-advanced .gp-panel-toggle__sigil{order:2;flex:0 0 auto;font-size:0;line-height:1;color:#9bb4cf}
+.gp-forecast-page .gp-forecast-advanced .gp-panel-toggle__sigil:after{content:"+";font-size:17px}
+.gp-forecast-page .gp-forecast-advanced>.gp-panel-toggle[aria-expanded="true"] .gp-panel-toggle__sigil:after{content:"−"}
+.gp-forecast-page .gp-workspace-rail .gp-control-eyebrow{line-height:1.5}
+.gp-forecast-page .gp-workspace-rail h2{line-height:1.5;margin:5px 0 10px}
+.gp-forecast-page .gp-workspace-rail>p{margin:12px 0 0;line-height:1.7}
+.gp-forecast-page .gp-workspace-rail hr{margin:16px 0}
+.gp-forecast-page .gp-workspace-rail>.gp-rail-label{font-size:11px;line-height:1.6}
+.gp-forecast-page .gp-workspace-rail>.gp-rail-label+strong{display:block;margin-top:6px}
+.gp-forecast-page .gp-workspace-rail>strong:not(.gp-rail-value){font-size:16px;line-height:1.5}
+.gp-forecast-page .gp-workspace-rail>.gp-rail-coverage-note{margin-top:8px}
+.gp-forecast-page .gp-forecast-next-step>.gp-review-button{display:block;width:100%;margin:12px 0 0;min-height:36px;line-height:1.5;text-align:left}
+.gp-forecast-page .gp-forecast-next-step>.gp-review-button+.gp-review-button{margin-top:8px}
+@media(max-width:600px){.gp-forecast-page .gp-supporting-context .gp-drivers-grid{grid-template-columns:minmax(0,1fr)}.gp-forecast-page .gp-supporting-context .gp-driver-cell .gp-metric-label{font-size:11px}.gp-forecast-page .gp-supporting-context .gp-panel>.gp-review-button{align-self:stretch;width:100%;min-height:44px;text-align:left}.gp-forecast-page .gp-forecast-extended>.gp-review-button{width:calc(100% - 34px);min-height:44px;text-align:left}.gp-forecast-page .gp-forecast-next-step>.gp-review-button{min-height:44px}}
