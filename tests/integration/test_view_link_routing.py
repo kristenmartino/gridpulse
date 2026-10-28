@@ -57,3 +57,25 @@ def test_history_restores_filled_then_cleared_grid_state(driver):
         assert result.ok and result.value("dashboard-tabs", "active_tab") == "tab-us-grid"
         assert result.value("us-grid-search", "value") == search
         assert result.value("us-grid-selected", "data") == selection
+
+
+def test_run_window_restores_independently_of_outlook_horizon(driver):
+    query = serialize_bookmark_params(
+        "FPL",
+        "grid_ops",
+        "tab-outlook",
+        {
+            "outlook-horizon": "168",
+            "published-review-window": "24",
+            "published-review-mode": "runs",
+        },
+    )
+    restored = driver.dispatch("dashboard-tabs.active_tab", {"url.search": query})
+    assert restored.ok
+    assert restored.value("outlook-horizon", "value") == "168"
+    assert restored.value("published-review-window", "value") == "24"
+    assert restored.value("published-review-mode", "active_tab") == "runs"
+    malformed = driver.dispatch(
+        "dashboard-tabs.active_tab", {"url.search": "?tab=tab-outlook&f.published-review-window=25"}
+    )
+    assert malformed.ok and "published-review-window" not in malformed.payload["response"]

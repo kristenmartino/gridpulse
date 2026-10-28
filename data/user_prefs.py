@@ -31,6 +31,7 @@ TRACKED_FILTERS: list[str] = [
     "outlook-show-history",
     "forecast-context-tabs",
     "published-review-mode",
+    "published-review-window",
     "tab3-model-selector",
     "models-section",
     "models-observed-basis",
@@ -51,6 +52,7 @@ FILTER_DEFAULTS: dict[str, str | list[str] | bool] = {
     "outlook-show-history": True,
     "forecast-context-tabs": "weather",
     "published-review-mode": "runs",
+    "published-review-window": "24",
     "tab3-model-selector": ["prophet", "arima", "xgboost", "ensemble"],
     "models-section": "observed",
     "models-observed-basis": "sampled",
@@ -69,6 +71,7 @@ FILTER_DEFAULTS: dict[str, str | list[str] | bool] = {
 
 _FILTER_OPTIONS: dict[str, set[str] | None] = {
     "outlook-horizon": {"24", "168", "720"},
+    "published-review-window": {"24", "168", "720"},
     "outlook-model": {"published", "xgboost", "prophet", "arima", "ensemble"},
     "tab3-model-selector": {"prophet", "arima", "xgboost", "ensemble"},
 }

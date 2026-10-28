@@ -469,6 +469,23 @@ def _publication_review():
                 active_tab="runs",
                 className="gp-context-tabs",
             ),
+            html.Div(
+                [
+                    html.Label("Shared-target window", htmlFor="published-review-window"),
+                    dbc.Select(
+                        id="published-review-window",
+                        value="24",
+                        options=[
+                            {"label": "24 hours", "value": "24"},
+                            {"label": "7 days · long-range", "value": "168"},
+                            {"label": "30 days · advanced", "value": "720"},
+                        ],
+                    ),
+                    html.Span("Independent of the outlook chart horizon."),
+                ],
+                id="published-review-window-control",
+                className="gp-run-window-control",
+            ),
             html.Div(id="published-review-content"),
         ],
         className="gp-workspace-panel gp-publication-review",

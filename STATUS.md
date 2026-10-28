@@ -17,6 +17,15 @@ follow-up commit.
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
 
+## 2026-10-28 — focused run-to-run review
+
+Forecast issue comparison now defaults to 24 shared future hours, with separate
+7-day and advanced 30-day windows. Same-window summaries expose peak magnitude,
+peak timing, the largest signed hourly revision and changed-hour counts. UTC
+eligibility, immutable receipts and later-reported-demand quality guards remain
+unchanged. This is a local implementation under review, not a deployment or
+evidence of improved forecast accuracy.
+
 ## 2026-10-28 — approved-design fidelity correction
 
 The user's comparison exposed missing composition despite earlier functional

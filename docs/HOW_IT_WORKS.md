@@ -482,6 +482,15 @@ remain unavailable. Curve changes between issues and matched errors against
 later demand are separate comparisons. The run/actual comparison modes preserve
 those distinct evidence scopes and the eligible-actual guard.
 
+Run-to-run review defaults to 24 shared future hours, with independent 7-day
+and advanced 30-day controls. The elapsed UTC window starts at the first
+eligible shared target; gaps do not extend it. Peak demand and timing changes,
+the largest signed hourly revision and changed-hour counts use the same targets
+as the plot and exact-value table. Tied peaks use their earliest occurrence,
+and short overlap is disclosed. Later reported demand retains its separate
+eligible-actual window. Repeating baseline issues are identified so a long
+comparison is not mistaken for independent new weather information.
+
 Conditions links demand, weather and signed error on the same UTC window and
 shared inspected hour. Past and Future use regional cache values; Error review
 uses genuine stored issues, targets after their recorded clocks, and eligible

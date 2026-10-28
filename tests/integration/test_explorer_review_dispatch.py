@@ -342,3 +342,158 @@ def test_guarded_future_range_is_stored_evidence_not_displayable_targets(driver)
     note = result.text("explorer-available-range")
     assert "Stored future target range" in note and "24h horizon is withheld" in note
     assert "not displayed" in note and "Available future targets" not in note
+
+
+@pytest.mark.parametrize(
+    "hours,count,changed", [(None, 24, 1), ("168", 168, 7), ("720", 718, 29), ("bad", 24, 1)]
+)
+def test_revision_scope_metrics_plot_and_table_agree(driver, hours, count, changed):
+    from tests.unit.test_publication_revision_window import issue_pair
+
+    earlier, later = issue_pair()
+    data = {"region": "FPL", "issues": [earlier, later]}
+    result = driver.dispatch(
+        "published-review-content.children",
+        {
+            "explorer-data": data,
+            "published-review-earlier": "earlier",
+            "published-review-later": "later",
+            "region-selector": "FPL",
+            "published-review-mode.active_tab": "runs",
+            "published-review-window": hours,
+        },
+    )
+    assert result.ok
+    text = result.text("published-review-content")
+    assert f"{changed} of {count}" in text
+    assert "Peak demand change" in text and "Peak timing change" in text
+    assert "+1,003 MW" in text and "repeating daily baseline" in text
+    assert f"Exact shared future targets · {count}" in text
+    if hours == "720":
+        assert "Only 718 shared hourly targets available" in text
+    nodes = result.value("published-review-content", "children")
+    graph = next(node for node in nodes if node.get("type") == "Graph")
+    traces = [
+        trace for trace in graph["props"]["figure"]["data"] if trace["name"] != "Selected hour"
+    ]
+    assert len(traces) == 2
+    assert all(len(trace["x"]) == count for trace in traces)
+    assert all(len(trace["y"]) == count for trace in traces)
+    assert traces[0]["x"] == traces[1]["x"]
+
+    def table_bodies(node):
+        if isinstance(node, list):
+            return [body for child in node for body in table_bodies(child)]
+        if isinstance(node, dict):
+            if node.get("type") == "Tbody":
+                return [node["props"]["children"]]
+            return table_bodies(node.get("props", {}).get("children"))
+        return []
+
+    bodies = table_bodies(nodes)
+    assert len(bodies) == 1 and len(bodies[0]) == count
+
+
+def test_actual_mode_hides_window_control_and_does_not_trim_matches(driver):
+    import pandas as pd
+
+    from data.redis_client import redis_key
+
+    cache, now, issue = cache_fixture()
+    actual = cache[redis_key("actuals:FPL")]
+    extra = pd.date_range(now + pd.Timedelta(hours=1), periods=6, freq="h")
+    actual["timestamps"].extend(t.isoformat() for t in extra)
+    actual["demand_mw"].extend([2000.0] * len(extra))
+    now = extra[-1]
+    identity = issue["publication_id"]
+    data = load_explorer_data("FPL", reader=cache.get, now=now, selected_ids=[identity])
+    values = {
+        "explorer-data": data,
+        "published-review-earlier": identity,
+        "published-review-later": None,
+        "region-selector": "FPL",
+        "published-review-mode.active_tab": "actuals",
+        "published-review-window": "24",
+    }
+    result = driver.dispatch("published-review-content.children", values)
+    assert result.ok
+    assert len(data["error"][identity]) > 24
+    assert f"Exact eligible matches · {len(data['error'][identity])}" in result.text(
+        "published-review-content"
+    )
+    assert "Peak demand change" not in result.text("published-review-content")
+    visible = driver.dispatch(
+        "published-review-window-control.style", {"published-review-mode.active_tab": "runs"}
+    )
+    hidden = driver.dispatch(
+        "published-review-window-control.style", {"published-review-mode.active_tab": "actuals"}
+    )
+    assert visible.value("published-review-window-control", "style") == {}
+    assert hidden.value("published-review-window-control", "style") == {"display": "none"}
+
+
+def test_revision_small_change_does_not_round_to_zero(driver):
+    from tests.unit.test_publication_revision_window import issue_pair
+
+    a, b = issue_pair()
+    a["forecast"] = a["forecast"][:4]
+    b["forecast"] = [{**r, "demand_mw": r["demand_mw"] + 0.001} for r in a["forecast"]]
+    result = driver.dispatch(
+        "published-review-content.children",
+        {
+            "explorer-data": {"region": "FPL", "issues": [a, b]},
+            "published-review-earlier": "earlier",
+            "published-review-later": "later",
+            "region-selector": "FPL",
+            "published-review-mode.active_tab": "runs",
+        },
+    )
+    assert result.ok
+    assert "+<1 MW" in result.text("published-review-content")
+    assert "2 of 2" in result.text("published-review-content")
+
+
+@pytest.mark.parametrize(
+    "case,expected",
+    [
+        ("empty", "Published issue history is not available"),
+        ("region", "Loading this authority"),
+        ("receipt", "receipt is unavailable"),
+        ("loading", "Loading selected cached issues"),
+        ("clock", "generation clock is unavailable"),
+        ("order", "earlier issue must precede"),
+        ("no_overlap", "no shared targets strictly after"),
+    ],
+)
+def test_revision_unavailable_guards_never_emit_zero_metrics(driver, case, expected):
+    from tests.unit.test_publication_revision_window import issue_pair
+
+    a, b = issue_pair()
+    data = {"region": "FPL", "issues": [a, b]}
+    if case == "empty":
+        data["issues"] = []
+    if case == "region":
+        data["region"] = "CAISO"
+    if case == "receipt":
+        b["receipt_status"] = "unavailable"
+    if case == "loading":
+        b["loaded"] = False
+    if case == "clock":
+        b["timing"]["generated_at"] = "invalid"
+    if case == "order":
+        a["timing"]["generated_at"] = b["timing"]["generated_at"]
+    if case == "no_overlap":
+        b["forecast"] = []
+    result = driver.dispatch(
+        "published-review-content.children",
+        {
+            "explorer-data": data,
+            "published-review-earlier": "earlier",
+            "published-review-later": "later",
+            "region-selector": "FPL",
+            "published-review-mode.active_tab": "runs",
+        },
+    )
+    assert result.ok
+    text = result.text("published-review-content")
+    assert expected in text and "Peak demand change" not in text

@@ -622,6 +622,13 @@ def register_explorer_callbacks(app):
     )
 
     @app.callback(
+        Output("published-review-window-control", "style"),
+        Input("published-review-mode", "active_tab"),
+    )
+    def publication_window_visibility(mode: str | None) -> dict[str, str]:
+        return {"display": "none"} if mode == "actuals" else {}
+
+    @app.callback(
         Output("published-review-content", "children"),
         [
             Input("explorer-data", "data"),
@@ -629,12 +636,17 @@ def register_explorer_callbacks(app):
             Input("published-review-later", "value"),
             Input("region-selector", "value"),
             Input("published-review-mode", "active_tab"),
+            Input("published-review-window", "value"),
         ],
     )
-    def publication_review(data, earlier_id, later_id, region, mode="runs"):
+    def publication_review(data, earlier_id, later_id, region, mode="runs", hours="24"):
         from dash import dcc
 
-        from components.weather_explorer_data import compare_issues
+        from components.weather_explorer_data import (
+            compare_issues,
+            comparison_window,
+            revision_summary,
+        )
 
         if not isinstance(data, dict) or data.get("region") != region:
             return html.P("Loading this authority’s issue history…")
@@ -654,9 +666,12 @@ def register_explorer_callbacks(app):
             return html.P("Loading selected cached issues…")
         if not actual_mode and earlier_id == later_id:
             return html.P("Choose two different published issues to inspect run-to-run changes.")
-        if not actual_mode and utc(earlier["timing"]["generated_at"]) >= utc(
-            later["timing"]["generated_at"]
-        ):
+        issue_clocks = [utc(x.get("timing", {}).get("generated_at")) for x in chosen]
+        if any(value is None for value in issue_clocks):
+            return html.P(
+                "A selected issue generation clock is unavailable. Choose another recorded issue."
+            )
+        if not actual_mode and issue_clocks[0] >= issue_clocks[1]:
             return html.P(
                 "The earlier issue must precede the later issue. Check the generation clocks in the selectors."
             )
@@ -665,6 +680,8 @@ def register_explorer_callbacks(app):
             if actual_mode
             else compare_issues(earlier, later)
         )
+        if not actual_mode:
+            rows, duration = comparison_window(rows, hours)
         title = "Eligible actual matches" if actual_mode else "Shared future targets"
         window = (
             clock(rows[0]["timestamp"]) + " → " + clock(rows[-1]["timestamp"])
@@ -703,13 +720,76 @@ def register_explorer_callbacks(app):
             table_rows = [
                 [r["timestamp"], r["earlier_mw"], r["later_mw"], r["change_mw"]] for r in rows
             ]
-        body = [summary, html.P(note, className="gp-panel__hint")]
+        body = [summary]
+        if not actual_mode and rows:
+            stats = revision_summary(rows)
+
+            def mw(value: float, signed: bool = False) -> str:
+                if 0 < abs(value) < 1:
+                    return ("+" if value > 0 else "−") + "<1 MW" if signed else "<1 MW"
+                return f"{value:+,.0f} MW" if signed else f"{value:,.0f} MW"
+
+            def metric(label: str, value: str, detail: str) -> html.Div:
+                return html.Div([html.Span(label), html.Strong(value), html.Small(detail)])
+
+            peak_times = f"Earlier {clock(stats['earlier_peak_target'])} → later {clock(stats['later_peak_target'])}"
+            if stats["earlier_peak_ties"] > 1 or stats["later_peak_ties"] > 1:
+                peak_times += f" · Earliest tied peak ({stats['earlier_peak_ties']} earlier / {stats['later_peak_ties']} later)."
+            largest = stats["largest"]
+            largest_target = clock(largest["timestamp"])
+            if not stats["changed"]:
+                largest_target = "No changed targets in this window."
+            elif stats["largest_ties"] > 1:
+                largest_target += f" · Earliest of {stats['largest_ties']} tied targets."
+            body.append(
+                html.Div(
+                    [
+                        metric(
+                            "Peak demand change",
+                            mw(stats["peak_change_mw"], True),
+                            f"{mw(stats['earlier_peak_mw'])} earlier → {mw(stats['later_peak_mw'])} later",
+                        ),
+                        metric(
+                            "Peak timing change",
+                            f"{stats['peak_shift_hours']:+g} hours",
+                            peak_times,
+                        ),
+                        metric(
+                            "Largest hourly revision",
+                            mw(largest["change_mw"], True),
+                            largest_target,
+                        ),
+                        metric(
+                            "Changed hours",
+                            f"{stats['changed']} of {stats['count']}",
+                            "Matched targets · later − earlier",
+                        ),
+                    ],
+                    className="gp-revision-summary",
+                )
+            )
+            end = utc(rows[0]["timestamp"]) + pd.Timedelta(hours=duration)
+            coverage = f"{duration}-hour elapsed window from {clock(rows[0]['timestamp'])} to before {clock(end)}."
+            if len(rows) < duration:
+                coverage += f" Only {len(rows)} shared hourly targets available; missing targets are not extended or extrapolated."
+            body.append(html.P(coverage, className="gp-panel__hint gp-run-window-note"))
+            if earlier.get("series_source") == later.get("series_source") == "baseline":
+                body.append(
+                    html.P(
+                        "Both issues use a repeating daily baseline template. Longer windows repeat the same clock-hour revisions; they are not independent new weather signals.",
+                        className="gp-panel__hint",
+                    )
+                )
+        body.append(html.P(note, className="gp-panel__hint"))
         if rows:
             body.extend(
                 [
                     dcc.Graph(
                         figure=figure(
-                            rows, series, earlier_id + str(later_id) + str(mode), zero=True
+                            rows,
+                            series,
+                            earlier_id + str(later_id) + str(mode) + str(hours),
+                            zero=True,
                         ),
                         config={"displayModeBar": False, "responsive": True},
                         style={"height": "285px"},

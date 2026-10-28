@@ -332,3 +332,61 @@ def compare_issues(earlier, later):
                 }
             )
     return sorted(rows, key=lambda r: r["timestamp"])
+
+
+COMPARISON_WINDOWS = {"24": 24, "168": 168, "720": 720}
+
+
+def comparison_window(rows: list[dict], hours: object = "24") -> tuple[list[dict], int]:
+    """Select an elapsed shared-target window; gaps never extend its end.
+
+    Args:
+        rows: Eligible common targets produced by compare_issues.
+        hours: Allowlisted duration control; malformed values use 24 hours.
+
+    Returns:
+        Selected targets and requested elapsed duration in hours.
+    """
+    duration = COMPARISON_WINDOWS.get(hours, 24) if isinstance(hours, str) else 24
+    if not rows:
+        return [], duration
+    ordered = sorted(rows, key=lambda r: r["timestamp"])
+    start = utc(ordered[0]["timestamp"])
+    end = start + pd.Timedelta(hours=duration)
+    return [r for r in ordered if start <= utc(r["timestamp"]) < end], duration
+
+
+def revision_summary(rows: list[dict]) -> dict | None:
+    """Describe revisions on the same eligible targets, choosing earliest ties.
+
+    Args:
+        rows: The selected finite common-target comparison rows.
+
+    Returns:
+        Same-window peak, timing, revision and count metrics, or None if empty.
+    """
+    if not rows:
+        return None
+    ordered = sorted(rows, key=lambda r: r["timestamp"])
+    earlier_peak = max(r["earlier_mw"] for r in ordered)
+    later_peak = max(r["later_mw"] for r in ordered)
+    earlier_ties = [r for r in ordered if r["earlier_mw"] == earlier_peak]
+    later_ties = [r for r in ordered if r["later_mw"] == later_peak]
+    largest = max(ordered, key=lambda r: abs(r["change_mw"]))
+    return {
+        "earlier_peak_mw": earlier_peak,
+        "later_peak_mw": later_peak,
+        "peak_change_mw": later_peak - earlier_peak,
+        "earlier_peak_target": earlier_ties[0]["timestamp"],
+        "later_peak_target": later_ties[0]["timestamp"],
+        "peak_shift_hours": (
+            utc(later_ties[0]["timestamp"]) - utc(earlier_ties[0]["timestamp"])
+        ).total_seconds()
+        / 3600,
+        "earlier_peak_ties": len(earlier_ties),
+        "later_peak_ties": len(later_ties),
+        "largest": largest,
+        "largest_ties": sum(abs(r["change_mw"]) == abs(largest["change_mw"]) for r in ordered),
+        "changed": sum(r["change_mw"] != 0 for r in ordered),
+        "count": len(ordered),
+    }

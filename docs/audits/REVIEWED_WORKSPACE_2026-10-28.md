@@ -50,6 +50,21 @@ Final native review and test results are recorded against the final source in
 the pull request. Native date/select controls, isolated capture availability and
 physical-device touch behavior retain their separate verification boundaries.
 
+## Run-to-run window follow-through
+
+The initial comparison exposed every eligible shared target, which could be
+nearly 30 days for two stored baseline issues. Run review now defaults to a
+24-hour elapsed UTC window from the first eligible shared target; optional 7-day
+and advanced 30-day windows remain independent of the main outlook horizon.
+Gaps never stretch the requested interval and short overlap is disclosed.
+
+Peak magnitude, earliest peak timing, largest signed hourly revision and
+changed-hour counts are calculated from the exact plot/table rows. Ties are
+qualified, small real revisions are not labeled zero, and missing comparisons
+do not acquire zero-valued metrics. The repeating-baseline note requires both
+receipts to identify that source. Later reported demand retains all eligible
+actual matches and does not inherit the new run-only control.
+
 ## Clock and quality repairs
 
 - `data/weather_windows.py` selects historical/current context at or before an
@@ -110,10 +125,11 @@ from model error here. Archiving that weather vintage is deferred follow-up.
 
 ## Verification
 
-The fidelity correction passes the full local suite: 4,319 tests passed, 3
-skipped, with 92.32% measured coverage. Ruff, formatting, JavaScript parsing and
-scoped callback checks also pass. The pull request records the final native
-comparison result and exact reviewed source.
+The full local suite including the run-to-run window follow-through passes:
+4,349 tests passed, 3 skipped, with 92.44% measured coverage. Ruff, formatting
+and diff checks pass. The preceding fidelity review also checked JavaScript
+parsing. The pull request records the final native comparison result and exact
+reviewed source.
 
 Focused behavioral and real Dash-dispatch tests cover cache-only readers,
 regional isolation, issue selection, time-window validation, gap rendering,

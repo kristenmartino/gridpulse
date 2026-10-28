@@ -1682,3 +1682,9 @@ programmatic focus does not establish ordinary keyboard access.
 This is an AI-assisted implementation and review example. The pull request
 records final verification; the work does not establish practitioner adoption,
 operational benefit or improved forecasting accuracy.
+
+A subsequent run-comparison review exposed a product-scope ambiguity: nearly
+30 days of repeating baseline revisions looked like a broader analysis than
+the data supported. The chosen default is 24 shared future hours, with longer
+windows available explicitly and same-window revision summaries. This makes
+the comparison legible without claiming forecast accuracy or weather causation.

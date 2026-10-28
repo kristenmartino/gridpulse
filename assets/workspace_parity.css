@@ -29,3 +29,17 @@ html,body,.dashboard-container,.tab-content{background:#0b0f14;color:var(--text-
 .gp-forecast-toolbar{align-items:center}.gp-chart-tools>span{min-width:0}.gp-publication-review>.gp-panel__hint{padding:12px 18px 0;margin:0}.gp-overview__next .gp-review-button{white-space:nowrap}
 
 #outlook-chart .js-plotly-plot:focus-visible{outline:2px solid #9dc9ec;outline-offset:-3px}
+
+/* Published-issue comparison: the target window is independent of the outlook. */
+.gp-publication-review .gp-run-window-control{display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:14px 18px 0;color:#afc2d9;font-size:11px}
+.gp-publication-review .gp-run-window-control label{margin:0;color:#dbe7f5}
+.gp-publication-review .gp-run-window-control select{width:190px;max-width:100%;font-size:11px}
+.gp-publication-review .gp-run-window-control>span{font-size:10px}
+.gp-publication-review .gp-revision-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;border-bottom:1px solid #2b3746;padding:2px 0 16px;margin-bottom:12px}
+.gp-publication-review .gp-revision-summary>div{min-width:0}
+.gp-publication-review .gp-revision-summary span{display:block;font-size:10px;color:#9eb6d2}
+.gp-publication-review .gp-revision-summary strong{display:block;font-size:20px;color:#e4edf8;margin:6px 0;line-height:1.35}
+.gp-publication-review .gp-revision-summary small{display:block;font-size:10px;color:#b4c4d8;line-height:1.7;overflow-wrap:anywhere}
+.gp-publication-review .gp-comparison-summary>div{min-width:0;overflow-wrap:anywhere}
+@media(max-width:1050px){.gp-publication-review .gp-revision-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:500px){.gp-publication-review .gp-run-window-control{padding:14px 12px 0;align-items:start}.gp-publication-review .gp-run-window-control label,.gp-publication-review .gp-run-window-control>span{width:100%}.gp-publication-review .gp-revision-summary{grid-template-columns:1fr;gap:16px}.gp-publication-review .gp-revision-summary strong{font-size:20px}}
