@@ -81,6 +81,12 @@ title/indicator in the toggle row. Narrative values and calculations are
 unchanged. This small CSS correction is verified by native geometry/open-state
 checks rather than new implementation-mirroring tests.
 
+First-hour score-table review reproduced overlapping headers at 375, 768 and
+1280px. Fixed columns combined with nonwrapping labels let roughly 150px of
+mobile header text paint beyond 92px cells. The repair is scoped to that
+seven-column table; native checks inspect text bounds, complete column access
+and local scrolling separately from document width.
+
 ## Run-to-run window follow-through
 
 The initial comparison exposed every eligible shared target, which could be

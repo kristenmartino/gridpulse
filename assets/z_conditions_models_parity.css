@@ -61,3 +61,14 @@
 .gp-models-review .gp-legacy-offsets-scroll .gp-panel__caption{display:block;margin:6px 0 0;font-size:11px;line-height:1.5}
 .gp-models-review .gp-table-scroll-hint{font-size:11px;line-height:1.6;margin:10px 0}
 @media(max-width:600px){.gp-conditions-page .gp-message-filters{grid-template-columns:minmax(0,1fr);gap:14px}.gp-conditions-page .gp-message-filters .form-control,.gp-conditions-page .gp-message-filters .form-select{font-size:16px;height:44px}.gp-conditions-page .gp-message-filters label{font-size:12px}.gp-conditions-page .gp-message-table .gp-review-button,.gp-conditions-page #conditions-message-back{min-height:44px}.gp-conditions-page #conditions-messages .gp-review-disclosure>summary{min-height:48px}.gp-models-review .gp-models-legacy-disclosure>summary{align-items:center;line-height:1.6}.gp-models-review .gp-models-legacy-disclosure>summary:after{flex:0 0 auto}}
+
+/* Seven first-hour columns need phrase wrapping and their own width budget. */
+.gp-models-review #models-first-hour-panel{min-width:0;max-width:100%}
+.gp-models-review #models-first-hour-panel .gp-drift-table-scroll{width:100%;min-width:0;overscroll-behavior:contain}
+.gp-models-review #models-first-hour-panel .gp-drift-table{table-layout:fixed;min-width:848px}
+.gp-models-review #models-first-hour-panel .gp-drift-table th{white-space:normal;overflow-wrap:normal;word-break:normal;line-height:1.5;vertical-align:bottom}
+.gp-models-review #models-first-hour-panel .gp-drift-table th:first-child{width:112px;text-align:left}
+.gp-models-review #models-first-hour-panel .gp-drift-table th:nth-child(2),.gp-models-review #models-first-hour-panel .gp-drift-table th:nth-child(3),.gp-models-review #models-first-hour-panel .gp-drift-table th:nth-child(4){width:136px}
+.gp-models-review #models-first-hour-panel .gp-drift-table th:nth-child(5){width:160px;text-align:left}
+.gp-models-review #models-first-hour-panel .gp-drift-table th:nth-child(6),.gp-models-review #models-first-hour-panel .gp-drift-table th:nth-child(7){width:84px}
+.gp-models-review #models-first-hour-panel .gp-drift-table td:first-child,.gp-models-review #models-first-hour-panel .gp-drift-table td:nth-child(5){text-align:left}
