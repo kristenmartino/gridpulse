@@ -43,3 +43,12 @@ html,body,.dashboard-container,.tab-content{background:#0b0f14;color:var(--text-
 .gp-publication-review .gp-comparison-summary>div{min-width:0;overflow-wrap:anywhere}
 @media(max-width:1050px){.gp-publication-review .gp-revision-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:500px){.gp-publication-review .gp-run-window-control{padding:14px 12px 0;align-items:start}.gp-publication-review .gp-run-window-control label,.gp-publication-review .gp-run-window-control>span{width:100%}.gp-publication-review .gp-revision-summary{grid-template-columns:1fr;gap:16px}.gp-publication-review .gp-revision-summary strong{font-size:20px}}
+
+/* Exact values scroll inside their disclosure without widening the workspace. */
+.gp-workspace-stack{grid-template-columns:minmax(0,1fr)}
+.gp-review-disclosure{min-width:0;max-width:100%}
+.gp-review-table-scroll{width:100%;min-width:0;max-width:100%;overscroll-behavior:contain}
+.gp-review-table-scroll:focus-visible{outline:2px solid #9dc9ec;outline-offset:-2px}
+.gp-review-table-scroll .gp-exact-table th{position:sticky;top:0;z-index:1;background:#141f2b}
+.gp-review-table-scroll .gp-exact-table th,.gp-review-table-scroll .gp-exact-table td{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.gp-review-table-scroll .gp-exact-table th:first-child,.gp-review-table-scroll .gp-exact-table td:first-child{text-align:left}

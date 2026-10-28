@@ -50,6 +50,12 @@ Final native review and test results are recorded against the final source in
 the pull request. Native date/select controls, isolated capture availability and
 physical-device touch behavior retain their separate verification boundaries.
 
+A subsequent expanded-state check reproduced a separate exact-target disclosure
+defect: opening it widened the 375px Forecast page to 838px. At 1280px the table
+remained contained, but inherited the older metrics-table presentation. The
+follow-up checks actual `details.open` state, card and document geometry, local
+table scrolling and complete source values at each reviewed width.
+
 ## Run-to-run window follow-through
 
 The initial comparison exposed every eligible shared target, which could be
@@ -130,6 +136,11 @@ The full local suite including the run-to-run window follow-through passes:
 and diff checks pass. The preceding fidelity review also checked JavaScript
 parsing. The pull request records the final native comparison result and exact
 reviewed source.
+
+The subsequent table presentation repair passes 49 affected existing unit and
+real Dash-dispatch tests, plus Ruff, formatting and diff checks. Its expanded
+mobile/desktop geometry and local-scroll review are recorded separately in the
+pull request; the full-suite count above precedes that presentation-only repair.
 
 Focused behavioral and real Dash-dispatch tests cover cache-only readers,
 regional isolation, issue selection, time-window validation, gap rendering,

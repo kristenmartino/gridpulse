@@ -1688,3 +1688,9 @@ A subsequent run-comparison review exposed a product-scope ambiguity: nearly
 the data supported. The chosen default is 24 shared future hours, with longer
 windows available explicitly and same-window revision summaries. This makes
 the comparison legible without claiming forecast accuracy or weather causation.
+
+An expanded-table follow-up also showed why the reviewed state must be verified
+directly: a collapsed disclosure fit at 375px while opening it widened the page
+to 838px. The repair keeps the grid column shrinkable and the complete exact
+values inside a local scroll region; checks confirm `details.open` before
+measuring geometry.

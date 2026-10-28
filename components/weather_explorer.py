@@ -28,7 +28,7 @@ def exact_table(headings, rows, label="Exact source values"):
                 html.Thead(html.Tr([html.Th(x) for x in headings])),
                 html.Tbody([html.Tr([html.Td(value) for value in row]) for row in rows]),
             ],
-            className="metrics-table",
+            className="gp-review-table gp-exact-table",
         ),
         className="gp-review-table-scroll",
         role="region",
