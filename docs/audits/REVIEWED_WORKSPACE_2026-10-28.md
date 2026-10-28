@@ -74,6 +74,13 @@ Fresh expanded legacy-offset checks already kept the document within the
 375/768/1280 viewports; its wide mobile table needed clearer local-scroll
 affordance. Closed/open geometry and keyboard scrolling remain separate checks.
 
+The Overview Review summary follow-up preserves its aligned 12px body text,
+line height and paragraph gaps. Its expanded final statement previously ended
+only 1px from the border; scoped CSS adds 16px bottom padding and centers the
+title/indicator in the toggle row. Narrative values and calculations are
+unchanged. This small CSS correction is verified by native geometry/open-state
+checks rather than new implementation-mirroring tests.
+
 ## Run-to-run window follow-through
 
 The initial comparison exposed every eligible shared target, which could be

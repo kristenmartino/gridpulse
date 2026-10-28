@@ -83,3 +83,8 @@ html,body,.dashboard-container,.tab-content{background:#0b0f14;color:var(--text-
 .gp-forecast-page .gp-forecast-next-step>.gp-review-button{display:block;width:100%;margin:12px 0 0;min-height:36px;line-height:1.5;text-align:left}
 .gp-forecast-page .gp-forecast-next-step>.gp-review-button+.gp-review-button{margin-top:8px}
 @media(max-width:600px){.gp-forecast-page .gp-supporting-context .gp-drivers-grid{grid-template-columns:minmax(0,1fr)}.gp-forecast-page .gp-supporting-context .gp-driver-cell .gp-metric-label{font-size:11px}.gp-forecast-page .gp-supporting-context .gp-panel>.gp-review-button{align-self:stretch;width:100%;min-height:44px;text-align:left}.gp-forecast-page .gp-forecast-extended>.gp-review-button{width:calc(100% - 34px);min-height:44px;text-align:left}.gp-forecast-page .gp-forecast-next-step>.gp-review-button{min-height:44px}}
+
+/* Keep the expanded demand narrative clear of its border and align its toggle. */
+.gp-overview #overview-insight-card .gp-insight-card__details[open]{padding-bottom:16px}
+.gp-overview #overview-insight-card .gp-insight-card__details>summary{align-items:center;gap:12px;min-height:44px}
+.gp-overview #overview-insight-card .gp-insight-card__details>summary:after{flex:0 0 auto;line-height:1}
