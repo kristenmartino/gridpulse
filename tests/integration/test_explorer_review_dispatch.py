@@ -31,6 +31,46 @@ def driver():
     return DashDriver(app)
 
 
+def test_published_actual_comparison_uses_one_genuine_issue_without_requiring_a_second(driver):
+    cache, now, issue = cache_fixture()
+    identity = issue["publication_id"]
+    data = load_explorer_data("FPL", reader=cache.get, now=now, selected_ids=[identity])
+    result = driver.dispatch(
+        "published-review-content.children",
+        {
+            "explorer-data": data,
+            "published-review-earlier": identity,
+            "published-review-later": identity,
+            "region-selector": "FPL",
+            "published-review-mode.active_tab": "actuals",
+        },
+    )
+    assert result.ok
+    text = result.text("published-review-content")
+    assert "Eligible actual matches" in text and "Comparison window · UTC" in text
+    assert "official ≥24h observation-lead score" in text
+    assert "Choose two different" not in text
+    assert "Exact eligible matches" in text
+
+
+def test_run_comparison_still_requires_distinct_immutable_issues(driver):
+    cache, now, issue = cache_fixture()
+    identity = issue["publication_id"]
+    data = load_explorer_data("FPL", reader=cache.get, now=now, selected_ids=[identity])
+    result = driver.dispatch(
+        "published-review-content.children",
+        {
+            "explorer-data": data,
+            "published-review-earlier": identity,
+            "published-review-later": identity,
+            "region-selector": "FPL",
+            "published-review-mode.active_tab": "runs",
+        },
+    )
+    assert result.ok
+    assert "Choose two different published issues" in result.text("published-review-content")
+
+
 def inputs(data, state, **changes):
     values = {
         "explorer-data": data,
@@ -267,3 +307,38 @@ def test_date_commit_owner_cannot_leak_old_mode_or_region(driver):
         and changed["windows"]["future"]["start"] == "2026-02-09T02:00:00+00:00"
     )
     assert changed["windows"]["past"]["start"] == "2026-02-03T00:00:00+00:00"
+
+
+def test_toolbar_scope_range_and_unit_follow_mode_and_current_region(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state({"region": "FPL", "variable": "temperature_f"}, "FPL")
+    result = driver.dispatch(
+        "explorer-series-scope.children",
+        {"explorer-data": data, "explorer-state": state, "region-selector": "FPL"},
+    )
+    assert result.ok and "Historical model-weather context" in result.text("explorer-series-scope")
+    assert result.text("explorer-weather-unit") == "°F"
+    assert "Available past targets" in result.text("explorer-available-range")
+    assert "UTC" in result.text("explorer-available-range")
+    stale = driver.dispatch(
+        "explorer-series-scope.children",
+        {"explorer-data": data, "explorer-state": state, "region-selector": "CAISO"},
+    )
+    assert stale.ok and "No source targets" in stale.text("explorer-available-range")
+    assert "2026" not in stale.text("explorer-available-range")
+
+
+def test_guarded_future_range_is_stored_evidence_not_displayable_targets(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state({"region": "FPL", "mode": "future", "source": "published"}, "FPL")
+    data["future"]["published"]["max_horizon"] = 12
+    result = driver.dispatch(
+        "explorer-available-range.children",
+        {"explorer-data": data, "explorer-state": state, "region-selector": "FPL"},
+    )
+    assert result.ok
+    note = result.text("explorer-available-range")
+    assert "Stored future target range" in note and "24h horizon is withheld" in note
+    assert "not displayed" in note and "Available future targets" not in note

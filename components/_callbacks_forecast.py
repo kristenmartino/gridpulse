@@ -1022,6 +1022,7 @@ def _outlook_tab_from_redis(
     persona_id,
     *,
     cached=_FORECAST_NOT_READ,
+    show_history=True,
 ):
     """Redis fast path for the outlook (demand forecast) tab.
 
@@ -1157,12 +1158,10 @@ def _outlook_tab_from_redis(
             mode="lines",
             name=f"{identity.label} Forecast",
             line=dict(
-                color=COLORS.get(served_model, COLORS["ensemble"]),
+                color="#efb347",
                 width=model_style.get("width", 2),
-                dash=model_style.get("dash", "solid"),
+                dash="solid",
             ),
-            fill="tozeroy",
-            fillcolor="rgba(56,208,255,0.10)",
         )
     )
     fig.add_trace(
@@ -1171,8 +1170,8 @@ def _outlook_tab_from_redis(
             y=[peak_val],
             mode="markers+text",
             name="Peak",
-            marker=dict(color="#FF5C7A", size=12, symbol="triangle-up"),
-            text=[f"Peak: {peak_val:,.0f} MW"],
+            marker=dict(color="#efb347", size=7, line=dict(color="#f7dfb7", width=1)),
+            text=["Peak"],
             textposition="top center",
             showlegend=False,
         )
@@ -1183,8 +1182,8 @@ def _outlook_tab_from_redis(
             y=[min_val],
             mode="markers+text",
             name="Min",
-            marker=dict(color="#3b82f6", size=10, symbol="triangle-down"),
-            text=[f"Min: {min_val:,.0f} MW"],
+            marker=dict(color="#efb347", size=7, line=dict(color="#f7dfb7", width=1)),
+            text=["Min"],
             textposition="bottom center",
             showlegend=False,
         )
@@ -1195,6 +1194,11 @@ def _outlook_tab_from_redis(
             fig, timestamps, predictions, horizon_hours, region=region, model_name=served_model
         )
     _add_trailing_actuals(fig, demand_json)
+    for trace in fig.data:
+        if trace.name == "Actual":
+            trace.line.update(color="#5b9fff", dash="solid")
+            trace.visible = show_history
+            trace.legendrank = 0
     # Mark the Open-Meteo / climatology boundary on long-horizon views.
     # Only the 30-day view actually crosses the day-16 boundary; on 24h
     # and 7-day views the helper is a no-op. See ADR-008.
@@ -1207,7 +1211,6 @@ def _outlook_tab_from_redis(
         horizon_hours,
         (redis_get(redis_key(f"weather:{region}")) or {}).get("timestamps"),
     )
-    horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
     interval_caption = _interval_caption(interval_meta, served_model) if interval_meta else ""
     # On the 30-day view, surface in the subtitle that days 17-30 are
     # climatology baseline rather than real forecast. Users browsing
@@ -1225,15 +1228,37 @@ def _outlook_tab_from_redis(
     fig.update_layout(
         **_layout(
             uirevision=f"{region}:{horizon_hours}",
-            title=(
-                f"{horizon_labels.get(horizon_hours, '')} "
-                f"{identity.label}"
-                f" Demand Forecast — {region}"
-                f"{interval_caption}{horizon_caption}"
+            meta=dict(
+                forecast_region=region,
+                forecast_requested=model_name,
+                forecast_hours=horizon_hours,
+                forecast_generated_at=cached.get("scored_at"),
             ),
-            xaxis_title="Date/Time",
-            yaxis_title="Demand (MW)",
+            title=dict(
+                text=(interval_caption + horizon_caption).removeprefix("<br>"), font=dict(size=10)
+            ),
+            xaxis_title=None,
+            yaxis_title=None,
+            font=dict(
+                family="-apple-system,BlinkMacSystemFont,Segoe UI,sans-serif",
+                size=11,
+                color="#b4c4d8",
+            ),
+            margin=dict(l=53, r=24, t=50 if interval_caption or horizon_caption else 32, b=48),
+            legend=dict(
+                orientation="h", x=0, y=1.13, xanchor="left", yanchor="bottom", font=dict(size=10)
+            ),
+            xaxis=dict(showgrid=False, zeroline=False, title=None, tickformat="%d %b<br>%H:%M"),
+            yaxis=dict(
+                gridcolor="#2b3a4c",
+                griddash="dot",
+                rangemode="tozero",
+                zeroline=False,
+                tickformat=",.0f",
+                title=None,
+            ),
             hovermode="x unified",
+            showlegend=False,
         )
     )
 
@@ -1334,7 +1359,7 @@ def register_forecast_callbacks(app):
 
     # 3 clientside toggles — flip is_open on each panel collapse.
     # Generic JS could pattern-match, but explicit is clearer.
-    for _panel_key in ("drivers", "generation", "scenarios"):
+    for _panel_key in ("scenarios",):
         app.clientside_callback(
             "function(n, is_open) { return n ? !is_open : is_open; }",
             Output(f"forecast-panel-{_panel_key}-collapse", "is_open"),
@@ -1342,6 +1367,38 @@ def register_forecast_callbacks(app):
             State(f"forecast-panel-{_panel_key}-collapse", "is_open"),
             prevent_initial_call=True,
         )
+
+    app.clientside_callback(
+        "function(tab){return [tab==='weather',tab==='generation'];}",
+        [
+            Output("forecast-panel-drivers-collapse", "is_open"),
+            Output("forecast-panel-generation-collapse", "is_open"),
+        ],
+        Input("forecast-context-tabs", "active_tab"),
+    )
+    app.clientside_callback(
+        """function(history,zoom,reset,fig){
+            if(!fig||!fig.data)return window.dash_clientside.no_update;
+            const copy=JSON.parse(JSON.stringify(fig));
+            copy.data.forEach(t=>{if(t.name==='Actual')t.visible=!!history;});
+            const trigger=window.dash_clientside.callback_context.triggered[0]?.prop_id||'';
+            copy.layout=copy.layout||{};copy.layout.xaxis=copy.layout.xaxis||{};
+            if(trigger.startsWith('forecast-chart-reset')){copy.layout.xaxis.autorange=true;delete copy.layout.xaxis.range;}
+            if(trigger.startsWith('forecast-chart-zoom')){
+                const range=window.gridpulseReview&&window.gridpulseReview.forecastZoomRange(copy);
+                if(range){copy.layout.xaxis.range=range;copy.layout.xaxis.autorange=false;}
+            }
+            return copy;
+        }""",
+        Output("outlook-chart", "figure", allow_duplicate=True),
+        [
+            Input("outlook-show-history", "value"),
+            Input("forecast-chart-zoom", "n_clicks"),
+            Input("forecast-chart-reset", "n_clicks"),
+        ],
+        State("outlook-chart", "figure"),
+        prevent_initial_call=True,
+    )
 
     @app.callback(
         Output("forecast-drivers-content", "children"),
@@ -1407,6 +1464,47 @@ def register_forecast_callbacks(app):
     )
     def open_extended(click):
         return "720" if click else no_update
+
+    @app.callback(
+        [Output("forecast-ramp", "children"), Output("forecast-curve-note", "children")],
+        [
+            Input("outlook-model", "value"),
+            Input("outlook-horizon", "value"),
+            Input("region-selector", "value"),
+            Input("demand-store", "data"),
+        ],
+    )
+    def forecast_curve_summary(model, horizon, region, _demand):
+        payload = redis_get(redis_key(f"forecast:{region}:1h")) or {}
+        identity = resolve_forecast_identity(payload, model or "published")
+        selected = selection_values(payload, identity, int(horizon or 24)) if identity else None
+        if not selected:
+            return (
+                "Selected-curve change unavailable.",
+                "No replacement forecast values are generated.",
+            )
+        times = pd.to_datetime(selected[0], utc=True)
+        vals = np.asarray(selected[1], dtype=float)
+        ramps = [
+            (float(vals[i] - vals[i - 1]), times[i])
+            for i in range(1, len(vals))
+            if times[i] - times[i - 1] == pd.Timedelta(hours=1)
+        ]
+        ramp = max(ramps, key=lambda item: abs(item[0])) if ramps else None
+        line = (
+            [
+                html.Strong("Largest absolute hourly change: "),
+                f"{ramp[0]:+,.0f} MW/h ending {ramp[1].strftime('%b %d %H:%M UTC')}. This describes the selected curve, not a dispatch instruction.",
+            ]
+            if ramp
+            else "Adjacent-hour change unavailable for this selected window."
+        )
+        note = (
+            "Seasonal baseline repeats the prior observed day. It has no trained-model holdout or model uncertainty interval."
+            if identity.metric_key == "baseline"
+            else "Model comparison values retain their cached source. Indicative ranges, when available, are qualified by the chart legend."
+        )
+        return line, note
 
     @app.callback(
         Output("forecast-target-evidence", "children"),
@@ -1567,7 +1665,33 @@ def register_forecast_callbacks(app):
         region_name = REGION_NAMES.get(region, region)
         return build_page_title(
             "Forecast",
-            f"Published forecast and model comparisons · {region_name}",
+            f"Inspect the published source and shape, then compare runs and the evidence behind error · {region_name}",
+        )
+
+    @app.callback(
+        [Output("outlook-model", "options"), Output("forecast-legend-label", "children")],
+        [
+            Input("region-selector", "value"),
+            Input("outlook-model", "value"),
+            Input("demand-store", "data"),
+        ],
+    )
+    def forecast_source_options(region, requested, _demand):
+        payload, _failed = _read_outlook_forecast(region or "FPL")
+        published = resolve_forecast_identity(payload, "published")
+        selected = resolve_forecast_identity(payload, requested or "published")
+        label = published.label + " · published" if published else "Published default"
+        options = [{"label": label, "value": "published"}] + [
+            {"label": model_display_name(key) + " · comparison", "value": key}
+            for key in ("xgboost", "prophet", "arima", "ensemble")
+        ]
+        return options, (
+            (
+                selected.label
+                + (" · published" if selected.status == "Published default" else " · comparison")
+            )
+            if selected
+            else "Selected forecast unavailable"
         )
 
     @app.callback(
@@ -1599,34 +1723,86 @@ def register_forecast_callbacks(app):
             )
             if not resolve_forecast_identity(cached, model_name or "published"):
                 context["display_label"] = availability.label
+        available = availability.state == "available"
+        if not available:
+            label = context.get("display_label", availability.label)
+            return html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div("Selected curve", className="gp-control-eyebrow"),
+                            html.H2(label),
+                            html.Span(availability.label, className="gp-source-tag")
+                            if label != availability.label
+                            else None,
+                        ],
+                        className="gp-workspace-panel gp-workspace-rail",
+                    ),
+                    html.Details(
+                        [
+                            html.Summary("Timing, scoring coverage and input evidence"),
+                            build_forecast_review(context),
+                        ],
+                        className="gp-review-disclosure",
+                    ),
+                ],
+                className="gp-workspace-stack",
+            )
+        count = context.get("coverage_scored")
+        possible = context.get("coverage_possible")
+        coverage = (
+            html.Div(
+                [
+                    html.Span(style={"width": f"{100 * count / possible:.3f}%"}),
+                    html.I(),
+                ],
+                className="gp-rail-coverage",
+            )
+            if type(count) is int and type(possible) is int and possible > 0
+            else None
+        )
         return html.Div(
             [
                 html.Div(
                     [
-                        html.Strong(context.get("display_label", "Source unavailable")),
-                        html.Span(context.get("display_status", ""))
-                        if context.get("display_status") != context.get("display_label")
-                        else None,
-                        html.Span(
-                            context.get("error_label", "")
-                            + ": "
-                            + context.get("error_value", "Not available")
-                            + " · "
-                            + context.get("coverage_summary", "Scoring coverage unavailable")
-                        )
-                        if availability.state == "available"
-                        else None,
+                        html.Div("Selected curve", className="gp-control-eyebrow"),
+                        html.H2(context.get("display_label", availability.label)),
+                        html.Span(context.get("display_status", ""), className="gp-source-tag"),
+                        html.P(
+                            f"{int(horizon or 24)} target hours · selected cached source"
+                            if available
+                            else availability.message
+                        ),
+                        html.Hr(),
+                        html.Div(
+                            context.get("error_label", "Observed error"), className="gp-rail-label"
+                        ),
+                        html.Strong(
+                            context.get("error_value", "Not available") if available else "—",
+                            className="gp-rail-value",
+                        ),
+                        html.P(context.get("error_note", "")),
+                        coverage,
+                        html.P(
+                            context.get("coverage_summary", "Scoring coverage unavailable"),
+                            className="gp-rail-coverage-note",
+                        ),
+                        html.Hr(),
+                        html.Div("Training reference", className="gp-rail-label"),
+                        html.Strong(context.get("holdout_value", "Not available")),
+                        html.P(context.get("holdout_note", "")),
                     ],
-                    className="gp-forecast-source-line",
+                    className="gp-workspace-panel gp-workspace-rail",
                 ),
                 html.Details(
                     [
-                        html.Summary("Source, lead and scoring coverage"),
+                        html.Summary("Timing, scoring coverage and input evidence"),
                         build_forecast_review(context),
                     ],
                     className="gp-review-disclosure",
                 ),
-            ]
+            ],
+            className="gp-workspace-stack",
         )
 
     @app.callback(
@@ -1651,6 +1827,7 @@ def register_forecast_callbacks(app):
         ],
         [
             State("weather-store", "data"),
+            State("outlook-show-history", "value"),
         ],
         prevent_initial_call=True,
     )
@@ -1662,6 +1839,7 @@ def register_forecast_callbacks(app):
         persona_id,
         region,
         weather_json,
+        show_history=True,
     ):
         """Generate forward-looking demand forecast."""
         # Only run when this tab is active — avoids 10s+ model training on page load
@@ -1689,6 +1867,7 @@ def register_forecast_callbacks(app):
                 weather_json,
                 persona_id,
                 cached=cached,
+                show_history=show_history is not False,
             )
             if redis_result is not None:
                 return redis_result

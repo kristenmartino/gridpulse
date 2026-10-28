@@ -204,3 +204,65 @@ def test_observed_first_hour_uses_injected_cached_holdout_not_local_models(
         assert "Hourly-sampled error is unavailable" in result.text("models-drift-panel")
         assert read.call_count >= 4
         local.assert_not_called()
+
+
+def test_investigation_rail_uses_current_region_source_clocks_and_real_categories(driver):
+    from data.redis_client import redis_key
+
+    forecast = {
+        "region": "ERCOT",
+        "served_series": "seasonal-naive",
+        "forecasts": [{"timestamp": "2026-10-28T01:00Z", "predicted_demand_mw": 1000}],
+    }
+    sample = {
+        "capture_started_at": "2026-10-25T20:38:00Z",
+        "last_updated_at": "2026-10-28T01:25:00Z",
+        "models": {
+            "baseline": {
+                "24h": {
+                    "first_target_at": "2026-10-26T21:00:00Z",
+                    "coverage_7d": {
+                        "scored_target_hours": 6,
+                        "possible_target_hours": 168,
+                        "quality_guard_excluded_hours": 0,
+                    },
+                }
+            }
+        },
+    }
+    cache = {
+        redis_key("forecast:ERCOT:1h"): forecast,
+        redis_key("drift_hourly:ERCOT:summary"): sample,
+    }
+    with patch("components._callbacks_models.redis_get", side_effect=cache.get):
+        current = driver.dispatch(
+            "models-published-source.children",
+            {"region-selector": "ERCOT", "dashboard-tabs.active_tab": "tab-models"},
+        )
+        empty = driver.dispatch(
+            "models-published-source.children",
+            {"region-selector": "CAISO", "dashboard-tabs.active_tab": "tab-models"},
+        )
+    assert current.ok and "Published forecast: Seasonal baseline" in current.text(
+        "models-published-source"
+    )
+    assert "25 Oct 2026, 20:38 UTC" in current.text("models-investigation-context")
+    assert "26 Oct 2026, 21:00 UTC" in current.text("models-investigation-context")
+    coverage = current.text("models-coverage-context")
+    assert "Coverage reference: Seasonal baseline" in coverage
+    assert "Quality-guard excluded 0" in coverage
+    assert "Low-actual exclusions Unavailable" in coverage
+    assert "region=ERCOT" in str(current.value("models-forecast-evidence-link", "children"))
+    assert empty.ok and "Published forecast: Unavailable" in empty.text("models-published-source")
+    assert "25 Oct 2026" not in empty.text("models-investigation-context")
+    assert "Seasonal baseline" not in empty.text("models-coverage-context")
+
+
+def test_training_rail_navigation_changes_only_models_section(driver):
+    for ident, expected in (
+        ("models-review-observed", "observed"),
+        ("models-review-backtest", "backtest"),
+    ):
+        result = driver.dispatch("models-section.value", {ident + ".n_clicks": 1})
+        assert result.ok and result.value("models-section", "value") == expected
+        assert set(result.payload["response"]) == {"models-section"}

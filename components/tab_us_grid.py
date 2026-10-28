@@ -8,9 +8,9 @@ from config import REGION_GROUPS
 
 
 def layout():
-    return html.Div(
+    page = html.Div(
         [
-            dcc.Store(id="us-grid-selected", storage_type="session"),
+            dcc.Store(id="us-grid-selected", data="FPL", storage_type="session"),
             dcc.Store(id="us-grid-data"),
             dcc.Store(id="us-grid-jump-store"),
             html.Div(id="us-grid-title"),
@@ -76,7 +76,7 @@ def layout():
                     html.Section(id="us-grid-region-grid", className="gp-grid-directory"),
                     html.Aside(
                         id="us-grid-inspector",
-                        className="gp-review-panel gp-grid-inspector",
+                        className="gp-grid-inspector",
                         **{"aria-label": "Selected authority"},
                     ),
                 ],
@@ -86,3 +86,21 @@ def layout():
         ],
         className="gp-page gp-section-stack gp-grid-review",
     )
+    toolbar = page.children[5]
+    workspace = page.children[6]
+    directory = workspace.children[0]
+    directory.children = [
+        html.Div(
+            [
+                html.H2("Regional inventory"),
+                html.P("Inspect one authority, then open its forecast"),
+            ],
+            className="gp-workspace-panel-head",
+        ),
+        toolbar,
+        html.Section(id="us-grid-region-grid", className="gp-grid-directory-results"),
+    ]
+    directory.id = "us-grid-directory-panel"
+    directory.className = "gp-workspace-panel gp-grid-directory"
+    page.children.pop(5)
+    return page

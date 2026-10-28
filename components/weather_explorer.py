@@ -57,7 +57,7 @@ def layout():
                         ],
                         value="past",
                         inline=True,
-                        className="gp-segmented gp-explorer-modes",
+                        className="gp-explorer-modes",
                     ),
                     html.Div(id="explorer-source-badge", className="gp-explorer-source"),
                 ],
@@ -128,6 +128,10 @@ def layout():
                                 className="gp-explorer-control",
                             ),
                             html.Div(
+                                id="explorer-series-scope",
+                                className="gp-explorer-series-scope",
+                            ),
+                            html.Div(
                                 [
                                     html.Button(
                                         "← Previous",
@@ -158,7 +162,13 @@ def layout():
                         [
                             html.Div(
                                 [
-                                    html.H3(id="explorer-demand-title"),
+                                    html.Div(
+                                        [
+                                            html.H3(id="explorer-demand-title"),
+                                            html.Span("MW", id="explorer-demand-unit"),
+                                        ],
+                                        className="gp-explorer-plot-head",
+                                    ),
                                     dcc.Graph(
                                         id="explorer-demand",
                                         config=GRAPH_CONFIG,
@@ -169,7 +179,13 @@ def layout():
                             ),
                             html.Div(
                                 [
-                                    html.H3(id="explorer-weather-title"),
+                                    html.Div(
+                                        [
+                                            html.H3(id="explorer-weather-title"),
+                                            html.Span(id="explorer-weather-unit"),
+                                        ],
+                                        className="gp-explorer-plot-head",
+                                    ),
                                     dcc.Graph(
                                         id="explorer-weather",
                                         config=GRAPH_CONFIG,
@@ -180,7 +196,10 @@ def layout():
                             ),
                             html.Div(
                                 [
-                                    html.H3("Signed forecast error"),
+                                    html.Div(
+                                        [html.H3("Signed forecast error"), html.Span("MW")],
+                                        className="gp-explorer-plot-head",
+                                    ),
                                     dcc.Graph(
                                         id="explorer-error",
                                         config=GRAPH_CONFIG,
@@ -199,9 +218,19 @@ def layout():
                             html.Div(
                                 id="explorer-inspected", role="status", **{"aria-live": "polite"}
                             ),
-                            html.Label("Inspect a shared hour", htmlFor="explorer-hour"),
-                            dbc.Input(
-                                id="explorer-hour", type="range", min=0, max=0, value=0, step=1
+                            html.Div(
+                                [
+                                    html.Label("Inspect a shared hour", htmlFor="explorer-hour"),
+                                    dbc.Input(
+                                        id="explorer-hour",
+                                        type="range",
+                                        min=0,
+                                        max=0,
+                                        value=0,
+                                        step=1,
+                                    ),
+                                ],
+                                className="gp-explorer-scrubber",
                             ),
                             html.P(
                                 "Drag the shared hour or use arrow keys, Home and End. Each plot highlights the same UTC hour.",
@@ -230,6 +259,7 @@ def layout():
                 ],
                 className="gp-explorer-evidence",
             ),
+            html.P(id="explorer-available-range", className="gp-explorer-available-range"),
         ],
         id="weather-explorer",
         className="gp-weather-explorer",
@@ -286,16 +316,24 @@ def figure(rows, series, key, unit="MW", zero=False, error=False, cursor=None):
         first, last = first - pd.Timedelta(minutes=30), last + pd.Timedelta(minutes=30)
     fig.update_layout(
         **_layout(
-            height=240,
-            margin={"l": 52, "r": 14, "t": 30, "b": 44},
+            height=190,
+            margin={"l": 52, "r": 12, "t": 25, "b": 32},
+            paper_bgcolor="#111820",
+            plot_bgcolor="#111820",
+            font={
+                "family": "-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+                "size": 10,
+                "color": "#a5b7c9",
+            },
             uirevision=key,
             hovermode="x",
-            yaxis_title=unit,
+            yaxis_title=None,
             xaxis={
                 "range": [first, last],
-                "tickformat": "%b %d<br>%H:%M",
-                "nticks": 4,
+                "tickformat": "%b %d, %H",
+                "nticks": 3,
                 "title": None,
+                "showgrid": False,
             },
             legend={"orientation": "h", "y": 1.17, "font": {"size": 10}},
             meta={"window_key": key, "unit": unit},
@@ -306,6 +344,9 @@ def figure(rows, series, key, unit="MW", zero=False, error=False, cursor=None):
         zeroline=error,
         zerolinecolor="#acbfd2",
         fixedrange=True,
+        gridcolor="#2b3a4c",
+        griddash="dot",
+        tickformat=",.0f" if unit == "MW" else ".1f",
     )
     fig.update_xaxes(fixedrange=True)
     if cursor:

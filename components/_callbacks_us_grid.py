@@ -943,14 +943,74 @@ def register_us_grid_callbacks(app):
             title="US Grid",
             subtitle=f"{reporting}/{len(data)} tracked authorities reporting · {len(REGION_NAMES) - len(data)} hidden by the configured quality gate",
         )
-        metrics = html.P(
-            f"{len(codes)} match these filters. Each authority retains its own reporting clock. Movement uses adjacent valid hours; no demand/nameplate risk ranking.",
-            className="gp-muted",
+        from components.grid_review import delta
+
+        movements = [delta(row) for row in data.values()]
+        rising = sum(value is not None and value > 0 for value in movements)
+        falling = sum(value is not None and value < 0 for value in movements)
+        metric_values = [
+            (
+                "Authorities reporting",
+                f"{reporting} / {len(data)}",
+                "Selected tracked fleet · separate source clocks",
+            ),
+            (
+                "Tracked demand",
+                f"{sum(float(row.get('current_mw') or 0) for row in data.values() if row.get('current_mw') and np.isfinite(float(row['current_mw'])) and float(row['current_mw']) > 0) / 1000:,.1f} GW"
+                if reporting
+                else "Unavailable",
+                "Sum of latest readings · not simultaneous US demand",
+            ),
+            ("Rising demand", str(rising), "Adjacent valid reported hours"),
+            ("Falling demand", str(falling), "Movement is not a forecast-error grade"),
+        ]
+        metrics = html.Div(
+            [
+                html.Div(
+                    [
+                        html.Span(label, className="gp-metric-label"),
+                        html.Strong(value, className="gp-grid-summary-value"),
+                        html.Span(note, className="gp-metric-sub"),
+                    ],
+                    className="gp-grid-summary-item",
+                )
+                for label, value, note in metric_values
+            ],
+            className="gp-grid-summary",
         )
         body = (
             map_view(data, codes, selected, _load_ba_polygons())
             if view in ("map", "polygons")
             else directory(data, codes, view or "table", selected)
+        )
+        body = html.Div(
+            [
+                html.P(
+                    f"{len(codes)} of {len(data)} tracked authorities match these filters · hourly movement is not a forecast-error grade",
+                    className="gp-grid-results-meta",
+                ),
+                body,
+                html.Details(
+                    [
+                        html.Summary("Coverage, timestamps and quality exclusions"),
+                        html.Div(
+                            [
+                                html.P(
+                                    f"{reporting}/{len(data)} tracked authorities report a usable latest reading. {len(REGION_NAMES) - len(data)} are hidden by the configured quality gate."
+                                ),
+                                html.P(
+                                    "Authority readings can have different UTC source timestamps. Their latest-reading sum is not simultaneous US demand. Hourly movement uses adjacent valid reported hours; missing values stay unavailable."
+                                ),
+                                html.P(
+                                    f"{sum(len(row.get('artifact_excluded') or []) for row in data.values())} source-stamped quality exclusions are retained in these cache snapshots. Installed-capacity context does not establish operating reserves or grid risk."
+                                ),
+                            ],
+                            className="gp-grid-scope-copy",
+                        ),
+                    ],
+                    className="gp-review-disclosure",
+                ),
+            ]
         )
         return title, metrics, body, inspector(selected, data), data
 

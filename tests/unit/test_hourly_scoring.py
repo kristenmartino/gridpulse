@@ -343,13 +343,21 @@ def test_model_view_keeps_legacy_scores_in_a_separate_expander():
     ):
         panel = _build_horizon_drift_panel("FPL")
     legacy_section = next(
-        child for child in panel.children if child.__class__.__name__ == "Details"
+        child
+        for child in panel.children
+        if child.__class__.__name__ == "Details"
+        and "legacy" in str(child.children[0].children).lower()
     )
     assert "legacy" in legacy_section.children[0].children.lower()
     assert "separate sample" in legacy_section.children[0].children
-    assert "0 / 168 target hours scored" in json.dumps(
-        panel, default=lambda item: item.to_plotly_json()
+    assert not getattr(legacy_section, "open", False)
+    legacy_text = json.dumps(legacy_section, default=lambda item: item.to_plotly_json())
+    sampled_text = json.dumps(
+        [child for child in panel.children if child is not legacy_section],
+        default=lambda item: item.to_plotly_json(),
     )
+    assert "1.00%" in legacy_text and "1.00%" not in sampled_text
+    assert "0 / 168 scored" in sampled_text
 
 
 def test_bad_history_and_failed_transactions_are_not_reported_as_success():

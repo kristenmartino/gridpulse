@@ -7,7 +7,7 @@ from components.cards import build_page_footer
 
 def layout() -> html.Div:
     """Keep the real application shell and put the forecast near its evidence."""
-    return html.Div(
+    page = html.Div(
         [
             html.Div(id="overview-title"),
             html.Div(
@@ -79,9 +79,57 @@ def layout() -> html.Div:
             html.Div(id="overview-source-details"),
             html.Details(
                 [html.Summary("Reported demand history"), html.Div(id="overview-metrics-bar")],
-                className="gp-review-workflow__history",
+                className="gp-review-workflow__history gp-review-disclosure",
             ),
             build_page_footer(),
         ],
         className="gp-page gp-overview",
     )
+    chart = page.children[4].children[0]
+    header = chart.children[0]
+    history = header.children[1]
+    header.children = [header.children[0]]
+    chart.children.insert(
+        1,
+        html.Div(
+            [html.Span("Reported demand history"), history],
+            className="gp-overview__history-toolbar",
+        ),
+    )
+    page.children[5].id = "overview-evidence-disclosure"
+    page.children[5].children[0].tabIndex = -1
+    jump = html.Button(
+        "Inspect evidence ↓",
+        id="overview-inspect-evidence",
+        n_clicks=0,
+        className="gp-review-button gp-overview__evidence-jump",
+    )
+    page.children[4].children[0] = html.Div([chart, jump], className="gp-workspace-stack")
+    page.children.insert(
+        -1,
+        html.Div(
+            [
+                html.Span("Continue the review"),
+                html.Button(
+                    "Review forecast →",
+                    id="overview-open-forecast",
+                    n_clicks=0,
+                    className="gp-review-button",
+                ),
+                html.Button(
+                    "Investigate error →",
+                    id="overview-open-models",
+                    n_clicks=0,
+                    className="gp-review-button",
+                ),
+                html.Button(
+                    "Check conditions →",
+                    id="overview-open-conditions",
+                    n_clicks=0,
+                    className="gp-review-button",
+                ),
+            ],
+            className="gp-overview__next",
+        ),
+    )
+    return page

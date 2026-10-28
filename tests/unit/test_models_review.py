@@ -78,6 +78,7 @@ def test_unknown_clock_is_not_silently_assigned_utc() -> None:
     assert all(r["utc"] is None for r in data["rows"])
     assert not data["hourly"]
     assert not figures[0].data
+    assert figures[0].layout.meta["diagnostic_utc_qualified"] is False
     assert "UTC window unavailable" in text(scope)
     assert "offset missing" in text(_diagnostic_evidence(data, 1))
     assert sum(b["count"] for b in data["histogram"]) == 3

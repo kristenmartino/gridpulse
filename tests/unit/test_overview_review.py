@@ -130,8 +130,15 @@ def test_history_control_changes_clock_window_but_not_forecast_or_band_identity(
     week = _build_overview_hero_chart("FPL", demand, cached, history_hours=168)
     assert len(day.data[0].x) == 13
     assert len(week.data[0].x) > len(day.data[0].x)
-    assert list(day.data[-1].y[1:]) == list(week.data[-1].y[1:]) == list(range(100, 124))
-    assert len(day.data[-1].x) == 25  # 24 true targets plus one continuity point
+    day_forecast = next(trace for trace in day.data if trace.name.endswith("(24h)"))
+    week_forecast = next(trace for trace in week.data if trace.name.endswith("(24h)"))
+    assert list(day_forecast.y[1:]) == list(week_forecast.y[1:]) == list(range(100, 124))
+    assert len(day_forecast.x) == 25  # 24 true targets plus one continuity point
+    assert pd.Timestamp(day_forecast.x[0]) == times[-1]
+    peak = next(trace for trace in day.data if trace.name == "Published forecast peak")
+    assert list(peak.y) == [123]
+    boundary = next(shape for shape in day.layout.shapes if shape.type == "line")
+    assert pd.Timestamp(boundary.x0) == pd.Timestamp(cached["forecasts"][0]["timestamp"])
     assert day.layout.uirevision != week.layout.uirevision
     assert not any(t.fill == "toself" for t in day.data)
 

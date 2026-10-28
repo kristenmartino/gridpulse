@@ -10,7 +10,6 @@ from components.weather_explorer import layout as explorer_layout
 def layout():
     return html.Div(
         [
-            html.Div(id="risk-title"),
             dbc.RadioItems(
                 id="conditions-section",
                 options=[
@@ -19,8 +18,9 @@ def layout():
                 ],
                 value="explorer",
                 inline=True,
-                className="gp-segmented gp-conditions-sections",
+                className="gp-conditions-sections",
             ),
+            html.Div(id="risk-title"),
             explorer_layout(),
             html.Div(
                 [

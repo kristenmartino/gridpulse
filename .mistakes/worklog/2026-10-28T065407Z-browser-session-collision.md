@@ -1,0 +1,1 @@
+2026-10-28 [browser-session-collision] Two parity implementers reused one browser session during native preflight, so navigation and viewport checks had to be repeated in their assigned isolated sessions — ref: PR #658.

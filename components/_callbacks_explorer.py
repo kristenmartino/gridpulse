@@ -257,6 +257,46 @@ def render_explorer(data, state):
 
 def register_explorer_callbacks(app):
     @app.callback(
+        Output("explorer-series-scope", "children"),
+        Output("explorer-available-range", "children"),
+        Output("explorer-weather-unit", "children"),
+        Input("explorer-data", "data"),
+        Input("explorer-state", "data"),
+        Input("region-selector", "value"),
+    )
+    def explorer_window_scope(data, raw_state, region):
+        state = clean_state(raw_state, region)
+        if not isinstance(data, dict) or data.get("region") != region:
+            data = {"past": [], "future": {}, "error": {}, "issues": []}
+        available = rows_for(data, state)
+        mode = state["mode"]
+        scope = (
+            ["Reported demand", html.Small("Historical model-weather context")]
+            if mode == "past"
+            else [
+                "Matched published issue",
+                html.Small("Eligible actuals and later weather context"),
+            ]
+            if mode == "error"
+            else None
+        )
+        note = (
+            f"Available {mode} targets: {clock(available[0]['timestamp'])} → {clock(available[-1]['timestamp'])}. "
+            "A selected window stops at the available edge; no extra targets are generated."
+            if available
+            else "No source targets are available for this selection."
+        )
+        source = (data.get("future") or {}).get(state["source"]) or {}
+        horizon = state["windows"]["future"]["hours"]
+        maximum = source.get("max_horizon")
+        if mode == "future" and available and maximum is not None and horizon > maximum:
+            note = (
+                f"Stored future target range: {clock(available[0]['timestamp'])} → {clock(available[-1]['timestamp'])}. "
+                f"The selected {horizon}h horizon is withheld by its guard; stored targets are not displayed."
+            )
+        return scope, note, WEATHER_FIELDS[state["variable"]][2]
+
+    @app.callback(
         [
             Output("explorer-state", "data", allow_duplicate=True),
             Output("conditions-section", "value"),
@@ -588,9 +628,10 @@ def register_explorer_callbacks(app):
             Input("published-review-earlier", "value"),
             Input("published-review-later", "value"),
             Input("region-selector", "value"),
+            Input("published-review-mode", "active_tab"),
         ],
     )
-    def publication_review(data, earlier_id, later_id, region):
+    def publication_review(data, earlier_id, later_id, region, mode="runs"):
         from dash import dcc
 
         from components.weather_explorer_data import compare_issues
@@ -599,98 +640,99 @@ def register_explorer_callbacks(app):
             return html.P("Loading this authority’s issue history…")
         issues = {x["publication_id"]: x for x in data.get("issues", [])}
         earlier, later = issues.get(earlier_id), issues.get(later_id)
-        if not earlier or not later:
+        actual_mode = mode == "actuals"
+        if not earlier or (not actual_mode and not later):
             return html.P(
                 "Published issue history is not available in the read cache for this authority. No past run is reconstructed. Error review becomes available when an immutable issue and usable actuals overlap."
             )
-        if any(x.get("receipt_status") == "unavailable" for x in (earlier, later)):
-            return html.P(
-                "A selected issue receipt is unavailable in this read cache. Choose another issue."
-            )
-        if any(x.get("receipt_status") == "unavailable" for x in (earlier, later)):
+        chosen = (earlier,) if actual_mode else (earlier, later)
+        if any(x.get("receipt_status") == "unavailable" for x in chosen):
             return html.P(
                 "A selected issue receipt is unavailable in this read cache. Choose another issue; no history is reconstructed."
             )
-        if not earlier.get("loaded") or not later.get("loaded"):
+        if any(not x.get("loaded") for x in chosen):
             return html.P("Loading selected cached issues…")
-        if earlier_id == later_id:
+        if not actual_mode and earlier_id == later_id:
             return html.P("Choose two different published issues to inspect run-to-run changes.")
-        if utc(earlier["timing"]["generated_at"]) >= utc(later["timing"]["generated_at"]):
+        if not actual_mode and utc(earlier["timing"]["generated_at"]) >= utc(
+            later["timing"]["generated_at"]
+        ):
             return html.P(
                 "The earlier issue must precede the later issue. Check the generation clocks in the selectors."
             )
-        rows = compare_issues(earlier, later)
-        body = [
-            html.P(
-                f"Earlier: {earlier.get('series_label')} · {clock(earlier['timing']['generated_at'])}. Later: {later.get('series_label')} · {clock(later['timing']['generated_at'])}. Differences describe published curve changes, not forecast error.",
-                className="gp-panel__hint",
-            )
-        ]
-        if rows:
-            body += [
-                dcc.Graph(
-                    figure=figure(
-                        rows,
-                        [
-                            ("Earlier issue", "earlier_mw", "#5b9fff"),
-                            ("Later issue", "later_mw", "#efa95a"),
-                        ],
-                        earlier_id + later_id,
-                        zero=True,
-                    ),
-                    config={"displayModeBar": False, "responsive": True},
-                ),
-                html.Details(
-                    [
-                        html.Summary(f"Exact shared future targets · {len(rows)}"),
-                        exact_table(
-                            ["UTC target", "Earlier · MW", "Later · MW", "Later − earlier · MW"],
-                            [
-                                [r["timestamp"], r["earlier_mw"], r["later_mw"], r["change_mw"]]
-                                for r in rows
-                            ],
-                        ),
-                    ],
-                    className="gp-review-disclosure",
-                ),
+        rows = (
+            (data.get("error", {}).get(earlier_id) or [])
+            if actual_mode
+            else compare_issues(earlier, later)
+        )
+        title = "Eligible actual matches" if actual_mode else "Shared future targets"
+        window = (
+            clock(rows[0]["timestamp"]) + " → " + clock(rows[-1]["timestamp"])
+            if rows
+            else "No eligible shared window"
+        )
+        summary = html.Div(
+            [
+                html.Div([html.Span(title), html.Strong(f"{len(rows)} hours")]),
+                html.Div([html.Span("Comparison window · UTC"), html.Strong(window)]),
+            ],
+            className="gp-comparison-summary",
+        )
+        if actual_mode:
+            note = f"Earlier issue: {earlier.get('series_label')} · generated {clock(earlier['timing']['generated_at'])}. Later reported demand may revise. Actual − forecast is separate from the official ≥24h observation-lead score; original expected weather is not archived."
+            series = [
+                ("Earlier published forecast", "forecast_mw", "#efb347"),
+                ("Later reported demand", "actual_mw", "#5b9fff"),
             ]
+            columns = [
+                "UTC target",
+                "Earlier forecast · MW",
+                "Reported actual · MW",
+                "Actual − forecast · MW",
+            ]
+            table_rows = [
+                [r["timestamp"], r["forecast_mw"], r["actual_mw"], r["error_mw"]] for r in rows
+            ]
+        else:
+            note = f"Earlier: {earlier.get('series_label')} · {clock(earlier['timing']['generated_at'])}. Later: {later.get('series_label')} · {clock(later['timing']['generated_at'])}. Differences describe published curve changes, not forecast error."
+            series = [
+                ("Earlier issue", "earlier_mw", "#5b9fff"),
+                ("Later issue", "later_mw", "#efb347"),
+            ]
+            columns = ["UTC target", "Earlier · MW", "Later · MW", "Later − earlier · MW"]
+            table_rows = [
+                [r["timestamp"], r["earlier_mw"], r["later_mw"], r["change_mw"]] for r in rows
+            ]
+        body = [summary, html.P(note, className="gp-panel__hint")]
+        if rows:
+            body.extend(
+                [
+                    dcc.Graph(
+                        figure=figure(
+                            rows, series, earlier_id + str(later_id) + str(mode), zero=True
+                        ),
+                        config={"displayModeBar": False, "responsive": True},
+                        style={"height": "285px"},
+                    ),
+                    html.Details(
+                        [
+                            html.Summary(
+                                f"Exact {'eligible matches' if actual_mode else 'shared future targets'} · {len(rows)}"
+                            ),
+                            exact_table(columns, table_rows),
+                        ],
+                        className="gp-review-disclosure",
+                    ),
+                ]
+            )
         else:
             body.append(
                 html.P(
-                    "These issues have no shared targets strictly after both recorded issue clocks."
+                    "No quality-eligible actuals overlap this issue in the retained comparison window."
+                    if actual_mode
+                    else "These issues have no shared targets strictly after both recorded issue clocks."
                 )
             )
-        matched = data.get("error", {}).get(earlier_id) or []
-        body.append(
-            html.Details(
-                [
-                    html.Summary(
-                        f"Earlier issue vs later reported demand · {len(matched)} eligible matches"
-                    ),
-                    html.P(
-                        "Actual − forecast, MW. Later actuals may revise; these matches are separate from the official ≥24h observation-lead scoring window. Original expected weather is not archived.",
-                        className="gp-panel__hint",
-                    ),
-                    exact_table(
-                        [
-                            "UTC target",
-                            "Earlier forecast · MW",
-                            "Reported actual · MW",
-                            "Actual − forecast · MW",
-                        ],
-                        [
-                            [r["timestamp"], r["forecast_mw"], r["actual_mw"], r["error_mw"]]
-                            for r in matched
-                        ],
-                    )
-                    if matched
-                    else html.P(
-                        "No quality-eligible actuals overlap this issue in the retained comparison window."
-                    ),
-                ],
-                className="gp-review-disclosure",
-            )
-        )
         return body
 
     @app.callback(

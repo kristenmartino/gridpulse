@@ -434,9 +434,10 @@ indefinitely and every live order was selected univariately.
 
 ## §5 — UI structure
 
-Five normal view tabs share one selected authority. The visible shell is an
-analyst workspace; the hidden legacy persona value remains accepted for older
-callbacks and view links, rather than presenting four occupational modes.
+Five normal view tabs share one selected authority. They use the approved wide
+cool-slate shell, compact card toolbars and consistent responsive gutters. The
+hidden legacy persona value remains accepted for older callbacks and view links,
+rather than presenting four occupational modes.
 
 ```mermaid
 flowchart TB
@@ -457,7 +458,9 @@ flowchart TB
     T3 -->|Inspect weather or matched error| T4
 ```
 
-US Grid starts with a searchable, grouped, sortable table. Row and map selection
+US Grid starts with reporting, tracked-demand and adjacent-hour movement
+summaries. The searchable, grouped, sortable directory scrolls inside its own
+panel so the authority inspector remains reachable. Row and map selection
 update an authority inspector; the separate Review forecast action changes the
 shared region and view. Cards remain available. The single territory map uses
 bundled authority geometry, representative-coordinate fallback and a local
@@ -465,13 +468,19 @@ Plotly basemap. Counts, gaps, per-authority observation clocks and import/export
 context come from the cache; demand/nameplate ratios are not used to rank risk
 or color the reviewed directory.
 
-Forecast keeps source identity and the selected 24h/7d curve together. Advanced
-30-day outlook and bounded weather sensitivity remain secondary. Current cached
+Forecast places the selected 24h/7d curve and inline peak/minimum/mean summary
+beside a source, error, coverage and training-reference rail. Its card toolbar
+contains the series, horizon and actual-history control; weather and observed
+generation share a supporting-context card. The demand axis defaults to zero,
+while target inspection and zoom use the rendered cached values and UTC clocks.
+History and context selections survive view links. Advanced 30-day outlook and
+bounded weather sensitivity remain secondary. Current cached
 weather is aligned to the selected target timestamps, not taken from the last
 rows of a mixed history/future feed. Run comparison reads the existing bounded
 publication index and lazily reads chosen immutable receipts; missing receipts
 remain unavailable. Curve changes between issues and matched errors against
-later demand are separate comparisons.
+later demand are separate comparisons. The run/actual comparison modes preserve
+those distinct evidence scopes and the eligible-actual guard.
 
 Conditions links demand, weather and signed error on the same UTC window and
 shared inspected hour. Past and Future use regional cache values; Error review

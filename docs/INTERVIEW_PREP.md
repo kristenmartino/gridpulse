@@ -1661,3 +1661,24 @@ but cannot reconstruct expected weather as issued or attribute the miss to
 weather. That deeper archive remains deferred. This is an AI-assisted scope,
 implementation and verification example; no practitioner adoption, operational
 benefit or improved forecast accuracy is established by the interface changes.
+
+
+## Approved-design fidelity correction — 2026-10-28
+
+The user's review found that the implemented workspace did not preserve the
+approved mockup's composition, even though callback tests and an earlier browser
+review had passed. A fresh comparison at matched desktop/mobile widths exposed
+missing evidence rails, inherited styling collisions, unbounded directory rows
+and controls that were present without the promised keyboard behavior.
+
+The correction uses the approved study as the layout contract while preserving
+the application's real cache, clock and quality boundaries. Native checks also
+identified hidden Plotly charts retaining desktop dimensions, diagnostic
+readouts using encoded transport arrays, and date zoom parsing that could shift
+UTC windows into browser-local time. The verification lesson is to test the
+property being claimed: working callbacks do not establish visual fidelity, and
+programmatic focus does not establish ordinary keyboard access.
+
+This is an AI-assisted implementation and review example. The pull request
+records final verification; the work does not establish practitioner adoption,
+operational benefit or improved forecasting accuracy.

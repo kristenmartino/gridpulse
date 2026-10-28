@@ -20,6 +20,36 @@ operational save. Legacy persona state remains compatible while its selector
 is hidden in the single workspace. Source-degradation warnings remain visible
 in Briefing Mode.
 
+## Approved-design fidelity correction
+
+The first implementation retained much of the callback behavior but missed
+approved composition: Forecast was a vertical stack, US Grid lacked its summary
+strip/table treatment, Models lacked evidence rails, and shared legacy tokens
+changed widths, spacing and colors between views. Green callback tests and the
+initial browser review did not establish visual parity. The user's comparison
+triggered a fresh review against the approved study at matched viewports.
+
+The correction restores native Dash card/rail layouts, compact toolbars,
+source-specific context and bounded directory scrolling. Overview retains its
+history/forecast bridge, with the forecast-target boundary kept separate from
+that connecting point. Shared gutters, tablet utilities and mobile table/plot
+geometry are checked in a real browser. No mockup numbers or regional clocks are
+copied into the application to make a screenshot appear complete.
+
+The comparison also checks actual interaction: keyboard target inspection,
+source/history/zoom controls, the shared Explorer hour, diagnostic readouts,
+explicit map-to-Forecast navigation and empty-region states. Plotly's rendered
+values and axis conversions matter here: binary transport arrays are not point
+values, and browser-local parsing must not shift declared UTC windows. Hidden
+charts must resize when their panel becomes visible as well as when the viewport
+changes. Inspected readouts reset with region/source/figure changes, including
+pending and empty states. These are presentation and review controls; forecasting,
+scoring, publication and source-quality policies remain unchanged.
+
+Final native review and test results are recorded against the final source in
+the pull request. Native date/select controls, isolated capture availability and
+physical-device touch behavior retain their separate verification boundaries.
+
 ## Clock and quality repairs
 
 - `data/weather_windows.py` selects historical/current context at or before an
@@ -53,14 +83,14 @@ warming state only until a completed pass is recorded; a completed pass without
 a forecast supports the unavailable state. Strict Redis reads distinguish a
 failed read from an absent key without adding retry loops. Usable cached
 forecasts still render when weather or actuals are absent; model/horizon guards
-and region-keyed inputs remain enforced. The approved Overview is unchanged.
+and region-keyed inputs remain enforced. Availability handling remains scoped to
+Forecast; Overview retains its approved data/history/coverage behavior.
 
 Real callback dispatch covers these states, failures, missing selections and
 FPL → empty CAISO → FPL isolation. Native preview checks cover an intentionally
-delayed request, settled values and message fit at 375px. The full local suite
-passes 4,309 tests with 3 skips and 90.56% measured coverage; the final message-fit
-adjustment is also covered by focused callback checks. These results do not
-establish production deployment or physical-device touch behavior.
+delayed request, settled values and message fit at 375px.
+These results do not establish production deployment or physical-device touch
+behavior.
 
 ## Deliberate limits
 
@@ -79,6 +109,11 @@ historical estimates provide context; weather-input error cannot be separated
 from model error here. Archiving that weather vintage is deferred follow-up.
 
 ## Verification
+
+The fidelity correction passes the full local suite: 4,319 tests passed, 3
+skipped, with 92.32% measured coverage. Ruff, formatting, JavaScript parsing and
+scoped callback checks also pass. The pull request records the final native
+comparison result and exact reviewed source.
 
 Focused behavioral and real Dash-dispatch tests cover cache-only readers,
 regional isolation, issue selection, time-window validation, gap rendering,

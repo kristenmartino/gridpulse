@@ -499,18 +499,29 @@ def register_alerts_callbacks(app):
         [
             Input("region-selector", "value"),
             Input("dashboard-tabs", "active_tab"),
+            Input("conditions-section", "value"),
         ],
     )
-    def update_risk_title(region, active_tab):
+    def update_risk_title(region, active_tab, section="explorer"):
         """Page-title block for the Risk tab."""
         if active_tab != "tab-alerts":
             return no_update
 
         region = region or "FPL"
         region_name = REGION_NAMES.get(region, region)
-        return build_page_title(
-            "Conditions",
-            f"Regional weather context and demand review · {region_name}",
+        return html.Div(
+            [
+                html.Div(region_name + " · " + region, className="gp-control-eyebrow"),
+                build_page_title(
+                    "Weather messages" if section == "messages" else "Weather & demand",
+                    (
+                        "Weather messages and descriptive demand context for a forecast review"
+                        if section == "messages"
+                        else "Compare one time window across demand and weather"
+                    )
+                    + f" · {region_name}",
+                ),
+            ]
         )
 
     @app.callback(

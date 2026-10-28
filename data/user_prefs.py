@@ -28,6 +28,9 @@ log = structlog.get_logger()
 TRACKED_FILTERS: list[str] = [
     "outlook-horizon",
     "outlook-model",
+    "outlook-show-history",
+    "forecast-context-tabs",
+    "published-review-mode",
     "tab3-model-selector",
     "models-section",
     "models-observed-basis",
@@ -42,9 +45,12 @@ TRACKED_FILTERS: list[str] = [
     "conditions-message-severity",
 ]
 
-FILTER_DEFAULTS: dict[str, str | list[str]] = {
+FILTER_DEFAULTS: dict[str, str | list[str] | bool] = {
     "outlook-horizon": "24",
     "outlook-model": "published",
+    "outlook-show-history": True,
+    "forecast-context-tabs": "weather",
+    "published-review-mode": "runs",
     "tab3-model-selector": ["prophet", "arima", "xgboost", "ensemble"],
     "models-section": "observed",
     "models-observed-basis": "sampled",
@@ -52,7 +58,7 @@ FILTER_DEFAULTS: dict[str, str | list[str]] = {
     "us-grid-sort": "change",
     "us-grid-search": "",
     "us-grid-group": "all",
-    "us-grid-selected": "",
+    "us-grid-selected": "FPL",
     "explorer-state": {},
     "meeting-mode-store": "false",
     "conditions-message-search": "",
@@ -78,7 +84,11 @@ SIM_SLIDER_RANGES = {
 }
 FILTER_PROPS = {
     key: (
-        "data" if key in {"explorer-state", "meeting-mode-store", "us-grid-selected"} else "value"
+        "data"
+        if key in {"explorer-state", "meeting-mode-store", "us-grid-selected"}
+        else "active_tab"
+        if key in {"forecast-context-tabs", "published-review-mode"}
+        else "value"
     )
     for key in TRACKED_FILTERS
 }
@@ -95,7 +105,7 @@ class UserPrefs:
     region: str = "FPL"
     persona: str = "grid_ops"
     tab: str = "tab-overview"
-    filters: dict[str, str | list[str] | int] = field(default_factory=dict)
+    filters: dict[str, str | list[str] | int | bool] = field(default_factory=dict)
     updated_at: str = ""
 
     def to_dict(self) -> dict:
@@ -112,8 +122,8 @@ class UserPrefs:
 
 
 def _validate_filter_value(
-    filter_id: str, value: str | list[str] | int | None
-) -> str | list[str] | int | None:
+    filter_id: str, value: str | list[str] | int | bool | None
+) -> str | list[str] | int | bool | None:
     """Validate a single filter value against known options.
 
     Returns the value if valid, or None if invalid.
@@ -121,6 +131,8 @@ def _validate_filter_value(
     from config import REGION_GROUPS, REGION_NAMES
 
     extra = {
+        "forecast-context-tabs": {"weather", "generation"},
+        "published-review-mode": {"runs", "actuals"},
         "models-section": {"observed", "training", "backtest"},
         "models-observed-basis": {"sampled", "first"},
         "us-grid-view-toggle": {"table", "cards", "map"},
@@ -130,6 +142,10 @@ def _validate_filter_value(
         "meeting-mode-store": {"true", "false"},
         "conditions-message-severity": {"all", "critical", "warning", "info"},
     }
+    if filter_id == "outlook-show-history":
+        if isinstance(value, bool):
+            return value
+        return {"true": True, "false": False}.get(str(value).lower())
     if filter_id in extra:
         return value if isinstance(value, str) and value in extra[filter_id] else None
     if filter_id in {"us-grid-search", "conditions-message-search"}:
@@ -193,7 +209,7 @@ def validate_prefs(prefs_data: dict | None) -> UserPrefs:
         prefs.tab = "tab-overview"
 
     # Validate per-filter values
-    clean_filters: dict[str, str | list[str] | int] = {}
+    clean_filters: dict[str, str | list[str] | int | bool] = {}
     for fid in TRACKED_FILTERS:
         raw = prefs.filters.get(fid)
         if raw is not None:
@@ -215,7 +231,7 @@ def serialize_bookmark_params(
     region: str,
     persona: str,
     tab: str,
-    filters: dict[str, str | list[str] | int],
+    filters: dict[str, str | list[str] | int | bool],
     sim_sliders: dict[str, float] | None = None,
 ) -> str:
     """Serialize full dashboard state into a URL query string.
@@ -297,7 +313,7 @@ def deserialize_bookmark_params(search: str) -> dict:
         result["tab"] = tab
 
     # Tracked filters (f. prefix)
-    filters: dict[str, str | list[str] | int] = {}
+    filters: dict[str, str | list[str] | int | bool] = {}
     for fid in TRACKED_FILTERS:
         raw = params.get(f"f.{fid}", [None])[0]
         if raw is None:

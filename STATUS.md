@@ -17,6 +17,15 @@ follow-up commit.
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
 
+## 2026-10-28 — approved-design fidelity correction
+
+The user's comparison exposed missing composition despite earlier functional
+checks. The follow-up restores shared workspace styling, chart/evidence rails,
+bounded directory scrolling and the reviewed control hierarchy. Native review
+also checks keyboard access, hidden-chart sizing, decoded diagnostic values and
+UTC-safe zoom. The [audit](docs/audits/REVIEWED_WORKSPACE_2026-10-28.md) separates
+these verification claims from a merge, deployment or practitioner outcome.
+
 ## 2026-10-28 — reviewed forecast workspace implementation
 
 The reviewed US Grid, Forecast, Conditions and Models views are implemented for

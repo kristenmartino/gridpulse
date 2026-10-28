@@ -278,32 +278,83 @@ def map_view(data, codes, selected, geojson):
 
 def inspector(code, data):
     if code not in data:
-        return [
-            html.H3("Inspect an authority"),
-            html.P(
-                "Select a directory entry or territory to review its source snapshot before opening Forecast.",
-                className="gp-muted",
-            ),
-        ]
+        return html.Section(
+            [
+                html.Div("Authority inspector", className="gp-control-eyebrow"),
+                html.H3("Inspect an authority"),
+                html.P(
+                    "Select a directory entry or territory to review its source snapshot before opening Forecast.",
+                    className="gp-muted",
+                ),
+            ],
+            className="gp-workspace-panel gp-workspace-rail",
+        )
+    from config import (
+        IS_IMPORT_DOMINATED,
+        PEAK_DERIVED_CAPACITY,
+        REGION_CAPACITY_MW,
+        UNRELIABLE_CAPACITY,
+    )
+
     row = data[code]
+    capacity = REGION_CAPACITY_MW.get(code)
+    capacity_label = f"{capacity:,.0f} MW" if real(capacity) else "Unavailable"
+    qualification = (
+        "Configured installed-capacity reference; availability and outages are not measured here."
+    )
+    if code in PEAK_DERIVED_CAPACITY:
+        qualification = "Peak-derived capacity estimate, not measured installed nameplate."
+    elif code in IS_IMPORT_DOMINATED or code in UNRELIABLE_CAPACITY:
+        qualification = "Local capacity does not represent all supply serving this authority; demand/nameplate ratios are not used as risk grades."
     return [
-        html.H3(REGION_NAMES[code], id="us-grid-inspector-title", tabIndex=-1),
-        html.P(code + " · " + group_for(code), className="gp-muted"),
-        html.H2(format_demand(row)),
-        html.P(
-            "Reported at "
-            + clock(row.get("latest_at"))
-            + " · cache "
-            + clock(row.get("scored_at")),
-            className="gp-muted",
+        html.Section(
+            [
+                html.Div("Authority inspector", className="gp-control-eyebrow"),
+                html.H3(REGION_NAMES[code], id="us-grid-inspector-title", tabIndex=-1),
+                html.P(code + " · " + group_for(code), className="gp-muted"),
+                html.H2(format_demand(row)),
+                html.Div(
+                    [
+                        html.Div([html.Span("Δ 1h"), html.Strong(movement(row))]),
+                        html.Div([html.Span("Net interchange"), html.Strong(net(row))]),
+                    ],
+                    className="gp-inspector-metrics",
+                ),
+                html.P(
+                    "Reported at "
+                    + clock(row.get("latest_at"))
+                    + " · cache "
+                    + clock(row.get("scored_at")),
+                    className="gp-muted",
+                ),
+                spark(row),
+                html.P(
+                    f"{len(row.get('artifact_excluded') or [])} source-stamped quality exclusions. Readings retain their individual reporting clocks.",
+                    className="gp-muted",
+                ),
+                html.Button(
+                    "Review forecast →",
+                    id="us-grid-review",
+                    n_clicks=0,
+                    className="gp-review-action",
+                ),
+            ],
+            className="gp-workspace-panel gp-workspace-rail gp-authority-card",
         ),
-        html.P("Hourly change " + movement(row) + " · " + net(row)),
-        spark(row),
-        html.P(
-            f"{len(row.get('artifact_excluded') or [])} source-stamped quality exclusions. Latest records can differ in publication time across authorities; their sum is not simultaneous US demand.",
-            className="gp-muted",
-        ),
-        html.Button(
-            "Review forecast →", id="us-grid-review", n_clicks=0, className="gp-review-action"
+        html.Details(
+            [
+                html.Summary("Installed-capacity context"),
+                html.Div(
+                    [
+                        html.Strong(capacity_label),
+                        html.P(qualification),
+                        html.P(
+                            "Reference configuration only; this is not operating reserves, outage probability or grid stress."
+                        ),
+                    ],
+                    className="gp-grid-scope-copy",
+                ),
+            ],
+            className="gp-review-disclosure",
         ),
     ]
