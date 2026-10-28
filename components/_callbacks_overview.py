@@ -540,13 +540,13 @@ def _build_overview_hero_chart(
                 fig.add_annotation(
                     x=forecast_ts[0],
                     xref="x",
-                    y=1,
+                    y=0.025,
                     yref="paper",
                     text="First forecast target",
                     showarrow=False,
-                    xanchor="left",
-                    yanchor="top",
-                    xshift=5,
+                    xanchor="right",
+                    yanchor="bottom",
+                    xshift=-5,
                     font=dict(color="#b9a17b", size=9),
                 )
                 idx = int(np.argmax(forecast_y))
