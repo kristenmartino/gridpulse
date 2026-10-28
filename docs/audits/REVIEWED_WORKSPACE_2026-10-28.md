@@ -66,6 +66,14 @@ cards below 600px, and uses one disclosure/action spacing rhythm. The existing
 clientside sensitivity toggle now synchronizes its collapsed content and
 `aria-expanded` state; the decorative plus/minus follows that state.
 
+The Conditions message review found default white filter fields, a 120px search
+box at 375px, border-adjacent disclosure text and numeric-table alignment on
+textual message evidence. The follow-up keeps source fields and supplied
+offsets intact while separating text-table styling from numeric exact values.
+Fresh expanded legacy-offset checks already kept the document within the
+375/768/1280 viewports; its wide mobile table needed clearer local-scroll
+affordance. Closed/open geometry and keyboard scrolling remain separate checks.
+
 ## Run-to-run window follow-through
 
 The initial comparison exposed every eligible shared target, which could be
@@ -156,6 +164,11 @@ The supporting-card spacing follow-up passes 52 affected existing unit and
 real Dash-dispatch tests, plus Ruff, formatting and diff checks. Native review
 separately checks the clientside sensitivity state, since the Flask dispatch
 test driver does not execute browser callbacks.
+
+The message/legacy-table presentation follow-up passes 65 affected existing
+unit and real Dash-dispatch tests, plus Ruff, formatting and diff checks.
+Native review separately covers source-message filtering, open text evidence,
+Inspect/Back focus and local scrolling in the populated legacy table.
 
 Focused behavioral and real Dash-dispatch tests cover cache-only readers,
 regional isolation, issue selection, time-window validation, gap rendering,

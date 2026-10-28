@@ -82,7 +82,7 @@ def message_view(data, query, severity, selected):
                         ),
                         html.Tbody(rows),
                     ],
-                    className="metrics-table",
+                    className="gp-review-table gp-message-table",
                 ),
                 className="gp-review-table-scroll",
                 role="region",
@@ -140,7 +140,7 @@ def message_view(data, query, severity, selected):
                             className="gp-panel__hint",
                         ),
                     ],
-                    className="gp-review-disclosure",
+                    className="gp-review-disclosure gp-message-evidence",
                 ),
             ]
         )

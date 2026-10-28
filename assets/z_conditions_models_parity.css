@@ -12,3 +12,52 @@
 /* Persistent keyboard targets and diagnostics legends precede their control rows. */
 .gp-models-review .gp-model-chart-keyboard:focus-visible{outline:2px solid #8fbff4;outline-offset:-3px}.gp-models-review .gp-model-chart-legend{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:10px;color:#b4c4d8;padding:0 18px 5px;min-height:20px}.gp-models-review .gp-model-chart-legend:empty{display:none}.gp-models-review .gp-model-chart-legend span{display:inline-flex;gap:7px;align-items:center}.gp-models-review .gp-model-chart-legend i{display:inline-block;width:16px;height:2px}.gp-models-review .gp-models-graph{width:100%;min-width:0}.gp-conditions-page .gp-explorer-evidence .gp-review-disclosure{padding:0 18px}.gp-conditions-page .gp-explorer-evidence .gp-review-disclosure>summary{margin:0;padding:14px 0}
 @media(max-width:760px){.gp-conditions-page:has(#explorer-mode input[value="error"]:checked) .gp-explorer-span-control{flex:1 1 100%;order:0}.gp-conditions-page:has(#explorer-mode input[value="error"]:checked) .gp-explorer-span-control .gp-segmented{width:max-content;max-width:100%;flex-wrap:nowrap}.gp-conditions-page:has(#explorer-mode input[value="error"]:checked) .gp-explorer-span-control .form-check{flex:0 0 auto}.gp-conditions-page:has(#explorer-mode input[value="error"]:checked) .gp-explorer-date-control{flex:1 1 100%}.gp-conditions-page:has(#explorer-mode input[value="error"]:checked) .gp-explorer-span-control .form-check-label{padding:6px 10px}}
+
+/* Message review: readable source text, aligned fields and inset disclosures. */
+.gp-conditions-page #conditions-messages,.gp-conditions-page #conditions-message-list,.gp-conditions-page #conditions-message-detail,.gp-conditions-page #conditions-message-detail>div{min-width:0;max-width:100%}
+.gp-conditions-page .gp-message-inventory{padding:0;gap:0;overflow:hidden}
+.gp-conditions-page .gp-message-inventory>h2{font-size:16px;line-height:1.5;margin:0;padding:16px}
+.gp-conditions-page .gp-message-filters{display:grid;grid-template-columns:minmax(0,2fr) minmax(180px,1fr);gap:14px;padding:14px 16px;align-items:end}
+.gp-conditions-page .gp-message-filters>div{min-width:0;gap:6px}
+.gp-conditions-page .gp-message-filters label{font-size:11px;line-height:1.5;margin:0;color:#b8cbe1}
+.gp-conditions-page .gp-message-filters .form-control,.gp-conditions-page .gp-message-filters .form-select{width:100%;max-width:none;min-width:0;height:40px;font-size:13px;line-height:1.5;color:#e1eaf5;background-color:#0e1824;border:1px solid #405772;border-radius:3px;padding:8px 10px}
+.gp-conditions-page .gp-message-filters .form-select{padding-right:32px}
+.gp-conditions-page .gp-message-filters .form-control::placeholder{color:#98adc5;opacity:1}
+.gp-conditions-page .gp-message-filters .form-control:focus,.gp-conditions-page .gp-message-filters .form-select:focus{border-color:#9dc9ec;outline:2px solid #9dc9ec;outline-offset:2px;box-shadow:none}
+.gp-conditions-page #conditions-message-list{padding:14px 16px 16px}
+.gp-conditions-page #conditions-message-list .gp-panel__caption{font-size:11px;line-height:1.6;margin:0 0 10px}
+.gp-conditions-page .gp-message-table{min-width:600px;table-layout:fixed}
+.gp-conditions-page .gp-message-table th,.gp-conditions-page .gp-message-table td{text-align:left;vertical-align:top;white-space:normal;overflow-wrap:anywhere;padding:12px;font-size:12px;line-height:1.6}
+.gp-conditions-page .gp-message-table th{position:sticky;top:0;z-index:1;background:#141f2b;font-size:10px;white-space:nowrap}
+.gp-conditions-page .gp-message-table th:first-child{width:90px}
+.gp-conditions-page .gp-message-table th:nth-child(3){width:170px}
+.gp-conditions-page .gp-message-table th:last-child{width:106px}
+.gp-conditions-page #conditions-message-list .gp-message-table td .gp-panel__caption{margin:5px 0 0;font-size:11px;line-height:1.5}
+.gp-conditions-page .gp-message-table .gp-review-button{display:inline-flex;align-items:center;justify-content:center;min-height:36px;padding:7px 10px;font-size:11px;line-height:1.5;white-space:nowrap}
+.gp-conditions-page #conditions-message-inspector{padding:16px;gap:14px;min-width:0}
+.gp-conditions-page #conditions-message-back{display:inline-flex;align-items:center;min-height:36px;text-align:left;font-size:11px;line-height:1.5}
+.gp-conditions-page #conditions-message-detail .gp-control-eyebrow{font-size:10px;line-height:1.5;letter-spacing:.1em}
+.gp-conditions-page #conditions-message-detail h2{font-size:17px;line-height:1.5;margin:8px 0 10px}
+.gp-conditions-page #conditions-message-detail p{font-size:12px;line-height:1.7;margin:10px 0;overflow-wrap:anywhere}
+.gp-conditions-page #conditions-message-detail hr{margin:14px 0;border-color:#344558}
+.gp-conditions-page #conditions-messages .gp-review-disclosure{padding:0;min-width:0;max-width:100%}
+.gp-conditions-page #conditions-messages>.gp-review-disclosure{margin-top:18px}
+.gp-conditions-page #conditions-messages .gp-review-disclosure>summary{padding:14px 16px;min-height:46px;line-height:1.6;align-items:center;gap:12px}
+.gp-conditions-page #conditions-messages .gp-review-disclosure>summary:after{flex:0 0 auto;line-height:1;font-size:17px}
+.gp-conditions-page #conditions-messages .gp-review-disclosure>div,.gp-conditions-page #conditions-messages .gp-review-disclosure>p{padding:0 16px 16px;margin:0;min-width:0}
+.gp-conditions-page .gp-message-evidence .gp-exact-table{table-layout:fixed;min-width:0}
+.gp-conditions-page .gp-message-evidence .gp-exact-table th,.gp-conditions-page .gp-message-evidence .gp-exact-table td{white-space:normal;text-align:left;overflow-wrap:anywhere;font-size:11px;line-height:1.6;padding:10px 8px}
+.gp-conditions-page .gp-message-evidence .gp-exact-table th:first-child{width:34%}
+.gp-conditions-page .gp-message-evidence .gp-review-table-scroll{max-height:480px}
+
+/* Shared legacy renderer keeps every offset inside an explicit local scroller. */
+.gp-models-review #models-legacy-panel,.gp-models-review .gp-models-legacy-disclosure,.gp-models-review .gp-models-legacy-disclosure>.gp-models-drift-panel{min-width:0;max-width:100%;box-sizing:border-box}
+.gp-models-review .gp-legacy-offsets-scroll{width:100%;min-width:0;max-width:100%;max-height:520px;overflow:auto;overscroll-behavior:contain}
+.gp-models-review .gp-legacy-offsets-scroll:focus-visible{outline:2px solid #9dc9ec;outline-offset:-2px}
+.gp-models-review .gp-legacy-offsets-scroll .gp-horizon-drift-table{min-width:640px}
+.gp-models-review .gp-legacy-offsets-scroll th{position:sticky;top:0;z-index:1;background:#192637;text-align:left}
+.gp-models-review .gp-legacy-offsets-scroll td{text-align:left;vertical-align:top}
+.gp-models-review .gp-legacy-offsets-scroll .gp-drift-horizon-mape{margin-bottom:6px}
+.gp-models-review .gp-legacy-offsets-scroll .gp-panel__caption{display:block;margin:6px 0 0;font-size:11px;line-height:1.5}
+.gp-models-review .gp-table-scroll-hint{font-size:11px;line-height:1.6;margin:10px 0}
+@media(max-width:600px){.gp-conditions-page .gp-message-filters{grid-template-columns:minmax(0,1fr);gap:14px}.gp-conditions-page .gp-message-filters .form-control,.gp-conditions-page .gp-message-filters .form-select{font-size:16px;height:44px}.gp-conditions-page .gp-message-filters label{font-size:12px}.gp-conditions-page .gp-message-table .gp-review-button,.gp-conditions-page #conditions-message-back{min-height:44px}.gp-conditions-page #conditions-messages .gp-review-disclosure>summary{min-height:48px}.gp-models-review .gp-models-legacy-disclosure>summary{align-items:center;line-height:1.6}.gp-models-review .gp-models-legacy-disclosure>summary:after{flex:0 0 auto}}

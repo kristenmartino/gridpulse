@@ -80,11 +80,11 @@ def layout():
                                                 ]
                                             ),
                                         ],
-                                        className="gp-review-toolbar",
+                                        className="gp-review-toolbar gp-message-filters",
                                     ),
                                     html.Div(id="conditions-message-list"),
                                 ],
-                                className="gp-panel gp-review-inventory",
+                                className="gp-panel gp-review-inventory gp-message-inventory",
                             ),
                             html.Aside(
                                 [

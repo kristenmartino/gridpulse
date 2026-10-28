@@ -1036,10 +1036,16 @@ def _build_legacy_horizon_drift_panel(region: str | None) -> html.Div:
             ),
             html.Div(
                 table,
-                className="gp-drift-table-scroll",
+                className="gp-drift-table-scroll gp-legacy-offsets-scroll",
                 role="region",
                 tabIndex=0,
-                **{"aria-label": "Forecast error comparison table; scroll horizontally if needed"},
+                **{
+                    "aria-label": "Legacy forecast-start-offset error table; scroll horizontally if needed"
+                },
+            ),
+            html.P(
+                "All offsets remain available in the table; scroll horizontally if needed.",
+                className="gp-panel__caption gp-table-scroll-hint",
             ),
             html.Div(
                 (

@@ -1698,3 +1698,8 @@ measuring geometry.
 The same distinction applies within cards: fitting a three-column mobile grid
 did not establish readable captions or adequate padding. The focused review
 checks actual text insets, value/unit alignment and disclosure/action spacing.
+
+Message-table review adds another useful distinction: a wide table can be
+contained correctly but still look clipped when local scrolling is unclear.
+The check separates document overflow, readable source text and discoverable
+access to every column.
