@@ -23,12 +23,12 @@ Use GridPulse to inspect reported demand and forecasts, compare model error, rev
 | Tab | Question | What it shows |
 |---|---|---|
 | **Overview** | Does the published forecast need closer review? | Published next-24h peak, source, same-series 24h-horizon diagnostic when available, separate training reference, expandable history |
-| **US Grid** | How does demand compare across regions? | 51-BA Cards / Map / Polygon views with utilization + capacity context |
+| **US Grid** | Which authority needs closer review? | Searchable table, cards, one territory map, per-authority clocks and an inspector with explicit forecast navigation |
 | **Forecast** | Which forecast am I reviewing? | Published default or a named model comparison; source and same-horizon error above the chart; trained-model bands use backtest error ranges when available and heuristic envelopes otherwise |
-| **Risk** | Which alerts need review? | Weather alerts, demand anomalies, demand/nameplate comparison |
-| **Models** | How have the models performed? | Per-model MAPE / RMSE / MAE / R² (real holdout metrics from training), residuals, built-in XGBoost feature importance |
+| **Conditions** | What weather and demand context is available? | Linked Past / Future / Error explorer with UTC windows and exact values; separate associated-state weather messages |
+| **Models** | What evidence describes model performance? | Separate observed error, training MAPE / RMSE / MAE / R², cached backtest residuals and built-in XGBoost importance |
 
-The default view is Forecast Review Analyst. Three secondary role-based views (Renewables Analyst, Trader, Data Scientist) tune the narrative layer: the insight card's framing, and which insights surface and how many. The data, KPI tiles, and forecasts are identical across personas. (Per-persona KPI cards and alert thresholds are declared in `personas/config.py` but not yet wired into the shell — see [#188](https://github.com/kristenmartino/gridpulse/issues/188).)
+The visible shell is one analyst workspace. Legacy persona values remain compatible with older callbacks and URLs, while the role selector is hidden. Create view link retains validated controls and Explorer windows; it does not save an operational action or freeze the underlying live data. The review workflow remains a product hypothesis, not established practitioner adoption.
 
 Overview keeps the published source, next peak, and matching observed-error label above the demand chart. Its 24-hour and seven-day history controls change the reported-demand history while retaining the next 24 hours of published forecasts. Aggregate scoring coverage and the separate training reference sit alongside the chart; the hatched portion represents unscored targets in the recorded window, not the timing or cause of particular gaps. Unknown coverage remains unknown. **Inspect evidence** separates the scoring summary from the hourly forecast targets, with source, timing, selection-policy, and sampling qualifications available in expandable details.
 
@@ -51,7 +51,7 @@ The operator benchmark scores the named model series, not necessarily the publis
 - **SARIMAX** — auto-order selection via `pmdarima` on cold runs; cached `(p,d,q)(P,D,Q,m)` order on warm runs (skips the auto-select stepwise search, ~10× speedup on daily refresh).
 - **Ensemble** — sharpened inverse-MAPE weighted combination ((1/MAPE)³ per ADR-004). Lower measured error receives more weight; missing input scores trigger equal weights. In the 2026-08-07 evaluation it beat XGBoost alone on 21 of 51 BAs, while its median MAPE was worse: 4.35% versus 3.69%. Results depend on region and evaluation window.
 
-**Holdout provenance.** Each model's MAPE / RMSE / MAE / R² shown in the Models tab is the training-job's last 168-hour holdout, scored **recursively** (multi-step — the model's own predictions feed forward, so errors compound as in a real forecast), persisted to each pickle's `meta.json` in GCS and read at request time. The ensemble uses held-out predictions too; its weighting and scoring split is described in the backtest document. Holdout error does not by itself establish live forecast performance.
+**Holdout provenance.** The Models Training reference table reads the recorded metrics from the regional forecast cache. These describe the last 168-hour **recursive** training holdout, separate from live observed error and the fixed cached walk-forward diagnostics. Missing training/evaluation dates stay unavailable; payload generation is not a training clock. The ensemble uses held-out predictions too; its weighting and scoring split is described in the backtest document. Holdout error does not by itself establish live forecast performance.
 
 See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for the dated evaluation, including past leakage corrections and cases where the ensemble underperforms. Heuristic bands are indicative ranges, not calibrated probabilities; backtest-derived bands also need coverage checks for the forecast horizon. Demand/nameplate comparisons do not establish available reserves or grid reliability.
 
@@ -63,11 +63,11 @@ See [docs/BACKTEST_RESULTS.md](docs/BACKTEST_RESULTS.md) for the dated evaluatio
 ┌────────────────────────────────────────────────────────────────────┐
 │  Browser — gridpulse.kristenmartino.ai                             │
 │  ┌────────────┐ ┌──────────┐ ┌──────────┐ ┌────────────────────┐  │
-│  │ Persona    │ │ Region   │ │ KPI Bar  │ │ Briefings /        │  │
-│  │ Selector   │ │ Selector │ │          │ │ Signals            │  │
+│  │ Shared     │ │ Region   │ │ KPI Bar  │ │ Briefing Mode /    │  │
+│  │ Workspace  │ │ Selector │ │          │ │ Create view link   │  │
 │  └────────────┘ └──────────┘ └──────────┘ └────────────────────┘  │
 │  ┌──────────────────────────────────────────────────────────────┐  │
-│  │ Overview | US Grid | Forecast | Risk | Models                │  │
+│  │ Overview | US Grid | Forecast | Conditions | Models          │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 └─────────────────────────┬──────────────────────────────────────────┘
                           │ Callback + store-driven rendering
@@ -117,9 +117,9 @@ For live EIA data, set `EIA_API_KEY` (free at [eia.gov/opendata](https://www.eia
 │   ├── callbacks.py                # Shared data flows + interaction callbacks
 │   ├── cards.py                    # KPI, alert, welcome, briefing, supporting cards
 │   ├── tab_overview.py             # Overview screen
-│   ├── tab_us_grid.py              # US Grid screen (Cards / Map / Polygons)
+│   ├── tab_us_grid.py              # Authority directory / cards / territory map
 │   ├── tab_demand_outlook.py       # Forecast screen
-│   ├── tab_alerts.py               # Risk / extreme events screen
+│   ├── tab_alerts.py               # Conditions explorer / weather messages
 │   └── tab_models.py               # Models screen (per-model metrics + diagnostics)
 ├── data/
 │   ├── eia_client.py               # EIA API v2

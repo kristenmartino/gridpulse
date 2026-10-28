@@ -1,0 +1,1 @@
+2026-10-28 [missing-consumer-input] The initial explorer adapter called the retained-hour quality guard against an actuals cache that omitted its paired forecast_mw input, leaving the day-ahead signal unavailable; caught before release on codex/gridpulse-reviewed-views and covered by test_explorer_quality_input.py.

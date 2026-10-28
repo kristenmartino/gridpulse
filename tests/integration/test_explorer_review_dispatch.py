@@ -1,0 +1,269 @@
+"""Real Dash dispatch validates Explorer control/render and region wiring."""
+
+from unittest.mock import patch
+
+import dash_bootstrap_components as dbc
+import pytest
+from dash import Dash, dcc, html
+
+from components._callbacks_explorer import register_explorer_callbacks
+from components.explorer_state import clean_state
+from components.tab_alerts import layout
+from components.tab_demand_outlook import layout as forecast_layout
+from components.weather_explorer_data import load_explorer_data
+from tests.integration.dash_driver import DashDriver
+from tests.unit.test_weather_explorer_review import cache_fixture
+
+
+@pytest.fixture
+def driver():
+    app = Dash(__name__, suppress_callback_exceptions=True)
+    app.layout = html.Div(
+        [
+            dbc.Select(id="region-selector", value="FPL"),
+            dbc.Tabs(id="dashboard-tabs", active_tab="tab-alerts"),
+            dcc.Interval(id="refresh-interval"),
+            layout(),
+            forecast_layout(),
+        ]
+    )
+    register_explorer_callbacks(app)
+    return DashDriver(app)
+
+
+def inputs(data, state, **changes):
+    values = {
+        "explorer-data": data,
+        "explorer-state": state,
+        "conditions-section": "explorer",
+        "explorer-mode": state["mode"],
+        "explorer-span": state["windows"][state["mode"]]["hours"],
+        "explorer-variable": state["variable"],
+        "explorer-source": state["source"],
+        "explorer-issue": state["issue"],
+        "explorer-start.value": state["windows"][state["mode"]]["start"],
+        "region-selector": "FPL",
+        "dashboard-tabs.active_tab": "tab-alerts",
+    }
+    values.update(changes)
+    return values
+
+
+def test_span_preserves_period_active_mode_noop_and_invalid_date_restores(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state(
+        {
+            "region": "FPL",
+            "windows": {
+                "past": {"start": "2026-02-03T00:00Z", "hours": 168, "cursor": "2026-02-03T03:00Z"}
+            },
+        },
+        "FPL",
+    )
+    result = driver.dispatch(
+        "explorer-span.options",
+        inputs(data, state, **{"explorer-span": 24}),
+        triggered=["explorer-span.value"],
+    )
+    assert result.ok
+    state = result.value("explorer-state", "data")
+    assert state["windows"]["past"] == {
+        "start": "2026-02-03T00:00:00+00:00",
+        "hours": 24,
+        "cursor": "2026-02-03T03:00:00+00:00",
+    }
+    active = driver.dispatch(
+        "explorer-span.options", inputs(data, state), triggered=["explorer-mode.value"]
+    )
+    assert active.ok and active.value("explorer-start", "value") == "2026-02-03T00:00"
+    bad = driver.dispatch(
+        "explorer-span.options",
+        inputs(data, state, **{"explorer-start.value": ""}),
+        triggered=["explorer-start.value"],
+    )
+    assert bad.ok and "last valid window" in bad.text("explorer-date-feedback")
+    assert bad.value("explorer-start", "value") == "2026-02-03T00:00"
+    assert bad.value("explorer-start", "invalid") is True
+
+
+def test_cache_load_scoped_and_requested_missing_receipt_not_loading_forever(driver):
+    cache, now, issue = cache_fixture()
+    cache.pop(next(k for k in cache if k.endswith(issue["publication_id"])))
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state({"region": "FPL", "mode": "error", "issue": issue["publication_id"]}, "FPL")
+    result = driver.dispatch(
+        "explorer-summary.children",
+        {"explorer-data": data, "explorer-state": state, "region-selector": "FPL"},
+    )
+    assert result.ok and "receipt is unavailable" in result.text("explorer-summary")
+    wrong = driver.dispatch(
+        "explorer-summary.children",
+        {"explorer-data": data, "explorer-state": state, "region-selector": "PJM"},
+    )
+    assert wrong.ok and "no cached target" in wrong.text("explorer-summary")
+    assert not wrong.value("explorer-demand", "figure")["data"]
+
+
+def test_mode_roundtrip_keeps_dates_source_and_future_pregeneration_marker(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state(
+        {
+            "region": "FPL",
+            "source": "arima",
+            "windows": {
+                "past": {"start": "2026-02-03T00:00Z", "hours": 24},
+                "future": {"start": "2026-02-09T00:00Z", "hours": 24},
+            },
+        },
+        "FPL",
+    )
+    future = driver.dispatch(
+        "explorer-span.options",
+        inputs(data, state, **{"explorer-mode": "future"}),
+        triggered=["explorer-mode.value"],
+    )
+    new = future.value("explorer-state", "data")
+    assert (
+        new["source"] == "arima" and new["windows"]["past"]["start"] == "2026-02-03T00:00:00+00:00"
+    )
+    result = driver.dispatch(
+        "explorer-summary.children",
+        {"explorer-data": data, "explorer-state": new, "region-selector": "FPL"},
+    )
+    assert result.ok and "before generation" in result.text("explorer-summary")
+    assert "1,400" in result.text("explorer-exact") or "1400" in result.text("explorer-exact")
+
+
+def test_loader_runs_only_cache_adapter_when_region_changes(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state(None, "FPL")
+    with patch(
+        "components._callbacks_explorer.load_explorer_data",
+        return_value={
+            "region": "PJM",
+            "past": [],
+            "future": {},
+            "issues": [],
+            "error": {},
+            "sources": [],
+        },
+    ) as read:
+        result = driver.dispatch(
+            "explorer-span.options",
+            inputs(data, state, **{"region-selector": "PJM"}),
+            triggered=["region-selector.value"],
+        )
+        assert result.ok and result.value("explorer-data", "data")["region"] == "PJM"
+        read.assert_called_once_with("PJM", selected_ids=())
+
+
+def test_coalesced_date_blur_and_span_apply_both_intentions(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state(
+        {"region": "FPL", "windows": {"past": {"start": "2026-02-03T00:00Z", "hours": 24}}}, "FPL"
+    )
+    result = driver.dispatch(
+        "explorer-span.options",
+        inputs(
+            data,
+            state,
+            **{
+                "explorer-start.value": "2026-02-04T00:00",
+                "explorer-start.n_blur": 1,
+                "explorer-span": 168,
+            },
+        ),
+        triggered=["explorer-start.value", "explorer-start.n_blur", "explorer-span.value"],
+    )
+    assert result.ok
+    updated = result.value("explorer-state", "data")
+    assert updated["windows"]["past"]["start"] == "2026-02-04T00:00:00+00:00"
+    assert updated["windows"]["past"]["hours"] == 168
+    reverse = driver.dispatch(
+        "explorer-span.options",
+        inputs(data, updated, **{"explorer-start.value": "2026-02-02T00:00", "explorer-span": 24}),
+        triggered=["explorer-start.n_blur", "explorer-span.value"],
+    )
+    assert reverse.ok
+    assert reverse.value("explorer-state", "data")["windows"]["past"]["hours"] == 24
+    assert reverse.value("explorer-start", "value") == "2026-02-02T00:00"
+
+
+def test_raw_datetime_commit_invalid_does_not_hide_behind_stale_debounced_value(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state(
+        {"region": "FPL", "windows": {"past": {"start": "2026-02-03T00:00Z", "hours": 24}}}, "FPL"
+    )
+    result = driver.dispatch(
+        "explorer-span.options",
+        inputs(
+            data,
+            state,
+            **{
+                "explorer-date-edit": {
+                    "value": "",
+                    "scope": {
+                        "region": "FPL",
+                        "mode": "past",
+                        "window_start": "2026-02-03T00:00",
+                        "source": "published",
+                    },
+                    "nonce": 1,
+                }
+            },
+        ),
+        triggered=["explorer-date-edit.data"],
+    )
+    assert result.ok and result.value("explorer-start", "invalid")
+    assert result.value("explorer-start", "value") == "2026-02-03T00:00"
+    assert "last valid window" in result.text("explorer-date-feedback")
+
+
+def test_date_commit_owner_cannot_leak_old_mode_or_region(driver):
+    cache, now, _ = cache_fixture()
+    data = load_explorer_data("FPL", reader=cache.get, now=now)
+    state = clean_state(
+        {
+            "region": "FPL",
+            "windows": {
+                "past": {"start": "2026-02-03T00:00Z", "hours": 24},
+                "future": {"start": "2026-02-09T02:00Z", "hours": 24},
+            },
+        },
+        "FPL",
+    )
+    edit = {
+        "value": "2026-02-02T00:00",
+        "scope": {
+            "region": "FPL",
+            "mode": "past",
+            "window_start": "2026-02-03T00:00",
+            "source": "published",
+        },
+        "nonce": 1,
+    }
+    result = driver.dispatch(
+        "explorer-span.options",
+        inputs(
+            data,
+            state,
+            **{
+                "explorer-mode": "future",
+                "explorer-date-edit": edit,
+                "explorer-start.value": "2026-02-02T00:00",
+            },
+        ),
+        triggered=["explorer-date-edit.data", "explorer-start.n_blur", "explorer-mode.value"],
+    )
+    assert result.ok
+    changed = result.value("explorer-state", "data")
+    assert (
+        changed["mode"] == "future"
+        and changed["windows"]["future"]["start"] == "2026-02-09T02:00:00+00:00"
+    )
+    assert changed["windows"]["past"]["start"] == "2026-02-03T00:00:00+00:00"

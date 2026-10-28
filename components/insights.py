@@ -161,32 +161,44 @@ def _extract_historical_stats(
     p90 = demand.quantile(0.9)
     stats["hours_above_p90"] = int((demand > p90).sum())
 
-    # Temperature-demand correlation
-    if weather_df is not None and len(weather_df) > 0 and "temperature_2m" in weather_df.columns:
-        wdf = weather_df.copy()
-        if "timestamp" in wdf.columns:
-            wdf["timestamp"] = pd.to_datetime(wdf["timestamp"], utc=True)
-        wdf = wdf.tail(timerange_hours)
+    # A combined weather frame extends into the future. Only exact UTC
+    # matches in the selected demand window describe historical co-movement;
+    # equal array lengths and nearby hours are not evidence of alignment.
+    if (
+        weather_df is not None
+        and not weather_df.empty
+        and {"timestamp", "temperature_2m"} <= set(weather_df.columns)
+        and "timestamp" in df.columns
+    ):
+        from data.weather_windows import forecast_weather_window
 
-        if len(wdf) > 10 and "temperature_2m" in wdf.columns:
-            stats["max_temp"] = float(wdf["temperature_2m"].max())
-            # Align lengths
-            min_len = min(len(df), len(wdf))
-            d_vals = df["demand_mw"].tail(min_len).values
-            t_vals = wdf["temperature_2m"].tail(min_len).values
-            mask = ~(np.isnan(d_vals) | np.isnan(t_vals))
-            if mask.sum() > 10:
-                stats["temp_demand_correlation"] = float(
-                    np.corrcoef(d_vals[mask], t_vals[mask])[0, 1]
-                )
-
-            # Temperature at peak demand
-            if stats["peak_time"] is not None and "timestamp" in wdf.columns:
-                peak_ts = stats["peak_time"]
-                closest = (wdf["timestamp"] - peak_ts).abs()
-                if closest.min() < pd.Timedelta(hours=2):
-                    closest_idx = closest.idxmin()
-                    stats["temp_at_peak_demand"] = float(wdf.loc[closest_idx, "temperature_2m"])
+        actual = df[["timestamp", "demand_mw"]].dropna().copy()
+        actual = actual.loc[np.isfinite(actual["demand_mw"])].drop_duplicates(
+            "timestamp", keep="last"
+        )
+        if not actual.empty:
+            weather = forecast_weather_window(
+                weather_df, actual["timestamp"].min(), actual["timestamp"].max()
+            )
+            weather = weather[["timestamp", "temperature_2m"]].drop_duplicates(
+                "timestamp", keep="last"
+            )
+            weather["temperature_2m"] = pd.to_numeric(weather["temperature_2m"], errors="coerce")
+            weather = weather.loc[np.isfinite(weather["temperature_2m"])]
+            if not weather.empty:
+                stats["max_temp"] = float(weather["temperature_2m"].max())
+                paired = actual.merge(weather, on="timestamp", how="inner", validate="one_to_one")
+                if (
+                    len(paired) > 10
+                    and paired["demand_mw"].std() > 0
+                    and paired["temperature_2m"].std() > 0
+                ):
+                    stats["temp_demand_correlation"] = float(
+                        paired["demand_mw"].corr(paired["temperature_2m"])
+                    )
+                peak_weather = weather.loc[weather["timestamp"] == stats["peak_time"]]
+                if not peak_weather.empty:
+                    stats["temp_at_peak_demand"] = float(peak_weather["temperature_2m"].iloc[0])
 
     return stats
 

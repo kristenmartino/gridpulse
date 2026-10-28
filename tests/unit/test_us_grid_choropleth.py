@@ -367,59 +367,41 @@ class TestPolygonVisibility:
 
 
 class TestDrilldownTolerance:
-    """The drilldown callback should accept both customdata shapes:
-    1-D string (scatter) and list/tuple (choropleth)."""
+    """Map selections accept both source shapes and inspect before navigating."""
 
-    def _drilldown_fn(self):
-        """Locate the drilldown callback via the registered Dash app."""
+    def _dispatch(self, click_data):
         import dash
-        import dash_bootstrap_components as dbc
 
-        from components.callbacks import register_callbacks
-        from components.layout import build_layout
+        from components._callbacks_us_grid import register_us_grid_callbacks
+        from components.tab_us_grid import layout
+        from tests.integration.dash_driver import DashDriver
 
-        app = dash.Dash(
-            __name__,
-            external_stylesheets=[dbc.themes.DARKLY],
-            suppress_callback_exceptions=True,
+        app = dash.Dash(__name__, suppress_callback_exceptions=True)
+        app.layout = layout()
+        register_us_grid_callbacks(app)
+        return DashDriver(app).dispatch(
+            "us-grid-selected.data",
+            {"us-grid-map.clickData": click_data},
+            {"us-grid-data": {"PJM": {}, "ERCOT": {}}},
+            triggered=["us-grid-map.clickData"],
         )
-        app.layout = build_layout()
-        register_callbacks(app)
-        for _key, val in app.callback_map.items():
-            fn = val.get("callback")
-            if fn and getattr(fn, "__name__", "") == "drilldown_from_us_grid_map":
-                return getattr(fn, "__wrapped__", fn)
-        raise KeyError("drilldown_from_us_grid_map callback not registered")
 
     def test_scatter_customdata_string(self):
-        """Scatter sends customdata as a string (the region code)."""
-        fn = self._drilldown_fn()
-        click_data = {"points": [{"customdata": "PJM"}]}
-        region, tab = fn(click_data)
-        assert region == "PJM"
-        assert tab == "tab-outlook"
+        result = self._dispatch({"points": [{"customdata": "PJM"}]})
+        assert result.ok and result.value("us-grid-selected", "data") == "PJM"
+        assert "region-selector" not in result.payload["response"]
 
     def test_choropleth_customdata_list(self):
-        """Choropleth sends customdata as a list whose [0] is the code."""
-        fn = self._drilldown_fn()
-        click_data = {"points": [{"customdata": ["PJM", "Mid-Atlantic (PJM)", 70.0]}]}
-        region, tab = fn(click_data)
-        assert region == "PJM"
-        assert tab == "tab-outlook"
+        result = self._dispatch({"points": [{"customdata": ["PJM", "name", 70]}]})
+        assert result.ok and result.value("us-grid-selected", "data") == "PJM"
 
     def test_choropleth_customdata_tuple(self):
-        fn = self._drilldown_fn()
-        click_data = {"points": [{"customdata": ("ERCOT", "Texas (ERCOT)", 50.0)}]}
-        region, _ = fn(click_data)
-        assert region == "ERCOT"
+        result = self._dispatch({"points": [{"customdata": ("ERCOT", "name", 50)}]})
+        assert result.ok and result.value("us-grid-selected", "data") == "ERCOT"
 
     def test_no_click_returns_no_update(self):
-        from dash import no_update
-
-        fn = self._drilldown_fn()
-        assert fn(None) == (no_update, no_update)
-        assert fn({}) == (no_update, no_update)
-        assert fn({"points": []}) == (no_update, no_update)
+        for value in (None, {}, {"points": []}):
+            assert self._dispatch(value).prevented
 
 
 # ── helpers ──────────────────────────────────────────────────

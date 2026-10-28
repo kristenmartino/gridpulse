@@ -262,7 +262,7 @@ class TestOutlookUnavailableRenderCopy:
             patch.object(fc, "_run_forecast_outlook", return_value={"error": status}),
         ):
             return callbacks["update_demand_outlook"](
-                24, "xgboost", "tab-outlook", demand_json, "grid_ops", demand_json, "SEC"
+                24, "xgboost", "tab-outlook", demand_json, "grid_ops", "SEC", demand_json
             )
 
     def test_unavailable_copy_reports_completed_update(self, callbacks):
@@ -534,7 +534,7 @@ def test_forecast_error_keeps_diagnostics_out_of_the_chart(callbacks):
         patch.object(fc.log, "warning") as logger,
     ):
         result = callbacks["update_demand_outlook"](
-            24, "xgboost", "tab-outlook", data, "grid_ops", data, "FPL"
+            24, "xgboost", "tab-outlook", data, "grid_ops", "FPL", data
         )
     visible = result[0].layout.annotations[0].text
     assert "Forecast could not be loaded" in visible

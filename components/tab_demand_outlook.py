@@ -22,7 +22,6 @@ def _horizon_segmented() -> html.Div:
                 options=[
                     {"label": "24h", "value": "24"},
                     {"label": "7d", "value": "168"},
-                    {"label": "30d", "value": "720"},
                 ],
                 value="24",
                 inline=True,
@@ -218,9 +217,9 @@ def _panel_toggle_strip() -> html.Div:
             html.Div("Expand", className="gp-control-eyebrow"),
             html.Div(
                 [
-                    _panel_toggle("drivers", "Drivers", "Weather"),
+                    _panel_toggle("drivers", "Weather context", "Aligned targets"),
                     _panel_toggle("generation", "Generation", "Fuel mix"),
-                    _panel_toggle("scenarios", "Scenarios", "What-if"),
+                    _panel_toggle("scenarios", "Advanced sensitivity", "Experimental"),
                 ],
                 className="gp-panel-toggles",
             ),
@@ -258,8 +257,8 @@ def _panel_drivers() -> dbc.Collapse:
         html.Div(
             [
                 _panel_header(
-                    "Drivers",
-                    "Weather signals shaping the next-24h forecast",
+                    "Weather context",
+                    "Regional model weather aligned to the selected target hours",
                 ),
                 # Filled by the update_forecast_drivers_panel callback when
                 # the collapse opens. Initial children are skeleton cells.
@@ -300,8 +299,8 @@ def _panel_generation() -> dbc.Collapse:
         html.Div(
             [
                 _panel_header(
-                    "Generation",
-                    "Fuel mix sorted by emissions intensity",
+                    "Observed generation",
+                    "Its own reported window · separate from forecast targets",
                 ),
                 html.Div(
                     id="forecast-generation-content",
@@ -319,34 +318,23 @@ def _panel_generation() -> dbc.Collapse:
     )
 
 
-_SCENARIO_PRESETS: dict[str, dict] = {
-    # 5 preset chips — heuristic deltas vs the current baseline (not absolute
-    # weather targets). Translated from simulation/presets.py historical
-    # scenarios into "delta from typical conditions".
-    "heat_dome": {
-        "label": "Warmer",
-        "sub": "+20°F · +200 W/m²",
-        "deltas": {"temp": 20, "wind": -5, "solar": 200},
+_SCENARIO_PRESETS = {
+    "reset": {
+        "label": "Reset",
+        "sub": "All deltas 0",
+        "deltas": {"temp": 0, "wind": 0, "solar": 0},
     },
-    "polar_vortex": {
-        "label": "Colder",
-        "sub": "−20°F · +10 mph",
-        "deltas": {"temp": -20, "wind": 10, "solar": -100},
+    "warmer": {"label": "Warmer", "sub": "+3°F", "deltas": {"temp": 3, "wind": 0, "solar": 0}},
+    "cooler": {"label": "Cooler", "sub": "−3°F", "deltas": {"temp": -3, "wind": 0, "solar": 0}},
+    "less_wind": {
+        "label": "Less wind",
+        "sub": "−2 mph",
+        "deltas": {"temp": 0, "wind": -2, "solar": 0},
     },
-    "calm_overcast": {
-        "label": "Less wind + sun",
-        "sub": "−8 mph · −150 W/m²",
-        "deltas": {"temp": 0, "wind": -8, "solar": -150},
-    },
-    "windy_cool": {
-        "label": "Cooler + windier",
-        "sub": "−10°F · +8 mph",
-        "deltas": {"temp": -10, "wind": 8, "solar": -50},
-    },
-    "eclipse": {
+    "less_sun": {
         "label": "Less sun",
-        "sub": "−200 W/m²",
-        "deltas": {"temp": 0, "wind": 0, "solar": -200},
+        "sub": "−50 W/m²",
+        "deltas": {"temp": 0, "wind": 0, "solar": -50},
     },
 }
 
@@ -444,6 +432,37 @@ def _panel_scenarios() -> dbc.Collapse:
     )
 
 
+def _publication_review():
+    return html.Details(
+        [
+            html.Summary("Review published issues and matched actuals"),
+            html.P(
+                "Choose immutable cached issues to compare shared target hours. Later actuals and weather are context, not original inputs.",
+                className="gp-panel__hint",
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Label("Earlier issue", htmlFor="published-review-earlier"),
+                            dbc.Select(id="published-review-earlier"),
+                        ]
+                    ),
+                    html.Div(
+                        [
+                            html.Label("Later issue", htmlFor="published-review-later"),
+                            dbc.Select(id="published-review-later"),
+                        ]
+                    ),
+                ],
+                className="gp-review-toolbar",
+            ),
+            html.Div(id="published-review-content"),
+        ],
+        className="gp-review-disclosure",
+    )
+
+
 def layout() -> html.Div:
     """Build the Forecast view with context preceding the demand curve."""
     return html.Div(
@@ -489,7 +508,52 @@ def layout() -> html.Div:
                     # 4. MetricsBar (4-up, reuses existing outlook-* IDs)
                     _metrics_bar(),
                     # 6. InsightCard (existing id; styled by the wrapper)
-                    html.Div(id="tab2-insight-card", className="gp-insight-card-slot"),
+                    html.Div(id="tab2-insight-card", style={"display": "none"}),
+                    html.Details(
+                        [
+                            html.Summary("Forecast evidence and exact targets"),
+                            html.Div(id="forecast-target-evidence"),
+                        ],
+                        className="gp-review-disclosure",
+                    ),
+                    html.Details(
+                        [
+                            html.Summary("Advanced · 30-day outlook"),
+                            html.P(
+                                "Long-range model comparisons may use seasonal weather context. The chart qualifies available cached weather coverage; it is not an original input vintage.",
+                                className="gp-muted",
+                            ),
+                            html.Button(
+                                "Show 30-day outlook",
+                                id="forecast-extended-open",
+                                n_clicks=0,
+                                className="gp-review-button",
+                            ),
+                        ],
+                        className="gp-review-disclosure",
+                    ),
+                    _publication_review(),
+                    html.Div(
+                        [
+                            html.Button(
+                                "Open weather & demand →",
+                                id="forecast-open-explorer",
+                                n_clicks=0,
+                                className="gp-review-button",
+                            ),
+                            html.Button(
+                                "Open error review →",
+                                id="forecast-open-error",
+                                n_clicks=0,
+                                className="gp-review-button",
+                            ),
+                        ],
+                        className="gp-explorer-window-actions",
+                    ),
+                    html.P(
+                        "Future reviews the current cached forecast. Error reviews the selected stored published issue with later eligible actuals. Explorer windows and source selections are retained independently.",
+                        className="gp-panel__caption",
+                    ),
                     # 7. Inline panel toggle strip (R4a-2)
                     _panel_toggle_strip(),
                     # 7a. Drivers panel (R4a-2 — working)

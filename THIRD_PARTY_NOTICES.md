@@ -24,6 +24,23 @@ in-product attribution surface are tracked in
 
 ## Bundled assets
 
+### `assets/geo/usa_110m.json`
+
+**Source:** Plotly's official [USA basemap](https://cdn.plot.ly/un/usa_110m.json),
+retrieved 2026-10-28, unchanged (SHA-256
+`fc83e70129aa4911c0ab6e42faadd854e4ec1da71a095785c294e999e34c4d58`).
+Serving this file locally lets the existing Plotly territory map render without
+a separate CDN dependency. It is the basemap, not balancing-authority geometry.
+
+Plotly's [topojson builder configuration](https://github.com/plotly/plotly.js/blob/master/topojson/config.mjs)
+identifies UN Geodata for coastlines/countries/land/ocean and Natural Earth for
+lakes, rivers and administrative subunits. See the
+[UN source item](https://geoportal.un.org/arcgis/home/item.html?id=d7caaff3ef4b4f7c82689b7c4694ad92)
+and [Natural Earth data terms](https://www.naturalearthdata.com/about/terms-of-use/).
+The Plotly.js MIT notice is included alongside the asset in
+[`assets/geo/LICENSE.txt`](assets/geo/LICENSE.txt). The authority-territory asset
+and its separate notice below are unchanged.
+
 ### `assets/ba_polygons.geojson`
 
 > **Licence correction, 2026-07-28.** This asset was previously described here

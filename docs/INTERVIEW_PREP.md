@@ -1644,3 +1644,20 @@ The product judgment demonstrated is to constrain a historical review to evidenc
 Kristen approved a comparison mockup that brought the published forecast, next peak, chart, and supporting evidence forward. The implementation retains the existing Dash application and shared evidence resolver, including the distinction between hourly sampling, legacy forecast-start offsets, and training holdouts. An aggregate coverage bar avoids inventing the position or cause of missing hours; the target table shows stored forecasts separately from observed-error metadata.
 
 Browser review caught evidence selectors that render/dispatch tests could not establish were keyboard-accessible. The implementation uses native expandable sections and keeps the generation timestamp outside the chart legend. This is an AI-assisted presentation and verification example; practitioner adoption and operational benefit remain unvalidated.
+
+## Weather and demand review follow-through — 2026-10-28
+
+Kristen approved the reviewed directory, forecast context, Conditions explorer
+and model-evidence views for implementation in the existing Dash application.
+Source tracing found that a combined weather feed's future tail had been labeled
+as current context. UTC window selectors correct that presentation without
+changing the forecasting models. Integration review also caught a missing
+paired operator-forecast input needed by one of the existing quality signals;
+new cache payloads retain it, and older payloads disclose its absence.
+
+The product trade-off is to make temporal comparison useful while preserving
+what it cannot prove: later historical weather may contextualize a demand miss,
+but cannot reconstruct expected weather as issued or attribute the miss to
+weather. That deeper archive remains deferred. This is an AI-assisted scope,
+implementation and verification example; no practitioner adoption, operational
+benefit or improved forecast accuracy is established by the interface changes.

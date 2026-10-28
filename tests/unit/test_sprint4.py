@@ -112,7 +112,11 @@ class TestCallbackOutputCompleteness:
         callbacks_src = inspect.getsource(components.callbacks)
         combined = forecast_src + models_src + callbacks_src
 
-        assert "get_forecasts" in combined, "model_service.get_forecasts not used"
+        assert "resolve_forecast_identity" in forecast_src
+        assert "selection_values" in forecast_src
+        assert "get_forecasts(" not in models_src, (
+            "Models must read cached diagnostics without recompute"
+        )
         # Old pattern should be gone everywhere
         assert "np.random.normal(0, 0.02" not in combined, "Old noise pattern still present"
 

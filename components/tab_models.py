@@ -1,24 +1,4 @@
-"""Tab: Models (formerly Model Diagnostics / tab-models).
-
-R4c of shell-redesign-v2.md. Restructures the Models tab into the
-v2 linear-stack rhythm:
-
-  Title → Model leaderboard MetricsBar → multi-select selector →
-  metrics table → residual analysis 3-up grid → error+SHAP 2-up grid
-  → footer
-
-All existing component IDs are preserved (tab3-model-selector,
-tab3-metrics-table, tab3-residuals-time, -hist, -pred,
-tab3-error-heatmap, tab3-shap) so the existing 6-output
-update_models_tab callback continues to work without signature
-changes.
-
-There is deliberately no InsightCard slot. R4c shipped a
-``tab3-insight-card`` div and this docstring claimed a "1-output
-insight callback" filled it; no such callback was ever registered, so
-the slot rendered empty on every load and the claim was false in the
-one place a reader would check it (#221 §1b, step 4).
-"""
+"""Cached model evidence, separated by measurement scope."""
 
 import dash_bootstrap_components as dbc
 from dash import dcc, html
@@ -29,194 +9,162 @@ from components.cards import build_page_footer
 _GRAPH_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
-def _model_selector() -> html.Div:
-    """v2-styled multi-select for which models to compare in the diagnostics."""
+def _choices(ident: str, options: list[tuple[str, str]], value: str) -> html.Div:
+    """Native radio controls with a shared visual tab baseline."""
     return html.Div(
-        [
-            html.Div("Compare Models", className="gp-control-eyebrow"),
-            dbc.Checklist(
-                id="tab3-model-selector",
-                options=[
-                    {"label": model_display_name(key), "value": key}
-                    for key in ("prophet", "arima", "xgboost", "ensemble")
-                ],
-                value=["prophet", "arima", "xgboost", "ensemble"],
-                inline=True,
-                className="gp-segmented gp-segmented--multi",
-            ),
-        ],
-        className="gp-control",
+        dbc.RadioItems(
+            id=ident,
+            options=[{"label": label, "value": key} for key, label in options],
+            value=value,
+            inline=True,
+            className="gp-models-tabs",
+        ),
+        className="gp-models-tabbar",
     )
 
 
-def _metrics_table_card() -> html.Div:
+def _graph(ident: str, title: str) -> html.Div:
+    """One cached diagnostic figure, with an exact table alternative below."""
     return html.Div(
         [
-            html.Div(
-                [
-                    html.Span("Training Holdout Metrics", className="gp-panel__eyebrow"),
-                    html.Span(
-                        "168-hour recursive evaluation · selected models",
-                        className="gp-panel__hint",
-                    ),
-                ],
-                className="gp-panel__header",
-            ),
-            html.Div(
-                id="tab3-metrics-table",
-                className="gp-metrics-table-slot",
-                role="region",
-                tabIndex=0,
-                **{"aria-label": "Training holdout metrics; scroll horizontally if needed"},
+            html.H3(title, className="gp-control-eyebrow"),
+            dcc.Loading(
+                dcc.Graph(
+                    id=ident, config=_GRAPH_CONFIG, responsive=True, style={"height": "290px"}
+                ),
+                type="circle",
+                color="#3b82f6",
             ),
         ],
-        className="gp-panel",
-    )
-
-
-def _residual_grid() -> html.Div:
-    """3-up residual analysis grid (preserves tab3-residuals-* IDs)."""
-    return html.Div(
-        [
-            html.Div(
-                [
-                    html.Div("Residuals Over Time", className="gp-control-eyebrow"),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id="tab3-residuals-time",
-                            style={"height": "260px"},
-                            config=_GRAPH_CONFIG,
-                        ),
-                        type="circle",
-                        color="#3b82f6",
-                    ),
-                ],
-                className="gp-chart-card",
-            ),
-            html.Div(
-                [
-                    html.Div("Residual Distribution", className="gp-control-eyebrow"),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id="tab3-residuals-hist",
-                            style={"height": "260px"},
-                            config=_GRAPH_CONFIG,
-                        ),
-                        type="circle",
-                        color="#3b82f6",
-                    ),
-                ],
-                className="gp-chart-card",
-            ),
-            html.Div(
-                [
-                    html.Div("Residuals vs Predicted", className="gp-control-eyebrow"),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id="tab3-residuals-pred",
-                            style={"height": "260px"},
-                            config=_GRAPH_CONFIG,
-                        ),
-                        type="circle",
-                        color="#3b82f6",
-                    ),
-                ],
-                className="gp-chart-card",
-            ),
-        ],
-        className="gp-residual-grid",
-    )
-
-
-def _error_shap_grid() -> html.Div:
-    """2-up: error-by-hour heatmap + SHAP feature importance."""
-    return html.Div(
-        [
-            html.Div(
-                [
-                    html.Div(
-                        "Forecast Error by Hour",
-                        className="gp-control-eyebrow",
-                    ),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id="tab3-error-heatmap",
-                            style={"height": "300px"},
-                            config=_GRAPH_CONFIG,
-                        ),
-                        type="circle",
-                        color="#3b82f6",
-                    ),
-                ],
-                className="gp-chart-card",
-            ),
-            html.Div(
-                [
-                    html.Div(
-                        "Feature Importance · XGBoost",
-                        className="gp-control-eyebrow",
-                    ),
-                    dcc.Loading(
-                        dcc.Graph(
-                            id="tab3-shap",
-                            style={"height": "300px"},
-                            config=_GRAPH_CONFIG,
-                        ),
-                        type="circle",
-                        color="#3b82f6",
-                    ),
-                ],
-                className="gp-chart-card",
-            ),
-        ],
-        className="gp-models-secondary",
+        className="gp-chart-card",
     )
 
 
 def layout() -> html.Div:
-    """Build the v2 linear-stack Models tab layout."""
+    """Build observed error first; retain all graph IDs and native disclosure state."""
     return html.Div(
         [
-            html.Div(
+            html.Div(id="models-title"),
+            html.P(
+                "Observed scores, training holdouts and backtest residuals use different "
+                "targets and clocks. Each section keeps its own source and sample count.",
+                className="gp-panel__caption",
+            ),
+            _choices(
+                "models-section",
                 [
-                    # 1. Title block (callback fills models-title)
-                    html.Div(id="models-title"),
-                    # 2. Model leaderboard MetricsBar (callback fills 5-up bar)
-                    html.P(
-                        "These are model comparisons, which may differ from the published default. "
-                        "Use Forecast to identify the series shown and its matching observed error.",
-                        className="gp-panel__hint",
-                    ),
+                    ("observed", "Observed error"),
+                    ("training", "Training reference"),
+                    ("backtest", "Backtest diagnostics"),
+                ],
+                "observed",
+            ),
+            html.Section(
+                [
                     html.Div(
-                        "Training holdout error · 168h recursive", className="gp-control-eyebrow"
+                        [
+                            html.H2("Observed forecast error", className="gp-panel__eyebrow"),
+                            html.P(
+                                "Choose the scoring basis before comparing percentages.",
+                                className="gp-panel__caption",
+                            ),
+                        ],
+                        className="gp-models-panel-head",
                     ),
+                    _choices(
+                        "models-observed-basis",
+                        [("sampled", "Hourly-sampled lead"), ("first", "First-hour scores")],
+                        "sampled",
+                    ),
+                    html.Div(id="models-drift-panel"),
+                    html.Div(id="models-first-hour-panel", style={"display": "none"}),
+                ],
+                id="models-observed-section",
+                className="gp-panel gp-models-tabbed-panel",
+            ),
+            html.Section(
+                [
+                    html.H2("Training reference", className="gp-panel__eyebrow"),
                     html.P(
-                        "MAPE is mean absolute percentage error; lower is better. "
-                        "MAE and RMSE measure error in megawatts (MW). "
-                        "These historical results do not predict the accuracy of the next forecast.",
-                        className="gp-panel__hint",
+                        "168h recursive holdout · MAPE is mean absolute percentage error; "
+                        "RMSE and MAE are MW. These results do not identify the published default "
+                        "or predict its next forecast accuracy.",
+                        className="gp-panel__caption",
                     ),
                     html.Div(id="models-leaderboard"),
-                    # 2b. Live drift panel — #121 part 2. Per-model rolling
-                    # 7d / 30d MAPE compared against training-time holdout.
-                    # Callback fills via _build_drift_panel.
-                    html.Div(id="models-drift-panel"),
-                    # 3. Compare-models multi-select
-                    _model_selector(),
-                    # 4. Metrics table
-                    _metrics_table_card(),
-                    # 5. Residual analysis 3-up grid
-                    _residual_grid(),
-                    # 6. Error + feature-importance 2-up grid
-                    _error_shap_grid(),
-                    # 7. Footer
-                    build_page_footer(
-                        sources=["EIA", "Open-Meteo"],
-                        note="Holdout metrics come from each model’s last completed training evaluation.",
+                    html.Div(
+                        [
+                            html.Div("Show in training comparison", className="gp-control-eyebrow"),
+                            dbc.Checklist(
+                                id="tab3-model-selector",
+                                options=[
+                                    {"label": model_display_name(k), "value": k}
+                                    for k in ("prophet", "arima", "xgboost", "ensemble")
+                                ],
+                                value=["prophet", "arima", "xgboost", "ensemble"],
+                                inline=True,
+                            ),
+                            html.P(
+                                "This filter changes the training table only. The cached backtest "
+                                "series and XGBoost importance remain independent.",
+                                className="gp-panel__caption",
+                            ),
+                        ],
+                        className="gp-models-training-filter",
+                    ),
+                    html.Div(
+                        id="tab3-metrics-table",
+                        role="region",
+                        tabIndex=0,
+                        className="gp-models-table-scroll",
+                        **{"aria-label": "Training metrics; scroll horizontally"},
                     ),
                 ],
-                className="gp-section-stack",
+                id="models-training-section",
+                className="gp-panel gp-models-training",
+                style={"display": "none"},
+            ),
+            html.Section(
+                [
+                    html.H2("Backtest diagnostics", className="gp-panel__eyebrow"),
+                    html.Div(id="tab3-diagnostics-scope"),
+                    html.Div(
+                        [
+                            _graph("tab3-residuals-time", "Residual over time · MW"),
+                            _graph("tab3-residuals-hist", "Residual distribution · count"),
+                            _graph("tab3-residuals-pred", "Residual vs predicted demand · MW"),
+                            _graph("tab3-error-heatmap", "Mean absolute error by target hour · MW"),
+                        ],
+                        className="gp-models-diagnostic-grid",
+                    ),
+                    _graph("tab3-shap", "Built-in XGBoost feature importance · unitless"),
+                    html.P(
+                        "Importance describes the fitted XGBoost model. It is not SHAP, causal "
+                        "impact or an explanation of an individual forecast.",
+                        className="gp-panel__caption",
+                    ),
+                    dcc.Store(id="models-diagnostics-data"),
+                    html.Details(
+                        [
+                            html.Summary("Exact diagnostic values and sample counts"),
+                            html.Label("Residual rows", htmlFor="models-diagnostics-page"),
+                            dbc.Select(
+                                id="models-diagnostics-page",
+                                value=1,
+                                options=[{"label": "Page 1", "value": 1}],
+                            ),
+                            html.Div(id="tab3-diagnostics-evidence"),
+                        ],
+                        className="gp-models-exact",
+                    ),
+                ],
+                id="models-backtest-section",
+                style={"display": "none"},
+            ),
+            build_page_footer(
+                sources=["EIA", "Open-Meteo"],
+                note="Model evidence is read from cached scoring and training outputs.",
             ),
         ],
-        className="gp-page",
+        className="gp-page gp-models-review gp-section-stack",
     )

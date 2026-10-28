@@ -117,7 +117,7 @@ from config import (
     REQUIRE_REDIS,
 )
 from data.redis_client import redis_get, redis_key
-from personas.config import get_persona
+from data.user_prefs import FILTER_PROPS, SIM_SLIDERS, TRACKED_FILTERS
 
 log = structlog.get_logger()
 
@@ -444,32 +444,16 @@ def register_callbacks(app):
                 json.dumps(pipeline_summary, default=str),
             )
 
-    # ── 2. PERSONA SWITCHING (R3) ─────────────────────────────
-    # R3 deleted the standalone ``welcome-card`` and ``kpi-cards`` divs that
-    # used to render between the header and the tab strip. Every visible
-    # tab now ships its own page-title block + KPI bar; persona switching
-    # only redirects the user to the persona's preferred default tab.
-
+    # Legacy persona values remain compatible with old links/preferences,
+    # but the reviewed single workspace gives explicit tab state precedence.
     @app.callback(
         Output("dashboard-tabs", "active_tab"),
         Input("persona-selector", "value"),
         prevent_initial_call=True,
     )
     def switch_persona_default_tab(persona_id):
-        """Land the user on the persona's default tab when the persona changes.
-
-        Region changes no longer trigger a tab redirect — it's a noisy UX
-        when the user is mid-task in a non-default tab.
-        """
-        if not persona_id:
-            return no_update
-        persona = get_persona(persona_id)
-        return persona.default_tab
-
-    # ── 2b. PERSONA TAB VISIBILITY (AC-7.5) ──────────────────
-    # NOTE: dbc.Tab uses tab_id (not id) and does not support dynamic
-    # "disabled" toggling via callbacks.  Persona-based tab prioritisation
-    # is handled by default_tab selection in the persona switcher above.
+        """A hidden compatibility field must never override the current view."""
+        return no_update
 
     # ── 3. OVERVIEW TAB (R2 — v2 linear stack) ────────────────
     # Single callback drives the 5 dynamic regions of the 7-section
@@ -687,57 +671,31 @@ def register_callbacks(app):
             style={"color": color, "fontSize": "0.75rem", "fontWeight": "500"},
         )
 
-    # ── SPRINT 4: C2 — SCENARIO BOOKMARKS (URL STATE) ─────────
+    # View links retain validated controls. No operational state is saved.
+    filter_outputs = [
+        Output(fid, FILTER_PROPS[fid], allow_duplicate=True) for fid in TRACKED_FILTERS
+    ]
+    slider_outputs = [Output(sid, "value", allow_duplicate=True) for sid in SIM_SLIDERS]
+    core_outputs = [
+        Output("region-selector", "value", allow_duplicate=True),
+        Output("persona-selector", "value", allow_duplicate=True),
+        Output("dashboard-tabs", "active_tab", allow_duplicate=True),
+    ]
 
     @app.callback(
-        [
-            Output("region-selector", "value", allow_duplicate=True),
-            Output("persona-selector", "value", allow_duplicate=True),
-            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
-            # NEXD-12: tracked filters
-            Output("outlook-horizon", "value", allow_duplicate=True),
-            Output("outlook-model", "value", allow_duplicate=True),
-            Output("tab3-model-selector", "value", allow_duplicate=True),
-            # NEXD-12: sim sliders
-        ],
+        core_outputs + filter_outputs + slider_outputs,
         Input("url", "search"),
-        prevent_initial_call=True,
+        prevent_initial_call="initial_duplicate",
     )
     def restore_bookmark(search):
-        """C2+NEXD-12: Restore full dashboard state from URL query parameters.
+        from data.user_prefs import deserialize_bookmark_params
 
-        Supports core params (region, persona, tab), tracked filters (f.*),
-        and scenario slider values (s.*).  Old URLs without f.*/s.* still work.
-        """
-        n_outputs = 6  # 3 core + 3 filters (V2.1: dropped 4 hidden filters + 5 sliders)
-        if not search:
-            return [no_update] * n_outputs
-
-        from data.user_prefs import (
-            SIM_SLIDERS,
-            TRACKED_FILTERS,
-            deserialize_bookmark_params,
+        result = deserialize_bookmark_params(search)
+        return (
+            [result.get(key, no_update) for key in ("region", "persona", "tab")]
+            + [result.get("filters", {}).get(fid, no_update) for fid in TRACKED_FILTERS]
+            + [result.get("sim_sliders", {}).get(sid, no_update) for sid in SIM_SLIDERS]
         )
-
-        state = deserialize_bookmark_params(search)
-        if not state:
-            return [no_update] * n_outputs
-
-        outputs = [
-            state.get("region", no_update),
-            state.get("persona", no_update),
-            state.get("tab", no_update),
-        ]
-
-        filters = state.get("filters", {})
-        for fid in TRACKED_FILTERS:
-            outputs.append(filters.get(fid, no_update))
-
-        sim_sliders = state.get("sim_sliders", {})
-        for sid in SIM_SLIDERS:
-            outputs.append(sim_sliders.get(sid, no_update))
-
-        return outputs
 
     @app.callback(
         [Output("url", "search"), Output("bookmark-toast", "children")],
@@ -746,99 +704,71 @@ def register_callbacks(app):
             State("region-selector", "value"),
             State("persona-selector", "value"),
             State("dashboard-tabs", "active_tab"),
-            # NEXD-12: tracked filters
-            State("outlook-horizon", "value"),
-            State("outlook-model", "value"),
-            State("tab3-model-selector", "value"),
-            # NEXD-12: sim sliders
+            *[State(fid, FILTER_PROPS[fid]) for fid in TRACKED_FILTERS],
+            *[State(sid, "value") for sid in SIM_SLIDERS],
+            State("explorer-cursor", "data"),
         ],
         prevent_initial_call=True,
     )
-    def create_bookmark(n_clicks, region, persona, tab, *state_values):
-        """C2+NEXD-12: Serialize full dashboard state into a shareable URL."""
+    def create_bookmark(n_clicks, region, persona, tab, *values):
         if not n_clicks:
             return no_update, no_update
+        from copy import deepcopy
 
-        from data.user_prefs import (
-            SIM_SLIDERS,
-            TRACKED_FILTERS,
-            serialize_bookmark_params,
+        from data.user_prefs import serialize_bookmark_params
+
+        filters = dict(zip(TRACKED_FILTERS, values[: len(TRACKED_FILTERS)], strict=True))
+        sliders = dict(
+            zip(
+                SIM_SLIDERS,
+                values[len(TRACKED_FILTERS) : len(TRACKED_FILTERS) + len(SIM_SLIDERS)],
+                strict=True,
+            )
         )
-
-        filter_values = state_values[: len(TRACKED_FILTERS)]
-        slider_values = state_values[len(TRACKED_FILTERS) :]
-
-        filters: dict = {}
-        for fid, val in zip(TRACKED_FILTERS, filter_values, strict=False):
-            if val is not None:
-                filters[fid] = val
-
-        sim_sliders: dict = {}
-        for sid, val in zip(SIM_SLIDERS, slider_values, strict=False):
-            if val is not None:
-                sim_sliders[sid] = val
-
-        search = serialize_bookmark_params(region, persona, tab, filters, sim_sliders)
-
-        toast = dbc.Toast(
-            "Bookmark saved! URL updated — copy it to share this view.",
-            header="Bookmark Created",
+        cursor = values[-1]
+        state = deepcopy(filters.get("explorer-state") or {})
+        if (
+            isinstance(cursor, dict)
+            and cursor.get("region") == region
+            and cursor.get("mode") == state.get("mode")
+        ):
+            state.setdefault("windows", {}).setdefault(state["mode"], {})["cursor"] = (
+                cursor.get("timestamp") or ""
+            )
+            filters["explorer-state"] = state
+        search = serialize_bookmark_params(region, persona, tab, filters, sliders)
+        return search, dbc.Toast(
+            "View link ready in the address bar. Copy the URL to share these controls and the Explorer window/inspected hour. Transient chart zoom/hover and open disclosures are not restored.",
+            header="View link ready",
             dismissable=True,
-            duration=4000,
+            duration=6000,
             is_open=True,
-            style={"backgroundColor": "#11182D", "color": "#DDE6F2", "border": "1px solid #263556"},
         )
-        return search, toast
-
-    # ── NEXD-9: SMART DEFAULTS — PERSIST & RESTORE FILTERS ───
 
     @app.callback(
-        [
-            Output("region-selector", "value", allow_duplicate=True),
-            Output("persona-selector", "value", allow_duplicate=True),
-            Output("dashboard-tabs", "active_tab", allow_duplicate=True),
-            Output("outlook-horizon", "value", allow_duplicate=True),
-            Output("outlook-model", "value", allow_duplicate=True),
-            Output("tab3-model-selector", "value", allow_duplicate=True),
-        ],
+        core_outputs + filter_outputs + slider_outputs,
         Input("url", "pathname"),
-        [
-            State("user-prefs-store", "data"),
-            State("url", "search"),
-        ],
+        [State("user-prefs-store", "data"), State("url", "search")],
         prevent_initial_call="initial_duplicate",
     )
     def restore_user_prefs(pathname, prefs_data, search):
-        """NEXD-9: Restore saved filter state from localStorage on page load."""
         from config import feature_enabled
+        from data.user_prefs import validate_prefs
 
-        n_outputs = 6  # V2.1: was 10 (3 core + 7 filters); now 3 core + 3 filters
-        if not feature_enabled("smart_defaults"):
-            return [no_update] * n_outputs
-
-        # If URL has bookmark params, let restore_bookmark handle it
-        if search and "=" in search:
-            return [no_update] * n_outputs
-
-        if not prefs_data or not isinstance(prefs_data, dict):
-            return [no_update] * n_outputs
-
-        from data.user_prefs import TRACKED_FILTERS, validate_prefs
-
+        n = 3 + len(TRACKED_FILTERS) + len(SIM_SLIDERS)
+        if (
+            not feature_enabled("smart_defaults")
+            or search
+            and "=" in search
+            or not isinstance(prefs_data, dict)
+        ):
+            return [no_update] * n
         prefs = validate_prefs(prefs_data)
-
-        # Build output list: region, persona, tab, then each tracked filter
-        outputs = [
-            prefs.region or no_update,
-            prefs.persona or no_update,
-            prefs.tab or no_update,
-        ]
-
-        for fid in TRACKED_FILTERS:
-            val = prefs.filters.get(fid)
-            outputs.append(val if val is not None else no_update)
-
-        return outputs
+        return (
+            [prefs.region, prefs.persona, prefs.tab]
+            + [prefs.filters.get(fid, no_update) for fid in TRACKED_FILTERS]
+            + [no_update] * len(SIM_SLIDERS)
+        )
 
     @app.callback(
         Output("user-prefs-store", "data"),
@@ -846,35 +776,24 @@ def register_callbacks(app):
             Input("region-selector", "value"),
             Input("persona-selector", "value"),
             Input("dashboard-tabs", "active_tab"),
-            Input("outlook-horizon", "value"),
-            Input("outlook-model", "value"),
-            Input("tab3-model-selector", "value"),
+            *[Input(fid, FILTER_PROPS[fid]) for fid in TRACKED_FILTERS],
         ],
         prevent_initial_call=True,
     )
-    def save_user_prefs(region, persona, tab, *filter_values):
-        """NEXD-9: Persist current filter state to localStorage."""
+    def save_user_prefs(region, persona, tab, *values):
         from config import feature_enabled
+        from data.user_prefs import validate_prefs
 
         if not feature_enabled("smart_defaults"):
             return no_update
-
-        from datetime import UTC, datetime
-
-        from data.user_prefs import TRACKED_FILTERS
-
-        filters = {}
-        for fid, val in zip(TRACKED_FILTERS, filter_values, strict=False):
-            if val is not None:
-                filters[fid] = val
-
-        return {
-            "region": region or "FPL",
-            "persona": persona or "grid_ops",
-            "tab": tab or "tab-overview",
-            "filters": filters,
-            "updated_at": datetime.now(UTC).isoformat(),
-        }
+        return validate_prefs(
+            {
+                "region": region,
+                "persona": persona,
+                "tab": tab,
+                "filters": dict(zip(TRACKED_FILTERS, values, strict=True)),
+            }
+        ).to_dict()
 
     # ── NEXD-11: CROSS-TAB CONTEXTUAL LINKS ──────────────────
 
@@ -995,7 +914,7 @@ def register_callbacks(app):
         if is_meeting:
             header_class = "dashboard-header gp-header meeting-mode"
             confidence_style = {"display": "none"}
-            banner_style = {"display": "none"}
+            banner_style = {}
         else:
             header_class = "dashboard-header gp-header"
             confidence_style = {}
@@ -1010,6 +929,11 @@ def register_callbacks(app):
     # ``update_demand_outlook`` + 2 Forecast Replay callbacks) into
     # ``_callbacks_forecast.py``.
     register_forecast_callbacks(app)
+    from components._callbacks_explorer import register_explorer_callbacks
+    from components._callbacks_messages import register_message_callbacks
+
+    register_explorer_callbacks(app)
+    register_message_callbacks(app)
 
 
 # ── HELPER FUNCTIONS ──────────────────────────────────────────

@@ -100,6 +100,7 @@ from config import (
 )
 from data.forecast_identity import resolve_forecast_identity, selection_values
 from data.redis_client import redis_get, redis_key
+from data.weather_windows import forecast_weather_window
 
 log = structlog.get_logger()
 
@@ -130,103 +131,49 @@ def _confidence_half_width(horizon_hours: int) -> float:
     return 0.10  # ±10% for 30-day
 
 
-def _add_forecast_horizon_divider(
-    fig: go.Figure,
-    timestamps,
-    horizon_hours: int,
-) -> bool:
-    """Mark the boundary between Open-Meteo forecast and climatology fallback.
+def _add_forecast_horizon_divider(fig, timestamps, horizon_hours, weather_timestamps=None):
+    """Mark current cached weather coverage, never infer original model inputs.
 
-    Open-Meteo's free ``/forecast`` endpoint covers 16 days (384 hours).
-    Beyond that, ``jobs/phases._build_future_feature_frame`` drives the
-    weather features from the per-BA (day_of_year, hour) weather-normal
-    (#283; seam anomaly-blend at the boundary), falling back to the
-    recent-28d (hour, dow) climatology where a BA's normal artifact isn't
-    backfilled yet. The model still produces a forecast there, but its
-    weather inputs are seasonal-average shaped, not actual forward-looking
-    values — which is exactly what the divider discloses.
-
-    This helper makes that distinction visible on the chart:
-
-    1. A dotted vertical line at the 16-day boundary
-    2. A subtle background shade on the climatology segment
-    3. Annotations labeling both segments
-
-    Returns ``True`` if the divider was added (horizon extends past
-    Open-Meteo coverage), ``False`` otherwise (24h / 7d views are all
-    real forecast — no divider needed).
-
-    See ADR-008 in PRD.md for the architectural decision behind this
-    behavior and the alternatives that were considered.
+    No exact weather vintage is archived with the curve. With known cached
+    membership we mark its last contiguous covered target. Otherwise the
+    legacy fixed 16-day guide is explicitly nominal, not a coverage claim.
     """
     if horizon_hours <= OPEN_METEO_FORECAST_HOURS:
-        # All shown hours are within Open-Meteo's real-forecast coverage.
-        # No climatology section → no divider needed.
         return False
-
-    # Coerce to a pandas-friendly index so positional access is reliable
-    # whether the caller hands us a DatetimeIndex, np.ndarray, or list.
-    ts = pd.DatetimeIndex(timestamps)
+    ts = pd.DatetimeIndex(pd.to_datetime(timestamps, utc=True, errors="coerce")).dropna()
     if len(ts) <= OPEN_METEO_FORECAST_HOURS:
-        # Shorter slice than the horizon constant — defensive guard.
         return False
-
-    # Plotly's ``add_vline(annotation_text=...)`` positions its
-    # annotation by computing ``mean([x0, x1])``, which fails on
-    # pandas Timestamp objects (no scalar ``__add__``). Pass ISO
-    # strings to side-step the arithmetic; add the annotations
-    # separately via ``add_annotation`` for full control.
-    boundary_iso = pd.Timestamp(ts[OPEN_METEO_FORECAST_HOURS]).isoformat()
-    start_iso = pd.Timestamp(ts[0]).isoformat()
-    end_iso = pd.Timestamp(ts[-1]).isoformat()
-
-    # Vertical divider line — dotted, deliberately subtle so it reads as
-    # a guide rail rather than a primary visual element.
-    fig.add_vline(
-        x=boundary_iso,
-        line=dict(color="rgba(160,180,200,0.45)", width=1, dash="dot"),
-    )
-
-    # Faint background shade past the boundary — communicates "this is
-    # different" without competing with the forecast trace itself.
+    if weather_timestamps is not None:
+        weather = set(pd.to_datetime(weather_timestamps, utc=True, errors="coerce"))
+        uncovered = [t for t in ts if t not in weather]
+        if not uncovered:
+            return False
+        boundary = uncovered[0]
+        if boundary == ts[0]:
+            return False
+        text = "Current weather-cache coverage ends →"
+        left = "Cached forecast weather context"
+    else:
+        boundary = ts[OPEN_METEO_FORECAST_HOURS]
+        text = "Nominal 16-day guide →"
+        left = "Weather input vintage not retained"
+    x = boundary.isoformat()
+    fig.add_vline(x=x, line={"color": "rgba(160,180,200,.6)", "width": 1, "dash": "dot"})
     fig.add_vrect(
-        x0=boundary_iso,
-        x1=end_iso,
-        fillcolor="rgba(160,180,200,0.05)",
-        line_width=0,
-        layer="below",
+        x0=x, x1=ts[-1].isoformat(), fillcolor="rgba(160,180,200,.05)", line_width=0, layer="below"
     )
-
-    # Right-side label for the climatology segment, anchored just past
-    # the boundary line. Uses paper coords for vertical positioning so
-    # the label stays put when the y-axis rescales.
-    fig.add_annotation(
-        x=boundary_iso,
-        y=1.0,
-        xref="x",
-        yref="paper",
-        text="climatology baseline →",
-        showarrow=False,
-        xanchor="left",
-        yanchor="bottom",
-        font=dict(size=10, color="rgba(160,180,200,0.85)"),
-        yshift=2,
-    )
-
-    # Left-side label for the real-forecast segment.
-    fig.add_annotation(
-        x=start_iso,
-        y=1.0,
-        xref="x",
-        yref="paper",
-        text="← Open-Meteo forecast",
-        showarrow=False,
-        xanchor="left",
-        yanchor="bottom",
-        font=dict(size=10, color="rgba(160,180,200,0.85)"),
-        yshift=2,
-    )
-
+    for value, label, anchor in ((x, text, "left"), (ts[0].isoformat(), left, "left")):
+        fig.add_annotation(
+            x=value,
+            y=1,
+            xref="x",
+            yref="paper",
+            text=label,
+            showarrow=False,
+            xanchor=anchor,
+            yanchor="bottom",
+            font={"size": 10, "color": "#a8b3c7"},
+        )
     return True
 
 
@@ -1191,7 +1138,12 @@ def _outlook_tab_from_redis(
     has_climatology_segment = identity.metric_key not in (
         None,
         "baseline",
-    ) and _add_forecast_horizon_divider(fig, timestamps, horizon_hours)
+    ) and _add_forecast_horizon_divider(
+        fig,
+        timestamps,
+        horizon_hours,
+        (redis_get(redis_key(f"weather:{region}")) or {}).get("timestamps"),
+    )
     horizon_labels = {24: "24-Hour", 168: "7-Day", 720: "30-Day"}
     interval_caption = _interval_caption(interval_meta, served_model) if interval_meta else ""
     # On the 30-day view, surface in the subtitle that days 17-30 are
@@ -1205,10 +1157,8 @@ def _outlook_tab_from_redis(
         # weather-normal where a BA's artifact exists (#283), the recent-28d
         # (hour, dow) climatology otherwise. The web tier can't tell which the
         # scoring job used per-BA, so the label claims only what is always true.
-        horizon_caption = (
-            "<br><sup>Days 1-16: real Open-Meteo forecast · "
-            "Days 17-30: seasonal climatology baseline</sup>"
-        )
+        horizon_caption = "<br><sup>Long-range weather can use seasonal context. Current cache coverage is not original input issuance.</sup>"
+
     fig.update_layout(
         **_layout(
             uirevision=f"{region}:{horizon_hours}",
@@ -1250,6 +1200,35 @@ def _outlook_tab_from_redis(
         f"{range_val:,.0f} MW",
         insight_card,
     )
+
+
+def _regional_actuals_json(region):
+    payload = redis_get(redis_key(f"actuals:{region}")) or {}
+    if not isinstance(payload, dict):
+        return None
+    stamps = payload.get("timestamps") or []
+    values = payload.get("demand_mw") or []
+    if not stamps or len(stamps) != len(values):
+        return None
+    return pd.DataFrame({"timestamp": stamps, "demand_mw": values}).to_json(date_format="iso")
+
+
+def _regional_weather_json(region):
+    payload = redis_get(redis_key(f"weather:{region}")) or {}
+    if not isinstance(payload, dict):
+        return None
+    stamps = payload.get("timestamps") or []
+    if not stamps:
+        return None
+    columns = {"timestamp": stamps}
+    columns.update(
+        {
+            key: value
+            for key, value in payload.items()
+            if key != "timestamps" and isinstance(value, list) and len(value) == len(stamps)
+        }
+    )
+    return pd.DataFrame(columns).to_json(date_format="iso")
 
 
 # ── Callback registration (Step 10c — register_callbacks split) ──────
@@ -1306,10 +1285,13 @@ def register_forecast_callbacks(app):
         [
             Input("forecast-panel-drivers-collapse", "is_open"),
             Input("weather-store", "data"),
+            Input("region-selector", "value"),
+            Input("outlook-horizon", "value"),
+            Input("outlook-model", "value"),
         ],
         State("dashboard-tabs", "active_tab"),
     )
-    def update_forecast_drivers_panel(is_open, weather_json, active_tab):
+    def update_forecast_drivers_panel(is_open, weather_json, region, horizon, model, active_tab):
         """Render the 3-up Drivers KPI grid (Temperature / Wind / Solar).
 
         Lazy: only computes when the collapse is open and the user is
@@ -1317,7 +1299,22 @@ def register_forecast_callbacks(app):
         """
         if active_tab != "tab-outlook" or not is_open:
             return no_update
-        return _build_drivers_panel(weather_json)
+        payload = redis_get(redis_key(f"forecast:{region}:1h")) or {}
+        identity = resolve_forecast_identity(payload, model or "published")
+        selected = selection_values(payload, identity, int(horizon or 24)) if identity else None
+        # Region-keyed weather avoids temporarily relabelling the prior store.
+        cached = redis_get(redis_key(f"weather:{region}")) or {}
+        stamps = cached.get("timestamps") or []
+        frame = {"timestamp": stamps}
+        for key in ("temperature_2m", "wind_speed_80m", "shortwave_radiation"):
+            values = cached.get(key)
+            if isinstance(values, list) and len(values) == len(stamps):
+                frame[key] = values
+        return _build_drivers_panel(
+            pd.DataFrame(frame).to_json(date_format="iso"),
+            selected[0] if selected else [],
+            identity.metric_key if identity else None,
+        )
 
     @app.callback(
         Output("forecast-generation-content", "children"),
@@ -1336,7 +1333,86 @@ def register_forecast_callbacks(app):
         """
         if active_tab != "tab-outlook" or not is_open:
             return no_update
+        if REQUIRE_REDIS:
+            demand_json = _regional_actuals_json(region)
         return _build_generation_panel(region, demand_json)
+
+    @app.callback(
+        Output("outlook-horizon", "value", allow_duplicate=True),
+        Input("forecast-extended-open", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def open_extended(click):
+        return "720" if click else no_update
+
+    @app.callback(
+        Output("forecast-target-evidence", "children"),
+        [
+            Input("outlook-model", "value"),
+            Input("outlook-horizon", "value"),
+            Input("region-selector", "value"),
+            Input("refresh-interval", "n_intervals"),
+        ],
+    )
+    def target_evidence(model, horizon, region, _ticks):
+        from components.weather_explorer import exact_table
+
+        payload = redis_get(redis_key(f"forecast:{region}:1h")) or {}
+        identity = resolve_forecast_identity(payload, model or "published")
+        selected = selection_values(payload, identity, int(horizon or 24)) if identity else None
+        if not selected:
+            return html.P(
+                "Exact targets unavailable for this selected cached source/horizon. No replacement values are generated."
+            )
+        times = pd.to_datetime(selected[0], utc=True)
+        values = np.asarray(selected[1], dtype=float)
+        changes = np.diff(values)
+        adjacent = np.diff(times.asi8) == pd.Timedelta(hours=1).value
+        ramps = [(float(v), times[i + 1]) for i, v in enumerate(changes) if adjacent[i]]
+        ramp = max(ramps, key=lambda x: abs(x[0])) if ramps else None
+        source = (
+            "The published reference repeats the last observed demand day without explicit weather adjustment."
+            if identity.metric_key == "baseline"
+            else "Trained model comparisons use weather and other inputs; this view does not isolate causal driver contributions."
+        )
+        from components.weather_explorer_data import WEATHER_FIELDS, _weather_frame, number
+
+        weather = _weather_frame(redis_get(redis_key(f"weather:{region}")) or {})
+        lookup = {row["timestamp"]: row for row in weather.to_dict("records")}
+        target_rows = []
+        for t, v in zip(times, values, strict=True):
+            row = lookup.get(t, {})
+            target_rows.append(
+                [
+                    t.isoformat(),
+                    str(v),
+                    *[
+                        str(number(row.get(key))) if number(row.get(key)) is not None else "Gap"
+                        for key in WEATHER_FIELDS
+                    ],
+                ]
+            )
+        return [
+            html.P(identity.label + " · " + identity.status + ". " + source),
+            html.P(
+                f"Generated: {payload.get('timing', {}).get('generated_at') or payload.get('scored_at') or 'unknown'} · {len(values)} targets. Largest adjacent-hour ramp: "
+                + (
+                    f"{ramp[0]:+,.0f} MW ending {ramp[1]:%d %b %Y %H:%M UTC}"
+                    if ramp
+                    else "unavailable"
+                )
+            ),
+            exact_table(
+                [
+                    "Target · UTC",
+                    identity.label + " · MW",
+                    "Temperature · °F",
+                    "Wind at 80 m · mph",
+                    "Solar radiation · W/m²",
+                ],
+                target_rows,
+            ),
+        ]
 
     # Scenarios panel — preset chip click writes deltas into the 3 sliders.
     @app.callback(
@@ -1446,8 +1522,33 @@ def register_forecast_callbacks(app):
             return no_update
         region = region or "FPL"
         cached = redis_get(redis_key(f"forecast:{region}:1h"))
-        return build_forecast_review(
-            forecast_review_context(region, cached, model_name or "published", int(horizon or 24))
+        context = forecast_review_context(
+            region, cached, model_name or "published", int(horizon or 24)
+        )
+        return html.Div(
+            [
+                html.Div(
+                    [
+                        html.Strong(context.get("display_label", "Source unavailable")),
+                        html.Span(context.get("display_status", "")),
+                        html.Span(
+                            context.get("error_label", "")
+                            + ": "
+                            + context.get("error_value", "Not available")
+                            + " · "
+                            + context.get("coverage_summary", "Scoring coverage unavailable")
+                        ),
+                    ],
+                    className="gp-forecast-source-line",
+                ),
+                html.Details(
+                    [
+                        html.Summary("Source, lead and scoring coverage"),
+                        build_forecast_review(context),
+                    ],
+                    className="gp-review-disclosure",
+                ),
+            ]
         )
 
     @app.callback(
@@ -1468,10 +1569,10 @@ def register_forecast_callbacks(app):
             Input("dashboard-tabs", "active_tab"),
             Input("demand-store", "data"),
             Input("persona-selector", "value"),
+            Input("region-selector", "value"),
         ],
         [
             State("weather-store", "data"),
-            State("region-selector", "value"),
         ],
         prevent_initial_call=True,
     )
@@ -1481,8 +1582,8 @@ def register_forecast_callbacks(app):
         active_tab,
         demand_json,
         persona_id,
-        weather_json,
         region,
+        weather_json,
     ):
         """Generate forward-looking demand forecast."""
         # Only run when this tab is active — avoids 10s+ model training on page load
@@ -1494,6 +1595,11 @@ def register_forecast_callbacks(app):
         horizon_hours = int(horizon)
         empty_insight = html.Div()
 
+        # Cache-keyed inputs prevent a selector/store arrival race without
+        # bypassing the existing completed-pass vs warming status guard.
+        if REQUIRE_REDIS and region:
+            demand_json = _regional_actuals_json(region)
+            weather_json = _regional_weather_json(region)
         # ── v2 Redis fast path ──────────────────────────────
         if region:
             redis_result = _outlook_tab_from_redis(
@@ -1908,7 +2014,7 @@ def _generation_df_from_redis(region: str) -> pd.DataFrame | None:
     if not rows:
         return None
     df = pd.DataFrame(rows)
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
     return df
 
 
@@ -1968,7 +2074,7 @@ def _fetch_generation_cached(region: str) -> pd.DataFrame | None:
     return None
 
 
-def _build_drivers_panel(weather_json: str | None) -> list:
+def _build_drivers_panel(weather_json: str | None, target_timestamps=None, source_key=None) -> list:
     """3-up KPI cells (Temperature / Wind / Solar) with current value + 24h sparkline.
 
     The Forecast tab's Drivers inline panel calls this when its collapse
@@ -1988,11 +2094,16 @@ def _build_drivers_panel(weather_json: str | None) -> list:
     if wdf.empty or "timestamp" not in wdf.columns:
         return _drivers_empty()
 
-    wdf = wdf.copy()
-    wdf["timestamp"] = pd.to_datetime(wdf["timestamp"])
-    wdf = wdf.sort_values("timestamp")
-    # Window: latest 24 rows (assume hourly cadence)
-    horizon = wdf.tail(24)
+    if target_timestamps is None or len(target_timestamps) == 0:
+        return _drivers_empty()
+    targets = pd.to_datetime(target_timestamps, utc=True, errors="coerce")
+    targets = targets[~pd.isna(targets)]
+    if len(targets) == 0:
+        return _drivers_empty()
+    horizon = forecast_weather_window(wdf, targets.min(), targets.max())
+    horizon = horizon[horizon["timestamp"].isin(targets)]
+    if horizon.empty:
+        return _drivers_empty()
 
     drivers = [
         {
@@ -2004,7 +2115,7 @@ def _build_drivers_panel(weather_json: str | None) -> list:
             "fmt": lambda v: f"{v:.0f}",
         },
         {
-            "label": "Wind",
+            "label": "Wind at 80 m",
             "column": "wind_speed_80m",
             "unit": "mph",
             "color": "#34d399",
@@ -2027,7 +2138,7 @@ def _build_drivers_panel(weather_json: str | None) -> list:
         if col not in horizon.columns or horizon[col].isna().all():
             cells.append(_driver_cell_empty(d["label"]))
             continue
-        latest = float(horizon[col].iloc[-1])
+        latest = float(horizon[col].dropna().iloc[-1])
         avg = float(horizon[col].mean())
         delta = latest - avg
         delta_class = (
@@ -2052,7 +2163,7 @@ def _build_drivers_panel(weather_json: str | None) -> list:
                     html.Div(
                         [
                             html.Span(
-                                f"{delta:+.1f} vs 24h avg",
+                                f"{len(horizon[col].dropna())}/{len(targets)} target hours · avg {d['fmt'](avg)}",
                                 className=f"gp-metric-sub {delta_class}",
                             ),
                         ],
@@ -2066,7 +2177,19 @@ def _build_drivers_panel(weather_json: str | None) -> list:
                 className="gp-driver-cell",
             )
         )
-    return cells
+    note = (
+        "The published reference repeats the last observed demand day without explicit weather adjustment."
+        if source_key == "baseline"
+        else "Trained comparisons use weather with other inputs; this is context, not causal attribution."
+    )
+    return [
+        html.P(
+            f"Regional forecast weather · {targets.min():%d %b %H:%M}–{targets.max():%d %b %Y %H:%M} UTC. "
+            + note,
+            className="gp-muted",
+        ),
+        *cells,
+    ]
 
 
 def _drivers_empty() -> list:
@@ -2128,7 +2251,7 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
         return _generation_empty()
 
     df = gen_df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
     df = df.sort_values("timestamp")
 
     # Window: latest 24 hours
@@ -2185,7 +2308,7 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
     if demand_json:
         try:
             ddf = pd.read_json(io.StringIO(demand_json))
-            ddf["timestamp"] = pd.to_datetime(ddf["timestamp"])
+            ddf["timestamp"] = pd.to_datetime(ddf["timestamp"], utc=True)
             ddf = ddf.sort_values("timestamp")
             common = pivot.index.intersection(ddf.set_index("timestamp").index)
             if len(common) >= 2:
@@ -2285,14 +2408,41 @@ def _build_generation_panel(region: str | None, demand_json: str | None) -> html
 
     return html.Div(
         [
+            html.P(
+                f"Reported generation · {pivot.index.min():%d %b %H:%M}–{pivot.index.max():%d %b %Y %H:%M} UTC · {len(pivot)} timestamps. Renewable share includes wind, solar and hydro. Net load = exact UTC demand − wind − solar; absent fuel columns are treated as zero, which can overstate net load. Unreported fuel-hour cells are zero in this source view.",
+                className="gp-muted",
+            ),
             sub_metrics,
             dcc.Graph(
                 figure=fig,
                 config={"displayModeBar": False, "responsive": True},
                 style={"height": "320px"},
             ),
+            html.Details(
+                [
+                    html.Summary("Exact displayed generation values"),
+                    html.P(
+                        "Same UTC timestamps and fuel-hour cells as the chart. Unreported cells are zero in this source display, not verified absence of generation.",
+                        className="gp-muted",
+                    ),
+                    _generation_values(pivot),
+                ],
+                className="gp-review-disclosure",
+            ),
         ],
         className="gp-generation-stack",
+    )
+
+
+def _generation_values(pivot):
+    from components.weather_explorer import exact_table
+
+    return exact_table(
+        ["Reported time · UTC", *[str(fuel) + " · MW" for fuel in pivot.columns]],
+        [
+            [stamp.isoformat(), *[str(value) for value in row]]
+            for stamp, row in zip(pivot.index, pivot.to_numpy(), strict=True)
+        ],
     )
 
 

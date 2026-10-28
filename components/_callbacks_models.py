@@ -42,7 +42,7 @@ re-import), so tests against that specific call site can still use
 
 from __future__ import annotations
 
-import io
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -384,7 +384,7 @@ def _error_band_label(grade: str | None, horizon: str) -> str:
     return "Unassessed"
 
 
-def _build_drift_panel(region: str | None) -> html.Div:
+def _build_drift_panel(region: str | None, metrics: dict | None = None) -> html.Div:
     """Show live 1h MAPE, with training holdout scores as separate context.
 
     Gate the seven-day average on 24 in-window observations. Above-band
@@ -397,9 +397,10 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
     # Pull holdout MAPE from the same resolver the leaderboard uses,
     # so the "holdout" column here matches what the leaderboard shows.
-    from models.model_service import get_model_metrics
+    if metrics is None:
+        from models.model_service import get_model_metrics
 
-    metrics = get_model_metrics(region) or {}
+        metrics = get_model_metrics(region) or {}
 
     if not isinstance(drift_payload, dict) or not drift_payload.get("models"):
         return html.Div(
@@ -588,6 +589,12 @@ def _build_drift_panel(region: str | None) -> html.Div:
                     # otherwise) — showing total history next to a 7d stat
                     # overstated the sample (P2-21).
                     html.Td(str(n_eff), className="gp-drift-cell--n"),
+                    html.Td(
+                        str(n_30d)
+                        if (n_30d := _count(drift.get("n_30d"))) is not None
+                        else "Unavailable",
+                        className="gp-drift-cell--n30d",
+                    ),
                 ]
             )
         )
@@ -653,7 +660,8 @@ def _build_drift_panel(region: str | None) -> html.Div:
                             "Live first-hour (7d avg)",
                             "Live first-hour (30d avg)",
                             "Status",
-                            "n",
+                            "n (7d)",
+                            "n (30d)",
                         ]
                     ]
                 )
@@ -693,95 +701,172 @@ def _build_drift_panel(region: str | None) -> html.Div:
 
 
 def _build_horizon_drift_panel(region: str | None) -> html.Div:
-    """Keep hourly clock samples and legacy origin-offset diagnostics separate."""
-    legacy = _build_legacy_horizon_drift_panel(region)
+    """Show sampled-lead evidence and aggregate categories, keeping legacy offsets advanced."""
+    from data.forecast_evidence import utc_timestamp
+
     sampled = redis_get(redis_key(f"drift_hourly:{region or 'FPL'}:summary"))
+    legacy = html.Details(
+        [
+            html.Summary("Advanced: legacy forecast-start offsets · separate sample"),
+            _build_legacy_horizon_drift_panel(region),
+        ]
+    )
     if (
         not isinstance(sampled, dict)
         or sampled.get("schema_version") != 1
         or sampled.get("sampling_basis") != "hourly_observation_before_target"
     ):
-        return legacy
+        return html.Div(
+            [
+                html.P(
+                    "Hourly-sampled error is unavailable for this region. Legacy offsets below "
+                    "do not substitute for this sampling clock.",
+                    className="gp-panel__placeholder",
+                ),
+                legacy,
+            ],
+            className="gp-models-drift-panel",
+            id="hourly-horizon-drift-panel",
+        )
+    models = sampled.get("models") or {}
+    models = models if isinstance(models, dict) else {}
+    categories = (
+        ("not_yet_tracked_hours", "Not yet tracked"),
+        ("missing_sample_hours", "Missing samples"),
+        ("series_unavailable_hours", "Series unavailable"),
+        ("pending_actual_hours", "Pending actuals / quality resolution"),
+        ("quality_guard_excluded_hours", "Quality-guard excluded actuals"),
+        ("low_actual_excluded_hours", "Low-actual exclusions"),
+    )
     rows = []
-    for model in ("prophet", "arima", "xgboost", "ensemble", "baseline"):
-        cells = [html.Td(model_display_name(model) if model != "baseline" else "Seasonal baseline")]
+    for model in (*_MODELS, "baseline"):
+        if model not in models:
+            continue
+        cells = [html.Td("Seasonal baseline" if model == "baseline" else model_display_name(model))]
         for horizon in ("24h", "48h", "72h"):
-            block = (sampled.get("models", {}).get(model) or {}).get(horizon) or {}
-            count = block.get("n_7d", 0)
-            score = block.get("rolling_mape_7d")
-            if isinstance(score, (int, float)) and np.isfinite(score) and score >= 0 and count >= 6:
-                text = f"{score:.2f}%"
-            elif count or block.get("future_sample_hours"):
-                text = "Collecting"
-            else:
-                text = "Not sampled"
-            cells.append(
-                html.Td(
+            block = (models.get(model) or {}).get(horizon) or {}
+            coverage = block.get("coverage_7d") or {}
+            coverage = coverage if isinstance(coverage, dict) else {}
+            count, score = _count(block.get("n_7d")), _number(block.get("rolling_mape_7d"))
+            possible, scored = (
+                _number(coverage.get(k)) for k in ("possible_target_hours", "scored_target_hours")
+            )
+            score_text = (
+                f"{score:.2f}%"
+                if (score is not None and score >= 0 and count is not None and count >= 6)
+                else ("Collecting" if block else "Unavailable")
+            )
+            future = _count(block.get("future_sample_hours"))
+            n_text = "Unavailable" if count is None else str(int(count))
+            children = [
+                html.Span(score_text, className="gp-drift-horizon-mape"),
+                html.Span(
+                    f"n = {n_text} scored observations; future samples: "
+                    + (str(int(future)) if future is not None else "Unavailable"),
+                    className="gp-models-coverage-caption",
+                ),
+            ]
+            if (
+                possible is not None
+                and possible > 0
+                and scored is not None
+                and 0 <= scored <= possible
+            ):
+                children.extend(
                     [
-                        html.Span(text, className="gp-drift-horizon-mape"),
                         html.Span(
-                            f"{count} / 168 scored · future samples: {block.get('future_sample_hours', 0)}",
-                            className="gp-panel__caption",
+                            f"{int(scored)} / {int(possible)} target hours scored",
+                            className="gp-models-coverage-caption",
                         ),
-                    ],
-                    className="gp-drift-cell--horizon",
+                        html.Div(
+                            [
+                                html.Span(style={"width": f"{scored / possible * 100:.3f}%"}),
+                                html.I(),
+                            ],
+                            className="gp-models-coverage",
+                            role="img",
+                            **{
+                                "aria-label": f"Aggregate coverage: {int(scored)} of {int(possible)} "
+                                "possible target hours, not positions of missing hours"
+                            },
+                        ),
+                    ]
+                )
+            else:
+                children.append(
+                    html.Span(
+                        "Target-hour coverage unavailable", className="gp-models-coverage-caption"
+                    )
+                )
+            children.append(
+                html.Details(
+                    [
+                        html.Summary("Coverage categories & clocks"),
+                        *[
+                            html.P(
+                                label
+                                + ": "
+                                + (
+                                    str(int(value))
+                                    if (value := _count(coverage.get(key))) is not None
+                                    else "Unavailable"
+                                )
+                            )
+                            for key, label in categories
+                        ],
+                        html.P(
+                            "Window UTC: "
+                            + (utc_timestamp(coverage.get("window_start")) or "Unavailable")
+                            + " → "
+                            + (utc_timestamp(coverage.get("window_end")) or "Unavailable")
+                        ),
+                        html.P(
+                            "First tracked target UTC: "
+                            + (utc_timestamp(block.get("first_target_at")) or "Unavailable")
+                        ),
+                    ]
                 )
             )
+            cells.append(html.Td(children, className="gp-drift-cell--horizon"))
         rows.append(html.Tr(cells))
-    first = (sampled.get("models", {}).get("ensemble") or {}).get("24h", {}).get("first_target_at")
     return html.Div(
         [
+            html.Div("Hourly-sampled lead · trailing 7d MAPE", className="gp-control-eyebrow"),
+            html.P(
+                "Each forecast is sampled H ≤ lead < H+1 hours before its target: 24–<25, "
+                "48–<49 or 72–<73h. This observation clock differs from publication time and "
+                "input origin. Six scored observations permit an average but do not establish "
+                "representative coverage. Quality-flagged actuals stay excluded until a revision "
+                "passes the same checks. Bars summarize counts, not missing-hour locations.",
+                className="gp-panel__caption",
+            ),
+            html.P(
+                "Updated UTC: " + (utc_timestamp(sampled.get("last_updated_at")) or "Unavailable"),
+                className="gp-panel__caption",
+            ),
             html.Div(
-                [
-                    html.Div("Hourly observation scores — 7d MAPE", className="gp-control-eyebrow"),
-                    html.P(
-                        "Each forecast is sampled at least H and less than H+1 hours before its target. "
-                        "This sampling clock is independent of the forecast's input origin and original "
-                        "publication time. Six scored observations are required to display an average; "
-                        "that display rule does not establish representative coverage. "
-                        "Quality-flagged actuals stay excluded until a revision passes the same checks.",
-                        className="gp-panel__caption",
-                    ),
-                    html.P(
-                        f"Collection started: {sampled.get('capture_started_at')}. First 24h target (UTC): {first}.",
-                        className="gp-panel__caption",
-                    ),
-                    html.Div(
-                        html.Table(
-                            [
-                                html.Thead(
-                                    html.Tr(
-                                        [
-                                            html.Th("Model"),
-                                            *[
-                                                html.Th(f"≥{h} sample lead")
-                                                for h in ("24h", "48h", "72h")
-                                            ],
-                                        ]
-                                    )
-                                ),
-                                html.Tbody(rows),
-                            ],
-                            className="metrics-table",
+                html.Table(
+                    [
+                        html.Thead(
+                            html.Tr(
+                                [
+                                    html.Th("Model"),
+                                    *[html.Th(f"≥{h} sample lead") for h in ("24h", "48h", "72h")],
+                                ]
+                            )
                         ),
-                        className="gp-drift-table-scroll",
-                        role="region",
-                        tabIndex=0,
-                        **{
-                            "aria-label": "Hourly observation scores; scroll horizontally if needed"
-                        },
-                    ),
-                ],
-                className="gp-models-drift-panel",
+                        html.Tbody(rows),
+                    ],
+                    className="metrics-table",
+                ),
+                className="gp-drift-table-scroll",
+                role="region",
+                tabIndex=0,
+                **{"aria-label": "Hourly-sampled model error and coverage; scroll horizontally"},
             ),
-            html.Details(
-                [
-                    html.Summary("Legacy forecast-start-offset diagnostics (separate sample)"),
-                    legacy,
-                ]
-            ),
+            legacy,
         ],
-        className="gp-models-drift-stack",
+        className="gp-models-drift-panel",
         id="hourly-horizon-drift-panel",
     )
 
@@ -946,283 +1031,575 @@ def _get_feature_importance(region: str, top_n: int = 10) -> tuple[list[str], np
     return [], np.array([], dtype=float)
 
 
-# ── Callback registration (Step 10c — register_callbacks split) ──────
+_MODELS = ("prophet", "arima", "xgboost", "ensemble")
+_DIAGNOSTIC_PAGE_SIZE = 50
 
 
-def register_models_callbacks(app):
-    """Register Models tab callbacks with the Dash app.
+def _number(value: object) -> float | None:
+    """Return a finite numeric value, preserving real zero and signed residuals."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (ValueError, TypeError):
+        return None
+    return result if np.isfinite(result) else None
 
-    Step 10c of the ``register_callbacks`` decomposition. Owns three
-    callbacks driving the Models / Diagnostics tab:
 
-    * ``update_models_title`` — page title block
-    * ``update_models_leaderboard`` — 5-up model-comparison MetricsBar
-    * ``update_models_tab`` — metrics table + 5 residual / feature-importance figures,
-      with Redis fast path (``_models_tab_from_redis``) + v1 compute
-      fallback.
+def _count(value: object) -> int | None:
+    """Unknown or invalid counts stay unavailable rather than becoming zero."""
+    number = _number(value)
+    return int(number) if number is not None and number >= 0 and number.is_integer() else None
 
-    The compute fallback uses ``COLORS`` and ``_layout`` from shared
-    plus the legacy v1 in-line residual figure builders. Once every
-    region is reliably populated by the scoring job, the fallback could
-    be deleted entirely — see the per-model coverage check in
-    ``_models_tab_from_redis``.
-    """
+
+def _cached_model_payload(region: str) -> dict:
+    """Read the published metrics carrier without local model or network fallbacks."""
+    payload = redis_get(redis_key(f"forecast:{region}:1h"))
+    if not isinstance(payload, dict) or payload.get("region", region) != region:
+        return {}
+    return payload
+
+
+def _training_table(region: str, selected: list[str] | None) -> html.Div | html.Table:
+    """Filter only real cached training metrics; do not calculate predictions."""
+    metrics = _cached_model_payload(region).get("model_metrics") or {}
+    chosen = [key for key in _MODELS if key in (selected if isinstance(selected, list) else [])]
+    if not chosen:
+        return html.Div(
+            "Select a model to compare training metrics.", className="gp-panel__placeholder"
+        )
+    if not isinstance(metrics, dict) or not metrics:
+        return html.Div(
+            "Training holdout metrics are not available in this region's cached payload.",
+            className="gp-panel__placeholder",
+        )
+    rows = []
+    for key in chosen:
+        values = metrics.get(key) if isinstance(metrics.get(key), dict) else {}
+        cells = []
+        for field, fmt in (("mape", ".2f"), ("rmse", ",.0f"), ("mae", ",.0f"), ("r2", ".4f")):
+            value = _number(values.get(field))
+            if field != "r2" and value is not None and value < 0:
+                value = None
+            cells.append(
+                html.Td(
+                    "Unavailable"
+                    if value is None
+                    else format(value, fmt) + ("%" if field == "mape" else "")
+                )
+            )
+        rows.append(html.Tr([html.Td(model_display_name(key)), *cells]))
+    return html.Table(
+        [
+            html.Thead(
+                html.Tr([html.Th(v) for v in ("Model", "MAPE", "RMSE · MW", "MAE · MW", "R²")])
+            ),
+            html.Tbody(rows),
+        ],
+        className="metrics-table",
+    )
+
+
+def _training_period(region: str) -> html.Div:
+    """Keep payload generation distinct from unavailable holdout evaluation dates."""
+    from data.forecast_evidence import utc_timestamp
+
+    payload = _cached_model_payload(region)
+    generated = utc_timestamp(payload.get("scored_at"))
+    return html.Div(
+        [
+            html.P(
+                "Holdout evaluation: 168h recursive. Exact evaluation start/end and training "
+                "completion time are not published in the current metrics cache."
+            ),
+            html.P(
+                f"Metrics carrier generated: {generated or 'Unavailable'}. "
+                "This is the scoring payload clock, not the training period."
+            ),
+        ],
+        className="gp-models-period",
+    )
+
+
+def _diagnostic_data(cached: dict | None) -> dict:
+    """Retain aligned cached residuals and derive transparent summaries, never model output."""
+    from data.forecast_evidence import utc_timestamp
+
+    cached = cached if isinstance(cached, dict) else {}
+    source = cached.get("residual_source") or {}
+    source = source if isinstance(source, dict) else {}
+    times = cached.get("timestamps")
+    times = times if isinstance(times, list) else []
+    residuals = cached.get("residuals")
+    residuals = residuals if isinstance(residuals, list) else []
+    predicted = cached.get("predicted", cached.get("ensemble", []))
+    predicted = predicted if isinstance(predicted, list) else []
+    actual = cached.get("actual")
+    actual = actual if isinstance(actual, list) else []
+    records: list[dict] = []
+    if (
+        cached.get("diagnostics_source") != "unavailable"
+        and isinstance(times, list)
+        and isinstance(residuals, list)
+        and len(times) == len(residuals)
+    ):
+        for i, (stamp, raw) in enumerate(zip(times, residuals, strict=True)):
+            value = _number(raw)
+            if value is None:
+                continue
+            utc = utc_timestamp(stamp)
+            inferred = False
+            if (
+                utc is None
+                and cached.get("diagnostics_source") == "backtest"
+                and source.get("kind") == "walk_forward_backtest"
+                and isinstance(stamp, str)
+            ):
+                try:
+                    parsed = pd.Timestamp(stamp)
+                    if not pd.isna(parsed) and parsed.tzinfo is None:
+                        utc = parsed.tz_localize("UTC").isoformat()
+                        inferred = True
+                except (ValueError, TypeError):
+                    pass
+            clock_basis = (
+                "Pipeline UTC; legacy offset omitted"
+                if inferred
+                else "Explicit UTC offset"
+                if utc
+                else "UTC unavailable"
+            )
+            records.append(
+                {
+                    "source_time": str(stamp),
+                    "utc": utc,
+                    "clock_basis": clock_basis,
+                    "inferred_utc": inferred,
+                    "time": utc or f"{stamp} · clock unavailable / offset missing",
+                    "residual": value,
+                    "predicted": _number(predicted[i])
+                    if len(predicted) == len(residuals)
+                    else None,
+                    "actual": _number(actual[i]) if len(actual) == len(residuals) else None,
+                }
+            )
+    hist: list[dict] = []
+    hourly: list[dict] = []
+    if records:
+        vals = np.asarray([r["residual"] for r in records])
+        edges = np.histogram_bin_edges(vals, bins="auto")
+        if len(edges) > 51:
+            edges = np.linspace(float(vals.min()), float(vals.max()), 51)
+        counts, edges = np.histogram(vals, bins=edges)
+        hist = [
+            {"lower": float(edges[i]), "upper": float(edges[i + 1]), "count": int(n)}
+            for i, n in enumerate(counts)
+        ]
+        dated = [
+            {"hour": pd.Timestamp(r["utc"]).hour, "error": abs(r["residual"])}
+            for r in records
+            if r["utc"]
+        ]
+        if dated:
+            groups = pd.DataFrame(dated).groupby("hour")["error"]
+            hourly = [
+                {"hour": int(hour), "mae": float(values.mean()), "count": int(values.count())}
+                for hour, values in groups
+            ]
+    fi = cached.get("feature_importance") or {}
+    importance: list[dict] = []
+    if (
+        isinstance(fi, dict)
+        and isinstance(fi.get("names"), list)
+        and isinstance(fi.get("values"), list)
+        and len(fi["names"]) == len(fi["values"])
+    ):
+        for name, raw in zip(fi["names"], fi["values"], strict=True):
+            value = _number(raw)
+            if isinstance(name, str) and value is not None and value >= 0:
+                importance.append({"feature": name, "importance": value})
+    return {
+        "rows": records,
+        "histogram": hist,
+        "hourly": hourly,
+        "importance": importance,
+        "source": source,
+        "raw_count": len(residuals) if isinstance(residuals, list) else 0,
+    }
+
+
+def _diagnostic_figures(data: dict, region: str) -> tuple[list[go.Figure], html.Div]:
+    """Plot one fixed cached series, with signed zero and explicit sample/clock scope."""
+    rows, hist, hourly, importance = (
+        data[k] for k in ("rows", "histogram", "hourly", "importance")
+    )
+    source = data["source"]
+    model = model_display_name(source.get("model")) if source.get("model") else "Model unspecified"
+    kind = (
+        "walk-forward backtest"
+        if source.get("kind") == "walk_forward_backtest"
+        else "cached residual series"
+    )
+    mode = source.get("exog_mode")
+    mode_label = _EXOG_MODE_CAPTIONS.get(mode, mode) if mode else "exogenous mode unspecified"
+    horizon = source.get("horizon")
+    horizon_label = f"{horizon}h" if horizon is not None else "Horizon unavailable"
+    dates = sorted(r["utc"] for r in rows if r["utc"])
+    inferred_count = sum(bool(r.get("inferred_utc")) for r in rows)
+    period = (
+        f"{dates[0]} → {dates[-1]}" if dates else "UTC window unavailable; no qualified UTC targets"
+    )
+    legacy_clock_note = (
+        f" {inferred_count} legacy offset-free timestamps use the documented UTC "
+        "backtest-pipeline contract; other unknown clocks stay unknown."
+        if inferred_count
+        else ""
+    )
+    caption = html.Div(
+        [
+            html.P(
+                f"{model} · {horizon_label} {kind} · {mode_label}. "
+                f"{len(rows)} finite residual samples; {len(dates)} have UTC targets. "
+                f"Window: {period}.{legacy_clock_note}"
+            ),
+            html.P(
+                "Residual = actual − prediction. Positive means reported demand was above the "
+                "forecast; negative means below. This fixed cached series is independent of the "
+                "training comparison filter; it is not a live forecast-error series."
+            ),
+            html.P(
+                f"{data['raw_count'] - len(rows)} residual entries were excluded because values or "
+                "timestamp-array alignment were unavailable. UTC charts omit unknown clocks; "
+                "the exact table retains their source strings."
+            ),
+        ],
+        className="gp-models-scope",
+    )
+    empty = (
+        "Cached backtest diagnostics unavailable. Published aligned backtest outputs are required."
+    )
+    figs = [_empty_figure(empty) for _ in range(5)]
+    revision = f"{region}:fixed-cached-diagnostics"
+    purple = "#a68bdb"
+    dated = [r for r in rows if r["utc"]]
+    if dated:
+        from data.preprocessing import lttb_downsample
+
+        times, values = lttb_downsample(
+            pd.to_datetime([r["utc"] for r in dated], utc=True).tz_localize(None).to_numpy(),
+            np.asarray([r["residual"] for r in dated]),
+            threshold=720,
+        )
+        figs[0] = go.Figure(
+            go.Scatter(
+                x=times, y=values, mode="lines", name=model, line={"color": purple, "width": 1.5}
+            )
+        )
+        figs[0].update_layout(
+            **_layout(
+                uirevision=revision,
+                xaxis_title="Target time · UTC",
+                yaxis_title="Actual − prediction · MW",
+            )
+        )
+    if hist:
+        figs[1] = go.Figure(
+            go.Bar(
+                x=[(r["lower"] + r["upper"]) / 2 for r in hist],
+                y=[r["count"] for r in hist],
+                width=[r["upper"] - r["lower"] for r in hist],
+                marker_color=purple,
+                customdata=[[r["lower"], r["upper"]] for r in hist],
+                hovertemplate="Residual bin %{customdata[0]:,.3f} to %{customdata[1]:,.3f} MW<br>Count %{y}<extra></extra>",
+            )
+        )
+        figs[1].update_layout(
+            **_layout(
+                uirevision=revision,
+                xaxis_title="Residual bin · MW",
+                yaxis_title="Sample count",
+                bargap=0.06,
+            )
+        )
+        figs[1].update_yaxes(rangemode="tozero")
+    paired = [r for r in rows if r["predicted"] is not None]
+    if paired:
+        figs[2] = go.Figure(
+            go.Scatter(
+                x=[r["predicted"] for r in paired],
+                y=[r["residual"] for r in paired],
+                mode="markers",
+                marker={"color": purple, "size": 4, "opacity": 0.55},
+                name=model,
+            )
+        )
+        figs[2].update_layout(
+            **_layout(
+                uirevision=revision,
+                xaxis_title="Predicted demand · MW",
+                yaxis_title="Actual − prediction · MW",
+            )
+        )
+    if hourly:
+        figs[3] = go.Figure(
+            go.Bar(
+                x=[r["hour"] for r in hourly],
+                y=[r["mae"] for r in hourly],
+                customdata=[r["count"] for r in hourly],
+                marker_color=purple,
+                hovertemplate="Target hour %{x}:00 UTC<br>MAE %{y:,.3f} MW<br>n=%{customdata}<extra></extra>",
+            )
+        )
+        figs[3].update_layout(
+            **_layout(
+                uirevision=revision,
+                xaxis_title="Target hour · UTC",
+                yaxis_title="Mean absolute error · MW",
+            )
+        )
+        figs[3].update_yaxes(rangemode="tozero")
+    if importance:
+        ordered = sorted(importance, key=lambda r: r["importance"])
+        figs[4] = go.Figure(
+            go.Bar(
+                x=[r["importance"] for r in ordered],
+                y=[r["feature"] for r in ordered],
+                orientation="h",
+                marker_color="#82a6cb",
+            )
+        )
+        figs[4].update_layout(
+            **_layout(uirevision=revision, xaxis_title="Built-in importance · unitless")
+        )
+        figs[4].update_layout(margin={"l": 155, "r": 20, "t": 20, "b": 45})
+    else:
+        figs[4] = _empty_figure("Cached XGBoost feature importance unavailable for this region.")
+    if rows:
+        values = [r["residual"] for r in rows]
+        lo, hi = min(0.0, min(values)), max(0.0, max(values))
+        pad = (hi - lo) * 0.08 or 1.0
+        for index in (0, 2):
+            if figs[index].data:
+                figs[index].add_hline(y=0, line={"color": "#c5cddd", "dash": "dash", "width": 1})
+                figs[index].update_yaxes(range=[lo - pad, hi + pad])
+    return figs, caption
+
+
+def _exact_table(headers: list[str], rows: list[list]) -> html.Div:
+    """Provide keyboard-scrollable exact values without decimal rounding."""
+    return html.Div(
+        html.Table(
+            [
+                html.Thead(html.Tr([html.Th(h) for h in headers])),
+                html.Tbody(
+                    [
+                        html.Tr([html.Td("Unavailable" if v is None else str(v)) for v in row])
+                        for row in rows
+                    ]
+                ),
+            ],
+            className="metrics-table",
+        ),
+        className="gp-models-table-scroll",
+        role="region",
+        tabIndex=0,
+        **{"aria-label": headers[0] + " diagnostic values; scroll horizontally"},
+    )
+
+
+def _diagnostic_evidence(data: dict | None, page: object) -> html.Div:
+    """Page every retained residual; expose actual histogram counts, hourly n and importance."""
+    if not isinstance(data, dict):
+        return html.Div("Cached diagnostic values unavailable.")
+    rows = data.get("rows") or []
+    pages = max(1, (len(rows) + _DIAGNOSTIC_PAGE_SIZE - 1) // _DIAGNOSTIC_PAGE_SIZE)
+    try:
+        selected = max(1, min(pages, int(page or 1)))
+    except (ValueError, TypeError):
+        selected = 1
+    start = (selected - 1) * _DIAGNOSTIC_PAGE_SIZE
+    return html.Div(
+        [
+            html.P(
+                f"Residual rows {start + 1 if rows else 0}–{min(start + _DIAGNOSTIC_PAGE_SIZE, len(rows))} "
+                f"of {len(rows)}. Source strings are retained when no UTC offset was supplied.",
+                className="gp-models-table-caption",
+            ),
+            _exact_table(
+                [
+                    "Target UTC / qualified source clock",
+                    "Source timestamp",
+                    "Clock basis",
+                    "Actual · MW",
+                    "Predicted · MW",
+                    "Actual − prediction · MW",
+                ],
+                [
+                    [
+                        r["time"],
+                        r["source_time"],
+                        r.get("clock_basis"),
+                        r["actual"],
+                        r["predicted"],
+                        r["residual"],
+                    ]
+                    for r in rows[start : start + _DIAGNOSTIC_PAGE_SIZE]
+                ],
+            ),
+            html.H3("Residual histogram bins", className="gp-control-eyebrow"),
+            html.P(
+                "NumPy auto-width bins, capped at 50. Lower edges inclusive; upper edges exclusive "
+                "except the final bin, whose upper edge is included. Counts sum to retained residuals."
+            ),
+            _exact_table(
+                ["Lower residual · MW", "Upper residual · MW", "Count"],
+                [[r["lower"], r["upper"], r["count"]] for r in data.get("histogram", [])],
+            ),
+            html.H3("Mean absolute error by target hour", className="gp-control-eyebrow"),
+            _exact_table(
+                ["Hour · UTC", "MAE · MW", "n"],
+                [[r["hour"], r["mae"], r["count"]] for r in data.get("hourly", [])],
+            ),
+            html.H3("Built-in XGBoost importance", className="gp-control-eyebrow"),
+            _exact_table(
+                ["Feature", "Importance · unitless"],
+                [[r["feature"], r["importance"]] for r in data.get("importance", [])],
+            ),
+        ]
+    )
+
+
+def register_models_callbacks(app: Any) -> None:
+    """Register cached, independently scoped model evidence callbacks."""
     from components.cards import build_page_title
     from config import REGION_NAMES
 
     @app.callback(
         Output("models-title", "children"),
-        [
-            Input("region-selector", "value"),
-            Input("dashboard-tabs", "active_tab"),
-        ],
+        Input("region-selector", "value"),
+        Input("dashboard-tabs", "active_tab"),
     )
-    def update_models_title(region, active_tab):
-        """Page title for the Models tab."""
+    def update_models_title(region: str | None, active_tab: str) -> Any:
         if active_tab != "tab-models":
             return no_update
-
-        region = region or "FPL"
-        region_name = REGION_NAMES.get(region, region)
         return build_page_title(
             "Models",
-            f"Forecast accuracy, residuals, and feature importance · {region_name}",
+            "Observed error, training reference and cached backtest diagnostics · "
+            + REGION_NAMES.get(region or "FPL", region or "FPL"),
         )
+
+    @app.callback(
+        Output("models-observed-section", "style"),
+        Output("models-training-section", "style"),
+        Output("models-backtest-section", "style"),
+        Input("models-section", "value"),
+    )
+    def show_models_section(section: str | None) -> tuple[dict, dict, dict]:
+        selected = section if section in {"observed", "training", "backtest"} else "observed"
+        return tuple(
+            {} if selected == name else {"display": "none"}
+            for name in ("observed", "training", "backtest")
+        )
+
+    @app.callback(
+        Output("models-drift-panel", "style"),
+        Output("models-first-hour-panel", "style"),
+        Input("models-observed-basis", "value"),
+    )
+    def show_models_observed_basis(basis: str | None) -> tuple[dict, dict]:
+        return ({"display": "none"}, {}) if basis == "first" else ({}, {"display": "none"})
 
     @app.callback(
         Output("models-leaderboard", "children"),
-        [
-            Input("region-selector", "value"),
-            Input("dashboard-tabs", "active_tab"),
-        ],
+        Input("region-selector", "value"),
+        Input("dashboard-tabs", "active_tab"),
     )
-    def update_models_leaderboard(region, active_tab):
-        """5-up MetricsBar leaderboard — one column per model with MAPE."""
-        if active_tab != "tab-models":
-            return no_update
-        return _build_models_leaderboard(region)
+    def update_models_leaderboard(region: str | None, active_tab: str) -> Any:
+        return _training_period(region or "FPL") if active_tab == "tab-models" else no_update
 
     @app.callback(
         Output("models-drift-panel", "children"),
-        [
-            Input("region-selector", "value"),
-            Input("dashboard-tabs", "active_tab"),
-        ],
+        Output("models-first-hour-panel", "children"),
+        Input("region-selector", "value"),
+        Input("dashboard-tabs", "active_tab"),
+        Input("demand-store", "data"),
     )
-    def update_models_drift_panel(region, active_tab):
-        """Per-model live drift table — #121 part 2.
-
-        Compares rolling 7d / 30d MAPE (from gridpulse:drift:{region},
-        written hourly by the scoring job in #121 part 1) against each
-        model's training-time holdout MAPE. Renders warming state for
-        the first ~24 hours post-deploy until the rolling window fills.
-        """
+    def update_models_drift_panel(
+        region: str | None, active_tab: str, demand_json: str | None
+    ) -> Any:
         if active_tab != "tab-models":
-            return no_update
-        # 1-hour panel + the #227 per-horizon panel, stacked in the same slot.
-        return html.Div(
-            [
-                _build_drift_panel(region),
-                _build_horizon_drift_panel(region),
-            ],
-            className="gp-models-drift-stack",
+            return no_update, no_update
+        metrics = _cached_model_payload(region or "FPL").get("model_metrics")
+        metrics = metrics if isinstance(metrics, dict) else {}
+        return _build_horizon_drift_panel(region), _build_drift_panel(region, metrics=metrics)
+
+    @app.callback(
+        Output("tab3-metrics-table", "children"),
+        Input("tab3-model-selector", "value"),
+        Input("region-selector", "value"),
+        Input("dashboard-tabs", "active_tab"),
+    )
+    def update_models_training(
+        selected: list[str] | None, region: str | None, active_tab: str
+    ) -> Any:
+        return (
+            _training_table(region or "FPL", selected) if active_tab == "tab-models" else no_update
         )
 
     @app.callback(
-        [
-            Output("tab3-metrics-table", "children"),
-            Output("tab3-residuals-time", "figure"),
-            Output("tab3-residuals-hist", "figure"),
-            Output("tab3-residuals-pred", "figure"),
-            Output("tab3-error-heatmap", "figure"),
-            Output("tab3-shap", "figure"),
+        *[
+            Output(ident, "figure")
+            for ident in (
+                "tab3-residuals-time",
+                "tab3-residuals-hist",
+                "tab3-residuals-pred",
+                "tab3-error-heatmap",
+                "tab3-shap",
+            )
         ],
-        [
-            Input("demand-store", "data"),
-            Input("dashboard-tabs", "active_tab"),
-            Input("tab3-model-selector", "value"),
-        ],
-        [State("region-selector", "value")],
-        prevent_initial_call=True,
+        Output("models-diagnostics-data", "data"),
+        Output("tab3-diagnostics-scope", "children"),
+        Output("models-diagnostics-page", "options"),
+        Output("models-diagnostics-page", "value"),
+        Input("demand-store", "data"),
+        Input("dashboard-tabs", "active_tab"),
+        Input("region-selector", "value"),
+        State("models-diagnostics-page", "value"),
     )
-    def update_models_tab(demand_json, active_tab, selected_models, region):
-        """Update Models tab diagnostics using model service."""
+    def update_models_tab(
+        demand_json: str | None, active_tab: str, region: str | None, page: object = None
+    ) -> Any:
         if active_tab != "tab-models":
-            return [no_update] * 6
-        if not demand_json:
-            empty = _empty_figure("Loading...")
-            return html.P("Loading..."), empty, empty, empty, empty, empty
-        if not selected_models:
-            empty = _empty_figure("Select at least one model to view diagnostics.")
-            return html.P("No model selected."), empty, empty, empty, empty, empty
+            return [no_update] * 9
+        region = region or "FPL"
+        cached = redis_get(redis_key(f"diagnostics:{region}"))
+        if isinstance(cached, dict) and cached.get("region", region) != region:
+            cached = None
+        data = _diagnostic_data(cached)
+        figures, scope = _diagnostic_figures(data, region)
+        pages = max(1, (len(data["rows"]) + _DIAGNOSTIC_PAGE_SIZE - 1) // _DIAGNOSTIC_PAGE_SIZE)
+        options = [
+            {
+                "label": f"Rows {(n - 1) * _DIAGNOSTIC_PAGE_SIZE + 1}–{min(n * _DIAGNOSTIC_PAGE_SIZE, len(data['rows']))}",
+                "value": n,
+            }
+            for n in range(1, pages + 1)
+        ]
+        if not data["rows"]:
+            options = [{"label": "No residual rows", "value": 1}]
+        try:
+            selected_page = max(1, min(pages, int(page or 1)))
+        except (ValueError, TypeError):
+            selected_page = 1
+        return *figures, data, scope, options, selected_page
 
-        # Redis fast path is valid only for ensemble-only diagnostics payloads.
-        if region:
-            redis_result = _models_tab_from_redis(region, selected_models)
-            if redis_result is not None:
-                return redis_result
-
-        # ── v1 compute fallback ─────────────────────────────
-        demand_df = pd.read_json(io.StringIO(demand_json))
-        demand_df["timestamp"] = pd.to_datetime(demand_df["timestamp"])
-        actual = demand_df["demand_mw"].values
-
-        from models.model_service import get_forecasts, get_model_metrics
-
-        forecasts = get_forecasts(region, demand_df, selected_models)
-        # Read metrics from the same Redis-first source the leaderboard
-        # uses (``get_model_metrics``) so the table and the leaderboard
-        # always show consistent numbers — even if ``get_forecasts``
-        # fell back to fresh simulated forecasts whose computed metrics
-        # would otherwise diverge from the Redis payload's metrics.
-        metrics = get_model_metrics(region) or forecasts.get("metrics", {})
-        model_order = ["prophet", "arima", "xgboost", "ensemble"]
-        selected = [m for m in model_order if m in set(selected_models)]
-
-        # Metrics table
-        name_map = {model_display_name(k): k for k in ("prophet", "arima", "xgboost", "ensemble")}
-        rows = []
-        for display_name, key in name_map.items():
-            if key not in selected:
-                continue
-            m = metrics.get(key, {})
-            rows.append(
-                html.Tr(
-                    [
-                        html.Td(display_name, style={"fontWeight": "600"}),
-                        html.Td(_format_metric(m, "mape", "{:.2f}%")),
-                        html.Td(_format_metric(m, "rmse", "{:.0f}")),
-                        html.Td(_format_metric(m, "mae", "{:.0f}")),
-                        html.Td(_format_metric(m, "r2", "{:.4f}")),
-                    ]
-                )
-            )
-        table = html.Table(
-            [
-                html.Thead(
-                    html.Tr([html.Th(h) for h in ["Model", "MAPE", "RMSE (MW)", "MAE (MW)", "R²"]])
-                ),
-                html.Tbody(rows),
-            ],
-            className="metrics-table",
-        )
-
-        timestamps = demand_df["timestamp"]
-        model_labels = {k: model_display_name(k) for k in model_order}
-        model_colors = {
-            "prophet": COLORS["prophet"],
-            "arima": COLORS["arima"],
-            "xgboost": COLORS["xgboost"],
-            "ensemble": COLORS["ensemble"],
-        }
-        model_residuals: dict[str, np.ndarray] = {}
-        model_predictions: dict[str, np.ndarray] = {}
-        for model_key in selected:
-            pred = forecasts.get(model_key)
-            if isinstance(pred, np.ndarray) and len(pred) == len(actual):
-                model_predictions[model_key] = pred
-                model_residuals[model_key] = actual - pred
-
-        if not model_residuals:
-            empty = _empty_figure("No residual diagnostics available for the selected model(s).")
-            return (
-                table,
-                empty,
-                empty,
-                empty,
-                empty,
-                _empty_figure("Select XGBoost to view feature importance."),
-            )
-
-        # uirevision keyed on region + sorted model selection so zoom/legend
-        # state survives data refresh but resets when the user picks new models.
-        uirev = f"{region}:{','.join(sorted(selected))}"
-
-        fig_resid_time = go.Figure()
-        for model_key, residuals in model_residuals.items():
-            fig_resid_time.add_trace(
-                go.Scatter(
-                    x=timestamps,
-                    y=residuals,
-                    mode="lines",
-                    name=model_labels.get(model_key, model_display_name(model_key)),
-                    line=dict(color=model_colors.get(model_key, COLORS["actual"]), width=1),
-                )
-            )
-        fig_resid_time.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
-        fig_resid_time.update_layout(**_layout(uirevision=uirev, yaxis_title="Residual (MW)"))
-
-        fig_resid_hist = go.Figure()
-        for model_key, residuals in model_residuals.items():
-            fig_resid_hist.add_trace(
-                go.Histogram(
-                    x=residuals,
-                    nbinsx=50,
-                    name=model_labels.get(model_key, model_display_name(model_key)),
-                    marker_color=model_colors.get(model_key, COLORS["actual"]),
-                    opacity=0.6,
-                )
-            )
-        fig_resid_hist.update_layout(
-            **_layout(
-                uirevision=uirev,
-                barmode="overlay",
-                xaxis_title="Residual (MW)",
-                yaxis_title="Count",
-            )
-        )
-
-        fig_resid_pred = go.Figure()
-        for model_key, residuals in model_residuals.items():
-            preds = model_predictions[model_key]
-            fig_resid_pred.add_trace(
-                go.Scatter(
-                    x=preds,
-                    y=residuals,
-                    mode="markers",
-                    name=model_labels.get(model_key, model_display_name(model_key)),
-                    marker=dict(
-                        size=3,
-                        color=model_colors.get(model_key, COLORS["actual"]),
-                        opacity=0.35,
-                    ),
-                )
-            )
-        fig_resid_pred.add_hline(y=0, line=dict(color="#F7FAFC", dash="dash", width=0.5))
-        fig_resid_pred.update_layout(
-            **_layout(uirevision=uirev, xaxis_title="Predicted (MW)", yaxis_title="Residual (MW)")
-        )
-
-        hours_of_day = timestamps.dt.hour
-        fig_heatmap = go.Figure()
-        for model_key, residuals in model_residuals.items():
-            error_by_hour = pd.DataFrame({"hour": hours_of_day, "abs_error": np.abs(residuals)})
-            hourly_error = error_by_hour.groupby("hour")["abs_error"].mean()
-            fig_heatmap.add_trace(
-                go.Bar(
-                    x=hourly_error.index,
-                    y=hourly_error.values,
-                    name=model_labels.get(model_key, model_display_name(model_key)),
-                    marker_color=model_colors.get(model_key, COLORS["actual"]),
-                    opacity=0.85,
-                )
-            )
-        fig_heatmap.update_layout(**_layout(uirevision=uirev, barmode="group"))
-        fig_heatmap.update_layout(
-            **_layout(uirevision=uirev, xaxis_title="Hour of Day", yaxis_title="Mean |Error| (MW)")
-        )
-
-        if "xgboost" in selected:
-            feature_names, importance_vals = _get_feature_importance(region)
-            fig_shap = _build_shap_fig(
-                {"names": feature_names, "values": importance_vals}, selected, uirev
-            )
-        else:
-            fig_shap = _empty_figure(
-                "Feature importance is available only for XGBoost. Select XGBoost above."
-            )
-
-        return table, fig_resid_time, fig_resid_hist, fig_resid_pred, fig_heatmap, fig_shap
+    @app.callback(
+        Output("tab3-diagnostics-evidence", "children"),
+        Input("models-diagnostics-data", "data"),
+        Input("models-diagnostics-page", "value"),
+    )
+    def update_models_exact_values(data: dict | None, page: object) -> html.Div:
+        return _diagnostic_evidence(data, page)
 
 
 # Leaderboard MAPEs are 168h-holdout numbers → grade them on the 7d governance

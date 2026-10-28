@@ -8,7 +8,7 @@ If this file disagrees with gh, the live sources win — patch in a
 follow-up commit.
 -->
 
-# Status — updated 2026-10-27
+# Status — updated 2026-10-28
 
 > Canonical pointer for "where am I, what's next." This file +
 > [GitHub Projects board](https://github.com/users/kristenmartino/projects/1)
@@ -16,6 +16,22 @@ follow-up commit.
 > See [`docs/internal/NEXT_UP.md`](docs/internal/NEXT_UP.md) for the full
 > historical roadmap; see [`CLAUDE.md`](CLAUDE.md) for the pre-session
 > sanity-check ritual.
+
+## 2026-10-28 — reviewed forecast workspace implementation
+
+The reviewed US Grid, Forecast, Conditions and Models views are implemented for
+review in the existing Dash application. Conditions adds a cached past/future/
+error explorer; the directory retains a genuine territory map and explicit
+forecast navigation. Weather context uses UTC windows instead of the combined
+feed's future tail. Error review retains issue identity, quality exclusions and
+the distinction between later weather context and causal attribution. Paired
+operator values are carried in new actuals cache payloads so the existing
+retained-hour quality signals can be reused without changing their thresholds.
+The Overview layout, model/scoring policy and publication writers are preserved.
+This dated entry describes implementation, not a merge, deployment, practitioner
+validation or proven business impact. Weather-as-issued capture is deferred.
+The [implementation audit](docs/audits/REVIEWED_WORKSPACE_2026-10-28.md) records
+the source, clock, quality and verification boundaries.
 
 ## 2026-10-27 — retained-hour actual eligibility
 

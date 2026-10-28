@@ -692,7 +692,7 @@ class TestAlertsTabFromRedis:
     @patch("components._callbacks_alerts.redis_get")
     def test_temperature_data_produces_figure_with_hlines(self, mock_rg):
         """Temperature timestamps present → figure with temp trace."""
-        mock_rg.return_value = _alerts_payload(with_alerts=True)
+        mock_rg.return_value = {**_alerts_payload(with_alerts=True), "scored_at": _ts(24)[-1]}
 
         from components.callbacks import _alerts_tab_from_redis
 
